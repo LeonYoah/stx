@@ -403,13 +403,11 @@ func (h *SyncAlertHub) retrySyncAlertDelivery(ctx context.Context, delivery *Not
 		lastError := strings.TrimSpace(sendErr.Error())
 		if delivery.AttemptCount+1 >= syncDeliveryRetryMaxAttempts {
 			if eventType == NotificationDeliveryEventTypeFiring {
-				log.Printf("[Monitoring] sync alert first notification used up its backoff retries after %d attempts, retrying every %s while firing: source=%s channel=%d err=%v / 同步告警首次通知退避重试已用完，告警持续期间每 %s 重试",
-					delivery.AttemptCount+1, syncDeliveryRetryMaxDelay, delivery.SourceKey, delivery.ChannelID, sendErr, syncDeliveryRetryMaxDelay)
+				log.Printf("[Monitoring] sync alert first notification used up its backoff retries after %d attempts, retrying every %s while firing: source=%s channel=%d err=%v", delivery.AttemptCount+1, syncDeliveryRetryMaxDelay, delivery.SourceKey, delivery.ChannelID, sendErr)
 			} else {
-				log.Printf("[Monitoring] sync alert %s notification gave up after %d attempts: source=%s channel=%d err=%v / 同步告警通知重试次数已用完",
-					eventType, delivery.AttemptCount+1, delivery.SourceKey, delivery.ChannelID, sendErr)
+				log.Printf("[Monitoring] sync alert %s notification gave up after %d attempts: source=%s channel=%d err=%v", eventType, delivery.AttemptCount+1, delivery.SourceKey, delivery.ChannelID, sendErr)
 			}
-			lastError = "retries exhausted / 重试已用完: " + lastError
+			lastError = "retries exhausted" + lastError
 			if err := repo.MarkNotificationDeliveryExhausted(ctx, delivery.ID); err != nil {
 				return true, errors.Join(sendErr, err)
 			}

@@ -115,8 +115,7 @@ func (s *ScaleService) CleanupAfterRecordRemoval(ctx context.Context, clusterID 
 	}
 
 	s.svc.updateClusterStatusFromNodes(ctx, clusterID)
-	logger.InfoF(ctx, "[ClusterScale] 仅移除记录后清理 / Cleanup after record-only removal: cluster=%d, node=%d, host=%d, members_patched=%t, skipped=%q, deleted_configs=%d, monitor=%t, warnings=%v",
-		clusterID, removed.ID, removed.HostID, result.MembersPatched, result.MembersSkippedReason, result.DeletedConfigs, result.MonitorRefreshed, result.Warnings)
+	logger.InfoF(ctx, "Cleanup after record-only removal: cluster=%d, node=%d, host=%d, members_patched=%t, skipped=%q, deleted_configs=%d, monitor=%t, warnings=%v", clusterID, removed.ID, removed.HostID, result.MembersPatched, result.MembersSkippedReason, result.DeletedConfigs, result.MonitorRefreshed, result.Warnings)
 	return result
 }
 

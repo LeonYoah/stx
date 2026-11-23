@@ -88,7 +88,7 @@ func buildConfigMergeInputs(configs []*appconfig.ConfigInfo) ([]configMergeInput
 				issues = append(issues, blockingIssue(
 					CheckCategoryConfig,
 					"config_node_variants",
-					fmt.Sprintf("config %s has multiple node-specific variants and requires manual review / 配置 %s 在不同节点上存在多个差异版本，需要人工确认", configType, configType),
+					fmt.Sprintf("config %s has multiple node-specific variants and requires manual review", configType),
 					map[string]string{
 						"config_type": configType,
 						"host_ids":    strings.Join(hostIDs, ","),
@@ -276,7 +276,7 @@ func ParseMergeStrategy(value string) (MergeStrategy, error) {
 	case MergeStrategyUseTarget:
 		return MergeStrategyUseTarget, nil
 	default:
-		return "", fmt.Errorf("invalid merge strategy %q: expected %q or %q / 无效的合并策略 %q：仅支持 %q 或 %q", value, value, MergeStrategyKeepLocal, MergeStrategyUseTarget, MergeStrategyKeepLocal, MergeStrategyUseTarget)
+		return "", fmt.Errorf("invalid merge strategy %q: expected %q or %q", value, value, MergeStrategyKeepLocal)
 	}
 }
 
@@ -287,10 +287,10 @@ func ParseMergeStrategy(value string) (MergeStrategy, error) {
 // ready contract (no leftover conflict markers).
 func ApplyMergeStrategy(plan *ConfigMergePlan, strategy MergeStrategy) error {
 	if plan == nil {
-		return fmt.Errorf("config merge plan is required / 配置合并计划不能为空")
+		return fmt.Errorf("config merge plan is required")
 	}
 	if strategy != MergeStrategyKeepLocal && strategy != MergeStrategyUseTarget {
-		return fmt.Errorf("invalid merge strategy %q / 无效的合并策略 %q", strategy, strategy)
+		return fmt.Errorf("invalid merge strategy %q", strategy)
 	}
 	for index := range plan.Files {
 		file := &plan.Files[index]

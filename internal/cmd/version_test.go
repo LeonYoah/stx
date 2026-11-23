@@ -65,4 +65,3 @@ func TestRootVersionFlag(t *testing.T) {
 		t.Fatalf("--version output = %q, want prefix %q", out, "stx "+stxversion.Version)
 	}
 }
-

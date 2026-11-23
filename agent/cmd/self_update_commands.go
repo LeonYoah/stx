@@ -90,7 +90,7 @@ func (a *Agent) handleAgentSelfUpgradeCommand(ctx context.Context, subCommand st
 
 func (a *Agent) handleAgentSelfUpdate(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
 	if !a.selfUpdateMu.TryLock() {
-		err := fmt.Errorf("another agent self-update is in progress / 另一个 Agent 自升级正在进行")
+		err := fmt.Errorf("another agent self-update is in progress")
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 	target := selfupdate.NormalizeVersion(cmd.Parameters["target_version"])
@@ -100,7 +100,7 @@ func (a *Agent) handleAgentSelfUpdate(ctx context.Context, cmd *pb.CommandReques
 		return executor.CreateSuccessResponse(cmd.CommandId, string(out)), nil
 	}
 	if reporter != nil {
-		reporter.Report(30, "Verifying new agent binary / 校验新 Agent 二进制")
+		reporter.Report(30, "Verifying new agent binary")
 	}
 	res, err := selfUpdateApply(ctx, selfupdate.ApplyRequest{
 		PackagePath:   cmd.Parameters["package_path"],
@@ -111,16 +111,15 @@ func (a *Agent) handleAgentSelfUpdate(ctx context.Context, cmd *pb.CommandReques
 		a.selfUpdateMu.Unlock()
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
-	logger.InfoF(ctx, "[SelfUpdate] Binary replaced %s -> %s (backup %s), restarting in %s / 二进制已替换，即将重启",
-		res.FromVersion, res.ToVersion, res.Backup, selfUpdateRestartDelay)
+	logger.InfoF(ctx, "[SelfUpdate] Binary replaced %s -> %s (backup %s), restarting in %s", res.FromVersion, res.ToVersion, res.Backup, selfUpdateRestartDelay)
 	scheduleAfter(selfUpdateRestartDelay, func() {
 		defer a.selfUpdateMu.Unlock()
 		if err := selfUpdateRestart(res); err != nil {
 			// exec 失败：恢复旧二进制文件，继续以旧版本运行，CP 会看到版本未变化。
 			// exec failed: restore the old binary file and keep running as the old version; the CP sees no version change.
-			logger.ErrorF(context.Background(), "[SelfUpdate] exec new binary failed: %v; restoring backup / exec 新二进制失败，恢复备份", err)
+			logger.ErrorF(context.Background(), "[SelfUpdate] exec new binary failed: %v; restoring backup", err)
 			if _, rerr := selfUpdateRestore(res.Backup); rerr != nil {
-				logger.ErrorF(context.Background(), "[SelfUpdate] restore backup failed: %v / 恢复备份失败", rerr)
+				logger.ErrorF(context.Background(), "[SelfUpdate] restore backup failed: %v", rerr)
 			}
 		}
 	})
@@ -134,14 +133,14 @@ func (a *Agent) handleAgentSelfRollback(ctx context.Context, cmd *pb.CommandRequ
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 	if !a.selfUpdateMu.TryLock() {
-		err := fmt.Errorf("another agent self-update is in progress / 另一个 Agent 自升级正在进行")
+		err := fmt.Errorf("another agent self-update is in progress")
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
-	logger.InfoF(ctx, "[SelfUpdate] Rolling back to backup binary in %s / 即将回滚到备份二进制", selfUpdateRestartDelay)
+	logger.InfoF(ctx, "[SelfUpdate] Rolling back to backup binary in %s", selfUpdateRestartDelay)
 	scheduleAfter(selfUpdateRestartDelay, func() {
 		defer a.selfUpdateMu.Unlock()
 		if err := selfUpdateRollback(""); err != nil {
-			logger.ErrorF(context.Background(), "[SelfUpdate] rollback failed: %v / 回滚失败", err)
+			logger.ErrorF(context.Background(), "[SelfUpdate] rollback failed: %v", err)
 		}
 	})
 	out, _ := json.Marshal(map[string]any{"from_version": stxversion.Version, "rolling_back": true})

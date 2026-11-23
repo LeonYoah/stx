@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"strings"
 	"time"
 
@@ -58,12 +59,12 @@ func (s *Service) installPluginOnNodes(ctx context.Context, clusterID uint, req 
 	for i, node := range nodes {
 		agentID, err := s.hostInfoGetter.GetHostAgentID(ctx, node.HostID)
 		if err == nil && strings.TrimSpace(agentID) == "" {
-			err = fmt.Errorf("agent not installed on host %d / 主机 %d 未安装 Agent", node.HostID, node.HostID)
+			err = fmt.Errorf("agent not installed on host %d", node.HostID)
 		}
 		if err != nil {
 			results[i].Status = PluginNodeStatusFailed
 			results[i].Message = err.Error()
-			return results, fmt.Errorf("node %d (host %d): failed to resolve agent / 解析 Agent 失败: %w", node.NodeID, node.HostID, err)
+			return results, fmt.Errorf("node %d (host %d): failed to resolve agent: %w", node.NodeID, node.HostID, err)
 		}
 		agentIDs[i] = agentID
 	}
@@ -71,7 +72,7 @@ func (s *Service) installPluginOnNodes(ctx context.Context, clusterID uint, req 
 	totalNodes := len(nodes)
 	for i, node := range nodes {
 		progress.Progress = 50 + (i * 50 / totalNodes)
-		progress.Message = fmt.Sprintf("Installing to node %d/%d / 正在安装到节点 %d/%d", i+1, totalNodes, i+1, totalNodes)
+		progress.Message = locale.Pick(ctx, fmt.Sprintf("正在安装到节点 %d/%d", i+1, totalNodes), fmt.Sprintf("Installing to node %d/%d", i+1, totalNodes))
 		progress.NodeResults = append([]PluginNodeInstallResult(nil), results...)
 		s.setInstallProgress(clusterID, req.PluginName, progress)
 
@@ -80,7 +81,7 @@ func (s *Service) installPluginOnNodes(ctx context.Context, clusterID uint, req 
 			results[i].Message = err.Error()
 			installErr := fmt.Errorf("node %d (host %d): %w", node.NodeID, node.HostID, err)
 
-			progress.Message = "Install failed, rolling back installed nodes / 安装失败，正在回滚已安装节点"
+			progress.Message = "Install failed, rolling back installed nodes"
 			progress.NodeResults = append([]PluginNodeInstallResult(nil), results...)
 			s.setInstallProgress(clusterID, req.PluginName, progress)
 
@@ -116,12 +117,12 @@ func (s *Service) removePluginFromNode(ctx context.Context, agentID, artifactID,
 		"version":      version,
 		"install_path": installDir,
 	}
-	success, message, err := s.agentCommandSender.SendCommand(ctx, agentID, "uninstall_plugin", params)
+	success, _, err := s.agentCommandSender.SendCommand(ctx, agentID, "uninstall_plugin", params)
 	if err != nil {
-		return fmt.Errorf("rollback failed / 回滚失败: %w", err)
+		return fmt.Errorf("rollback failed: %w", err)
 	}
 	if !success {
-		return fmt.Errorf("rollback failed / 回滚失败: %s", message)
+		return fmt.Errorf("rollback failed")
 	}
 	return nil
 }
@@ -163,14 +164,14 @@ func (s *Service) finishFailedInstall(ctx context.Context, clusterID uint, req *
 
 	if present == 0 {
 		progress.Partial = false
-		progress.Message = "Install failed; no node keeps the plugin / 安装失败，已回滚，所有节点均未保留插件"
+		progress.Message = locale.Pick(ctx, "安装失败，已回滚，所有节点均未保留插件", "Install failed; no node keeps the plugin")
 		s.setInstallProgress(clusterID, req.PluginName, progress)
 		if existing != nil {
 			if err := s.repo.Delete(ctx, existing.ID); err != nil {
 				logger.WarnF(ctx, "[Plugin] failed to delete stale partial record %d: %v", existing.ID, err)
 			}
 		}
-		return fmt.Errorf("plugin install failed and was rolled back / 插件安装失败，已回滚: %w", installErr)
+		return fmt.Errorf("plugin install failed and was rolled back: %w", installErr)
 	}
 
 	now := time.Now()
@@ -200,7 +201,7 @@ func (s *Service) finishFailedInstall(ctx context.Context, clusterID uint, req *
 	}
 
 	progress.Partial = true
-	progress.Message = fmt.Sprintf("Install partially failed: %d/%d nodes still have the plugin; retry install or uninstall / 部分安装失败：%d/%d 个节点仍保留插件，请重试安装或卸载", present, len(results), present, len(results))
+	progress.Message = fmt.Sprintf("Install partially failed: %d/%d nodes still have the plugin; retry install or uninstall", present, len(results))
 	s.setInstallProgress(clusterID, req.PluginName, progress)
-	return fmt.Errorf("plugin install partially failed / 插件部分安装失败: %w", installErr)
+	return fmt.Errorf("plugin install partially failed: %w", installErr)
 }

@@ -26,6 +26,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"io"
 	"net/http"
 	"os"
@@ -45,11 +46,11 @@ import (
 // DefaultAssetCatalog 返回控制台自升级期望的发版资产清单。
 func DefaultAssetCatalog() []AssetSpec {
 	return []AssetSpec{
-		{ID: "bundle", Name: fmt.Sprintf("stx-upgrade-linux-%s.tar.gz", runtimeGOARCH()), Description: "自升级整合包 / Unified self-upgrade bundle", Required: true},
-		{ID: "stx", Name: fmt.Sprintf("stx-%s-%s", runtimeGOOS(), runtimeGOARCH()), Description: "控制面主程序 / Control plane binary", Required: true},
-		{ID: "agent", Name: fmt.Sprintf("stx-agent-%s-%s", runtimeGOOS(), runtimeGOARCH()), Description: "Agent 二进制 / Agent binary", Required: true},
+		{ID: "bundle", Name: fmt.Sprintf("stx-upgrade-linux-%s.tar.gz", runtimeGOARCH()), Description: "Unified self-upgrade bundle", Required: true},
+		{ID: "stx", Name: fmt.Sprintf("stx-%s-%s", runtimeGOOS(), runtimeGOARCH()), Description: "Control plane binary", Required: true},
+		{ID: "agent", Name: fmt.Sprintf("stx-agent-%s-%s", runtimeGOOS(), runtimeGOARCH()), Description: "Agent binary", Required: true},
 		{ID: "proxy", Name: "stx-java-proxy-*.jar", Description: "全部代理 Java Proxy jar / All Java Proxy jars", Required: true, Glob: true},
-		{ID: "frontend", Name: "frontend-standalone-*.tar.gz", Description: "前端静态服务 / Frontend standalone", Required: false, Glob: true},
+		{ID: "frontend", Name: "frontend-standalone-*.tar.gz", Description: "Frontend standalone", Required: false, Glob: true},
 	}
 }
 
@@ -1313,10 +1314,10 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) (*TaskState, 
 	now := time.Now().UTC()
 	taskID := uuid.NewString()
 	steps := []StepState{
-		{Code: StepControlPlane, Label: "控制面 / Control plane", Status: StepPending},
+		{Code: StepControlPlane, Label: locale.Pick(ctx, "控制面", "Control plane"), Status: StepPending},
 		{Code: StepAgent, Label: "Agent", Status: StepPending},
 		{Code: StepProxy, Label: "Proxy (stx-java-proxy-*.jar)", Status: StepPending},
-		{Code: StepRestart, Label: "重启 STX 进程 / Restart STX processes", Status: StepPending},
+		{Code: StepRestart, Label: locale.Pick(ctx, "重启 STX 进程", "Restart STX processes"), Status: StepPending},
 		{Code: StepVerify, Label: "版本校验 / Verify", Status: StepPending},
 	}
 	task := &TaskState{
@@ -1416,7 +1417,7 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		stepStatus, stepMsg := StepSucceeded, "ok"
 		switch {
 		case !apply:
-			stepMsg = "dry-run: nothing applied / 演练模式：未实际应用"
+			stepMsg = locale.Pick(ctx, "演练模式：未实际应用", "dry-run: nothing applied")
 			switch code {
 			case StepAgent:
 				stepMsg = s.planAgentsDryRun(ctx, taskID, target)
@@ -1424,7 +1425,7 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 				stepMsg = s.planRestartDryRun(taskID)
 			}
 		case code == StepRestart && s.mockMode:
-			stepMsg = "mock mode: no process restarted / 模拟模式：未重启任何进程"
+			stepMsg = locale.Pick(ctx, "模拟模式：未重启任何进程", "mock mode: no process restarted")
 		case code == StepRestart:
 			// 真实应用：交给 watchdog 重启控制面（及随包前端），由新进程完成校验与收尾。
 			// Real apply: hand over to the watchdog to restart the control plane (and bundled frontend);
@@ -1456,7 +1457,7 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		case code == StepProxy && !s.mockMode:
 			fleet, opts := s.fleetAndOptions()
 			if fleet == nil {
-				stepMsg = "control plane lib refreshed only / 仅更新了控制面 lib"
+				stepMsg = locale.Pick(ctx, "仅更新了控制面 lib", "control plane lib refreshed only")
 				break
 			}
 			msg, partial := s.rolloutProxyJars(ctx, taskID, target, fleet, opts)
@@ -1497,13 +1498,13 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 	}
 	switch {
 	case !apply:
-		s.stage.Message = "dry-run completed: nothing was applied / 演练完成：未实际应用任何变更"
+		s.stage.Message = locale.Pick(ctx, "演练完成：未实际应用任何变更", "dry-run completed: nothing was applied")
 	case s.mockMode:
 		s.stage.Message = "upgrade completed (mock dry-apply)"
 	default:
 		s.stage.Message = "upgrade completed successfully"
 		if _, partial := summarizeAgentNodes(s.task.AgentNodes); partial && len(s.task.AgentNodes) > 0 {
-			s.stage.Message = "control plane upgraded; some agents are not on the target version yet, see agent_nodes / 控制面已升级，部分 Agent 尚未到达目标版本"
+			s.stage.Message = locale.Pick(ctx, "控制面已升级，部分 Agent 尚未到达目标版本", "control plane upgraded; some agents are not on the target version yet, see agent_nodes")
 		}
 	}
 	s.cancelF = nil

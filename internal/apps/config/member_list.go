@@ -33,7 +33,7 @@ var (
 	ErrMemberListNotFound = errors.New("hazelcast.network.join.tcp-ip.member-list not found / 未找到 hazelcast.network.join.tcp-ip.member-list")
 	// ErrEmptyMemberList 拒绝写入空成员列表。
 	// ErrEmptyMemberList refuses to write an empty member list.
-	ErrEmptyMemberList = errors.New("member list must not be empty / 成员列表不能为空")
+	ErrEmptyMemberList = errors.New("member list must not be empty")
 )
 
 // memberListPath 是 Hazelcast 成员列表在 YAML 中的路径。

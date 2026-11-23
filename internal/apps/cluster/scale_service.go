@@ -344,8 +344,7 @@ func (e *ScaleInProgressError) Error() string {
 	if who == "" {
 		who = fmt.Sprintf("user#%d", e.CreatedBy)
 	}
-	return fmt.Sprintf("集群已有进行中的伸缩操作 #%d（%s，发起人 %s），请等待其结束 / another scaling operation #%d (%s, started by %s) is running on this cluster; wait for it to finish",
-		e.OperationID, e.Kind, who, e.OperationID, e.Kind, who)
+	return fmt.Sprintf("another scaling operation #%d (%s, started by %s) is running on this cluster; wait for it to finish", e.OperationID, e.Kind, who)
 }
 
 // Unwrap 让 errors.Is(err, ErrClusterScaleInProgress) 继续成立。
@@ -473,8 +472,7 @@ func (s *ScaleService) submit(ctx context.Context, actor executionapp.Actor, clu
 		return nil, err
 	}
 
-	logger.InfoF(ctx, "[ClusterScale] 伸缩操作已提交 / Scaling operation submitted: cluster=%d, op=%d, kind=%s, mode=%s, execution=%s",
-		clusterID, op.ID, op.Kind, op.Mode, op.ExecutionID)
+	logger.InfoF(ctx, "Scaling operation submitted: cluster=%d, op=%d, kind=%s, mode=%s, execution=%s", clusterID, op.ID, op.Kind, op.Mode, op.ExecutionID)
 	s.start(op, meta, actor)
 	return &ScaleSubmitResult{ExecutionID: op.ExecutionID, OperationID: op.ID, Operation: op.toInfo()}, nil
 }
@@ -601,7 +599,7 @@ func (s *ScaleService) RetryOperation(ctx context.Context, actor executionapp.Ac
 	if err := s.activateExecution(ctx, op, item); err != nil {
 		return nil, err
 	}
-	logger.InfoF(ctx, "[ClusterScale] 伸缩操作重试 / Scaling operation retried: cluster=%d, op=%d, execution=%s", clusterID, op.ID, op.ExecutionID)
+	logger.InfoF(ctx, "Scaling operation retried: cluster=%d, op=%d, execution=%s", clusterID, op.ID, op.ExecutionID)
 	s.start(op, meta, actor)
 	return &ScaleSubmitResult{ExecutionID: op.ExecutionID, OperationID: op.ID, Operation: op.toInfo()}, nil
 }
@@ -625,7 +623,7 @@ func (s *ScaleService) activateExecution(ctx context.Context, op *ClusterScaleOp
 	op.Error = truncateScaleText(err.Error(), 2000)
 	op.FinishedAt = &now
 	if saveErr := s.repo.Save(ctx, op); saveErr != nil {
-		logger.WarnF(ctx, "[ClusterScale] 标记伸缩操作失败时出错 / Failed to mark scaling operation failed: op=%d, err=%v", op.ID, saveErr)
+		logger.WarnF(ctx, "Failed to mark scaling operation failed: op=%d, err=%v", op.ID, saveErr)
 	}
 	s.failExecution(ctx, item, "scale_operation_start_failed", err)
 	return err
@@ -706,14 +704,14 @@ func (s *ScaleService) RecoverInterruptedOperations(ctx context.Context) (int, e
 		op.Error = scaleErrorInterruptedByRestart
 		op.FinishedAt = &now
 		if err := s.repo.Save(ctx, op); err != nil {
-			logger.WarnF(ctx, "[ClusterScale] 标记被打断的伸缩操作失败 / Failed to mark interrupted scaling operation: op=%d, err=%v", op.ID, err)
+			logger.WarnF(ctx, "Failed to mark interrupted scaling operation: op=%d, err=%v", op.ID, err)
 			continue
 		}
 		s.finishExecution(ctx, op, errors.New(scaleErrorInterruptedByRestart))
 		recovered++
 	}
 	if recovered > 0 {
-		logger.WarnF(ctx, "[ClusterScale] 控制面重启打断了 %d 个伸缩操作，已标记失败可重试 / %d scaling operation(s) interrupted by restart were marked failed and can be retried", recovered, recovered)
+		logger.WarnF(ctx, "%d scaling operation(s) interrupted by restart were marked failed and can be retried", recovered)
 	}
 	return recovered, nil
 }
@@ -755,7 +753,7 @@ func (s *ScaleService) finishExecution(ctx context.Context, op *ClusterScaleOper
 		delete(updates, "progress")
 	}
 	if err := s.execution.Transition(ctx, op.ExecutionID, executionapp.StatusRunning, target, updates); err != nil {
-		logger.WarnF(ctx, "[ClusterScale] 同步执行记录终态失败 / Failed to finish execution: op=%d, execution=%s, err=%v", op.ID, op.ExecutionID, err)
+		logger.WarnF(ctx, "Failed to finish execution: op=%d, execution=%s, err=%v", op.ID, op.ExecutionID, err)
 	}
 }
 

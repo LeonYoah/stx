@@ -149,11 +149,11 @@ type JobFilter struct {
 	EngineJobID   string
 	// JobID は内部数値 ID（UI の #N 表示）での完全一致検索用。
 	// JobID filters by the internal numeric id (the UI's #N display).
-	JobID uint
-	OwnerUserID   uint
-	IncludeAll    bool
-	Page          int
-	Size          int
+	JobID       uint
+	OwnerUserID uint
+	IncludeAll  bool
+	Page        int
+	Size        int
 	// VisibleTaskIDs 是非管理员可查看的任务；与 OwnerUserID 取并集（自己创建的作业 + 可见任务下的作业）。
 	// VisibleTaskIDs are tasks a non-admin may view; unioned with OwnerUserID (own jobs + jobs under visible tasks).
 	VisibleTaskIDs []uint

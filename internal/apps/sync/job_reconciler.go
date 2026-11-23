@@ -20,6 +20,7 @@ package sync
 import (
 	"context"
 	"errors"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"strings"
 	"time"
 
@@ -531,7 +532,7 @@ func (s *Service) reconcileClusterPass(ctx context.Context, clusterID uint, jobs
 			orphaned := &EngineJobInfo{
 				JobID:     engineJobID,
 				JobStatus: "FAILED",
-				ErrorMsg:  "engine no longer has this job (cluster restart or history expired) / 引擎已无此作业（集群重启或历史过期）",
+				ErrorMsg:  locale.Pick(ctx, "引擎已无此作业（集群重启或历史过期）", "engine no longer has this job (cluster restart or history expired)"),
 				// 带时区偏移：无偏移字符串会被 parseEngineJobTime 按 SeaTunnel 时区解析，服务器时区不同就会偏移数小时。
 				// Include the offset: a naive string is parsed in the SeaTunnel zone by parseEngineJobTime and lands
 				// hours off whenever the server zone differs.
@@ -586,9 +587,9 @@ func (s *Service) expireUnknownSubmit(ctx context.Context, job *JobInstance, eng
 		return
 	}
 	expired := &EngineJobInfo{
-		JobID:        engineJobID,
-		JobStatus:    "FAILED",
-		ErrorMsg:     submitOutcomeExpiredMessage(job),
+		JobID:     engineJobID,
+		JobStatus: "FAILED",
+		ErrorMsg:  submitOutcomeExpiredMessage(job),
 		// 带时区偏移，避免按 SeaTunnel 时区解析后偏移数小时（同上方孤儿作业）。
 		// Include the offset so parsing in the SeaTunnel zone does not shift it by hours (same as orphaned jobs above).
 		FinishedTime: now.UTC().Format(time.RFC3339),

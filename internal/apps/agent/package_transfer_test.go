@@ -207,7 +207,7 @@ func TestTransferPackageStallDetected(t *testing.T) {
 	if time.Since(start) > 5*time.Second {
 		t.Fatal("stall detection too slow")
 	}
-	if !strings.Contains(err.Error(), "停滞") {
-		t.Fatalf("expected bilingual message, got %q", err.Error())
+	if !strings.Contains(err.Error(), "stalled") {
+		t.Fatalf("expected stalled message, got %q", err.Error())
 	}
 }

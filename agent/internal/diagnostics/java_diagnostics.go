@@ -107,7 +107,7 @@ func CollectThreadDump(ctx context.Context, installDir, role, outputDir, javaHom
 		Tool:        tool,
 		OutputPath:  filePath,
 		SizeBytes:   int64(len(content)),
-		Message:     "线程栈采集完成 / thread dump collected",
+		Message:     "thread dump collected",
 		Content:     string(content),
 		CollectedAt: time.Now().UTC(),
 	}, nil
@@ -228,7 +228,7 @@ func runThreadDumpCommand(ctx context.Context, pid int, javaHome string) ([]byte
 	if len(failures) == 0 {
 		return nil, "", jdkToolHint(javaHome, "jcmd", "jstack")
 	}
-	return nil, "", fmt.Errorf("线程栈采集失败 / failed to collect thread dump: %s", strings.Join(failures, "; "))
+	return nil, "", fmt.Errorf("failed to collect thread dump: %s", strings.Join(failures, "; "))
 }
 
 func runJVMDumpCommand(ctx context.Context, pid int, outputPath, javaHome string) (string, error) {

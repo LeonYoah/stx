@@ -234,9 +234,9 @@ func TestPushDolphinNewWorkflowOn31And32UsesProcessPaths(t *testing.T) {
 			if err != nil {
 				t.Fatalf("push %s: %v", version, err)
 			}
-	if result.TaskCode == 0 || result.Binding == nil || result.Binding.TaskVersion != task.CurrentVersion {
-		t.Fatalf("result = %+v", result)
-	}
+			if result.TaskCode == 0 || result.Binding == nil || result.Binding.TaskVersion != task.CurrentVersion {
+				t.Fatalf("result = %+v", result)
+			}
 			if fake.saw("workflow-definition") {
 				t.Fatalf("%s push used 3.3 paths: %v", version, fake.paths)
 			}

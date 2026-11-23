@@ -135,39 +135,39 @@ func TestDefaultConfigToolClientParsesFriendlyConfigErrors(t *testing.T) {
 // TestDefaultConfigToolClientHumanizesResolutionErrors verifies global humanization of common database & connector errors
 func TestDefaultConfigToolClientHumanizesResolutionErrors(t *testing.T) {
 	testCases := []struct {
-		name       string
-		path       string
-		rawMsg     string
+		name        string
+		path        string
+		rawMsg      string
 		expectedSub string
 	}{
 		{
-			name:       "CDC catalog table not found",
-			path:       "/api/v1/config/validate",
-			rawMsg:     "Source[0]-MySQL-CDC official tablePath resolution failed: FactoryException: ErrorCode:[API-06], ErrorDescription:[Factory initialize failed] - Unable to create a source for identifier 'MySQL-CDC'. | caused by: SeaTunnelException: Can not find catalog table with factoryId [MySQL]",
+			name:        "CDC catalog table not found",
+			path:        "/api/v1/config/validate",
+			rawMsg:      "Source[0]-MySQL-CDC official tablePath resolution failed: FactoryException: ErrorCode:[API-06], ErrorDescription:[Factory initialize failed] - Unable to create a source for identifier 'MySQL-CDC'. | caused by: SeaTunnelException: Can not find catalog table with factoryId [MySQL]",
 			expectedSub: "目标数据库中未找到匹配的物理表元数据",
 		},
 		{
-			name:       "JDBC table does not exist",
-			path:       "/api/v1/config/validate",
-			rawMsg:     "Source[0]-Jdbc official tablePath resolution failed: SQLSyntaxErrorException: Table 'stx_e2e.users_src' doesn't exist",
+			name:        "JDBC table does not exist",
+			path:        "/api/v1/config/validate",
+			rawMsg:      "Source[0]-Jdbc official tablePath resolution failed: SQLSyntaxErrorException: Table 'stx_e2e.users_src' doesn't exist",
 			expectedSub: "指定数据表在数据库中不存在",
 		},
 		{
-			name:       "Access denied credential error",
-			path:       "/api/v1/config/webui-dag",
-			rawMsg:     "SQLException: Access denied for user 'root'@'localhost'",
+			name:        "Access denied credential error",
+			path:        "/api/v1/config/webui-dag",
+			rawMsg:      "SQLException: Access denied for user 'root'@'localhost'",
 			expectedSub: "数据库账号或密码认证失败",
 		},
 		{
-			name:       "Network communication failure",
-			path:       "/api/v1/config/validate",
-			rawMsg:     "Communications link failure: Connection refused",
+			name:        "Network communication failure",
+			path:        "/api/v1/config/validate",
+			rawMsg:      "Communications link failure: Connection refused",
 			expectedSub: "无法连接到目标数据库",
 		},
 		{
-			name:       "Unquoted brace variable syntax error",
-			path:       "/api/v1/config/validate",
-			rawMsg:     "Config parse failed: String: 46: expecting a close parentheses ')' here, not: '{'",
+			name:        "Unquoted brace variable syntax error",
+			path:        "/api/v1/config/validate",
+			rawMsg:      "Config parse failed: String: 46: expecting a close parentheses ')' here, not: '{'",
 			expectedSub: "检测到未加双引号的 {{变量}} 或未闭合括号",
 		},
 	}

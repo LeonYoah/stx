@@ -20,6 +20,7 @@ package selfupgrade
 import (
 	"context"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"log"
 	"os"
 	"os/exec"
@@ -73,7 +74,7 @@ func watchdogRun(ctx context.Context, plan *restartPlan) restartResult {
 	if !waitProcessExit(plan.OldPID, oldProcessExitTimeout) {
 		if !standalone {
 			cp.Status = RestartFailed
-			cp.Message = fmt.Sprintf("%s did not restart the control plane within %s / 进程管理器未在规定时间内重启控制面", plan.Strategy.Kind, oldProcessExitTimeout)
+			cp.Message = locale.Pick(ctx, "进程管理器未在规定时间内重启控制面", fmt.Sprintf("%s did not restart the control plane within %s", plan.Strategy.Kind, oldProcessExitTimeout))
 			return restartResult{Status: restartOutcomeFailed, Reason: cp.Message, ControlPlane: cp}
 		}
 		// 旧进程未按计划退出：先温和再强制，仅针对控制面自身 PID。/ old process did not exit: TERM then KILL, own PID only.
@@ -90,7 +91,7 @@ func watchdogRun(ctx context.Context, plan *restartPlan) restartResult {
 	}
 	if err == nil {
 		cp.Status, cp.NewPID = RestartSucceeded, newPID
-		cp.Message = fmt.Sprintf("control plane restarted on %s (pid %d → %d) / 控制面已以 %s 重启", plan.TargetVersion, plan.OldPID, newPID, plan.TargetVersion)
+		cp.Message = locale.Pick(ctx, fmt.Sprintf("控制面已以 %s 重启", plan.TargetVersion), fmt.Sprintf("control plane restarted on %s (pid %d → %d)", plan.TargetVersion, plan.OldPID, newPID))
 		res := restartResult{Status: restartOutcomeSucceeded, ControlPlane: cp}
 		if plan.Frontend != nil {
 			fr := restartFrontend(ctx, plan)
@@ -117,7 +118,7 @@ func watchdogRun(ctx context.Context, plan *restartPlan) restartResult {
 	}
 	if rerr := restoreBinary(plan.Backup, plan.Executable); rerr != nil {
 		cp.Status = RestartFailed
-		cp.Message = fmt.Sprintf("new control plane failed (%s) and restoring the backup failed: %v / 新控制面失败且恢复备份失败", reason, rerr)
+		cp.Message = locale.Pick(ctx, "新控制面失败且恢复备份失败", fmt.Sprintf("new control plane failed (%s) and restoring the backup failed: %v", reason, rerr))
 		return restartResult{Status: restartOutcomeFailed, Reason: cp.Message, ControlPlane: cp}
 	}
 	_ = os.Remove(plan.ReadyPath)
@@ -127,11 +128,11 @@ func watchdogRun(ctx context.Context, plan *restartPlan) restartResult {
 	}
 	if err != nil {
 		cp.Status = RestartFailed
-		cp.Message = fmt.Sprintf("new control plane failed (%s); restored %s but it did not come back: %v / 新控制面失败，已恢复旧版本但未能启动", reason, plan.FromVersion, err)
+		cp.Message = locale.Pick(ctx, "新控制面失败，已恢复旧版本但未能启动", fmt.Sprintf("new control plane failed (%s); restored %s but it did not come back: %v", reason, plan.FromVersion, err))
 		return restartResult{Status: restartOutcomeFailed, Reason: cp.Message, ControlPlane: cp}
 	}
 	cp.Status, cp.NewPID = RestartRolledBack, oldPID
-	cp.Message = fmt.Sprintf("new control plane failed (%s); restored %s and restarted it (pid %d) / 新控制面启动失败，已恢复 %s 并重启", reason, plan.FromVersion, oldPID, plan.FromVersion)
+	cp.Message = locale.Pick(ctx, fmt.Sprintf("新控制面启动失败，已恢复 %s 并重启", plan.FromVersion), fmt.Sprintf("new control plane failed (%s); restored %s and restarted it (pid %d)", reason, plan.FromVersion, oldPID))
 	return restartResult{Status: restartOutcomeRolledBack, Reason: reason, ControlPlane: cp}
 }
 
@@ -204,7 +205,7 @@ func waitControlPlaneReady(ctx context.Context, plan *restartPlan, pid int, want
 		if exited != nil {
 			select {
 			case <-exited:
-				return pid, fmt.Errorf("control plane %s exited during startup / 控制面 %s 启动过程中退出", wantVersion, wantVersion)
+				return pid, fmt.Errorf("control plane %s exited during startup", wantVersion)
 			default:
 			}
 		}
@@ -216,7 +217,7 @@ func waitControlPlaneReady(ctx context.Context, plan *restartPlan, pid int, want
 			}
 		}
 		if time.Now().After(deadline) {
-			return pid, fmt.Errorf("control plane %s was not ready within %s / 控制面 %s 未在 %s 内就绪", wantVersion, timeout, wantVersion, timeout)
+			return pid, fmt.Errorf("control plane %s was not ready within %s", wantVersion, timeout)
 		}
 		time.Sleep(watchdogPoll)
 	}
@@ -296,9 +297,9 @@ func restartFrontend(ctx context.Context, plan *restartPlan) ProcessRestart {
 	}
 	if err == nil {
 		pr.Status, pr.NewPID = RestartSucceeded, pid
-		pr.Message = fmt.Sprintf("frontend restarted (pid %d → %d) / 前端已重启", fp.PID, pid)
+		pr.Message = locale.Pick(ctx, "前端已重启", fmt.Sprintf("frontend restarted (pid %d → %d)", fp.PID, pid))
 		if swapped {
-			pr.Message = fmt.Sprintf("frontend replaced and restarted (pid %d → %d) / 前端已替换并重启", fp.PID, pid)
+			pr.Message = locale.Pick(ctx, "前端已替换并重启", fmt.Sprintf("frontend replaced and restarted (pid %d → %d)", fp.PID, pid))
 		}
 		return pr
 	}
@@ -315,11 +316,11 @@ func restartFrontend(ctx context.Context, plan *restartPlan) ProcessRestart {
 	}
 	if err != nil {
 		pr.Status = RestartFailed
-		pr.Message = fmt.Sprintf("frontend failed to start (%v) and the previous frontend did not come back (%v) / 前端启动失败且未能恢复", firstErr, err)
+		pr.Message = locale.Pick(ctx, "前端启动失败且未能恢复", fmt.Sprintf("frontend failed to start (%v) and the previous frontend did not come back (%v)", firstErr, err))
 		return pr
 	}
 	pr.Status, pr.NewPID = RestartRolledBack, pid
-	pr.Message = fmt.Sprintf("new frontend failed (%v); previous frontend restored and restarted (pid %d) / 新前端启动失败，已恢复旧前端", firstErr, pid)
+	pr.Message = locale.Pick(ctx, "新前端启动失败，已恢复旧前端", fmt.Sprintf("new frontend failed (%v); previous frontend restored and restarted (pid %d)", firstErr, pid))
 	return pr
 }
 

@@ -431,7 +431,7 @@ func (m *ProcessManager) checkAllProcesses() {
 			if !alive {
 				// Process has crashed / 进程已崩溃
 				proc.Status = StatusStopped
-				proc.LastError = "Process exited unexpectedly / 进程意外退出"
+				proc.LastError = "Process exited unexpectedly"
 				m.notifyEvent(name, EventCrashed, proc)
 			} else {
 				// Update metrics / 更新指标
@@ -506,7 +506,7 @@ func (m *ProcessManager) StartProcess(ctx context.Context, name string, params *
 	// Validate the configured node JDK first so the script never silently falls back to another java on PATH.
 	if strings.TrimSpace(params.JavaHome) != "" {
 		if _, err := javaenv.ValidateHome(params.JavaHome); err != nil {
-			return fmt.Errorf("invalid node JDK / 节点 JDK 不可用: %w", err)
+			return fmt.Errorf("invalid node JDK: %w", err)
 		}
 	}
 
@@ -539,7 +539,7 @@ func (m *ProcessManager) StartProcess(ctx context.Context, name string, params *
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		proc.mu.Lock()
 		proc.Status = StatusError
-		proc.LastError = fmt.Sprintf("Failed to create log directory: %v / 创建日志目录失败：%v", err, err)
+		proc.LastError = fmt.Sprintf("Failed to create log directory: %v", err)
 		proc.mu.Unlock()
 		return fmt.Errorf("%w: %v", ErrStartFailed, err)
 	}
@@ -550,7 +550,7 @@ func (m *ProcessManager) StartProcess(ctx context.Context, name string, params *
 	if err != nil {
 		proc.mu.Lock()
 		proc.Status = StatusError
-		proc.LastError = fmt.Sprintf("Failed to create log file: %v / 创建日志文件失败：%v", err, err)
+		proc.LastError = fmt.Sprintf("Failed to create log file: %v", err)
 		proc.mu.Unlock()
 		return fmt.Errorf("%w: %v", ErrStartFailed, err)
 	}
@@ -564,7 +564,7 @@ func (m *ProcessManager) StartProcess(ctx context.Context, name string, params *
 		logWriter.Close()
 		proc.mu.Lock()
 		proc.Status = StatusError
-		proc.LastError = fmt.Sprintf("Failed to start process: %v / 启动进程失败：%v", err, err)
+		proc.LastError = fmt.Sprintf("Failed to start process: %v", err)
 		proc.mu.Unlock()
 		return fmt.Errorf("%w: %v", ErrStartFailed, err)
 	}
@@ -587,7 +587,7 @@ func (m *ProcessManager) StartProcess(ctx context.Context, name string, params *
 		logs := collectStartupLogs(logFile, DefaultLogTailLines)
 		proc.mu.Lock()
 		proc.Status = StatusError
-		proc.LastError = fmt.Sprintf("Start script failed: %v. Logs:\n%s / 启动脚本失败: %v。日志：\n%s", err, logs, err, logs)
+		proc.LastError = fmt.Sprintf("Start script failed: %v. Logs:\n%s", err, logs)
 		proc.mu.Unlock()
 		return fmt.Errorf("%w: start script failed: %v", ErrStartFailed, err)
 	}
@@ -604,7 +604,7 @@ func (m *ProcessManager) StartProcess(ctx context.Context, name string, params *
 		logs := collectStartupLogs(logFile, DefaultLogTailLines)
 		proc.mu.Lock()
 		proc.Status = StatusError
-		proc.LastError = fmt.Sprintf("SeaTunnel process not found after start. Logs:\n%s / 启动后未找到 SeaTunnel 进程。日志：\n%s", logs, logs)
+		proc.LastError = fmt.Sprintf("SeaTunnel process not found after start. Logs:\n%s", logs)
 		proc.mu.Unlock()
 		return fmt.Errorf("%w: SeaTunnel process not found after start", ErrStartFailed)
 	}
@@ -705,7 +705,7 @@ func (m *ProcessManager) StopProcess(ctx context.Context, name string, params *S
 	}
 
 	if len(pids) == 0 {
-		logger.InfoF(ctx, "No SeaTunnel process found for install dir '%s' and role '%s' / 未找到安装目录 '%s'、角色 '%s' 的 SeaTunnel 进程", installDir, role, installDir, role)
+		logger.InfoF(ctx, "No SeaTunnel process found for install dir '%s' and role '%s'", installDir, role)
 		// Update tracked process status / 更新跟踪的进程状态
 		if value, ok := m.processes.Load(name); ok {
 			proc := value.(*ManagedProcess)
@@ -729,7 +729,7 @@ func (m *ProcessManager) StopProcess(ctx context.Context, name string, params *S
 	// Send SIGTERM to all found processes / 向所有找到的进程发送 SIGTERM
 	for _, pid := range pids {
 		if err := sendSignal(pid, syscall.SIGTERM); err == nil {
-			logger.InfoF(ctx, "Sent SIGTERM to process %d / 向进程 %d 发送 SIGTERM", pid, pid)
+			logger.InfoF(ctx, "Sent SIGTERM to process %d", pid)
 		}
 	}
 
@@ -753,7 +753,7 @@ func (m *ProcessManager) StopProcess(ctx context.Context, name string, params *S
 	for _, pid := range pids {
 		if isProcessAlive(pid) {
 			_ = sendSignal(pid, syscall.SIGKILL)
-			logger.WarnF(ctx, "Sent SIGKILL to process %d / 向进程 %d 发送 SIGKILL", pid, pid)
+			logger.WarnF(ctx, "Sent SIGKILL to process %d", pid)
 		}
 	}
 
@@ -767,7 +767,7 @@ func (m *ProcessManager) StopProcess(ctx context.Context, name string, params *S
 		m.notifyEvent(name, EventStopped, proc)
 	}
 
-	logger.InfoF(ctx, "Stopped %d SeaTunnel process(es) for install dir '%s' and role '%s' / 停止了 %d 个安装目录 '%s'、角色 '%s' 的 SeaTunnel 进程", len(pids), installDir, role, len(pids), installDir, role)
+	logger.InfoF(ctx, "Stopped %d SeaTunnel process(es) for install dir '%s' and role '%s'", len(pids), installDir, role)
 	return nil
 }
 
@@ -1152,7 +1152,7 @@ func getProcessMetricsWindows(pid int) (cpuUsage float64, memoryUsage int64) {
 func collectStartupLogs(logFile string, lines int) string {
 	file, err := os.Open(logFile)
 	if err != nil {
-		return fmt.Sprintf("Failed to open log file: %v / 打开日志文件失败：%v", err, err)
+		return fmt.Sprintf("Failed to open log file: %v", err)
 	}
 	defer file.Close()
 
@@ -1178,7 +1178,7 @@ func ReadProcessLogs(logDir string, lines int) (string, error) {
 	// Find the most recent log file / 查找最新的日志文件
 	files, err := os.ReadDir(logDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to read log directory: %w / 读取日志目录失败：%w", err, err)
+		return "", fmt.Errorf("failed to read log directory: %w", err)
 	}
 
 	var latestFile string
@@ -1204,7 +1204,7 @@ func ReadProcessLogs(logDir string, lines int) (string, error) {
 	}
 
 	if latestFile == "" {
-		return "", errors.New("no log files found / 未找到日志文件")
+		return "", errors.New("no log files found")
 	}
 
 	return collectStartupLogs(latestFile, lines), nil

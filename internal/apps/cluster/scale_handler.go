@@ -346,7 +346,7 @@ func (h *ScaleHandler) recordAudit(c *gin.Context, action string, clusterID uint
 	}
 	if err := audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
 		action, "cluster", audit.UintID(clusterID), clusterName, details); err != nil {
-		logger.WarnF(c.Request.Context(), "[ClusterScale] 记录审计失败 / Failed to record audit: action=%s, err=%v", action, err)
+		logger.WarnF(c.Request.Context(), "Failed to record audit: action=%s, err=%v", action, err)
 	}
 }
 

@@ -52,7 +52,7 @@ func Init() {
 		// Check if telemetry is enabled in config
 		// 检查配置中是否启用了遥测
 		if !config.Config.Telemetry.Enabled {
-			log.Println("[Trace] OpenTelemetry tracing is disabled / OpenTelemetry 追踪已禁用")
+			log.Println("[Trace] OpenTelemetry tracing is disabled")
 			// Use noop tracer when disabled / 禁用时使用空操作追踪器
 			Tracer = noop.NewTracerProvider().Tracer("noop")
 			enabled = false
@@ -60,7 +60,7 @@ func Init() {
 			return
 		}
 
-		log.Println("[Trace] Initializing OpenTelemetry tracing... / 正在初始化 OpenTelemetry 追踪...")
+		log.Println("[Trace] Initializing OpenTelemetry tracing...")
 
 		// 初始化 Propagator
 		prop := newPropagator()
@@ -69,7 +69,7 @@ func Init() {
 		// 初始化 Trace Provider
 		tracerProvider, err := newTracerProvider()
 		if err != nil {
-			log.Printf("[Trace] Failed to init trace provider, using noop tracer: %v / 初始化追踪提供者失败，使用空操作追踪器: %v", err, err)
+			log.Printf("[Trace] Failed to init trace provider, using noop tracer: %v", err)
 			Tracer = noop.NewTracerProvider().Tracer("noop")
 			enabled = false
 			initialized = true
@@ -83,7 +83,7 @@ func Init() {
 		Tracer = tracerProvider.Tracer("github.com/LeonYoah/stx")
 		enabled = true
 		initialized = true
-		log.Println("[Trace] OpenTelemetry tracing initialized / OpenTelemetry 追踪已初始化")
+		log.Println("[Trace] OpenTelemetry tracing initialized")
 	})
 }
 

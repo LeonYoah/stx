@@ -119,7 +119,7 @@ func (s *Service) GetOrCreateConfig(ctx context.Context, clusterID uint) (*Monit
 		if err := s.repo.CreateConfig(ctx, config); err != nil {
 			return nil, err
 		}
-		log.Printf("[Monitor] Created default config for cluster %d / 为集群 %d 创建默认配置", clusterID, clusterID)
+		log.Printf("[Monitor] Created default config for cluster %d", clusterID)
 		return config, nil
 	}
 	if err != nil {
@@ -159,11 +159,9 @@ func (s *Service) GetOrCreateConfig(ctx context.Context, clusterID uint) (*Monit
 	// Update database if defaults were applied / 如果应用了默认值则更新数据库
 	if needsUpdate {
 		if err := s.repo.UpdateConfig(ctx, config); err != nil {
-			log.Printf("[Monitor] Failed to update legacy config for cluster %d: %v / 更新集群 %d 旧配置失败: %v",
-				clusterID, err, clusterID, err)
+			log.Printf("[Monitor] Failed to update legacy config for cluster %d: %v", clusterID, err)
 		} else {
-			log.Printf("[Monitor] Applied default values to legacy config for cluster %d / 为集群 %d 旧配置应用默认值",
-				clusterID, clusterID)
+			log.Printf("[Monitor] Applied default values to legacy config for cluster %d", clusterID)
 		}
 	}
 
@@ -218,8 +216,7 @@ func (s *Service) UpdateConfig(ctx context.Context, clusterID uint, req *UpdateM
 		return nil, err
 	}
 
-	log.Printf("[Monitor] Updated config for cluster %d, version %d / 更新集群 %d 配置，版本 %d",
-		clusterID, config.ConfigVersion, clusterID, config.ConfigVersion)
+	log.Printf("[Monitor] Updated config for cluster %d, version %d", clusterID, config.ConfigVersion)
 
 	// Push config to agents / 推送配置到 Agent
 	// This is done asynchronously to not block the API response
@@ -235,14 +232,14 @@ func (s *Service) UpdateConfig(ctx context.Context, clusterID uint, req *UpdateM
 // pushConfigToAgents 将监控配置推送到集群中的所有 Agent。
 func (s *Service) pushConfigToAgents(ctx context.Context, clusterID uint, config *MonitorConfig) {
 	if s.configSender == nil || s.nodeProvider == nil {
-		log.Printf("[Monitor] Config sender or node provider not configured, skipping push / 配置发送器或节点提供者未配置，跳过推送")
+		log.Printf("[Monitor] Config sender or node provider not configured, skipping push")
 		return
 	}
 
 	// Get all nodes in the cluster / 获取集群中的所有节点
 	nodes, err := s.nodeProvider.GetNodesByClusterID(ctx, clusterID)
 	if err != nil {
-		log.Printf("[Monitor] Failed to get nodes for cluster %d: %v / 获取集群 %d 节点失败：%v", clusterID, err, clusterID, err)
+		log.Printf("[Monitor] Failed to get nodes for cluster %d: %v", clusterID, err)
 		return
 	}
 
@@ -270,10 +267,9 @@ func (s *Service) pushConfigToAgents(ctx context.Context, clusterID uint, config
 	// Send config to each agent / 向每个 Agent 发送配置
 	for agentID, processes := range agentProcesses {
 		if err := s.configSender.SendMonitorConfig(ctx, agentID, config, processes); err != nil {
-			log.Printf("[Monitor] Failed to send config to agent %s: %v / 向 Agent %s 发送配置失败：%v", agentID, err, agentID, err)
+			log.Printf("[Monitor] Failed to send config to agent %s: %v", agentID, err)
 		} else {
-			log.Printf("[Monitor] Sent config to agent %s with %d processes / 向 Agent %s 发送配置，包含 %d 个进程",
-				agentID, len(processes), agentID, len(processes))
+			log.Printf("[Monitor] Sent config to agent %s with %d processes", agentID, len(processes))
 		}
 	}
 
@@ -287,7 +283,7 @@ func (s *Service) pushConfigToAgents(ctx context.Context, clusterID uint, config
 // PushDisableConfigForCluster 向该集群下所有 Agent 推送关闭监控的配置，使 Agent 停止监控且不再重启进程；删除集群前调用以通知 Agent。
 func (s *Service) PushDisableConfigForCluster(ctx context.Context, clusterID uint) {
 	if s.configSender == nil || s.nodeProvider == nil {
-		log.Printf("[Monitor] PushDisableConfigForCluster: config sender or node provider not set, skip / 未配置，跳过")
+		log.Printf("[Monitor] PushDisableConfigForCluster: config sender or node provider not set, skip")
 		return
 	}
 	nodes, err := s.nodeProvider.GetNodesByClusterID(ctx, clusterID)
@@ -309,9 +305,9 @@ func (s *Service) PushDisableConfigForCluster(ctx context.Context, clusterID uin
 	}
 	for agentID := range agentIDs {
 		if err := s.configSender.SendMonitorConfig(ctx, agentID, config, nil); err != nil {
-			log.Printf("[Monitor] PushDisableConfigForCluster: send to agent %s failed: %v / 向 Agent 推送关闭监控失败: %v", agentID, err, err)
+			log.Printf("[Monitor] PushDisableConfigForCluster: send to agent %s failed: %v", agentID, err)
 		} else {
-			log.Printf("[Monitor] PushDisableConfigForCluster: sent disable config to agent %s / 已向 Agent %s 推送关闭监控配置", agentID, agentID)
+			log.Printf("[Monitor] PushDisableConfigForCluster: sent disable config to agent %s", agentID)
 		}
 	}
 }
@@ -343,8 +339,7 @@ func (s *Service) RecordEvent(ctx context.Context, event *ProcessEvent) error {
 	if err := s.repo.CreateEvent(ctx, event); err != nil {
 		return err
 	}
-	log.Printf("[Monitor] Recorded event: type=%s, cluster=%d, node=%d, pid=%d / 记录事件：类型=%s，集群=%d，节点=%d，PID=%d",
-		event.EventType, event.ClusterID, event.NodeID, event.PID, event.EventType, event.ClusterID, event.NodeID, event.PID)
+	log.Printf("[Monitor] Recorded event: type=%s, cluster=%d, node=%d, pid=%d", event.EventType, event.ClusterID, event.NodeID, event.PID)
 	s.notifyEventRecorded(ctx, event)
 	return nil
 }

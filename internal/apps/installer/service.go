@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"io"
 	"mime/multipart"
 	"net"
@@ -51,21 +52,21 @@ import (
 
 // Common errors / 常见错误
 var (
-	ErrPackageNotFound        = errors.New("package not found / 安装包未找到")
-	ErrPackageAlreadyExists   = errors.New("package already exists / 安装包已存在")
-	ErrInvalidPackageVersion  = errors.New("invalid package version / 安装包版本不合法")
-	ErrInvalidPackageFile     = errors.New("invalid package file / 安装包文件不合法")
-	ErrInvalidPackagePath     = errors.New("invalid package path / 安装包路径不合法")
-	ErrPackageTooLarge        = errors.New("package too large / 安装包过大")
-	ErrSourcePackageNotFound  = errors.New("source package not found / 源码包未找到")
-	ErrInvalidSourcePackage   = errors.New("invalid source package / 源码包不合法")
-	ErrInvalidUploadID        = errors.New("invalid upload id / 上传会话 ID 不合法")
-	ErrInvalidChunkIndex      = errors.New("invalid chunk index / 分片索引不合法")
-	ErrChunkOutOfOrder        = errors.New("chunk out of order / 分片顺序错误")
-	ErrInstallationNotFound   = errors.New("installation not found / 安装任务未找到")
-	ErrInstallationInProgress = errors.New("installation already in progress / 安装任务正在进行中")
-	ErrHostNotConnected       = errors.New("host agent not connected / 主机 Agent 未连接")
-	ErrAgentNotFound          = errors.New("agent not found / Agent 未找到")
+	ErrPackageNotFound        = errors.New("package not found")
+	ErrPackageAlreadyExists   = errors.New("package already exists")
+	ErrInvalidPackageVersion  = errors.New("invalid package version")
+	ErrInvalidPackageFile     = errors.New("invalid package file")
+	ErrInvalidPackagePath     = errors.New("invalid package path")
+	ErrPackageTooLarge        = errors.New("package too large")
+	ErrSourcePackageNotFound  = errors.New("source package not found")
+	ErrInvalidSourcePackage   = errors.New("invalid source package")
+	ErrInvalidUploadID        = errors.New("invalid upload id")
+	ErrInvalidChunkIndex      = errors.New("invalid chunk index")
+	ErrChunkOutOfOrder        = errors.New("chunk out of order")
+	ErrInstallationNotFound   = errors.New("installation not found")
+	ErrInstallationInProgress = errors.New("installation already in progress")
+	ErrHostNotConnected       = errors.New("host agent not connected")
+	ErrAgentNotFound          = errors.New("agent not found")
 )
 
 var packageVersionRegexp = regexp.MustCompile(`^[0-9A-Za-z._+-]{1,64}$`)
@@ -499,8 +500,7 @@ func (s *Service) pushMonitorConfigToHost(ctx context.Context, clusterID uint, h
 		pushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
 		if err := s.monitorPusher.PushClusterMonitorConfigToHost(pushCtx, clusterID, hostID); err != nil {
-			logger.WarnF(pushCtx, "[Installer] 推送节点监控配置失败 / Failed to push node monitor config: cluster=%d, host=%d, error=%v",
-				clusterID, hostID, err)
+			logger.WarnF(pushCtx, "Failed to push node monitor config: cluster=%d, host=%d, error=%v", clusterID, hostID, err)
 		}
 	}()
 }
@@ -1238,11 +1238,11 @@ func (s *Service) SourcePackagePath(version string) (string, error) {
 
 // ErrDownloadInProgress indicates a download is already in progress for this version
 // ErrDownloadInProgress 表示该版本的下载已在进行中
-var ErrDownloadInProgress = errors.New("download already in progress / 下载已在进行中")
+var ErrDownloadInProgress = errors.New("download already in progress")
 
 // ErrDownloadNotFound indicates the download task was not found
 // ErrDownloadNotFound 表示下载任务未找到
-var ErrDownloadNotFound = errors.New("download task not found / 下载任务未找到")
+var ErrDownloadNotFound = errors.New("download task not found")
 
 // StartDownload starts downloading a package from mirror to local storage.
 // StartDownload 开始从镜像源下载安装包到本地存储。
@@ -1293,7 +1293,7 @@ func (s *Service) startDownload(ctx context.Context, req *DownloadRequest, execu
 		DownloadURL:     downloadURL,
 		Status:          DownloadStatusPending,
 		Progress:        0,
-		Message:         "准备下载 / Preparing download",
+		Message:         locale.Pick(ctx, "准备下载", "Preparing download"),
 		StartTime:       time.Now(),
 		ExecutionID:     strings.TrimSpace(executionID),
 		OwnerUserID:     ownerUserID,
@@ -1358,7 +1358,7 @@ func (s *Service) CancelDownload(ctx context.Context, version string) (*Download
 	// Mark cancellation as in progress; only the downloader may publish cancelled after it stops.
 	// 先标记为取消中，只有后台下载确认停止后才能对外报告 cancelled。
 	task.Status = DownloadStatusCancelling
-	task.Message = "正在停止下载 / Stopping download"
+	task.Message = locale.Pick(ctx, "正在停止下载", "Stopping download")
 	if task.cancel != nil {
 		task.cancel()
 	}
@@ -1409,13 +1409,13 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		close(task.done)
 		s.finishDownloadExecution(task)
 	}()
-	logger.InfoF(ctx, "[Installer] 开始下载安装包 / Start downloading package: version=%s, mirror=%s", task.Version, task.Mirror)
+	logger.InfoF(ctx, "Start downloading package: version=%s, mirror=%s", task.Version, task.Mirror)
 
 	s.downloadsMu.Lock()
 	if task.Status == DownloadStatusCancelling {
 		now := time.Now()
 		task.Status = DownloadStatusCancelled
-		task.Message = "下载已取消 / Download cancelled"
+		task.Message = locale.Pick(ctx, "下载已取消", "Download cancelled")
 		task.EndTime = &now
 		s.downloadsMu.Unlock()
 		return
@@ -1427,7 +1427,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	fileName := packageFileName(task.Version)
 	tempPath, err := normalizePathInDir(s.tempDir, filepath.Join(s.tempDir, fileName+".tmp"))
 	if err != nil {
-		logger.ErrorF(ctx, "[Installer] 无效临时下载路径 / Invalid temp download path: version=%s, error=%v", task.Version, err)
+		logger.ErrorF(ctx, "Invalid temp download path: version=%s, error=%v", task.Version, err)
 		s.downloadsMu.Lock()
 		now := time.Now()
 		task.Status = DownloadStatusFailed
@@ -1438,7 +1438,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	}
 	finalPath, err := normalizePathInDir(s.packageDir, filepath.Join(s.packageDir, fileName))
 	if err != nil {
-		logger.ErrorF(ctx, "[Installer] 无效下载目标路径 / Invalid download destination path: version=%s, error=%v", task.Version, err)
+		logger.ErrorF(ctx, "Invalid download destination path: version=%s, error=%v", task.Version, err)
 		s.downloadsMu.Lock()
 		now := time.Now()
 		task.Status = DownloadStatusFailed
@@ -1452,7 +1452,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	// 创建可取消的 HTTP 请求，确保取消时能停止当前网络操作。
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, task.DownloadURL, nil)
 	if err != nil {
-		s.markDownloadFailed(task, fmt.Sprintf("创建请求失败 / Failed to create request: %v", err), tempPath)
+		s.markDownloadFailed(task, locale.Pick(ctx, "创建请求失败", fmt.Sprintf("Failed to create request: %v", err)), tempPath)
 		return
 	}
 	resp, err := http.DefaultClient.Do(request)
@@ -1461,8 +1461,8 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 			s.markDownloadCancelled(task, tempPath)
 			return
 		}
-		logger.ErrorF(ctx, "[Installer] 下载请求失败 / Download request failed: version=%s, error=%v", task.Version, err)
-		s.markDownloadFailed(task, fmt.Sprintf("请求失败 / Request failed: %v", err), tempPath)
+		logger.ErrorF(ctx, "Download request failed: version=%s, error=%v", task.Version, err)
+		s.markDownloadFailed(task, fmt.Sprintf("Request failed: %v", err), tempPath)
 		return
 	}
 	defer resp.Body.Close()
@@ -1472,7 +1472,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		s.downloadsMu.Lock()
 		now := time.Now()
 		task.Status = DownloadStatusFailed
-		task.Error = fmt.Sprintf("HTTP 错误 / HTTP error: %d", resp.StatusCode)
+		task.Error = fmt.Sprintf("HTTP error: %d", resp.StatusCode)
 		task.EndTime = &now
 		s.downloadsMu.Unlock()
 		return
@@ -1489,7 +1489,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		s.downloadsMu.Lock()
 		now := time.Now()
 		task.Status = DownloadStatusFailed
-		task.Error = fmt.Sprintf("创建文件失败 / Failed to create file: %v", err)
+		task.Error = locale.Pick(ctx, "创建文件失败", fmt.Sprintf("Failed to create file: %v", err))
 		task.EndTime = &now
 		s.downloadsMu.Unlock()
 		return
@@ -1525,7 +1525,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 				s.downloadsMu.Lock()
 				now := time.Now()
 				task.Status = DownloadStatusFailed
-				task.Error = fmt.Sprintf("写入文件失败 / Failed to write file: %v", writeErr)
+				task.Error = locale.Pick(ctx, "写入文件失败", fmt.Sprintf("Failed to write file: %v", writeErr))
 				task.EndTime = &now
 				s.downloadsMu.Unlock()
 				os.Remove(tempPath)
@@ -1561,7 +1561,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 				s.markDownloadCancelled(task, tempPath)
 				return
 			}
-			s.markDownloadFailed(task, fmt.Sprintf("下载失败 / Download failed: %v", err), tempPath)
+			s.markDownloadFailed(task, locale.Pick(ctx, "下载失败", fmt.Sprintf("Download failed: %v", err)), tempPath)
 			return
 		}
 	}
@@ -1578,26 +1578,26 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		return
 	}
 	if err := os.Rename(tempPath, finalPath); err != nil {
-		s.markDownloadFailed(task, fmt.Sprintf("移动文件失败 / Failed to move file: %v", err), tempPath)
+		s.markDownloadFailed(task, locale.Pick(ctx, "移动文件失败", fmt.Sprintf("Failed to move file: %v", err)), tempPath)
 		return
 	}
 
 	if task.SourceRequested {
 		s.downloadsMu.Lock()
 		task.SourceStatus = DownloadStatusDownloading
-		task.Message = "运行包下载完成，正在下载源码 / Runtime package downloaded; downloading source"
+		task.Message = locale.Pick(ctx, "运行包下载完成，正在下载源码", "Runtime package downloaded; downloading source")
 		s.downloadsMu.Unlock()
 		checksum, sourceErr := s.downloadSourceArchive(ctx, task.Version, task.SourceURL, task)
 		s.downloadsMu.Lock()
 		if sourceErr != nil {
 			task.SourceStatus = DownloadStatusFailed
 			task.SourceError = sourceErr.Error()
-			task.Message = "运行包下载完成，源码下载失败 / Runtime package downloaded; source download failed"
+			task.Message = locale.Pick(ctx, "运行包下载完成，源码下载失败", "Runtime package downloaded; source download failed")
 		} else {
 			task.SourceStatus = DownloadStatusCompleted
 			task.SourceProgress = 100
 			task.SourceChecksum = checksum
-			task.Message = "运行包和源码下载完成 / Runtime and source packages downloaded"
+			task.Message = locale.Pick(ctx, "运行包和源码下载完成", "Runtime and source packages downloaded")
 		}
 		s.downloadsMu.Unlock()
 	}
@@ -1616,12 +1616,12 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	task.Progress = 100
 	task.DownloadedBytes = downloaded
 	if !task.SourceRequested {
-		task.Message = "下载完成 / Download completed"
+		task.Message = locale.Pick(ctx, "下载完成", "Download completed")
 	}
 	task.EndTime = &now
 	s.downloadsMu.Unlock()
 
-	logger.InfoF(ctx, "[Installer] 下载完成 / Download completed: version=%s, size=%d bytes", task.Version, downloaded)
+	logger.InfoF(ctx, "Download completed: version=%s, size=%d bytes", task.Version, downloaded)
 }
 
 // downloadSourceArchive streams, validates, and atomically stores one source archive.
@@ -1747,7 +1747,7 @@ func (s *Service) markDownloadCancelled(task *DownloadTask, tempPath string) {
 	defer s.downloadsMu.Unlock()
 	now := time.Now()
 	task.Status = DownloadStatusCancelled
-	task.Message = "下载已取消 / Download cancelled"
+	task.Message = "Download cancelled"
 	task.EndTime = &now
 }
 
@@ -1799,7 +1799,7 @@ func precheckAgentMessage(output string) string {
 // This is opposite to PrecheckNode which checks if SeaTunnel is running.
 // 这与 PrecheckNode 相反，后者检查 SeaTunnel 是否正在运行。
 func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckRequest) (*PrecheckResult, error) {
-	logger.InfoF(ctx, "[Installer] 开始预检查 / Start precheck: host=%d", hostID)
+	logger.InfoF(ctx, "Start precheck: host=%d", hostID)
 
 	// Initialize result
 	// 初始化结果
@@ -1819,20 +1819,20 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 	// 获取主机信息
 	if s.hostProvider == nil {
 		agentItem.Status = CheckStatusFailed
-		agentItem.Message = "Host provider not configured / 主机提供者未配置"
+		agentItem.Message = locale.Pick(ctx, "主机提供者未配置", "Host provider not configured")
 		result.Items = append(result.Items, agentItem)
 		result.OverallStatus = CheckStatusFailed
-		result.Summary = "Precheck failed: host provider not configured / 预检查失败：主机提供者未配置"
+		result.Summary = locale.Pick(ctx, "预检查失败：主机提供者未配置", "Precheck failed: host provider not configured")
 		return result, nil
 	}
 
 	hostInfo, err := s.hostProvider.GetHostByID(ctx, hostID)
 	if err != nil {
 		agentItem.Status = CheckStatusFailed
-		agentItem.Message = fmt.Sprintf("Failed to get host info: %v / 获取主机信息失败: %v", err, err)
+		agentItem.Message = locale.Pick(ctx, fmt.Sprintf("获取主机信息失败: %v", err), fmt.Sprintf("Failed to get host info: %v", err))
 		result.Items = append(result.Items, agentItem)
 		result.OverallStatus = CheckStatusFailed
-		result.Summary = "Precheck failed: cannot get host info / 预检查失败：无法获取主机信息"
+		result.Summary = locale.Pick(ctx, "预检查失败：无法获取主机信息", "Precheck failed: cannot get host info")
 		return result, nil
 	}
 
@@ -1840,24 +1840,24 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 	// 检查 Agent 状态
 	if hostInfo.AgentStatus != "installed" {
 		agentItem.Status = CheckStatusFailed
-		agentItem.Message = "Agent is not installed / Agent 未安装"
+		agentItem.Message = locale.Pick(ctx, "Agent 未安装", "Agent is not installed")
 		result.Items = append(result.Items, agentItem)
 		result.OverallStatus = CheckStatusFailed
-		result.Summary = "Precheck failed: Agent not installed / 预检查失败：Agent 未安装"
+		result.Summary = locale.Pick(ctx, "预检查失败：Agent 未安装", "Precheck failed: Agent not installed")
 		return result, nil
 	}
 
 	if !hostInfo.IsOnline(s.heartbeatTimeout) {
 		agentItem.Status = CheckStatusFailed
-		agentItem.Message = "Agent is offline / Agent 离线"
+		agentItem.Message = locale.Pick(ctx, "Agent 离线", "Agent is offline")
 		result.Items = append(result.Items, agentItem)
 		result.OverallStatus = CheckStatusFailed
-		result.Summary = "Precheck failed: Agent offline / 预检查失败：Agent 离线"
+		result.Summary = locale.Pick(ctx, "预检查失败：Agent 离线", "Precheck failed: Agent offline")
 		return result, nil
 	}
 
 	agentItem.Status = CheckStatusPassed
-	agentItem.Message = "Agent is installed and online / Agent 已安装且在线"
+	agentItem.Message = locale.Pick(ctx, "Agent 已安装且在线", "Agent is installed and online")
 	result.Items = append(result.Items, agentItem)
 
 	// Check if agentManager is available for sending commands
@@ -1865,7 +1865,7 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 	if s.agentManager == nil || hostInfo.AgentID == "" {
 		// Cannot perform detailed checks, return with agent check only
 		// 无法执行详细检查，仅返回 Agent 检查结果
-		result.Summary = "Agent is available, but cannot perform detailed checks / Agent 可用，但无法执行详细检查"
+		result.Summary = locale.Pick(ctx, "Agent 可用，但无法执行详细检查", "Agent is available, but cannot perform detailed checks")
 		return result, nil
 	}
 
@@ -1910,10 +1910,10 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 
 	if len(unavailablePorts) == 0 {
 		portsItem.Status = CheckStatusPassed
-		portsItem.Message = fmt.Sprintf("All ports are available: %v / 所有端口可用: %v", ports, ports)
+		portsItem.Message = locale.Pick(ctx, fmt.Sprintf("所有端口可用: %v", ports), fmt.Sprintf("All ports are available: %v", ports))
 	} else {
 		portsItem.Status = CheckStatusFailed
-		portsItem.Message = fmt.Sprintf("Ports in use: %v / 端口被占用: %v", unavailablePorts, unavailablePorts)
+		portsItem.Message = locale.Pick(ctx, fmt.Sprintf("端口被占用: %v", unavailablePorts), fmt.Sprintf("Ports in use: %v", unavailablePorts))
 		result.OverallStatus = CheckStatusFailed
 	}
 	result.Items = append(result.Items, portsItem)
@@ -1942,15 +1942,15 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 	success, output, err := s.agentManager.SendCommand(ctx, hostInfo.AgentID, "check_path_ready", params)
 	if err != nil {
 		dirItem.Status = CheckStatusFailed
-		dirItem.Message = fmt.Sprintf("Failed to check directory: %v / 检查目录失败: %v", err, err)
+		dirItem.Message = locale.Pick(ctx, fmt.Sprintf("检查目录失败: %v", err), fmt.Sprintf("Failed to check directory: %v", err))
 		result.OverallStatus = CheckStatusFailed
 	} else if success {
 		dirItem.Status = CheckStatusPassed
 		agentMessage := precheckAgentMessage(output)
 		if strings.Contains(agentMessage, "can be created") {
-			dirItem.Message = fmt.Sprintf("Directory %s will be created / 目录 %s 将被创建", installDir, installDir)
+			dirItem.Message = locale.Pick(ctx, fmt.Sprintf("目录 %s 将被创建", installDir), fmt.Sprintf("Directory %s will be created", installDir))
 		} else {
-			dirItem.Message = fmt.Sprintf("Directory %s is writable / 目录 %s 可写", installDir, installDir)
+			dirItem.Message = locale.Pick(ctx, fmt.Sprintf("目录 %s 可写", installDir), fmt.Sprintf("Directory %s is writable", installDir))
 		}
 	} else {
 		reason := precheckAgentMessage(output)
@@ -1958,7 +1958,7 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 			reason = "parent directory is not writable"
 		}
 		dirItem.Status = CheckStatusFailed
-		dirItem.Message = fmt.Sprintf("Directory %s cannot be created: %s / 目录 %s 无法创建: %s", installDir, reason, installDir, reason)
+		dirItem.Message = locale.Pick(ctx, fmt.Sprintf("目录 %s 无法创建: %s", installDir, reason), fmt.Sprintf("Directory %s cannot be created: %s", installDir, reason))
 		dirItem.Details["agent_message"] = reason
 		result.OverallStatus = CheckStatusFailed
 	}
@@ -2015,7 +2015,7 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 		// Cannot check Java, treat as warning
 		// 无法检查 Java，视为警告
 		javaItem.Status = CheckStatusWarning
-		javaItem.Message = fmt.Sprintf("Failed to check Java: %v / 检查 Java 失败: %v", err, err)
+		javaItem.Message = locale.Pick(ctx, fmt.Sprintf("检查 Java 失败: %v", err), fmt.Sprintf("Failed to check Java: %v", err))
 	} else if !success {
 		javaItem.Status = CheckStatusFailed
 		javaItem.Message = fmt.Sprintf("Java is not installed. Please install Java %d+. / Java 未安装。请安装 Java %d+。", minJavaMajor, minJavaMajor)
@@ -2055,7 +2055,7 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 			// 推荐集合内（legacy {8,11} / ≥3.1.0 {11,17}）判通过。
 			// Inside the recommended set (legacy {8,11}, ≥3.1.0 {11,17}) passes.
 			javaItem.Status = CheckStatusPassed
-			javaItem.Message = fmt.Sprintf("Java %d is installed (supported) / Java %d 已安装（支持）", javaVersion, javaVersion)
+			javaItem.Message = locale.Pick(ctx, fmt.Sprintf("Java %d 已安装（支持）", javaVersion), fmt.Sprintf("Java %d is installed (supported)", javaVersion))
 		case javaruntime.StatusFailed:
 			javaItem.Status = CheckStatusFailed
 			if javaVersion > javaRequirement.MaxSupported {
@@ -2074,7 +2074,7 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 			if javaVersion <= 0 {
 				// Cannot determine version
 				// 无法确定版本
-				javaItem.Message = "Java is installed but version cannot be determined / Java 已安装但无法确定版本"
+				javaItem.Message = locale.Pick(ctx, "Java 已安装但无法确定版本", "Java is installed but version cannot be determined")
 			} else {
 				// 高于推荐上限或非推荐版本 - 警告但不阻塞
 				// Above the recommended max or otherwise unrecommended - warning but not blocking
@@ -2117,20 +2117,14 @@ func (s *Service) finishPrecheckSummary(ctx context.Context, hostID uint, result
 
 	switch result.OverallStatus {
 	case CheckStatusPassed:
-		result.Summary = fmt.Sprintf("All checks passed (%d passed) / 所有检查通过（%d 通过）", passedCount, passedCount)
+		result.Summary = locale.Pick(ctx, fmt.Sprintf("所有检查通过（%d 通过）", passedCount), fmt.Sprintf("All checks passed (%d passed)", passedCount))
 	case CheckStatusWarning:
-		result.Summary = fmt.Sprintf(
-			"Checks ready with warnings: %d passed, %d warnings / 预检查可继续但有警告：%d 通过，%d 警告",
-			passedCount, warningCount, passedCount, warningCount,
-		)
+		result.Summary = locale.Pick(ctx, fmt.Sprintf("预检查可继续但有警告：%d 通过，%d 警告", passedCount, warningCount), fmt.Sprintf("Checks ready with warnings: %d passed, %d warnings", passedCount, warningCount))
 	default:
-		result.Summary = fmt.Sprintf(
-			"Precheck failed: %d passed, %d failed, %d warnings / 预检查失败：%d 通过，%d 失败，%d 警告",
-			passedCount, failedCount, warningCount, passedCount, failedCount, warningCount,
-		)
+		result.Summary = locale.Pick(ctx, fmt.Sprintf("预检查失败：%d 通过，%d 失败，%d 警告", passedCount, failedCount, warningCount), fmt.Sprintf("Precheck failed: %d passed, %d failed, %d warnings", passedCount, failedCount, warningCount))
 	}
 
-	logger.InfoF(ctx, "[Installer] 预检查完成 / Precheck completed: host=%d, status=%s", hostID, result.OverallStatus)
+	logger.InfoF(ctx, "Precheck completed: host=%d, status=%s", hostID, result.OverallStatus)
 	return result
 }
 
@@ -2150,7 +2144,7 @@ func (s *Service) runCustomJavaPrecheck(ctx context.Context, hostInfo *HostInfo,
 	normalized, err := javaruntime.Validate(javaHome)
 	if err != nil {
 		item.Status = CheckStatusFailed
-		item.Message = fmt.Sprintf("节点 %s 的 JDK 路径不合法：%v / Invalid JDK path on node %s: %v", nodeName, err, nodeName, err)
+		item.Message = locale.Pick(ctx, fmt.Sprintf("节点 %s 的 JDK 路径不合法：%v", nodeName, err), fmt.Sprintf("Invalid JDK path on node %s: %v", nodeName, err))
 		item.Details["error_reason"] = "invalid_path"
 		return
 	}
@@ -2160,7 +2154,7 @@ func (s *Service) runCustomJavaPrecheck(ctx context.Context, hostInfo *HostInfo,
 		// 指定了路径却无法验证时必须阻断，避免装上后才发现 JDK 不可用。
 		// A specified path that cannot be verified must block, so a broken JDK is not found only after install.
 		item.Status = CheckStatusFailed
-		item.Message = fmt.Sprintf("节点 %s 无法检查 JDK %s：%v / Cannot check JDK %s on node %s: %v", nodeName, normalized, sendErr, normalized, nodeName, sendErr)
+		item.Message = locale.Pick(ctx, fmt.Sprintf("节点 %s 无法检查 JDK %s：%v", nodeName, normalized, sendErr), fmt.Sprintf("Cannot check JDK %s on node %s: %v", normalized, nodeName, sendErr))
 		item.Details["error_reason"] = "agent_unreachable"
 		return
 	}
@@ -2214,13 +2208,13 @@ func (s *Service) ValidateRuntimeStorage(ctx context.Context, req *RuntimeStorag
 		return nil, fmt.Errorf("host_ids is required / 必须提供 host_ids")
 	}
 	if s.hostProvider == nil || s.agentManager == nil {
-		return nil, fmt.Errorf("runtime storage validation is not configured / 运行时存储校验服务未配置")
+		return nil, fmt.Errorf("runtime storage validation is not configured")
 	}
 
 	result := &RuntimeStorageValidationResult{
 		Success: true,
 		Kind:    req.Kind,
-		Warning: "Validation checks local path readiness or remote endpoint reachability only. Credentials and write permissions still need runtime verification. / 当前校验仅检查本地路径可用性或远程端点可达性，凭证与写入权限仍需运行时验证。",
+		Warning: locale.Pick(ctx, "当前校验仅检查本地路径可用性或远程端点可达性，凭证与写入权限仍需运行时验证。", "Validation checks local path readiness or remote endpoint reachability only. Credentials and write permissions still need runtime verification."),
 		Hosts:   make([]*RuntimeStorageValidationHostResult, 0, len(req.HostIDs)),
 	}
 
@@ -2568,7 +2562,7 @@ func (s *Service) StartInstallation(ctx context.Context, req *InstallationReques
 		CurrentStep: InstallStepDownload,
 		Steps:       createInitialSteps(),
 		Progress:    0,
-		Message:     "Installation started / 安装已开始",
+		Message:     locale.Pick(ctx, "安装已开始", "Installation started"),
 		StartTime:   time.Now(),
 	}
 
@@ -2756,7 +2750,7 @@ func (s *Service) CancelInstallation(ctx context.Context, hostID uint) (*Install
 
 	now := time.Now()
 	status.Status = StepStatusFailed
-	status.Message = "Installation cancelled / 安装已取消"
+	status.Message = locale.Pick(ctx, "安装已取消", "Installation cancelled")
 	status.EndTime = &now
 
 	return status, nil
@@ -2765,7 +2759,7 @@ func (s *Service) CancelInstallation(ctx context.Context, hostID uint) (*Install
 // runInstallation runs the installation process via Agent gRPC.
 // runInstallation 通过 Agent gRPC 运行安装过程。
 func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest, status *InstallationStatus) {
-	logger.InfoF(ctx, "[Installer] 开始安装 / Start installation: host=%s, version=%s, mode=%s", req.HostID, req.Version, req.InstallMode)
+	logger.InfoF(ctx, "Start installation: host=%s, version=%s, mode=%s", req.HostID, req.Version, req.InstallMode)
 
 	// Check if agent manager is available
 	// 检查 Agent 管理器是否可用
@@ -2774,7 +2768,7 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 		s.installMu.Lock()
 		now := time.Now()
 		status.Status = StepStatusFailed
-		status.Error = "Agent manager not available / Agent 管理器不可用"
+		status.Error = "Agent manager not available"
 		status.EndTime = &now
 		s.installMu.Unlock()
 		return
@@ -2788,7 +2782,7 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 		s.installMu.Lock()
 		now := time.Now()
 		status.Status = StepStatusFailed
-		status.Error = fmt.Sprintf("Invalid host ID: %v / 无效的主机 ID: %v", err, err)
+		status.Error = fmt.Sprintf("Invalid host ID: %v", err)
 		status.EndTime = &now
 		s.installMu.Unlock()
 		return
@@ -2802,7 +2796,7 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 		s.installMu.Lock()
 		now := time.Now()
 		status.Status = StepStatusFailed
-		status.Error = "Host agent not connected / 主机 Agent 未连接"
+		status.Error = "Host agent not connected"
 		status.EndTime = &now
 		s.installMu.Unlock()
 		return
@@ -2820,10 +2814,10 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 		if _, err := os.Stat(localPackagePath); os.IsNotExist(err) {
 			// Package not found locally, need to download first
 			// 本地未找到安装包，需要先下载
-			logger.InfoF(ctx, "[Installer] 本地未找到安装包，开始下载 / Package not found locally, starting download: version=%s", req.Version)
+			logger.InfoF(ctx, "Package not found locally, starting download: version=%s", req.Version)
 
 			s.installMu.Lock()
-			status.Message = "Downloading package to Control Plane... / 正在下载安装包到控制平面..."
+			status.Message = "Downloading package to Control Plane..."
 			s.installMu.Unlock()
 
 			// Start download task
@@ -2837,11 +2831,11 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 				Mirror:  mirror,
 			})
 			if err != nil && err != ErrDownloadInProgress {
-				logger.ErrorF(ctx, "[Installer] 启动下载失败 / Failed to start download: %v", err)
+				logger.ErrorF(ctx, "Failed to start download: %v", err)
 				s.installMu.Lock()
 				now := time.Now()
 				status.Status = StepStatusFailed
-				status.Error = fmt.Sprintf("Failed to download package: %v / 下载安装包失败: %v", err, err)
+				status.Error = fmt.Sprintf("Failed to download package: %v", err)
 				status.EndTime = &now
 				s.installMu.Unlock()
 				return
@@ -2852,40 +2846,40 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 			for {
 				task, err = s.GetDownloadStatus(ctx, task.Version)
 				if err != nil {
-					logger.ErrorF(ctx, "[Installer] 获取下载状态失败 / Failed to get download status: %v", err)
+					logger.ErrorF(ctx, "Failed to get download status: %v", err)
 					s.installMu.Lock()
 					now := time.Now()
 					status.Status = StepStatusFailed
-					status.Error = fmt.Sprintf("Failed to get download status: %v / 获取下载状态失败: %v", err, err)
+					status.Error = fmt.Sprintf("Failed to get download status: %v", err)
 					status.EndTime = &now
 					s.installMu.Unlock()
 					return
 				}
 
 				if task.Status == DownloadStatusCompleted {
-					logger.InfoF(ctx, "[Installer] 安装包下载完成 / Package download completed: version=%s", req.Version)
+					logger.InfoF(ctx, "Package download completed: version=%s", req.Version)
 					break
 				}
 
 				if task.Status == DownloadStatusFailed {
-					logger.ErrorF(ctx, "[Installer] 安装包下载失败 / Package download failed: %s", task.Error)
+					logger.ErrorF(ctx, "Package download failed: %s", task.Error)
 					s.installMu.Lock()
 					now := time.Now()
 					status.Status = StepStatusFailed
-					status.Error = fmt.Sprintf("Package download failed: %s / 安装包下载失败: %s", task.Error, task.Error)
+					status.Error = fmt.Sprintf("Package download failed: %s", task.Error)
 					status.EndTime = &now
 					s.installMu.Unlock()
 					return
 				}
 
 				s.installMu.Lock()
-				status.Message = fmt.Sprintf("Downloading package... %d%% / 正在下载安装包... %d%%", task.Progress, task.Progress)
+				status.Message = locale.Pick(ctx, fmt.Sprintf("正在下载安装包... %d%%", task.Progress), fmt.Sprintf("Downloading package... %d%%", task.Progress))
 				s.installMu.Unlock()
 
 				time.Sleep(1 * time.Second)
 			}
 		} else {
-			logger.InfoF(ctx, "[Installer] 使用本地已有安装包 / Using existing local package: %s", localPackagePath)
+			logger.InfoF(ctx, "Using existing local package: %s", localPackagePath)
 		}
 	}
 
@@ -2902,17 +2896,17 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 		}
 
 		if _, err := os.Stat(localPackagePath); err != nil {
-			logger.ErrorF(ctx, "[Installer] 离线安装包不存在 / Offline package not found: %s", localPackagePath)
+			logger.ErrorF(ctx, "Offline package not found: %s", localPackagePath)
 			s.installMu.Lock()
 			now := time.Now()
 			status.Status = StepStatusFailed
-			status.Error = fmt.Sprintf("Offline package not found: %s / 离线安装包不存在: %s", localPackagePath, localPackagePath)
+			status.Error = fmt.Sprintf("Offline package not found: %s", localPackagePath)
 			status.EndTime = &now
 			s.installMu.Unlock()
 			return
 		}
 
-		logger.InfoF(ctx, "[Installer] 离线模式使用本地安装包 / Offline mode using local package: %s", localPackagePath)
+		logger.InfoF(ctx, "Offline mode using local package: %s", localPackagePath)
 	}
 
 	if localPackagePath != "" {
@@ -2921,7 +2915,7 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 			// match the current CP package, otherwise it (re)downloads and overwrites.
 			// 始终走拉取握手：仅当 Agent 上文件的大小+SHA256 与当前 CP 安装包一致时才复用，否则重新下载并覆盖。
 			s.installMu.Lock()
-			status.Message = "Transferring package to Agent... / 正在传输安装包到 Agent..."
+			status.Message = locale.Pick(ctx, "正在传输安装包到 Agent...", "Transferring package to Agent...")
 			s.installMu.Unlock()
 
 			remotePath, checksum, err := s.transferPackageFileToAgent(ctx, agentID, req.Version, localPackagePath, status)
@@ -2935,14 +2929,14 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 					// 此处绝不从互联网下载；若未找到，Agent 会返回包含已尝试路径的明确错误。
 					logger.WarnF(ctx, "[Installer] 安装包传输失败，回退到 Agent 本地安装包 / Package transfer failed, falling back to Agent-local package: %v", err)
 					s.installMu.Lock()
-					status.Message = fmt.Sprintf("Package transfer failed (%v), using Agent-local package... / 安装包传输失败（%v），改用 Agent 本地安装包...", err, err)
+					status.Message = fmt.Sprintf("Package transfer failed (%v), using Agent-local package...", err)
 					s.installMu.Unlock()
 					req.PackagePath = ""
 				} else {
 					s.installMu.Lock()
 					now := time.Now()
 					status.Status = StepStatusFailed
-					status.Error = fmt.Sprintf("Failed to transfer offline package: %v / 传输离线安装包失败: %v", err, err)
+					status.Error = locale.Pick(ctx, fmt.Sprintf("传输离线安装包失败: %v", err), fmt.Sprintf("Failed to transfer offline package: %v", err))
 					status.EndTime = &now
 					s.installMu.Unlock()
 					return
@@ -2950,7 +2944,7 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 			} else {
 				// Transfer succeeded, update params to use package on Agent
 				// 传输成功，更新参数使用 Agent 本地安装包
-				logger.InfoF(ctx, "[Installer] 安装包传输成功 / Package transfer succeeded: remote_path=%s", remotePath)
+				logger.InfoF(ctx, "Package transfer succeeded: remote_path=%s", remotePath)
 				req.PackagePath = remotePath
 				req.PackageChecksum = checksum
 			}
@@ -2961,7 +2955,7 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 	// 在安装之前将选中的插件传输到 Agent
 	if req.Connector != nil && len(req.Connector.SelectedPlugins) > 0 && s.pluginTransferer != nil {
 		s.installMu.Lock()
-		status.Message = "Transferring plugins to Agent... / 正在传输插件到 Agent..."
+		status.Message = locale.Pick(ctx, "正在传输插件到 Agent...", "Transferring plugins to Agent...")
 		s.installMu.Unlock()
 
 		// Use install dir from request, default to /opt/seatunnel-{version}
@@ -2976,76 +2970,49 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 		}
 		for i, pluginName := range req.Connector.SelectedPlugins {
 			selectedProfileKeys := normalizeProfileKeys(req.Connector.SelectedPluginProfiles[pluginName])
-			logger.InfoF(ctx, "[Installer] 传输插件 / Transferring plugin: %s (%d/%d)", pluginName, i+1, len(req.Connector.SelectedPlugins))
+			logger.InfoF(ctx, "Transferring plugin: %s (%d/%d)", pluginName, i+1, len(req.Connector.SelectedPlugins))
 
 			preparedPluginFingerprint, fingerprintErr := s.resolvePreparedPluginFingerprint(ctx, pluginName, req.Version, selectedProfileKeys)
 			if fingerprintErr != nil {
 				logger.WarnF(
-					ctx,
-					"[Installer] 计算插件依赖指纹失败，将跳过缓存复用 / Failed to compute plugin dependency fingerprint, cache reuse disabled: plugin=%s, profiles=%v, error=%v",
-					pluginName,
-					selectedProfileKeys,
-					fingerprintErr,
-				)
+					ctx, "Failed to compute plugin dependency fingerprint, cache reuse disabled: plugin=%s, profiles=%v, error=%v", pluginName, selectedProfileKeys, fingerprintErr)
 			}
 
 			if s.hasPreparedPlugin(agentID, pluginName, req.Version, installDir, selectedProfileKeys, preparedPluginFingerprint) {
 				logger.InfoF(
-					ctx,
-					"[Installer] 复用已准备插件 / Reusing prepared plugin: %s, profiles=%v, agent=%s, fingerprint=%s",
-					pluginName,
-					selectedProfileKeys,
-					agentID,
-					preparedPluginFingerprint,
-				)
+					ctx, "Reusing prepared plugin: %s, profiles=%v, agent=%s, fingerprint=%s", pluginName, selectedProfileKeys, agentID, preparedPluginFingerprint)
 				s.installMu.Lock()
-				status.Message = fmt.Sprintf(
-					"Reusing prepared plugin %s (%d/%d)... / 正在复用已准备插件 %s (%d/%d)...",
-					pluginName, i+1, len(req.Connector.SelectedPlugins),
-					pluginName, i+1, len(req.Connector.SelectedPlugins),
-				)
+				status.Message = locale.Pick(ctx, fmt.Sprintf("正在复用已准备插件 %s (%d/%d)...", pluginName, i+1, len(req.Connector.SelectedPlugins)), fmt.Sprintf("Reusing prepared plugin %s (%d/%d)...", pluginName, i+1, len(req.Connector.SelectedPlugins)))
 				s.installMu.Unlock()
 				continue
 			}
 
 			s.installMu.Lock()
-			status.Message = fmt.Sprintf("Transferring plugin %s (%d/%d)... / 正在传输插件 %s (%d/%d)...",
-				pluginName, i+1, len(req.Connector.SelectedPlugins),
-				pluginName, i+1, len(req.Connector.SelectedPlugins))
+			status.Message = locale.Pick(ctx, fmt.Sprintf("正在传输插件 %s (%d/%d)...", pluginName, i+1, len(req.Connector.SelectedPlugins)), fmt.Sprintf("Transferring plugin %s (%d/%d)...", pluginName, i+1, len(req.Connector.SelectedPlugins)))
 			s.installMu.Unlock()
 
 			// Always prepare the effective plugin package before transfer.
 			// 在传输前始终准备插件的生效安装包。
 			logger.InfoF(
-				ctx,
-				"[Installer] 准备插件包 / Preparing plugin package: %s, profiles=%v, mirror=%s",
-				pluginName,
-				selectedProfileKeys,
-				pluginMirror,
-			)
+				ctx, "Preparing plugin package: %s, profiles=%v, mirror=%s", pluginName, selectedProfileKeys, pluginMirror)
 			if err := s.pluginTransferer.DownloadPluginSync(ctx, pluginName, req.Version, pluginMirror, selectedProfileKeys); err != nil {
-				logger.WarnF(ctx, "[Installer] 准备插件失败，跳过 / Failed to prepare plugin, skipping: %s, error=%v", pluginName, err)
+				logger.WarnF(ctx, "Failed to prepare plugin, skipping: %s, error=%v", pluginName, err)
 				continue
 			}
 
 			// Transfer plugin to Agent
 			// 传输插件到 Agent
 			if err := s.pluginTransferer.TransferPluginToAgent(ctx, agentID, pluginName, req.Version, installDir, selectedProfileKeys); err != nil {
-				logger.WarnF(ctx, "[Installer] 传输插件失败，跳过 / Failed to transfer plugin, skipping: %s, error=%v", pluginName, err)
+				logger.WarnF(ctx, "Failed to transfer plugin, skipping: %s, error=%v", pluginName, err)
 				continue
 			}
 
-			logger.InfoF(ctx, "[Installer] 插件传输成功 / Plugin transferred successfully: %s", pluginName)
+			logger.InfoF(ctx, "Plugin transferred successfully: %s", pluginName)
 			if preparedPluginFingerprint == "" {
 				preparedPluginFingerprint, fingerprintErr = s.resolvePreparedPluginFingerprint(ctx, pluginName, req.Version, selectedProfileKeys)
 				if fingerprintErr != nil {
 					logger.WarnF(
-						ctx,
-						"[Installer] 传输后重新计算插件依赖指纹失败，将不记录缓存 / Failed to recompute plugin dependency fingerprint after transfer, skip cache record: plugin=%s, profiles=%v, error=%v",
-						pluginName,
-						selectedProfileKeys,
-						fingerprintErr,
-					)
+						ctx, "Failed to recompute plugin dependency fingerprint after transfer, skip cache record: plugin=%s, profiles=%v, error=%v", pluginName, selectedProfileKeys, fingerprintErr)
 				}
 			}
 			s.rememberPreparedPlugin(agentID, pluginName, req.Version, installDir, selectedProfileKeys, preparedPluginFingerprint)
@@ -3060,17 +3027,17 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 	// 向 Agent 发送安装命令
 	commandID, err := s.agentManager.SendInstallCommand(ctx, agentID, params)
 	if err != nil {
-		logger.ErrorF(ctx, "[Installer] 发送安装命令失败 / Failed to send install command: host=%d, error=%v", hostID, err)
+		logger.ErrorF(ctx, "Failed to send install command: host=%d, error=%v", hostID, err)
 		s.installMu.Lock()
 		now := time.Now()
 		status.Status = StepStatusFailed
-		status.Error = fmt.Sprintf("Failed to send install command: %v / 发送安装命令失败: %v", err, err)
+		status.Error = fmt.Sprintf("Failed to send install command: %v", err)
 		status.EndTime = &now
 		s.installMu.Unlock()
 		return
 	}
 
-	logger.InfoF(ctx, "[Installer] 安装命令已发送 / Install command sent: host=%d, command=%s", hostID, commandID)
+	logger.InfoF(ctx, "Install command sent: host=%d, command=%s", hostID, commandID)
 
 	// Poll for command status updates
 	// 轮询命令状态更新
@@ -3091,7 +3058,7 @@ func (s *Service) pollInstallationStatus(ctx context.Context, commandID string, 
 			s.installMu.Lock()
 			now := time.Now()
 			status.Status = StepStatusFailed
-			status.Error = "Installation cancelled / 安装已取消"
+			status.Error = locale.Pick(ctx, "安装已取消", "Installation cancelled")
 			status.EndTime = &now
 			s.installMu.Unlock()
 			return
@@ -3128,9 +3095,9 @@ func (s *Service) pollInstallationStatus(ctx context.Context, commandID string, 
 				now := time.Now()
 				status.Progress = 100
 				if len(status.Warnings) > 0 {
-					status.Message = "Installation completed with warnings, starting cluster... / 安装完成，但存在警告，正在启动集群..."
+					status.Message = locale.Pick(ctx, "安装完成，但存在警告，正在启动集群...", "Installation completed with warnings, starting cluster...")
 				} else {
-					status.Message = "Installation completed, starting cluster... / 安装完成，正在启动集群..."
+					status.Message = locale.Pick(ctx, "安装完成，正在启动集群...", "Installation completed, starting cluster...")
 				}
 				// 节点登记和启动完成前保持 running，避免客户端提前看到成功终态。
 				// Keep the task running until node registration and startup finish so clients never observe a premature success state.
@@ -3142,7 +3109,7 @@ func (s *Service) pollInstallationStatus(ctx context.Context, commandID string, 
 					status.Steps[j].EndTime = &now
 				}
 				s.installMu.Unlock()
-				logger.InfoF(ctx, "[Installer] 安装成功 / Installation succeeded: command=%s", commandID)
+				logger.InfoF(ctx, "Installation succeeded: command=%s", commandID)
 
 				// Start SeaTunnel cluster after installation
 				// 安装完成后启动 SeaTunnel 集群
@@ -3155,16 +3122,16 @@ func (s *Service) pollInstallationStatus(ctx context.Context, commandID string, 
 				status.Error = message
 				status.EndTime = &now
 				s.installMu.Unlock()
-				logger.ErrorF(ctx, "[Installer] 安装失败 / Installation failed: command=%s, error=%s", commandID, message)
+				logger.ErrorF(ctx, "Installation failed: command=%s, error=%s", commandID, message)
 				return
 
 			case "cancelled":
 				now := time.Now()
 				status.Status = StepStatusFailed
-				status.Error = "Installation cancelled / 安装已取消"
+				status.Error = locale.Pick(ctx, "安装已取消", "Installation cancelled")
 				status.EndTime = &now
 				s.installMu.Unlock()
-				logger.InfoF(ctx, "[Installer] 安装已取消 / Installation cancelled: command=%s", commandID)
+				logger.InfoF(ctx, "Installation cancelled: command=%s", commandID)
 				return
 
 			case "running":
@@ -3188,9 +3155,9 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 		status.CurrentStep = InstallStepComplete
 		status.EndTime = &now
 		if len(status.Warnings) > 0 {
-			status.Message = "Installation completed with warnings; cluster startup skipped because no cluster ID was provided / 安装完成但存在警告；未提供集群 ID，已跳过集群启动"
+			status.Message = locale.Pick(ctx, "安装完成但存在警告；未提供集群 ID，已跳过集群启动", "Installation completed with warnings; cluster startup skipped because no cluster ID was provided")
 		} else {
-			status.Message = "Installation completed; cluster startup skipped because no cluster ID was provided / 安装完成；未提供集群 ID，已跳过集群启动"
+			status.Message = locale.Pick(ctx, "安装完成；未提供集群 ID，已跳过集群启动", "Installation completed; cluster startup skipped because no cluster ID was provided")
 		}
 		s.installMu.Unlock()
 		logger.InfoF(ctx, "[Installer] 未提供集群 ID，跳过安装后启动 / Cluster ID not provided; skipping post-install startup: host=%s", req.HostID)
@@ -3203,13 +3170,12 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 		nodeRole = "unknown"
 	}
 
-	logger.InfoF(ctx, "[Installer] 开始启动节点 / Starting node: cluster=%s, host=%s, role=%s, agent=%s",
-		req.ClusterID, req.HostID, nodeRole, agentID)
+	logger.InfoF(ctx, "Starting node: cluster=%s, host=%s, role=%s, agent=%s", req.ClusterID, req.HostID, nodeRole, agentID)
 
 	// Update status
 	// 更新状态
 	s.installMu.Lock()
-	status.Message = fmt.Sprintf("Starting SeaTunnel node (%s)... / 正在启动 SeaTunnel 节点 (%s)...", nodeRole, nodeRole)
+	status.Message = locale.Pick(ctx, fmt.Sprintf("正在启动 SeaTunnel 节点 (%s)...", nodeRole), fmt.Sprintf("Starting SeaTunnel node (%s)...", nodeRole))
 	s.installMu.Unlock()
 
 	// Parse cluster ID and host ID
@@ -3219,7 +3185,7 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	if clusterErr != nil || hostErr != nil {
 		logger.ErrorF(ctx, "[Installer] 解析 ID 失败 / Failed to parse IDs: cluster=%s, host=%s, role=%s, clusterErr=%v, hostErr=%v",
 			req.ClusterID, req.HostID, nodeRole, clusterErr, hostErr)
-		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): invalid cluster or host ID / 安装完成但启动节点 (%s) 失败: 无效的集群或主机 ID", nodeRole, nodeRole))
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): invalid cluster or host ID", nodeRole))
 		return
 	}
 
@@ -3228,16 +3194,15 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	if s.nodeStarter == nil {
 		logger.ErrorF(ctx, "[Installer] nodeStarter 未配置 / nodeStarter not configured: cluster=%d, host=%d, role=%s",
 			clusterID, hostID, nodeRole)
-		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): nodeStarter not configured / 安装完成但启动节点 (%s) 失败: nodeStarter 未配置", nodeRole, nodeRole))
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): nodeStarter not configured", nodeRole))
 		return
 	}
 
 	// Agent 安装完成后，先登记或刷新控制面的节点元数据，再使用统一的集群启动逻辑。
 	// After the Agent installation completes, register or refresh control-plane node metadata before using the shared startup logic.
 	if err := s.nodeStarter.EnsureNodeForInstallation(ctx, clusterID, hostID, nodeRole, req.InstallDir, req.ClusterPort, req.HTTPPort, req.WorkerPort, req.JavaHome); err != nil {
-		logger.ErrorF(ctx, "[Installer] 登记安装节点失败 / Failed to register installed node: cluster=%d, host=%d, role=%s, error=%v",
-			clusterID, hostID, nodeRole, err)
-		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to register node (%s): %v / 安装完成但登记节点 (%s) 失败: %v", nodeRole, err, nodeRole, err))
+		logger.ErrorF(ctx, "Failed to register installed node: cluster=%d, host=%d, role=%s, error=%v", clusterID, hostID, nodeRole, err)
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to register node (%s): %v", nodeRole, err))
 		return
 	}
 
@@ -3246,8 +3211,7 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	// config-registered, so the orchestrator can apply template configs and plugins before starting it.
 	if req.DeferNodeStart {
 		s.markDeferredStartComplete(status, nodeRole)
-		logger.InfoF(ctx, "[Installer] 节点已登记，启动交由调用方编排 / Node registered; startup deferred to caller: cluster=%d, host=%d, role=%s",
-			clusterID, hostID, nodeRole)
+		logger.InfoF(ctx, "Node registered; startup deferred to caller: cluster=%d, host=%d, role=%s", clusterID, hostID, nodeRole)
 		return
 	}
 
@@ -3263,21 +3227,18 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	// 按角色启动对应节点；同一主机可能同时有 master 与 worker（分离模式）
 	success, message, err := s.nodeStarter.StartNodeByClusterAndHostAndRole(ctx, clusterID, hostID, nodeRole)
 	if err != nil {
-		logger.ErrorF(ctx, "[Installer] 启动节点失败 / Failed to start node: cluster=%d, host=%d, role=%s, error=%v",
-			clusterID, hostID, nodeRole, err)
-		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): %v / 安装完成但启动节点 (%s) 失败: %v", nodeRole, err, nodeRole, err))
+		logger.ErrorF(ctx, "Failed to start node: cluster=%d, host=%d, role=%s, error=%v", clusterID, hostID, nodeRole, err)
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): %v", nodeRole, err))
 		return
 	}
 
 	if !success {
-		logger.WarnF(ctx, "[Installer] 启动节点返回失败 / Start node returned failure: cluster=%d, host=%d, role=%s, message=%s",
-			clusterID, hostID, nodeRole, message)
-		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but node (%s) start failed: %s / 安装完成但节点 (%s) 启动失败: %s", nodeRole, message, nodeRole, message))
+		logger.WarnF(ctx, "Start node returned failure: cluster=%d, host=%d, role=%s, message=%s", clusterID, hostID, nodeRole, message)
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but node (%s) start failed: %s", nodeRole, message))
 		return
 	}
 
-	logger.InfoF(ctx, "[Installer] 节点启动成功 / Node started successfully: cluster=%d, host=%d, role=%s",
-		clusterID, hostID, nodeRole)
+	logger.InfoF(ctx, "Node started successfully: cluster=%d, host=%d, role=%s", clusterID, hostID, nodeRole)
 
 	// 节点启动成功后再推送集群监控配置，确保 AutoRestarter 不会与首次启动竞态，并让 Agent 拿到集群监控策略与真实 PID；
 	// 延迟启动的扩容路径由 scale_executor 在启动节点后负责推送。
@@ -3316,13 +3277,9 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	status.CurrentStep = InstallStepComplete
 	status.EndTime = &now
 	if len(status.Warnings) > 0 {
-		status.Message = fmt.Sprintf(
-			"Installation and node (%s) startup completed with warnings / 安装和节点 (%s) 启动完成，但存在警告",
-			nodeRole,
-			nodeRole,
-		)
+		status.Message = locale.Pick(ctx, fmt.Sprintf("安装和节点 (%s) 启动完成，但存在警告", nodeRole), fmt.Sprintf("Installation and node (%s) startup completed with warnings", nodeRole))
 	} else {
-		status.Message = fmt.Sprintf("Installation and node (%s) startup completed / 安装和节点 (%s) 启动完成", nodeRole, nodeRole)
+		status.Message = locale.Pick(ctx, fmt.Sprintf("安装和节点 (%s) 启动完成", nodeRole), fmt.Sprintf("Installation and node (%s) startup completed", nodeRole))
 	}
 	s.installMu.Unlock()
 }
@@ -3348,19 +3305,19 @@ func shouldEnableEventChannel(req *InstallationRequest) bool {
 func (s *Service) registerInstalledConfigs(ctx context.Context, clusterID uint, hostID uint, req *InstallationRequest, status *InstallationStatus) bool {
 	if s.configInitializer == nil {
 		if shouldEnableEventChannel(req) {
-			logger.WarnF(ctx, "[Installer] 未配置配置初始化器，跳过事件通道 / Config initializer is not set; skipping event channel: cluster=%d", clusterID)
-			appendInstallationWarning(status, "Warning: event channel was not enabled because cluster config registration is unavailable / 警告：无法登记集群配置，事件通道未开启")
+			logger.WarnF(ctx, "Config initializer is not set; skipping event channel: cluster=%d", clusterID)
+			appendInstallationWarning(status, "Warning: event channel was not enabled because cluster config registration is unavailable")
 		}
 		return false
 	}
-	logger.InfoF(ctx, "[Installer] 初始化集群配置 / Initializing cluster configs: cluster=%d, host=%d", clusterID, hostID)
+	logger.InfoF(ctx, "Initializing cluster configs: cluster=%d, host=%d", clusterID, hostID)
 	if err := s.configInitializer.EnsureClusterConfigsForHost(ctx, clusterID, hostID, req.InstallDir, 0); err != nil {
 		logger.WarnF(ctx, "[Installer] 初始化集群配置失败（不影响安装）/ Failed to initialize cluster configs (non-fatal): cluster=%d, host=%d, error=%v",
 			clusterID, hostID, err)
-		appendInstallationWarning(status, fmt.Sprintf("Warning: cluster config registration failed: %v / 警告：集群配置登记失败: %v", err, err))
+		appendInstallationWarning(status, fmt.Sprintf("Warning: cluster config registration failed: %v", err))
 		return false
 	}
-	logger.InfoF(ctx, "[Installer] 集群配置初始化成功 / Cluster configs initialized successfully: cluster=%d, host=%d", clusterID, hostID)
+	logger.InfoF(ctx, "Cluster configs initialized successfully: cluster=%d, host=%d", clusterID, hostID)
 	return true
 }
 
@@ -3371,17 +3328,17 @@ func (s *Service) enableInstalledEventChannel(ctx context.Context, clusterID uin
 		return
 	}
 	if s.eventChannelEnabler == nil {
-		logger.WarnF(ctx, "[Installer] 未配置事件通道写入器，跳过 / Event channel enabler is not set; skipping: cluster=%d version=%s", clusterID, req.Version)
-		appendInstallationWarning(status, "Warning: event channel was not enabled because the writer is not configured / 警告：事件通道写入器未配置，未开启")
+		logger.WarnF(ctx, "Event channel enabler is not set; skipping: cluster=%d version=%s", clusterID, req.Version)
+		appendInstallationWarning(status, "Warning: event channel was not enabled because the writer is not configured")
 		return
 	}
 	if err := s.eventChannelEnabler.EnableEventChannelForInstall(ctx, clusterID, req.Version); err != nil {
 		logger.WarnF(ctx, "[Installer] 开启事件通道失败（不影响安装）/ Failed to enable event channel (non-fatal): cluster=%d version=%s error=%v",
 			clusterID, req.Version, err)
-		appendInstallationWarning(status, fmt.Sprintf("Warning: event channel was not enabled: %v / 警告：事件通道未开启: %v", err, err))
+		appendInstallationWarning(status, fmt.Sprintf("Warning: event channel was not enabled: %v", err))
 		return
 	}
-	logger.InfoF(ctx, "[Installer] 已开启事件通道 / Event channel enabled: cluster=%d version=%s", clusterID, req.Version)
+	logger.InfoF(ctx, "Event channel enabled: cluster=%d version=%s", clusterID, req.Version)
 }
 
 // markDeferredStartComplete 将“安装并登记完成、启动交由调用方”的任务标记为成功终态。
@@ -3397,9 +3354,9 @@ func (s *Service) markDeferredStartComplete(status *InstallationStatus, nodeRole
 	status.CurrentStep = InstallStepComplete
 	status.EndTime = &now
 	if len(status.Warnings) > 0 {
-		status.Message = fmt.Sprintf("Installation completed with warnings and node (%s) registered; startup deferred to the caller / 安装完成但存在警告，节点 (%s) 已登记，启动由调用方编排", nodeRole, nodeRole)
+		status.Message = fmt.Sprintf("Installation completed with warnings and node (%s) registered; startup deferred to the caller", nodeRole)
 	} else {
-		status.Message = fmt.Sprintf("Installation completed and node (%s) registered; startup deferred to the caller / 安装完成，节点 (%s) 已登记，启动由调用方编排", nodeRole, nodeRole)
+		status.Message = fmt.Sprintf("Installation completed and node (%s) registered; startup deferred to the caller", nodeRole)
 	}
 }
 
@@ -3715,12 +3672,12 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 // parseHostID 将主机 ID 从字符串解析为 uint。
 func parseHostID(hostIDStr string) (uint, error) {
 	if hostIDStr == "" {
-		return 0, fmt.Errorf("host ID is empty / 主机 ID 为空")
+		return 0, fmt.Errorf("host ID is empty")
 	}
 	var hostID uint
 	_, err := fmt.Sscanf(hostIDStr, "%d", &hostID)
 	if err != nil {
-		return 0, fmt.Errorf("invalid host ID format: %s / 无效的主机 ID 格式: %s", hostIDStr, hostIDStr)
+		return 0, fmt.Errorf("invalid host ID format: %s", hostIDStr)
 	}
 	return hostID, nil
 }
@@ -3729,12 +3686,12 @@ func parseHostID(hostIDStr string) (uint, error) {
 // parseClusterID 将集群 ID 从字符串解析为 uint。
 func parseClusterID(clusterIDStr string) (uint, error) {
 	if clusterIDStr == "" {
-		return 0, fmt.Errorf("cluster ID is empty / 集群 ID 为空")
+		return 0, fmt.Errorf("cluster ID is empty")
 	}
 	var clusterID uint
 	_, err := fmt.Sscanf(clusterIDStr, "%d", &clusterID)
 	if err != nil {
-		return 0, fmt.Errorf("invalid cluster ID format: %s / 无效的集群 ID 格式: %s", clusterIDStr, clusterIDStr)
+		return 0, fmt.Errorf("invalid cluster ID format: %s", clusterIDStr)
 	}
 	return clusterID, nil
 }
@@ -3745,15 +3702,15 @@ func parseClusterID(clusterIDStr string) (uint, error) {
 // createInitialSteps 创建初始步骤列表。
 func createInitialSteps() []StepInfo {
 	return []StepInfo{
-		{Step: InstallStepDownload, Name: "download", Description: "Download package / 下载安装包", Status: StepStatusPending, Retryable: true},
-		{Step: InstallStepVerify, Name: "verify", Description: "Verify checksum / 验证校验和", Status: StepStatusPending, Retryable: true},
-		{Step: InstallStepExtract, Name: "extract", Description: "Extract package / 解压安装包", Status: StepStatusPending, Retryable: true},
-		{Step: InstallStepConfigureCluster, Name: "configure_cluster", Description: "Configure cluster / 配置集群", Status: StepStatusPending, Retryable: true},
-		{Step: InstallStepConfigureCheckpoint, Name: "configure_checkpoint", Description: "Configure checkpoint / 配置检查点", Status: StepStatusPending, Retryable: true},
-		{Step: InstallStepConfigureIMAP, Name: "configure_imap", Description: "Configure IMAP / 配置 IMAP", Status: StepStatusPending, Retryable: true},
-		{Step: InstallStepConfigureJVM, Name: "configure_jvm", Description: "Configure JVM / 配置 JVM", Status: StepStatusPending, Retryable: true},
-		{Step: InstallStepInstallPlugins, Name: "install_plugins", Description: "Install plugins / 安装插件", Status: StepStatusPending, Retryable: true},
-		{Step: InstallStepRegisterCluster, Name: "register_cluster", Description: "Register to cluster / 注册到集群", Status: StepStatusPending, Retryable: true},
+		{Step: InstallStepDownload, Name: "download", Description: "Download package", Status: StepStatusPending, Retryable: true},
+		{Step: InstallStepVerify, Name: "verify", Description: "Verify checksum", Status: StepStatusPending, Retryable: true},
+		{Step: InstallStepExtract, Name: "extract", Description: "Extract package", Status: StepStatusPending, Retryable: true},
+		{Step: InstallStepConfigureCluster, Name: "configure_cluster", Description: "Configure cluster", Status: StepStatusPending, Retryable: true},
+		{Step: InstallStepConfigureCheckpoint, Name: "configure_checkpoint", Description: "Configure checkpoint", Status: StepStatusPending, Retryable: true},
+		{Step: InstallStepConfigureIMAP, Name: "configure_imap", Description: "Configure IMAP", Status: StepStatusPending, Retryable: true},
+		{Step: InstallStepConfigureJVM, Name: "configure_jvm", Description: "Configure JVM", Status: StepStatusPending, Retryable: true},
+		{Step: InstallStepInstallPlugins, Name: "install_plugins", Description: "Install plugins", Status: StepStatusPending, Retryable: true},
+		{Step: InstallStepRegisterCluster, Name: "register_cluster", Description: "Register to cluster", Status: StepStatusPending, Retryable: true},
 		{Step: InstallStepComplete, Name: "complete", Description: "Complete / 完成", Status: StepStatusPending, Retryable: false},
 	}
 }
@@ -4031,12 +3988,12 @@ func (s *Service) transferPackageFileToAgent(ctx context.Context, agentID string
 	logger.InfoF(ctx, "[Installer] 开始传输安装包到 Agent / Start transferring package to Agent: agent=%s, version=%s", agentID, version)
 
 	if _, err := os.Stat(localPath); err != nil {
-		return "", "", fmt.Errorf("package not found: %s / 安装包未找到: %s", localPath, localPath)
+		return "", "", fmt.Errorf("package not found: %s", localPath)
 	}
 
 	checksum, size, err := s.cachedPackageChecksum(localPath)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to calculate checksum: %w / 计算校验和失败: %w", err, err)
+		return "", "", fmt.Errorf("failed to calculate checksum: %w", err)
 	}
 	hint, _ := s.getPreparedPackageRemotePath(agentID, version, localPath, checksum, size)
 
@@ -4051,7 +4008,7 @@ func (s *Service) transferPackageFileToAgent(ctx context.Context, agentID string
 		}
 		lastProgress = progress
 		s.installMu.Lock()
-		status.Message = fmt.Sprintf("Transferring package... %d%% / 正在传输安装包... %d%%", progress, progress)
+		status.Message = locale.Pick(ctx, fmt.Sprintf("正在传输安装包... %d%%", progress), fmt.Sprintf("Transferring package... %d%%", progress))
 		s.installMu.Unlock()
 	}
 
@@ -4067,12 +4024,11 @@ func (s *Service) transferPackageFileToAgent(ctx context.Context, agentID string
 			agentID, version, remotePath)
 		if status != nil {
 			s.installMu.Lock()
-			status.Message = "Reusing package already on Agent (checksum verified)... / 复用 Agent 上已有安装包（校验和已验证）..."
+			status.Message = "Reusing package already on Agent (checksum verified)..."
 			s.installMu.Unlock()
 		}
 	} else {
-		logger.InfoF(ctx, "[Installer] 安装包传输完成 / Package transfer completed: agent=%s, version=%s, remote_path=%s",
-			agentID, version, remotePath)
+		logger.InfoF(ctx, "Package transfer completed: agent=%s, version=%s, remote_path=%s", agentID, version, remotePath)
 	}
 
 	return remotePath, checksum, nil
@@ -4084,7 +4040,7 @@ func (s *Service) transferPackageFileToAgent(ctx context.Context, agentID string
 // (AC1b / AC1b2). An unreachable or old Agent yields an empty list without error so the UI falls back to custom entry.
 func (s *Service) ListJavaRuntimes(ctx context.Context, hostID uint) ([]javaruntime.Candidate, error) {
 	if s.hostProvider == nil {
-		return nil, fmt.Errorf("host provider not configured / 主机提供者未配置")
+		return nil, fmt.Errorf("host provider not configured")
 	}
 	hostInfo, err := s.hostProvider.GetHostByID(ctx, hostID)
 	if err != nil {
@@ -4095,7 +4051,7 @@ func (s *Service) ListJavaRuntimes(ctx context.Context, hostID uint) ([]javarunt
 	}
 	success, output, err := s.agentManager.SendCommand(ctx, hostInfo.AgentID, "list_java_homes", javaruntime.ListParams())
 	if err != nil {
-		logger.WarnF(ctx, "[Installer] list_java_homes failed for host %d: %v / 主机 %d 列出 JDK 失败: %v", hostID, err, hostID, err)
+		logger.WarnF(ctx, "[Installer] list_java_homes failed for host %d: %v", hostID, err)
 		return []javaruntime.Candidate{}, nil
 	}
 	list := javaruntime.ParseList(success, output)

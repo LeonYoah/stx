@@ -753,7 +753,7 @@ func (s *Service) StartNodeHealthEvaluator(ctx context.Context) {
 
 		for {
 			if err := s.EvaluateAvailabilityAlerts(ctx); err != nil {
-				log.Printf("[Monitoring] evaluate availability alerts failed: %v / 评估可用性告警失败: %v", err, err)
+				log.Printf("[Monitoring] evaluate availability alerts failed: %v", err)
 			}
 
 			select {

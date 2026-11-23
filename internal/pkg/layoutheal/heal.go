@@ -196,12 +196,12 @@ func Heal(_ context.Context, opts Options) (Result, error) {
 	for _, name := range binScriptNames {
 		content, err := fs.ReadFile(o.ScriptsFS, "bin/"+name)
 		if err != nil {
-			o.Logger("WARN", "读取内嵌脚本 %s 失败，跳过 / failed to read embedded script %s, skipped: %v", name, name, err)
+			o.Logger("WARN", "failed to read embedded script %s, skipped: %v", name, err)
 			continue
 		}
 		replaced, backup, err := install.InstallScriptIfChanged(binDir, name, content, o.Now())
 		if err != nil {
-			o.Logger("WARN", "刷新 %s 失败 / refresh %s failed: %v", name, name, err)
+			o.Logger("WARN", "refresh %s failed: %v", name, err)
 			continue
 		}
 		if replaced {
@@ -220,7 +220,7 @@ func Heal(_ context.Context, opts Options) (Result, error) {
 	if fileExists(obs) {
 		backup := obs + ".bak-" + backupTimestamp(o.Now())
 		if err := os.Rename(obs, backup); err != nil {
-			o.Logger("WARN", "移走 %s 失败 / failed to move %s away: %v", observabilityScript, observabilityScript, err)
+			o.Logger("WARN", "failed to move %s away: %v", observabilityScript, err)
 		} else {
 			res.Moved = append(res.Moved, observabilityScript)
 			res.Backups = append(res.Backups, backup)
@@ -228,8 +228,7 @@ func Heal(_ context.Context, opts Options) (Result, error) {
 	}
 
 	if len(res.Replaced) > 0 || len(res.Moved) > 0 {
-		o.Logger("INFO", "安装布局自修复完成：替换 %v，移走 %v，备份 %v / install layout healed: replaced %v, moved %v, backups %v",
-			res.Replaced, res.Moved, res.Backups, res.Replaced, res.Moved, res.Backups)
+		o.Logger("INFO", "install layout healed: replaced %v, moved %v, backups %v", res.Replaced, res.Moved, res.Backups)
 	}
 	return res, nil
 }

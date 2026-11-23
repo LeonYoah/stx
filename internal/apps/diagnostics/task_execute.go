@@ -4303,7 +4303,7 @@ func buildDiagnosticResourceFinding(state *diagnosticBundleExecutionState) diagn
 		Category: "resource",
 		Title:    bilingualText("资源侧信号总结", "Resource Signal Summary"),
 		Summary:  summary,
-		Impact:   bilingualText("覆盖 CPU / Heap / Old Gen / GC 等核心运行指标。", "Covers CPU, Heap, Old Gen and GC signals."),
+		Impact:   bilingualText("Heap / Old Gen", "Covers CPU, Heap, Old Gen and GC signals."),
 		Action:   buildDiagnosticSignalInterpretation(resourceSignals[0]),
 	}
 }

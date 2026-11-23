@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"strconv"
 	"strings"
 	"sync"
@@ -328,8 +329,7 @@ func (s *Service) pushMonitorConfigToHost(ctx context.Context, clusterID uint, h
 		pushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
 		if err := s.monitorPusher.PushClusterMonitorConfigToHost(pushCtx, clusterID, hostID); err != nil {
-			logger.WarnF(pushCtx, "[Cluster] 推送节点监控配置失败 / Failed to push node monitor config: cluster=%d, host=%d, error=%v",
-				clusterID, hostID, err)
+			logger.WarnF(pushCtx, "Failed to push node monitor config: cluster=%d, host=%d, error=%v", clusterID, hostID, err)
 		}
 	}()
 }
@@ -486,8 +486,7 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 	// Auto-create nodes from discovery if provided
 	// 如果提供了发现的节点，自动创建节点
 	if len(req.Nodes) > 0 {
-		logger.InfoF(ctx, "[Cluster] Auto-creating %d nodes from discovery for cluster %s / 为集群 %s 自动创建 %d 个发现的节点",
-			len(req.Nodes), cluster.Name, cluster.Name, len(req.Nodes))
+		logger.InfoF(ctx, "[Cluster] Auto-creating %d nodes from discovery for cluster %s", len(req.Nodes), cluster.Name)
 
 		for _, nodeReq := range req.Nodes {
 			// Convert role string to NodeRole
@@ -530,8 +529,7 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 			if err != nil {
 				// Log error but continue with other nodes
 				// 记录错误但继续处理其他节点
-				logger.ErrorF(ctx, "[Cluster] Failed to auto-create node for host %d: %v / 为主机 %d 自动创建节点失败: %v",
-					nodeReq.HostID, err, nodeReq.HostID, err)
+				logger.ErrorF(ctx, "[Cluster] Failed to auto-create node for host %d: %v", nodeReq.HostID, err)
 			} else {
 				if nodeReq.PID > 0 && createdNode != nil {
 					// Seed discovered PID and running status immediately to prevent pending status lock
@@ -785,7 +783,7 @@ func (s *Service) Delete(ctx context.Context, id uint, forceRemoveInstallDir boo
 // 再尽力在 master 节点停止托管的 stx-java-proxy；不阻断删除。
 func (s *Service) stopProcessesForDeletion(ctx context.Context, cluster *Cluster) {
 	if s.hostProvider == nil || s.agentSender == nil {
-		logger.WarnF(ctx, "[Cluster] Delete: skip notifying agents (hostProvider or agentSender not set) / 删除集群：未通知 Agent（主机提供者或命令发送器未配置）")
+		logger.WarnF(ctx, "[Cluster] Delete: skip notifying agents (hostProvider or agentSender not set)")
 		return
 	}
 	for _, node := range cluster.Nodes {
@@ -1641,7 +1639,7 @@ func (s *Service) GetNodeInstallDir(ctx context.Context, clusterID uint, hostID 
 		return "", err
 	}
 	if node == nil {
-		return "", fmt.Errorf("node not found for cluster %d and host %d / 未找到集群 %d 主机 %d 对应的节点", clusterID, hostID, clusterID, hostID)
+		return "", fmt.Errorf("node not found for cluster %d and host %d", clusterID, hostID)
 	}
 	return node.InstallDir, nil
 }
@@ -1693,10 +1691,10 @@ func (s *Service) UpdateNodeStatusByClusterAndHost(ctx context.Context, clusterI
 	// Find node by cluster ID and host ID / 根据集群 ID 和主机 ID 查找节点
 	node, err := s.repo.GetNodeByClusterAndHost(ctx, clusterID, hostID)
 	if err != nil {
-		return fmt.Errorf("failed to find node by cluster %d and host %d: %w / 根据集群 %d 和主机 %d 查找节点失败: %w", clusterID, hostID, err, clusterID, hostID, err)
+		return fmt.Errorf("failed to find node by cluster %d and host %d: %w", clusterID, hostID, err)
 	}
 	if node == nil {
-		return fmt.Errorf("node not found for cluster %d and host %d / 未找到集群 %d 主机 %d 对应的节点", clusterID, hostID, clusterID, hostID)
+		return fmt.Errorf("node not found for cluster %d and host %d", clusterID, hostID)
 	}
 
 	logger.InfoF(ctx, "[Cluster] UpdateNodeStatusByClusterAndHost: clusterID=%d, hostID=%d, nodeID=%d, oldStatus=%s, newStatus=%s",
@@ -1824,21 +1822,21 @@ func (s *Service) UpdateNode(ctx context.Context, clusterID uint, nodeID uint, r
 // error naming the node and path.
 func (s *Service) verifyNodeJavaRuntime(ctx context.Context, hostID uint, javaHome string) error {
 	if s.hostProvider == nil || s.agentSender == nil {
-		return fmt.Errorf("host provider or agent sender not configured / 主机提供者或 Agent 发送器未配置")
+		return fmt.Errorf("host provider or agent sender not configured")
 	}
 	hostInfo, err := s.hostProvider.GetHostByID(ctx, hostID)
 	if err != nil {
 		return err
 	}
 	if hostInfo == nil || !hostInfo.IsOnline(s.heartbeatTimeout) {
-		return fmt.Errorf("host %d is offline, cannot verify JDK / 主机 %d 离线，无法校验 JDK", hostID, hostID)
+		return fmt.Errorf("host %d is offline, cannot verify JDK", hostID)
 	}
 	if hostInfo.AgentID == "" {
 		return fmt.Errorf("host %d has no agent, cannot verify JDK / 主机 %d 未安装 Agent，无法校验 JDK", hostID, hostID)
 	}
 	success, output, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "check_java", javaruntime.CheckParams(javaHome))
 	if err != nil {
-		return fmt.Errorf("check node JDK / 检查节点 JDK: %w", err)
+		return fmt.Errorf("check node JDK: %w", err)
 	}
 	rt := javaruntime.Interpret(javaHome, success, output)
 	if rt.Status == javaruntime.StatusFailed {
@@ -1849,18 +1847,18 @@ func (s *Service) verifyNodeJavaRuntime(ctx context.Context, hostID uint, javaHo
 
 func (s *Service) syncNodeRuntimeAPIPort(ctx context.Context, clusterID uint, node *ClusterNode, previousAPIPort int) error {
 	if node == nil {
-		return fmt.Errorf("node is required / 节点不能为空")
+		return fmt.Errorf("node is required")
 	}
 	if s.configAgentClient == nil {
-		return fmt.Errorf("config agent client not configured / 配置 Agent 客户端未配置")
+		return fmt.Errorf("config agent client not configured")
 	}
 	if node.HostID == 0 {
-		return fmt.Errorf("node host id is required / 节点 HostID 不能为空")
+		return fmt.Errorf("node host id is required")
 	}
 
 	installDir := strings.TrimSpace(node.InstallDir)
 	if installDir == "" {
-		return fmt.Errorf("node install_dir is required / 节点安装目录不能为空")
+		return fmt.Errorf("node install_dir is required")
 	}
 
 	content, err := s.configAgentClient.PullConfig(ctx, node.HostID, installDir, appconfig.ConfigTypeSeatunnel)
@@ -2181,7 +2179,7 @@ func (s *Service) executeOperation(ctx context.Context, clusterID uint, operatio
 						// Same wait-timeout trap on header cluster restart marks the whole op as errors (#186).
 						if operation == OperationRestart && isAgentCommandTimeout(err) {
 							nodeResult.Success = true
-							nodeResult.Message = "restart accepted; agent response timed out / 已受理，Agent 响应超时"
+							nodeResult.Message = locale.Pick(ctx, "已受理，Agent 响应超时", "restart accepted; agent response timed out")
 						} else {
 							nodeResult.Success = false
 							nodeResult.Message = "Failed to send command: " + err.Error()
@@ -2262,7 +2260,7 @@ func (s *Service) PrecheckNode(ctx context.Context, clusterID uint, req *Prechec
 	if s.hostProvider == nil {
 		return &PrecheckResult{
 			Success: false,
-			Message: "Host provider not configured / 主机提供者未配置",
+			Message: locale.Pick(ctx, "主机提供者未配置", "Host provider not configured"),
 			Checks:  []*PrecheckCheckItem{},
 		}, nil
 	}
@@ -2286,22 +2284,22 @@ func (s *Service) PrecheckNode(ctx context.Context, clusterID uint, req *Prechec
 	}
 	if hostInfo.AgentStatus != "installed" {
 		agentCheck.Status = PrecheckStatusFailed
-		agentCheck.Message = "Agent is not installed / Agent 未安装"
+		agentCheck.Message = locale.Pick(ctx, "Agent 未安装", "Agent is not installed")
 		result.Success = false
 	} else if !hostInfo.IsOnline(s.heartbeatTimeout) {
 		agentCheck.Status = PrecheckStatusFailed
-		agentCheck.Message = "Agent is offline / Agent 离线"
+		agentCheck.Message = locale.Pick(ctx, "Agent 离线", "Agent is offline")
 		result.Success = false
 	} else {
 		agentCheck.Status = PrecheckStatusPassed
-		agentCheck.Message = "Agent is installed and online / Agent 已安装且在线"
+		agentCheck.Message = locale.Pick(ctx, "Agent 已安装且在线", "Agent is installed and online")
 	}
 	result.Checks = append(result.Checks, agentCheck)
 
 	// If agent is not available, skip remaining checks
 	// 如果 Agent 不可用，跳过剩余检查
 	if agentCheck.Status == PrecheckStatusFailed {
-		result.Message = "Agent is not available, cannot perform precheck / Agent 不可用，无法执行预检查"
+		result.Message = locale.Pick(ctx, "Agent 不可用，无法执行预检查", "Agent is not available, cannot perform precheck")
 		return result, nil
 	}
 
@@ -2319,23 +2317,23 @@ func (s *Service) PrecheckNode(ctx context.Context, clusterID uint, req *Prechec
 		success, _, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "check_port", params)
 		if err != nil {
 			portCheck.Status = PrecheckStatusFailed
-			portCheck.Message = fmt.Sprintf("Failed to check port: %v / 检查端口失败: %v", err, err)
+			portCheck.Message = locale.Pick(ctx, fmt.Sprintf("检查端口失败: %v", err), fmt.Sprintf("Failed to check port: %v", err))
 			result.Success = false
 		} else if success {
 			// Port is listening = SeaTunnel service is running = PASSED
 			// 端口正在监听 = SeaTunnel 服务正在运行 = 通过
 			portCheck.Status = PrecheckStatusPassed
-			portCheck.Message = fmt.Sprintf("Port %d is listening (SeaTunnel is running) / 端口 %d 正在监听（SeaTunnel 正在运行）", req.HazelcastPort, req.HazelcastPort)
+			portCheck.Message = locale.Pick(ctx, fmt.Sprintf("端口 %d 正在监听（SeaTunnel 正在运行）", req.HazelcastPort), fmt.Sprintf("Port %d is listening (SeaTunnel is running)", req.HazelcastPort))
 		} else {
 			// Port is not listening = SeaTunnel service is not running = FAILED
 			// 端口未监听 = SeaTunnel 服务未运行 = 失败
 			portCheck.Status = PrecheckStatusFailed
-			portCheck.Message = fmt.Sprintf("Port %d is not listening (SeaTunnel is not running) / 端口 %d 未监听（SeaTunnel 未运行）", req.HazelcastPort, req.HazelcastPort)
+			portCheck.Message = locale.Pick(ctx, fmt.Sprintf("端口 %d 未监听（SeaTunnel 未运行）", req.HazelcastPort), fmt.Sprintf("Port %d is not listening (SeaTunnel is not running)", req.HazelcastPort))
 			result.Success = false
 		}
 	} else {
 		portCheck.Status = PrecheckStatusSkipped
-		portCheck.Message = "Agent command sender not configured / Agent 命令发送器未配置"
+		portCheck.Message = locale.Pick(ctx, "Agent 命令发送器未配置", "Agent command sender not configured")
 	}
 	result.Checks = append(result.Checks, portCheck)
 
@@ -2355,19 +2353,19 @@ func (s *Service) PrecheckNode(ctx context.Context, clusterID uint, req *Prechec
 		success, _, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "check_directory", params)
 		if err != nil {
 			dirCheck.Status = PrecheckStatusFailed
-			dirCheck.Message = fmt.Sprintf("Failed to check directory: %v / 检查目录失败: %v", err, err)
+			dirCheck.Message = locale.Pick(ctx, fmt.Sprintf("检查目录失败: %v", err), fmt.Sprintf("Failed to check directory: %v", err))
 			result.Success = false
 		} else if success {
 			dirCheck.Status = PrecheckStatusPassed
-			dirCheck.Message = fmt.Sprintf("Directory %s exists and is writable / 目录 %s 存在且可写", installDir, installDir)
+			dirCheck.Message = locale.Pick(ctx, fmt.Sprintf("目录 %s 存在且可写", installDir), fmt.Sprintf("Directory %s exists and is writable", installDir))
 		} else {
 			dirCheck.Status = PrecheckStatusFailed
-			dirCheck.Message = fmt.Sprintf("Directory %s does not exist or is not writable / 目录 %s 不存在或不可写", installDir, installDir)
+			dirCheck.Message = locale.Pick(ctx, fmt.Sprintf("目录 %s 不存在或不可写", installDir), fmt.Sprintf("Directory %s does not exist or is not writable", installDir))
 			result.Success = false
 		}
 	} else {
 		dirCheck.Status = PrecheckStatusSkipped
-		dirCheck.Message = "Agent command sender not configured / Agent 命令发送器未配置"
+		dirCheck.Message = locale.Pick(ctx, "Agent 命令发送器未配置", "Agent command sender not configured")
 	}
 	result.Checks = append(result.Checks, dirCheck)
 
@@ -2396,7 +2394,7 @@ func (s *Service) PrecheckNode(ctx context.Context, clusterID uint, req *Prechec
 		}
 	} else {
 		apiV1Check.Status = PrecheckStatusSkipped
-		apiV1Check.Message = "Agent command sender not configured / Agent 命令发送器未配置"
+		apiV1Check.Message = locale.Pick(ctx, "Agent 命令发送器未配置", "Agent command sender not configured")
 	}
 	result.Checks = append(result.Checks, apiV1Check)
 
@@ -2426,7 +2424,7 @@ func (s *Service) PrecheckNode(ctx context.Context, clusterID uint, req *Prechec
 			}
 		} else {
 			apiV2Check.Status = PrecheckStatusSkipped
-			apiV2Check.Message = "Agent command sender not configured / Agent 命令发送器未配置"
+			apiV2Check.Message = locale.Pick(ctx, "Agent 命令发送器未配置", "Agent command sender not configured")
 		}
 		result.Checks = append(result.Checks, apiV2Check)
 	}
@@ -2434,9 +2432,9 @@ func (s *Service) PrecheckNode(ctx context.Context, clusterID uint, req *Prechec
 	// Set overall message
 	// 设置总体消息
 	if result.Success {
-		result.Message = "All precheck passed / 所有预检查通过"
+		result.Message = locale.Pick(ctx, "所有预检查通过", "All precheck passed")
 	} else {
-		result.Message = "Some precheck failed / 部分预检查失败"
+		result.Message = locale.Pick(ctx, "部分预检查失败", "Some precheck failed")
 	}
 
 	return result, nil
@@ -2643,10 +2641,10 @@ func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint,
 func (s *Service) StartNodeByClusterAndHost(ctx context.Context, clusterID uint, hostID uint) (bool, string, error) {
 	node, err := s.repo.GetNodeByClusterAndHost(ctx, clusterID, hostID)
 	if err != nil {
-		return false, "", fmt.Errorf("failed to find node: %w / 查找节点失败: %w", err, err)
+		return false, "", fmt.Errorf("failed to find node: %w", err)
 	}
 	if node == nil {
-		return false, "", fmt.Errorf("node not found for cluster %d and host %d / 未找到集群 %d 主机 %d 对应的节点", clusterID, hostID, clusterID, hostID)
+		return false, "", fmt.Errorf("node not found for cluster %d and host %d", clusterID, hostID)
 	}
 	result, err := s.executeNodeOperation(ctx, clusterID, node.ID, OperationStart)
 	if err != nil {
@@ -2677,10 +2675,10 @@ func (s *Service) StartNodeByClusterAndHostAndRole(ctx context.Context, clusterI
 
 	node, err := s.repo.GetNodeByClusterAndHostAndRole(ctx, clusterID, hostID, string(normalizedRole))
 	if err != nil {
-		return false, "", fmt.Errorf("failed to find node: %w / 查找节点失败: %w", err, err)
+		return false, "", fmt.Errorf("failed to find node: %w", err)
 	}
 	if node == nil {
-		return false, "", fmt.Errorf("node not found for cluster %d, host %d, role %s / 未找到集群 %d 主机 %d 角色 %s 对应的节点", clusterID, hostID, normalizedRole, clusterID, hostID, normalizedRole)
+		return false, "", fmt.Errorf("node not found for cluster %d, host %d, role %s", clusterID, hostID, normalizedRole)
 	}
 	result, err := s.executeNodeOperation(ctx, clusterID, node.ID, OperationStart)
 	if err != nil {
@@ -2706,7 +2704,7 @@ func (s *Service) RestartNode(ctx context.Context, clusterID uint, nodeID uint) 
 
 func (s *Service) restartNodeWithResolvedSpec(ctx context.Context, clusterID uint, node *ClusterNode) (*OperationResult, error) {
 	if node == nil {
-		return nil, fmt.Errorf("node is required / 节点不能为空")
+		return nil, fmt.Errorf("node is required")
 	}
 	cluster, err := s.repo.GetByID(ctx, clusterID, false)
 	if err != nil {
@@ -2756,7 +2754,7 @@ func (s *Service) executeNodeOperationWithResolvedNode(ctx context.Context, clus
 	if s.hostProvider != nil {
 		hostInfo, err := s.hostProvider.GetHostByID(ctx, node.HostID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get host information: %w / 获取主机信息失败: %w", err, err)
+			return nil, fmt.Errorf("failed to get host information: %w", err)
 		}
 
 		nodeResult.HostName = hostInfo.Name
@@ -2764,19 +2762,19 @@ func (s *Service) executeNodeOperationWithResolvedNode(ctx context.Context, clus
 		// Check if host is online - return error immediately if offline
 		// 检查主机是否在线 - 如果离线立即返回错误
 		if !hostInfo.IsOnline(s.heartbeatTimeout) {
-			return nil, fmt.Errorf("host '%s' is offline, cannot execute %s operation / 主机 '%s' 离线，无法执行 %s 操作", hostInfo.Name, operation, hostInfo.Name, operation)
+			return nil, fmt.Errorf("host '%s' is offline, cannot execute %s operation", hostInfo.Name, operation)
 		}
 
 		// Check if agent is connected
 		// 检查 Agent 是否已连接
 		if hostInfo.AgentID == "" {
-			return nil, fmt.Errorf("agent not installed on host '%s' / 主机 '%s' 未安装 Agent", hostInfo.Name, hostInfo.Name)
+			return nil, fmt.Errorf("agent not installed on host '%s'", hostInfo.Name)
 		}
 
 		// Check if agent sender is available
 		// 检查 Agent 发送器是否可用
 		if s.agentSender == nil {
-			return nil, fmt.Errorf("agent sender not configured / Agent 发送器未配置")
+			return nil, fmt.Errorf("agent sender not configured")
 		}
 
 		// Send command to agent
@@ -2802,9 +2800,9 @@ func (s *Service) executeNodeOperationWithResolvedNode(ctx context.Context, clus
 			// Do not elevate restart wait-timeout to a hard 500; accept and let events/poll converge (#186).
 			if operation == OperationRestart && isAgentCommandTimeout(err) {
 				nodeResult.Success = true
-				nodeResult.Message = "restart accepted; agent response timed out / 已受理，Agent 响应超时"
+				nodeResult.Message = locale.Pick(ctx, "已受理，Agent 响应超时", "restart accepted; agent response timed out")
 			} else {
-				return nil, fmt.Errorf("failed to send command to agent: %w / 向 Agent 发送命令失败: %w", err, err)
+				return nil, fmt.Errorf("failed to send command to agent: %w", err)
 			}
 		} else {
 			nodeResult.Success = success
@@ -2817,7 +2815,7 @@ func (s *Service) executeNodeOperationWithResolvedNode(ctx context.Context, clus
 			}
 		}
 	} else {
-		return nil, fmt.Errorf("host provider not configured / 主机提供者未配置")
+		return nil, fmt.Errorf("host provider not configured")
 	}
 
 	// Update node status based on operation
@@ -2898,13 +2896,13 @@ func finalizeLifecycleOperationResult(result *OperationResult) {
 	result.Success = total > 0 && succeeded == total
 	switch {
 	case total == 0:
-		result.Message = "No nodes to operate / 没有可操作的节点"
+		result.Message = "No nodes to operate"
 	case succeeded == total:
-		result.Message = "Operation completed successfully / 操作成功完成"
+		result.Message = "Operation completed successfully"
 	case succeeded == 0:
-		result.Message = fmt.Sprintf("Operation failed on all %d nodes / 全部 %d 个节点失败", total, total)
+		result.Message = fmt.Sprintf("Operation failed on all %d nodes", total)
 	default:
-		result.Message = fmt.Sprintf("Partial failure: %d/%d nodes succeeded / 部分失败：%d/%d 个节点成功", succeeded, total, succeeded, total)
+		result.Message = fmt.Sprintf("Partial failure: %d/%d nodes succeeded", succeeded, total)
 	}
 }
 
@@ -2989,7 +2987,7 @@ func (s *Service) GetNodeLogs(ctx context.Context, clusterID uint, nodeID uint, 
 	// Get host information
 	// 获取主机信息
 	if s.hostProvider == nil {
-		return "", fmt.Errorf("host provider not configured / 主机提供者未配置")
+		return "", fmt.Errorf("host provider not configured")
 	}
 
 	hostInfo, err := s.hostProvider.GetHostByID(ctx, node.HostID)
@@ -2998,11 +2996,11 @@ func (s *Service) GetNodeLogs(ctx context.Context, clusterID uint, nodeID uint, 
 	}
 
 	if !hostInfo.IsOnline(s.heartbeatTimeout) {
-		return "", fmt.Errorf("host is offline / 主机离线")
+		return "", fmt.Errorf("host is offline")
 	}
 
 	if s.agentSender == nil || hostInfo.AgentID == "" {
-		return "", fmt.Errorf("agent sender not configured / Agent 发送器未配置")
+		return "", fmt.Errorf("agent sender not configured")
 	}
 
 	// Determine log file based on deployment mode and role
@@ -3059,11 +3057,11 @@ func (s *Service) GetNodeLogs(ctx context.Context, clusterID uint, nodeID uint, 
 
 	success, message, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "get_logs", params)
 	if err != nil {
-		return "", fmt.Errorf("failed to get logs: %v / 获取日志失败: %v", err, err)
+		return "", fmt.Errorf("failed to get logs: %v", err)
 	}
 
 	if !success {
-		return "", fmt.Errorf("failed to get logs: %s / 获取日志失败: %s", message, message)
+		return "", fmt.Errorf("failed to get logs: %s", message)
 	}
 
 	return message, nil

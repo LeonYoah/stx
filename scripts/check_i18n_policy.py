@@ -105,6 +105,7 @@ def iter_literals(text: str, allow_single_quote: bool):
         if ch in ('"', "`") or (allow_single_quote and ch == "'"):
             quote = ch
             start_line = line
+            span_start = i
             i += 1
             buf = []
             while i < n:
@@ -143,7 +144,7 @@ def iter_literals(text: str, allow_single_quote: bool):
                     break
                 buf.append(c)
                 i += 1
-            yield start_line, "".join(buf)
+            yield start_line, "".join(buf), span_start, i
             continue
         i += 1
 
@@ -206,7 +207,7 @@ def scan_go_source(path: str, text: str) -> list[Violation]:
                 violations.append(
                     Violation(path, line_no, RULE_RAW_LOCALE, m.group(0))
                 )
-    for start_line, literal in iter_literals(text, allow_single_quote=False):
+    for start_line, literal, _, _ in iter_literals(text, allow_single_quote=False):
         for pos in bilingual_slash_positions(literal):
             line_no = start_line + literal.count("\n", 0, pos)
             if line_has_ignore(source_lines, line_no) or line_has_ignore(
@@ -228,7 +229,7 @@ def scan_go_source(path: str, text: str) -> list[Violation]:
 def scan_ts_source(path: str, text: str) -> list[Violation]:
     violations = []
     source_lines = text.splitlines()
-    for start_line, literal in iter_literals(text, allow_single_quote=True):
+    for start_line, literal, _, _ in iter_literals(text, allow_single_quote=True):
         for pos in bilingual_slash_positions(literal):
             line_no = start_line + literal.count("\n", 0, pos)
             if line_has_ignore(source_lines, line_no) or line_has_ignore(
@@ -285,7 +286,7 @@ def scan_line(rel_path: str, line_text: str, line_no: int) -> list[Violation]:
                 Violation(rel_path, line_no, RULE_RAW_LOCALE, m.group(0))
             )
     if _is_go_file(rel_path) or _is_frontend_file(rel_path):
-        for _, literal in iter_literals(
+        for _, literal, _, _ in iter_literals(
             line_text, allow_single_quote=_is_frontend_file(rel_path)
         ):
             if bilingual_slash_positions(literal):

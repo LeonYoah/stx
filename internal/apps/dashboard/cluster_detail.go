@@ -232,16 +232,16 @@ type DetailEvent struct {
 // ClusterDetail 是 GET /api/v1/dashboard/home/clusters/detail 的返回。
 // ClusterDetail is the payload of GET /api/v1/dashboard/home/clusters/detail.
 type ClusterDetail struct {
-	Source      string `json:"source"`
-	Reason      string `json:"reason,omitempty"`
-	Range       string `json:"range"`
-	StartMs     int64  `json:"start_ms"`
-	EndMs       int64  `json:"end_ms"`
-	StepSeconds int    `json:"step_seconds"`
-	Group          string        `json:"group"`
-	Panels         []DetailPanel `json:"panels"`
-	Events         []DetailEvent `json:"events"`
-	PartialErrors  []string      `json:"partial_errors,omitempty"`
+	Source        string        `json:"source"`
+	Reason        string        `json:"reason,omitempty"`
+	Range         string        `json:"range"`
+	StartMs       int64         `json:"start_ms"`
+	EndMs         int64         `json:"end_ms"`
+	StepSeconds   int           `json:"step_seconds"`
+	Group         string        `json:"group"`
+	Panels        []DetailPanel `json:"panels"`
+	Events        []DetailEvent `json:"events"`
+	PartialErrors []string      `json:"partial_errors,omitempty"`
 }
 
 // detailTask 是一条并发执行的面板查询。

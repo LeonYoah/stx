@@ -70,17 +70,17 @@ class TestBilingualRule(unittest.TestCase):
 class TestIterLiterals(unittest.TestCase):
     def test_skips_comments(self):
         src = '// "中文注释 / English comment"\ns := "clean"\n/* "注释两块 / Block two" */'
-        lits = [lit for _, lit in pol.iter_literals(src, allow_single_quote=False)]
+        lits = [lit for _, lit, _, _ in pol.iter_literals(src, allow_single_quote=False)]
         self.assertEqual(lits, ["clean"])
 
     def test_template_strips_holes(self):
         src = "const s = `${Math.floor(a / 60)} 分 ${b} 秒`;"
-        lits = [lit for _, lit in pol.iter_literals(src, allow_single_quote=True)]
+        lits = [lit for _, lit, _, _ in pol.iter_literals(src, allow_single_quote=True)]
         self.assertEqual(lits, ["  分   秒"])
 
     def test_go_raw_and_basic(self):
         src = 'a := "x / y"\nb := `raw / str`\nc := \'r\''
-        lits = [lit for _, lit in pol.iter_literals(src, allow_single_quote=False)]
+        lits = [lit for _, lit, _, _ in pol.iter_literals(src, allow_single_quote=False)]
         self.assertEqual(lits, ["x / y", "raw / str"])
 
 

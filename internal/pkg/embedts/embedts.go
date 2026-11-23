@@ -270,15 +270,15 @@ func OptionsFromObservability(ctx context.Context, obs config.ObservabilityConfi
 // instance 持有一份已打开的内嵌存储与查询引擎。
 // instance holds one opened embedded storage + query engine pair.
 type instance struct {
-	opts      Options
-	db        *tsdb.DB
-	engine    *promql.Engine
+	opts   Options
+	db     *tsdb.DB
+	engine *promql.Engine
 	// engineLong 与 engine 同一存储，但超时放宽到 query_timeout ×4，专供跨度 >31d 的长窗口查询。
 	// engineLong shares the store with engine but relaxes the timeout to query_timeout ×4,
 	// reserved for spans beyond 31d.
 	engineLong *promql.Engine
-	queryable storage.Queryable
-	registry  *prometheus.Registry
+	queryable  storage.Queryable
+	registry   *prometheus.Registry
 	// scraper 是挂在实例上的抓取循环；Close 时先停它再关 db。
 	// scraper is the scrape loop attached to the instance; Close stops it before closing the db.
 	scraper *scraper

@@ -24,9 +24,9 @@ import (
 
 func TestNormalize(t *testing.T) {
 	cases := []struct {
-		raw     string
-		want    Locale
-		wantOK  bool
+		raw    string
+		want   Locale
+		wantOK bool
 	}{
 		{"zh", ZH, true},
 		{"zh-CN", ZH, true},
@@ -51,10 +51,10 @@ func TestNormalize(t *testing.T) {
 
 func TestParseAcceptLanguage(t *testing.T) {
 	cases := []struct {
-		name    string
-		header  string
-		want    Locale
-		wantOK  bool
+		name   string
+		header string
+		want   Locale
+		wantOK bool
 	}{
 		{"empty", "", "", false},
 		{"wildcard", "*", "", false},

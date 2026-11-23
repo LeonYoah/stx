@@ -212,4 +212,3 @@ func TestHighFrequencyCompositeIndexes(t *testing.T) {
 		})
 	}
 }
-

@@ -295,13 +295,13 @@ func (e *MetricEvaluator) updateRuleGroups(ctx context.Context) {
 	if slices.Contains(e.sources, managedMetricRulesSource) {
 		groups, err := e.buildManagedRuleGroups(ctx)
 		if err != nil {
-			logger.WarnF(ctx, "[Observability] 指标策略规则组重建失败，沿用上一轮规则集: %v / managed metric rule group rebuild failed, keeping previous set: %v", err, err)
+			logger.WarnF(ctx, "managed metric rule group rebuild failed, keeping previous set: %v", err)
 			return
 		}
 		e.loader.setGroups(managedMetricRulesSource, groups)
 	}
 	if err := e.manager.Update(e.opts.Interval, e.sources, labels.EmptyLabels(), "", nil); err != nil {
-		logger.WarnF(ctx, "[Observability] 规则组更新失败: %v / rule group update failed: %v", err, err)
+		logger.WarnF(ctx, "rule group update failed: %v", err)
 	}
 }
 
@@ -452,7 +452,7 @@ func (e *MetricEvaluator) dispatchLoop() {
 				continue
 			}
 			if err := e.service.ingestRemoteAlertRecord(e.ctx, record); err != nil {
-				logger.WarnF(e.ctx, "[Observability] 内置告警投递失败: %v / builtin alert delivery failed: %v", err, err)
+				logger.WarnF(e.ctx, "builtin alert delivery failed: %v", err)
 			}
 		}
 	}

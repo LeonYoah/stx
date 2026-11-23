@@ -32,7 +32,7 @@ import (
 // FindClusterByInstallDir matches an already-managed cluster by host install directory (discovery.ClusterMatcher).
 func (s *Service) FindClusterByInstallDir(ctx context.Context, hostID uint, installDir string) (clusterID uint, nodeID uint, found bool, err error) {
 	if s == nil || s.repo == nil {
-		return 0, 0, false, fmt.Errorf("cluster service not configured / 集群服务未配置")
+		return 0, 0, false, fmt.Errorf("cluster service not configured")
 	}
 	installDir = strings.TrimSpace(installDir)
 	if hostID == 0 || installDir == "" {
@@ -45,17 +45,17 @@ func (s *Service) FindClusterByInstallDir(ctx context.Context, hostID uint, inst
 // CreateClusterFromDiscovery creates a cluster from a discovery result and persists node java_home (AC1e).
 func (s *Service) CreateClusterFromDiscovery(ctx context.Context, hostID uint, dc *discovery.DiscoveredCluster) (uint, error) {
 	if s == nil {
-		return 0, fmt.Errorf("cluster service not configured / 集群服务未配置")
+		return 0, fmt.Errorf("cluster service not configured")
 	}
 	if dc == nil {
-		return 0, fmt.Errorf("discovered cluster is nil / 发现的集群为空")
+		return 0, fmt.Errorf("discovered cluster is nil")
 	}
 	if hostID == 0 {
-		return 0, fmt.Errorf("host id is required / 主机 ID 必填")
+		return 0, fmt.Errorf("host id is required")
 	}
 	installDir := strings.TrimSpace(dc.InstallDir)
 	if installDir == "" {
-		return 0, fmt.Errorf("install directory is required / 安装目录必填")
+		return 0, fmt.Errorf("install directory is required")
 	}
 
 	mode := inferDeploymentModeFromDiscovery(dc)
@@ -134,7 +134,7 @@ func (s *Service) CreateClusterFromDiscovery(ctx context.Context, hostID uint, d
 // UpdateNodeFromDiscovery updates an existing node from a discovered process (PID / running).
 func (s *Service) UpdateNodeFromDiscovery(ctx context.Context, nodeID uint, node *discovery.DiscoveredNode) error {
 	if s == nil || s.repo == nil {
-		return fmt.Errorf("cluster service not configured / 集群服务未配置")
+		return fmt.Errorf("cluster service not configured")
 	}
 	if node == nil || nodeID == 0 {
 		return nil

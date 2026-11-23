@@ -251,7 +251,7 @@ func TestRolloutProxyJarsOnlyForUpgradedAgents(t *testing.T) {
 	if got := nodeByHost(nodes, 1); got.ProxyStatus != ProxyUpdated {
 		t.Errorf("host1 proxy = %s %s", got.ProxyStatus, got.ProxyMessage)
 	}
-	if got := nodeByHost(nodes, 2); got.ProxyStatus != ProxySkipped || !strings.Contains(got.ProxyMessage, "agent not upgraded") {
+	if got := nodeByHost(nodes, 2); got.ProxyStatus != ProxySkipped || !strings.Contains(got.ProxyMessage, "Agent 未升级") {
 		t.Errorf("host2 proxy = %s %s", got.ProxyStatus, got.ProxyMessage)
 	}
 	if got := nodeByHost(nodes, 3); got.ProxyStatus != ProxySkipped || !strings.Contains(got.ProxyMessage, "no stx-java-proxy") {
@@ -377,7 +377,7 @@ func TestDryRunListsAgentPlanWithoutChanges(t *testing.T) {
 					agentStep = st
 				}
 			}
-			if !strings.Contains(agentStep.Message, "1/2 agent(s) would be upgraded") {
+			if !strings.Contains(agentStep.Message, "1/2 个 Agent 将会升级") {
 				t.Fatalf("agent step message = %s", agentStep.Message)
 			}
 			if len(got.AgentNodes) != 2 || got.AgentNodes[0].Status != NodeUpgradeSkipped {

@@ -146,8 +146,7 @@ func reapOnce(installDir string, proc legacyProc) bool {
 	if err != nil {
 		// 读不到身份宁可等下一轮，也不误发信号。
 		// Fail-safe: when the identity cannot be read, wait for the next sweep instead of signaling.
-		reapLogf("WARN", "读取 %s(pid=%d) 进程身份失败，下轮重试 / failed to read process identity for %s (pid=%d), retrying: %v",
-			proc.pidFile, pid, proc.pidFile, pid, err)
+		reapLogf("WARN", "failed to read process identity for %s (pid=%d), retrying: %v", proc.pidFile, pid, err)
 		return false
 	}
 	if !nameAllowed(name, proc.names) {

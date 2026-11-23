@@ -120,7 +120,7 @@ func TestJobReconcilerMarksOrphanedRunningJobFailed(t *testing.T) {
 	if stored.Status != JobStatusFailed {
 		t.Fatalf("expected failed orphan, got %s", stored.Status)
 	}
-	if !strings.Contains(stored.ErrorMessage, "engine no longer has this job") {
+	if !strings.Contains(stored.ErrorMessage, "引擎已无此作业") {
 		t.Fatalf("unexpected error message: %q", stored.ErrorMessage)
 	}
 	// 结束时间必须是当前时刻：以前按服务器本地时区格式化成无偏移字符串，再按 SeaTunnel 时区解析，偏了 8 小时。
@@ -157,7 +157,6 @@ func (o *orphanEngineClient) ListRunningJobs(ctx context.Context, endpoint *Engi
 func (o *orphanEngineClient) ListFinishedJobs(ctx context.Context, endpoint *EngineEndpoint, state string) ([]*EngineJobListItem, error) {
 	return []*EngineJobListItem{}, nil
 }
-
 
 func TestJobReconcilerUsesSubmitSpecEndpointWithoutClusterID(t *testing.T) {
 	service := newTestSyncService(t)

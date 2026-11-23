@@ -41,9 +41,9 @@ func FormatJobMetricsLogBlock(metrics map[string]interface{}, at time.Time, fina
 	if at.IsZero() {
 		at = time.Now().UTC()
 	}
-	title := "STX metrics snapshot / 任务指标快照"
+	title := "STX metrics snapshot"
 	if final {
-		title = "STX metrics final / 任务终态指标"
+		title = "STX metrics final"
 	}
 	readCount := metricNumber(metrics, "SourceReceivedCount")
 	writeCount := metricNumber(metrics, "SinkWriteCount")

@@ -460,9 +460,9 @@ func formatCLIJobMetricsBlock(preview map[string]interface{}, at time.Time, fina
 	if len(metrics) == 0 {
 		return ""
 	}
-	title := "STX metrics snapshot / 任务指标快照"
+	title := "STX metrics snapshot"
 	if final {
-		title = "STX metrics final / 任务终态指标"
+		title = "STX metrics final"
 	}
 	read := cliMetricString(metrics, "SourceReceivedCount")
 	write := cliMetricString(metrics, "SinkWriteCount")

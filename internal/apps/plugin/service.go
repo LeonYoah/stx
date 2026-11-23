@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"io"
 	"net/http"
 	"os"
@@ -42,14 +43,14 @@ import (
 
 // Common service errors / 常见服务错误
 var (
-	ErrInvalidVersion      = errors.New("invalid version / 无效的版本号")
-	ErrInvalidMirror       = errors.New("invalid mirror source / 无效的镜像源")
-	ErrPluginNotAvailable  = errors.New("plugin not available / 插件不可用")
-	ErrClusterNotFound     = errors.New("cluster not found / 集群未找到")
-	ErrPluginAlreadyExists = errors.New("plugin already installed / 插件已安装")
-	ErrVersionMismatch     = errors.New("plugin version does not match cluster version / 插件版本与集群版本不匹配")
-	ErrClusterVersionEmpty = errors.New("cluster version is not set / 集群版本未设置")
-	ErrInstallInProgress   = errors.New("plugin install already in progress / 插件安装已在进行中")
+	ErrInvalidVersion      = errors.New("invalid version")
+	ErrInvalidMirror       = errors.New("invalid mirror source")
+	ErrPluginNotAvailable  = errors.New("plugin not available")
+	ErrClusterNotFound     = errors.New("cluster not found")
+	ErrPluginAlreadyExists = errors.New("plugin already installed")
+	ErrVersionMismatch     = errors.New("plugin version does not match cluster version")
+	ErrClusterVersionEmpty = errors.New("cluster version is not set")
+	ErrInstallInProgress   = errors.New("plugin install already in progress")
 )
 
 // SeaTunnel Maven repository and documentation URLs
@@ -326,7 +327,7 @@ func (s *Service) pluginsFromBundledSeed(version string) []Plugin {
 			DisplayName: firstNonEmpty(item.DisplayName, strings.Title(strings.ReplaceAll(name, "-", " "))),
 			Category:    PluginCategoryConnector,
 			Version:     version,
-			Description: fmt.Sprintf("SeaTunnel %s connector / SeaTunnel %s 连接器", firstNonEmpty(item.DisplayName, name), firstNonEmpty(item.DisplayName, name)),
+			Description: fmt.Sprintf("SeaTunnel %s connector", firstNonEmpty(item.DisplayName, name)),
 			GroupID:     firstNonEmpty(item.GroupID, "org.apache.seatunnel"),
 			ArtifactID:  artifactID,
 			DocURL:      docURL,
@@ -374,11 +375,11 @@ func (s *Service) fetchPluginsFromDocs(ctx context.Context, version string, mirr
 	// Fetch connectors from Maven repo / 从 Maven 仓库获取连接器
 	connectors, usedMirror, err := s.fetchConnectorsFromMaven(ctx, version, mirror)
 	if err != nil {
-		return nil, mirror, fmt.Errorf("failed to fetch connectors from Maven / 从 Maven 获取连接器失败: %w", err)
+		return nil, mirror, fmt.Errorf("failed to fetch connectors from Maven: %w", err)
 	}
 
 	if len(connectors) == 0 {
-		return nil, usedMirror, fmt.Errorf("no connectors found for version %s / 未找到版本 %s 的连接器", version, version)
+		return nil, usedMirror, fmt.Errorf("no connectors found for version %s", version)
 	}
 
 	return connectors, usedMirror, nil
@@ -558,7 +559,7 @@ func (s *Service) createPluginFromArtifactID(artifactID, version string) Plugin 
 		DisplayName: displayName,
 		Category:    PluginCategoryConnector,
 		Version:     version,
-		Description: fmt.Sprintf("SeaTunnel %s connector / SeaTunnel %s 连接器", displayName, displayName),
+		Description: fmt.Sprintf("SeaTunnel %s connector", displayName),
 		GroupID:     "org.apache.seatunnel",
 		ArtifactID:  artifactID,
 		DocURL:      fmt.Sprintf("%s/%s/connector-v2", SeaTunnelDocsBaseURL, version),
@@ -861,7 +862,7 @@ func (s *Service) fetchBundledConnectors(ctx context.Context, clusterID uint) []
 	}
 	nodes, err := s.clusterNodeGetter.GetClusterNodes(ctx, clusterID)
 	if err != nil {
-		logger.WarnF(ctx, "[Plugin] 列出集群 %d 节点失败，跳过安装包自带连接器合并: %v / list cluster %d nodes failed, skip bundled connector merge: %v", clusterID, err, clusterID, err)
+		logger.WarnF(ctx, "list cluster %d nodes failed, skip bundled connector merge: %v", clusterID, err)
 		return nil
 	}
 	// 「自带」= 节点 connectors 目录里有、控制面没有安装记录（手工拷进去的 jar 也会被算成自带）。
@@ -941,7 +942,7 @@ func (s *Service) firstNodeConnectorDetails(ctx context.Context, nodes []Cluster
 		}
 		details, listErr := s.listNodeConnectorDetails(listCtx, agentID, node.InstallDir)
 		if listErr != nil {
-			logger.WarnF(ctx, "[Plugin] 读取节点 %d 连接器失败: %v / list connectors on node %d failed: %v", node.NodeID, listErr, node.NodeID, listErr)
+			logger.WarnF(ctx, "list connectors on node %d failed: %v", node.NodeID, listErr)
 			continue
 		}
 		if len(details) > 0 {
@@ -1022,12 +1023,12 @@ func (s *Service) UninstallPlugin(ctx context.Context, clusterID uint, pluginNam
 	if s.agentCommandSender != nil && s.clusterNodeGetter != nil && s.hostInfoGetter != nil {
 		nodes, err := s.clusterNodeGetter.GetClusterNodes(ctx, clusterID)
 		if err != nil {
-			logger.WarnF(ctx, "[Plugin] Uninstall: failed to get cluster nodes / 卸载：获取集群节点失败: %v", err)
+			logger.WarnF(ctx, "[Plugin] Uninstall: failed to get cluster nodes: %v", err)
 		} else {
 			for _, node := range nodes {
 				agentID, err := s.hostInfoGetter.GetHostAgentID(ctx, node.HostID)
 				if err != nil || agentID == "" {
-					logger.WarnF(ctx, "[Plugin] Uninstall: skip node %d (host %d), no agent / 卸载：跳过节点 %d（主机 %d），无 Agent", node.NodeID, node.HostID, node.NodeID, node.HostID)
+					logger.WarnF(ctx, "[Plugin] Uninstall: skip node %d (host %d), no agent", node.NodeID, node.HostID)
 					continue
 				}
 				// Agent 按 connector-<plugin_name>-<version>.jar 删除，需用 artifact ID 推导文件名（如 mysql-cdc → cdc-mysql）。
@@ -1044,11 +1045,11 @@ func (s *Service) UninstallPlugin(ctx context.Context, clusterID uint, pluginNam
 				}
 				success, message, sendErr := s.agentCommandSender.SendCommand(ctx, agentID, "uninstall_plugin", params)
 				if sendErr != nil {
-					logger.WarnF(ctx, "[Plugin] Uninstall: send to agent %s failed: %v / 卸载：向 Agent %s 发送失败: %v", agentID, sendErr, agentID, sendErr)
+					logger.WarnF(ctx, "[Plugin] Uninstall: send to agent %s failed: %v", agentID, sendErr)
 					continue
 				}
 				if !success {
-					logger.WarnF(ctx, "[Plugin] Uninstall: agent %s returned failure: %s / 卸载：Agent %s 返回失败: %s", agentID, message, agentID, message)
+					logger.WarnF(ctx, "[Plugin] Uninstall: agent %s returned failure: %s", agentID, message)
 				}
 			}
 		}
@@ -1139,7 +1140,7 @@ func (s *Service) DownloadPlugin(ctx context.Context, name, version string, mirr
 			Version:             version,
 			Status:              "completed",
 			Progress:            100,
-			CurrentStep:         "Already downloaded / 已下载",
+			CurrentStep:         locale.Pick(ctx, "已下载", "Already downloaded"),
 			SelectedProfileKeys: selectedProfiles,
 			ConnectorCount:      1,
 			ConnectorCompleted:  1,
@@ -1163,7 +1164,7 @@ func (s *Service) DownloadPlugin(ctx context.Context, name, version string, mirr
 		Version:             version,
 		Status:              "downloading",
 		Progress:            0,
-		CurrentStep:         "Starting download / 开始下载",
+		CurrentStep:         locale.Pick(ctx, "开始下载", "Starting download"),
 		StartTime:           time.Now(),
 		SelectedProfileKeys: selectedProfiles,
 		ConnectorCount:      1,
@@ -1237,7 +1238,7 @@ func (s *Service) GetDownloadStatus(name, version string, profileKeys []string) 
 		Version:             version,
 		Status:              "not_started",
 		Progress:            0,
-		CurrentStep:         "Not downloaded / 未下载",
+		CurrentStep:         "Not downloaded",
 		SelectedProfileKeys: selectedProfiles,
 		ConnectorCount:      1,
 		ConnectorCompleted:  0,
@@ -1307,13 +1308,13 @@ func (s *Service) DownloadAllPlugins(ctx context.Context, version string, mirror
 	// Get all available plugins / 获取所有可用插件
 	plugins, _, _, _, _ := s.getPlugins(ctx, version, mirror)
 	if len(plugins) == 0 {
-		return nil, fmt.Errorf("no plugins found for version %s / 未找到版本 %s 的插件", version, version)
+		return nil, fmt.Errorf("no plugins found for version %s", version)
 	}
 
 	progress := &DownloadAllPluginsProgress{
 		Total:   len(plugins),
 		Status:  "downloading",
-		Message: fmt.Sprintf("Starting download of %d plugins / 开始下载 %d 个插件", len(plugins), len(plugins)),
+		Message: locale.Pick(ctx, fmt.Sprintf("开始下载 %d 个插件", len(plugins)), fmt.Sprintf("Starting download of %d plugins", len(plugins))),
 	}
 
 	// Start downloading all plugins in background / 在后台开始下载所有插件
@@ -1352,9 +1353,7 @@ func (s *Service) DownloadAllPlugins(ctx context.Context, version string, mirror
 			}
 		}
 		progress.Status = "completed"
-		progress.Message = fmt.Sprintf("Download completed: %d downloaded, %d skipped, %d failed / 下载完成: %d 已下载, %d 已跳过, %d 失败",
-			progress.Downloaded, progress.Skipped, progress.Failed,
-			progress.Downloaded, progress.Skipped, progress.Failed)
+		progress.Message = fmt.Sprintf("Download completed: %d downloaded, %d skipped, %d failed", progress.Downloaded, progress.Skipped, progress.Failed)
 	}()
 
 	return progress, nil
@@ -1484,7 +1483,7 @@ func (s *Service) SetHostInfoGetter(getter HostInfoGetter) {
 // Worker 使用与请求分离的 context，避免客户端取消导致安装中断。
 func (s *Service) StartInstallPluginAsync(ctx context.Context, clusterID uint, req *InstallPluginRequest) (*PluginInstallStatus, error) {
 	if req == nil {
-		return nil, fmt.Errorf("install request is required / 安装请求不能为空")
+		return nil, fmt.Errorf("install request is required")
 	}
 
 	// Fast-fail validation that should not start a worker / 启动 worker 前的快速失败校验
@@ -1523,7 +1522,7 @@ func (s *Service) StartInstallPluginAsync(ctx context.Context, clusterID uint, r
 		Version:    req.Version,
 		Status:     "pending",
 		Progress:   0,
-		Message:    "Install task accepted / 安装任务已受理",
+		Message:    locale.Pick(ctx, "安装任务已受理", "Install task accepted"),
 		StartedAt:  &startedAt,
 	}
 	s.setInstallProgress(clusterID, req.PluginName, progress)
@@ -1548,7 +1547,7 @@ func (s *Service) StartInstallPluginAsync(ctx context.Context, clusterID uint, r
 					Version:    req.Version,
 					Status:     "failed",
 					Progress:   0,
-					Message:    "Install failed / 安装失败",
+					Message:    locale.Pick(ctx, "安装失败", "Install failed"),
 					Error:      installErr.Error(),
 					StartedAt:  &startedAt,
 				})
@@ -1596,7 +1595,7 @@ func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, re
 		Version:    req.Version,
 		Status:     "downloading",
 		Progress:   0,
-		Message:    "Checking local plugin files / 检查本地插件文件",
+		Message:    locale.Pick(ctx, "检查本地插件文件", "Checking local plugin files"),
 	}
 	if existing := s.GetInstallProgress(clusterID, req.PluginName); existing != nil {
 		progress.TaskID = existing.TaskID
@@ -1614,7 +1613,7 @@ func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, re
 	connectorReady := s.downloader.IsConnectorDownloaded(req.PluginName, req.Version)
 	dependenciesReady := s.arePluginDependenciesDownloaded(pluginInfo)
 	if !connectorReady || !dependenciesReady {
-		progress.Message = "Downloading plugin / 下载插件"
+		progress.Message = locale.Pick(ctx, "下载插件", "Downloading plugin")
 		s.setInstallProgress(clusterID, req.PluginName, progress)
 
 		// Download plugin / 下载插件
@@ -1649,7 +1648,7 @@ func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, re
 	// Update progress / 更新进度
 	progress.Progress = 50
 	progress.Status = "installing"
-	progress.Message = "Plugin downloaded, preparing installation / 插件已下载，准备安装"
+	progress.Message = locale.Pick(ctx, "插件已下载，准备安装", "Plugin downloaded, preparing installation")
 	s.setInstallProgress(clusterID, req.PluginName, progress)
 
 	// Get cluster nodes / 获取集群节点
@@ -1670,18 +1669,18 @@ func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, re
 		nodes, err := s.clusterNodeGetter.GetClusterNodes(ctx, clusterID)
 		if err != nil {
 			progress.Status = "failed"
-			progress.Error = fmt.Sprintf("failed to get cluster nodes / 获取集群节点失败: %v", err)
+			progress.Error = locale.Pick(ctx, fmt.Sprintf("获取集群节点失败: %v", err), fmt.Sprintf("failed to get cluster nodes: %v", err))
 			s.setInstallProgress(clusterID, req.PluginName, progress)
-			return nil, fmt.Errorf("failed to get cluster nodes / 获取集群节点失败: %w", err)
+			return nil, fmt.Errorf("failed to get cluster nodes: %w", err)
 		}
 
 		fmt.Printf("[Plugin Install] Found %d nodes in cluster %d\n", len(nodes), clusterID)
 
 		if len(nodes) == 0 {
 			progress.Status = "failed"
-			progress.Error = "No nodes found in cluster / 集群中没有节点"
+			progress.Error = "No nodes found in cluster"
 			s.setInstallProgress(clusterID, req.PluginName, progress)
-			return nil, fmt.Errorf("no nodes found in cluster / 集群中没有节点")
+			return nil, fmt.Errorf("no nodes found in cluster")
 		}
 
 		results, installErr := s.installPluginOnNodes(ctx, clusterID, req, artifactID, effectiveDeps, nodes, progress)
@@ -1728,7 +1727,7 @@ func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, re
 	// Mark as completed / 标记为完成
 	progress.Status = "completed"
 	progress.Progress = 100
-	progress.Message = "Plugin installed successfully / 插件安装成功"
+	progress.Message = locale.Pick(ctx, "插件安装成功", "Plugin installed successfully")
 	s.setInstallProgress(clusterID, req.PluginName, progress)
 
 	// Clear progress after a delay / 延迟后清除进度
@@ -1798,7 +1797,7 @@ func (s *Service) UninstallPluginFromCluster(ctx context.Context, clusterID uint
 		PluginName: pluginName,
 		Status:     "uninstalling",
 		Progress:   0,
-		Message:    "Uninstalling plugin / 正在卸载插件",
+		Message:    locale.Pick(ctx, "正在卸载插件", "Uninstalling plugin"),
 	}
 	s.setInstallProgress(clusterID, pluginName, progress)
 
@@ -1816,7 +1815,7 @@ func (s *Service) UninstallPluginFromCluster(ctx context.Context, clusterID uint
 	// Mark as completed / 标记为完成
 	progress.Status = "completed"
 	progress.Progress = 100
-	progress.Message = "Plugin uninstalled successfully / 插件卸载成功"
+	progress.Message = locale.Pick(ctx, "插件卸载成功", "Plugin uninstalled successfully")
 	s.setInstallProgress(clusterID, pluginName, progress)
 
 	// Clear progress after a delay / 延迟后清除进度
@@ -1842,7 +1841,7 @@ func (s *Service) UninstallPluginFromCluster(ctx context.Context, clusterID uint
 // - pluginName: Plugin display name (e.g., mysql-cdc, cosfile)
 func (s *Service) transferPluginToAgent(ctx context.Context, agentID, artifactID, pluginName, version, installDir string, deps []PluginDependency, profileKeys []string) error {
 	if s.agentCommandSender == nil {
-		return fmt.Errorf("agent command sender not configured / Agent 命令发送器未配置")
+		return fmt.Errorf("agent command sender not configured")
 	}
 
 	// 1. Transfer connector file / 传输连接器文件
@@ -1852,12 +1851,12 @@ func (s *Service) transferPluginToAgent(ctx context.Context, agentID, artifactID
 	// Read plugin file using artifact ID / 使用 artifact ID 读取插件文件
 	fileData, err := s.downloader.ReadPluginFileByArtifactID(artifactID, version)
 	if err != nil {
-		return fmt.Errorf("failed to read plugin file / 读取插件文件失败: %w", err)
+		return fmt.Errorf("failed to read plugin file: %w", err)
 	}
 
 	// Transfer connector file in chunks / 分块传输连接器文件
 	if err := s.transferFileToAgent(ctx, agentID, pluginName, version, "connector", "connectors", connectorFileName, fileData, installDir); err != nil {
-		return fmt.Errorf("failed to transfer connector / 传输连接器失败: %w", err)
+		return fmt.Errorf("failed to transfer connector: %w", err)
 	}
 
 	selectedProfiles := normalizeProfileKeys(profileKeys)
@@ -1871,24 +1870,24 @@ func (s *Service) transferPluginToAgent(ctx context.Context, agentID, artifactID
 			// 检查依赖是否已下载；若缺失则尝试同步下载
 			if !s.downloader.IsDependencyDownloaded(dep.ArtifactID, dep.Version, version, dep.TargetDir) {
 				if err := s.DownloadPluginSync(ctx, pluginName, version, "", selectedProfiles); err != nil {
-					return fmt.Errorf("failed to download missing dependency for %s / 下载缺失依赖失败 %s: %w", pluginName, pluginName, err)
+					return fmt.Errorf("failed to download missing dependency for %s: %w", pluginName, err)
 				}
 			}
 			if !s.downloader.IsDependencyDownloaded(dep.ArtifactID, dep.Version, version, dep.TargetDir) {
-				return fmt.Errorf("dependency %s-%s is not cached / 依赖 %s-%s 未缓存", dep.ArtifactID, dep.Version, dep.ArtifactID, dep.Version)
+				return fmt.Errorf("dependency %s-%s is not cached", dep.ArtifactID, dep.Version)
 			}
 
 			// Read dependency file / 读取依赖文件
 			depPath := s.downloader.GetDependencyPath(dep.ArtifactID, dep.Version, version, dep.TargetDir)
 			depData, err := s.readFile(depPath)
 			if err != nil {
-				return fmt.Errorf("failed to read dependency %s / 读取依赖 %s 失败: %w", dep.ArtifactID, dep.ArtifactID, err)
+				return fmt.Errorf("failed to read dependency %s: %w", dep.ArtifactID, err)
 			}
 
 			// Transfer dependency file / 传输依赖文件
 			depFileName := fmt.Sprintf("%s-%s.jar", dep.ArtifactID, dep.Version)
 			if err := s.transferFileToAgent(ctx, agentID, pluginName, version, "dependency", dep.TargetDir, depFileName, depData, installDir); err != nil {
-				return fmt.Errorf("failed to transfer dependency %s / 传输依赖 %s 失败: %w", dep.ArtifactID, dep.ArtifactID, err)
+				return fmt.Errorf("failed to transfer dependency %s: %w", dep.ArtifactID, err)
 			}
 
 			fmt.Printf("[Plugin Transfer] Dependency transferred: %s\n", depFileName)
@@ -1905,12 +1904,12 @@ func (s *Service) transferPluginToAgent(ctx context.Context, agentID, artifactID
 		"install_path": installDir,
 	}
 
-	success, message, err := s.agentCommandSender.SendCommand(ctx, agentID, "install_plugin", installParams)
+	success, _, err := s.agentCommandSender.SendCommand(ctx, agentID, "install_plugin", installParams)
 	if err != nil {
-		return fmt.Errorf("failed to send install command / 发送安装命令失败: %w", err)
+		return fmt.Errorf("failed to send install command: %w", err)
 	}
 	if !success {
-		return fmt.Errorf("plugin installation failed / 插件安装失败: %s", message)
+		return fmt.Errorf("plugin installation failed")
 	}
 
 	return nil
@@ -1958,12 +1957,12 @@ func (s *Service) transferFileToAgent(ctx context.Context, agentID, pluginName, 
 				time.Sleep(time.Duration(ms) * time.Millisecond)
 			}
 		}
-		success, message, err := s.agentCommandSender.SendCommand(ctx, agentID, "transfer_plugin", params)
+		success, _, err := s.agentCommandSender.SendCommand(ctx, agentID, "transfer_plugin", params)
 		if err != nil {
-			return fmt.Errorf("failed to transfer chunk at offset %d / 传输偏移 %d 处的块失败: %w", offset, offset, err)
+			return fmt.Errorf("failed to transfer chunk at offset %d: %w", offset, err)
 		}
 		if !success {
-			return fmt.Errorf("transfer chunk failed / 传输块失败: %s", message)
+			return fmt.Errorf("transfer chunk failed")
 		}
 
 		offset = end
@@ -2143,7 +2142,7 @@ func (s *Service) TransferPluginToAgent(ctx context.Context, agentID, pluginName
 	artifactID := s.GetPluginArtifactID(pluginName)
 	deps, err := s.GetPluginDependenciesForVersionAndProfiles(ctx, pluginName, version, profileKeys)
 	if err != nil {
-		return fmt.Errorf("failed to resolve plugin dependencies for %s@%s / 解析插件依赖失败 %s@%s: %w", pluginName, version, pluginName, version, err)
+		return fmt.Errorf("failed to resolve plugin dependencies for %s@%s: %w", pluginName, version, err)
 	}
 
 	// Use the existing transferPluginToAgent method / 使用现有的 transferPluginToAgent 方法
@@ -2182,7 +2181,7 @@ func (s *Service) DownloadPluginSync(ctx context.Context, pluginName, version, m
 	// 解析失败直接返回，禁止静默空依赖继续。
 	deps, err := s.GetPluginDependenciesForVersionAndProfiles(ctx, pluginName, version, selectedProfiles)
 	if err != nil {
-		return fmt.Errorf("failed to resolve plugin dependencies for %s@%s / 解析插件依赖失败 %s@%s: %w", pluginName, version, pluginName, version, err)
+		return fmt.Errorf("failed to resolve plugin dependencies for %s@%s: %w", pluginName, version, err)
 	}
 	plugin.Dependencies = deps
 	fmt.Printf("[DownloadPluginSync] Loaded %d dependencies for %s (profiles=%v)\n", len(deps), pluginName, selectedProfiles)
@@ -2364,7 +2363,7 @@ func (s *Service) ensureTargetVersionMetadata(ctx context.Context, pluginName, v
 	}
 	deps, err := s.GetPluginDependenciesForVersionAndProfiles(ctx, pluginName, version, profiles)
 	if err != nil {
-		return fmt.Errorf("failed to resolve dependencies while writing metadata for %s@%s / 写入元数据时解析依赖失败 %s@%s: %w", pluginName, version, pluginName, version, err)
+		return fmt.Errorf("failed to resolve dependencies while writing metadata for %s@%s: %w", pluginName, version, err)
 	}
 	plugin := &Plugin{
 		Name:         pluginName,
@@ -2374,7 +2373,7 @@ func (s *Service) ensureTargetVersionMetadata(ctx context.Context, pluginName, v
 		Dependencies: deps,
 	}
 	if err := s.downloader.writePluginMetadata(plugin, profiles); err != nil {
-		return fmt.Errorf("failed to write plugin metadata for %s@%s / 写入插件元数据失败 %s@%s: %w", pluginName, version, pluginName, version, err)
+		return fmt.Errorf("failed to write plugin metadata for %s@%s: %w", pluginName, version, err)
 	}
 	return nil
 }

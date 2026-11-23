@@ -416,12 +416,12 @@ func frontendStrategyFor(st restartStrategy) string {
 func (s *Service) buildRestartPlan(taskID, target, from string) (*restartPlan, error) {
 	st := detectRestartStrategy()
 	if st.Kind == RestartStrategyDocker {
-		return nil, fmt.Errorf("container deployments restart via a new image / 容器部署通过新镜像重启")
+		return nil, fmt.Errorf("container deployments restart via a new image")
 	}
 	exe := restartExecutable()
 	backup := exe + ".bak"
 	if fi, err := os.Stat(backup); err != nil || fi.Size() == 0 {
-		return nil, fmt.Errorf("no backup of the previous control plane binary at %s; refusing to restart without a rollback path / 缺少控制面旧二进制备份，拒绝在无回滚路径时重启", backup)
+		return nil, fmt.Errorf("no backup of the previous control plane binary at %s; refusing to restart without a rollback path", backup)
 	}
 	cwd, _ := os.Getwd()
 	staging := absPath(s.stagingDir)
@@ -471,7 +471,7 @@ func (s *Service) buildRestartPlan(taskID, target, from string) (*restartPlan, e
 					newDir := fp.AppDir + ".new"
 					_ = os.RemoveAll(newDir)
 					if err := copyDir(src, newDir); err != nil {
-						return nil, fmt.Errorf("prepare new frontend: %w / 准备新前端失败", err)
+						return nil, fmt.Errorf("prepare new frontend: %w", err)
 					}
 					fp.NewDir = newDir
 				}

@@ -307,7 +307,7 @@ func (s *scraper) run(ctx context.Context) {
 func (s *scraper) refreshTargets(ctx context.Context) {
 	next, err := s.provider.Targets(ctx)
 	if err != nil {
-		logger.WarnF(ctx, "[Observability] 抓取目标刷新失败，沿用上一轮目标集: %v / scrape target refresh failed, keeping previous set: %v", err, err)
+		logger.WarnF(ctx, "scrape target refresh failed, keeping previous set: %v", err)
 		return
 	}
 	nextByURL := make(map[string]ScrapeTarget, len(next))
@@ -426,7 +426,7 @@ func (s *scraper) scrapeTargets(ctx context.Context, targets []ScrapeTarget) {
 		s.recordState(target, result)
 	}
 	if err := app.Commit(); err != nil {
-		logger.ErrorF(ctx, "[Observability] 抓取轮次提交失败: %v / scrape round commit failed: %v", err, err)
+		logger.ErrorF(ctx, "scrape round commit failed: %v", err)
 	} else if appendErr {
 		logger.WarnF(ctx, "[Observability] 抓取轮次部分样本写入失败（已提交其余样本）/ scrape round had partial append failures (remaining samples committed)")
 	}

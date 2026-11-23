@@ -60,17 +60,17 @@ func (d *ProcessDiscovery) DiscoverProcesses() ([]*DiscoveredProcess, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	logger.InfoF(ctx, "[ProcessDiscovery] Scanning for SeaTunnel processes... / 正在扫描 SeaTunnel 进程...")
+	logger.InfoF(ctx, "[ProcessDiscovery] Scanning for SeaTunnel processes...")
 
 	processes, err := d.scanner.ScanProcesses()
 	if err != nil {
-		return nil, fmt.Errorf("failed to scan processes: %w / 扫描进程失败：%w", err, err)
+		return nil, fmt.Errorf("failed to scan processes: %w", err)
 	}
 
 	if len(processes) == 0 {
-		logger.InfoF(ctx, "[ProcessDiscovery] No SeaTunnel processes found / 未找到 SeaTunnel 进程")
+		logger.InfoF(ctx, "[ProcessDiscovery] No SeaTunnel processes found")
 	} else {
-		logger.InfoF(ctx, "[ProcessDiscovery] Found %d process(es) / 发现 %d 个进程", len(processes), len(processes))
+		logger.InfoF(ctx, "[ProcessDiscovery] Found %d process(es)", len(processes))
 	}
 
 	return processes, nil
@@ -92,7 +92,7 @@ func (d *ProcessDiscovery) DiscoverProcessByInstallDir(installDir string) (*Disc
 		}
 	}
 
-	return nil, fmt.Errorf("no process found for install dir: %s / 未找到安装目录 %s 的进程", installDir, installDir)
+	return nil, fmt.Errorf("no process found for install dir: %s", installDir)
 }
 
 // DiscoverProcessByRole finds SeaTunnel processes by role

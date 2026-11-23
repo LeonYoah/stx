@@ -160,12 +160,12 @@ func restartOneProxy(ctx context.Context, installDir string, status *STXJavaProx
 	}
 	if err == nil {
 		res.Status, res.NewPID = ProxyRestartRestarted, pid
-		res.Message = fmt.Sprintf("restarted on the new jars (pid %d → %d) / 已以新 jar 重启", status.PID, pid)
-		logger.InfoF(ctx, "[SelfUpdate] stx-java-proxy restarted pid %d -> %d / proxy 已重启", status.PID, pid)
+		res.Message = fmt.Sprintf("restarted on the new jars (pid %d → %d)", status.PID, pid)
+		logger.InfoF(ctx, "[SelfUpdate] stx-java-proxy restarted pid %d -> %d", status.PID, pid)
 		return res
 	}
 	firstErr := err
-	logger.ErrorF(ctx, "[SelfUpdate] stx-java-proxy unhealthy after restart: %v; restoring backup jars / 重启后不健康，恢复备份 jar", err)
+	logger.ErrorF(ctx, "[SelfUpdate] stx-java-proxy unhealthy after restart: %v; restoring backup jars", err)
 	killQuietly(pid)
 	if rollback == nil {
 		res.Status, res.Message = ProxyRestartFailed, "proxy unhealthy after restart and no backup to restore: "+firstErr.Error()
@@ -181,7 +181,7 @@ func restartOneProxy(ctx context.Context, installDir string, status *STXJavaProx
 	}
 	if err != nil {
 		killQuietly(pid)
-		res.Status, res.Message = ProxyRestartFailed, fmt.Sprintf("proxy unhealthy on new jars (%v) and on restored jars (%v) / 新旧 jar 均无法健康启动", firstErr, err)
+		res.Status, res.Message = ProxyRestartFailed, fmt.Sprintf("proxy unhealthy on new jars (%v) and on restored jars (%v)", firstErr, err)
 		return res
 	}
 	res.Status, res.NewPID = ProxyRestartRolledBack, pid

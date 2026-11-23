@@ -20,6 +20,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/db"
@@ -60,7 +61,7 @@ func (s *Service) applyNodeConfigContent(ctx context.Context, config *Config, co
 
 	installDir, dirErr := s.nodeInfoProvider.GetNodeInstallDir(ctx, config.ClusterID, *config.HostID)
 	if dirErr != nil {
-		pushErr := "获取节点安装目录失败 / failed to resolve node install dir: " + dirErr.Error()
+		pushErr := locale.Pick(ctx, "获取节点安装目录失败", "failed to resolve node install dir: ") + dirErr.Error()
 		if err := s.markPendingPush(ctx, config, content, comment, userID, pushErr); err != nil {
 			return nil, err
 		}
@@ -74,7 +75,7 @@ func (s *Service) applyNodeConfigContent(ctx context.Context, config *Config, co
 	}
 
 	if err := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, content); err != nil {
-		pushErr := "推送配置到节点失败 / failed to push config to node: " + err.Error()
+		pushErr := locale.Pick(ctx, "推送配置到节点失败", "failed to push config to node: ") + err.Error()
 		if markErr := s.markPendingPush(ctx, config, content, comment, userID, pushErr); markErr != nil {
 			return nil, markErr
 		}
@@ -177,7 +178,7 @@ func (s *Service) retryPendingPush(ctx context.Context, config *Config) (*nodeAp
 	content := config.PendingContent.String()
 	comment := config.PendingComment
 	if comment == "" {
-		comment = "Re-pushed pending change / 重推待推送变更"
+		comment = locale.Pick(ctx, "重推待推送变更", "Re-pushed pending change")
 	}
 	userID := config.PendingBy
 	if config.Content.String() == content {
@@ -255,7 +256,7 @@ func SyncResultMessage(result *SyncAllResult) string {
 		return ""
 	}
 	if result.PendingCount == 0 {
-		return fmt.Sprintf("template synced: %d updated, %d unchanged / 模板已同步：%d 个节点已更新，%d 个节点无变化", result.SyncedCount, result.UnchangedCount, result.SyncedCount, result.UnchangedCount)
+		return fmt.Sprintf("template synced: %d updated, %d unchanged", result.SyncedCount, result.UnchangedCount)
 	}
-	return fmt.Sprintf("template partially synced: %d updated, %d unchanged, %d pending push (will retry when the agent reconnects) / 模板部分同步：%d 个节点已更新，%d 个节点无变化，%d 个节点推送失败已标记待推送（Agent 重连后自动重推）", result.SyncedCount, result.UnchangedCount, result.PendingCount, result.SyncedCount, result.UnchangedCount, result.PendingCount)
+	return fmt.Sprintf("template partially synced: %d updated, %d unchanged, %d pending push (will retry when the agent reconnects)", result.SyncedCount, result.UnchangedCount, result.PendingCount)
 }

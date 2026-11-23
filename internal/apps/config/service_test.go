@@ -47,11 +47,11 @@ func (c *testAgentClient) PushConfig(_ context.Context, _ uint, _ string, _ Conf
 }
 
 type portUpdateCall struct {
-	clusterID uint
-	hostID    uint
-	port      int
+	clusterID  uint
+	hostID     uint
+	port       int
 	configType ConfigType
-	mode      string
+	mode       string
 }
 
 type testPortMetadataUpdater struct {

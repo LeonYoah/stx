@@ -155,7 +155,7 @@ func Start(ctx context.Context, opts Options) error {
 	runtime.SetMutexProfileFraction(mutexProfileFraction)
 	go func() {
 		if serveErr := srv.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
-			logger.ErrorF(context.Background(), "[pprof] 本机剖析服务退出: %v / local pprof server exited: %v", serveErr, serveErr)
+			logger.ErrorF(context.Background(), "local pprof server exited: %v", serveErr)
 		}
 	}()
 	logger.InfoF(ctx, "[pprof] 本机剖析已监听 %s （go tool pprof http://%s/debug/pprof/heap） / local pprof listening on %s (go tool pprof http://%s/debug/pprof/heap)", ln.Addr().String(), ln.Addr().String(), ln.Addr().String(), ln.Addr().String())

@@ -35,31 +35,31 @@ func main() {
 	flag.Parse()
 
 	if err := operation.Validate(operation.Registry(), operation.RouteExceptions()); err != nil {
-		fail("操作登记校验失败 / operation registry validation failed: %v", err)
+		fail("operation registry validation failed: %v", err)
 	}
 	report, err := contract.BuildReport(*repositoryRoot, operation.Registry(), operation.RouteExceptions())
 	if err != nil {
-		fail("生成报告失败 / failed to build report: %v", err)
+		fail("failed to build report: %v", err)
 	}
 
 	baselinePath := filepath.Join(*repositoryRoot, "internal/operation/testdata/route_baseline.json")
 	if *write {
 		if err := guardNewHistoricalGaps(baselinePath, report, *allowNewGaps); err != nil {
-			fail("拒绝更新基线 / refused to update baseline: %v", err)
+			fail("refused to update baseline: %v", err)
 		}
 		report.BaselineDate = time.Now().Format("2006-01-02")
 		content, err := contract.MarshalReport(report)
 		if err != nil {
-			fail("编码报告失败 / failed to encode report: %v", err)
+			fail("failed to encode report: %v", err)
 		}
 		if err := os.WriteFile(baselinePath, content, 0o644); err != nil {
-			fail("写入报告失败 / failed to write report: %v", err)
+			fail("failed to write report: %v", err)
 		}
 	}
 
 	content, err := contract.MarshalReport(report)
 	if err != nil {
-		fail("编码报告失败 / failed to encode report: %v", err)
+		fail("failed to encode report: %v", err)
 	}
 	_, _ = os.Stdout.Write(content)
 }
@@ -74,7 +74,7 @@ func guardNewHistoricalGaps(baselinePath string, current contract.Report, allowN
 	}
 	newGaps := contract.FindNewHistoricalGaps(previous, current)
 	if len(newGaps) > 0 && !allowNew {
-		return fmt.Errorf("发现新的未登记路由 / new unregistered routes found: %v", newGaps)
+		return fmt.Errorf("new unregistered routes found: %v", newGaps)
 	}
 	return nil
 }

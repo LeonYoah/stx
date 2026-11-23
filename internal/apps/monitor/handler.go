@@ -18,6 +18,7 @@
 package monitor
 
 import (
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"net/http"
 	"strconv"
 	"time"
@@ -52,7 +53,7 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) GetMonitorConfig(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cluster id / 无效的集群 ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": locale.Pick(c.Request.Context(), "无效的集群 ID", "invalid cluster id")})
 		return
 	}
 
@@ -81,7 +82,7 @@ func (h *Handler) GetMonitorConfig(c *gin.Context) {
 func (h *Handler) UpdateMonitorConfig(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cluster id / 无效的集群 ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": locale.Pick(c.Request.Context(), "无效的集群 ID", "invalid cluster id")})
 		return
 	}
 
@@ -127,7 +128,7 @@ func (h *Handler) UpdateMonitorConfig(c *gin.Context) {
 func (h *Handler) ListProcessEvents(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cluster id / 无效的集群 ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": locale.Pick(c.Request.Context(), "无效的集群 ID", "invalid cluster id")})
 		return
 	}
 
@@ -195,7 +196,7 @@ func (h *Handler) ListProcessEvents(c *gin.Context) {
 func (h *Handler) GetEventStats(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cluster id / 无效的集群 ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": locale.Pick(c.Request.Context(), "无效的集群 ID", "invalid cluster id")})
 		return
 	}
 

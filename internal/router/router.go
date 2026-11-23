@@ -127,8 +127,7 @@ func Serve() {
 	// Legacy external monitoring sections are ignored: log one WARN at startup naming the
 	// sections only (values stay out of logs), prompting cleanup.
 	if leftovers := config.LegacyObservabilitySections(); len(leftovers) > 0 {
-		logger.WarnF(ctx, "[Observability] 检测到已废弃的旧外部监控配置段 [%s]，这些段不再生效，请从配置文件中移除 / deprecated external monitoring sections [%s] detected; they no longer take effect, please remove them from the config file",
-			strings.Join(leftovers, ", "), strings.Join(leftovers, ", "))
+		logger.WarnF(ctx, "deprecated external monitoring sections [%s] detected; they no longer take effect, please remove them from the config file", strings.Join(leftovers, ", "))
 	}
 
 	if config.Config.Observability.Enabled {
@@ -149,7 +148,7 @@ func Serve() {
 				selfCollectors = append(selfCollectors, promcollectors.NewDBStatsCollector(sqlDB, "stx"))
 			}
 			if rerr := embedts.RegisterSelfCollectors(selfCollectors...); rerr != nil {
-				logger.WarnF(ctx, "[Observability] 平台自监控采集器注册失败: %v / failed to register platform self collectors: %v", rerr, rerr)
+				logger.WarnF(ctx, "failed to register platform self collectors: %v", rerr)
 			}
 		}
 		// Serve() 目前没有优雅停机钩子（ctx 为 Background）：若未来换成可取消上下文，Done 时先关 tsdb；
@@ -347,7 +346,7 @@ func Serve() {
 					manager:     agentManager,
 					hostService: hostService,
 				})
-				log.Println("[API] Agent command sender injected into cluster service / Agent 命令发送器已注入集群服务")
+				log.Println("[API] Agent command sender injected into cluster service")
 			}
 
 			clusterHandler := cluster.NewHandler(clusterService, auditRepo)
@@ -359,9 +358,9 @@ func Serve() {
 			scaleService := cluster.NewScaleService(clusterService, cluster.NewScaleRepository(db.DB(context.Background())))
 			scaleService.SetExecutionService(executionService)
 			if recovered, err := scaleService.RecoverInterruptedOperations(ctx); err != nil {
-				log.Printf("[API] 标记被打断的伸缩操作失败 / Failed to mark interrupted scaling operations: %v\n", err)
+				log.Printf("Failed to mark interrupted scaling operations: %v\n", err)
 			} else if recovered > 0 {
-				log.Printf("[API] 已将 %d 个被重启打断的伸缩操作标记为失败 / Marked %d scaling operation(s) interrupted by restart as failed\n", recovered, recovered)
+				log.Printf("Marked %d scaling operation(s) interrupted by restart as failed\n", recovered)
 			}
 			scaleHandler := cluster.NewScaleHandler(scaleService, auditRepo)
 
@@ -441,7 +440,7 @@ func Serve() {
 				monitorService.SetConfigSender(&monitorAgentConfigSenderAdapter{
 					manager: agentManager,
 				})
-				log.Println("[API] Node provider and config sender injected into monitor service / 节点提供者和配置发送器已注入监控服务")
+				log.Println("[API] Node provider and config sender injected into monitor service")
 			}
 
 			// Delete cluster 前：先向各 Agent 推送关闭监控配置（停止监控且不再重启进程），再清理 DB 中的监控配置与事件；cluster.Service 已向各节点 Agent 发送 stop 命令
@@ -581,7 +580,7 @@ func Serve() {
 				// Alertmanager loop: rules.Manager evaluates builtin rules and enabled metric
 				// policies in-process; a startup failure only degrades the alert chain.
 				if err := monitoringService.StartMetricEvaluator(ctx); err != nil {
-					logger.ErrorF(ctx, "[Observability] 内嵌告警评估器启动失败，指标告警不会评估: %v / embedded alert evaluator failed to start, metric alerts will not be evaluated: %v", err, err)
+					logger.ErrorF(ctx, "embedded alert evaluator failed to start, metric alerts will not be evaluated: %v", err)
 				}
 			}
 
@@ -678,12 +677,12 @@ func Serve() {
 			// 如果 Agent Manager 可用，注入 Agent 发现器
 			if agentManager != nil {
 				discoveryService.SetAgentDiscoverer(&discoveryAgentDiscovererAdapter{manager: agentManager})
-				log.Println("[API] Agent discoverer injected into discovery service / Agent 发现器已注入发现服务")
+				log.Println("[API] Agent discoverer injected into discovery service")
 			}
 			// Wire ClusterMatcher so 「发现集群」确认可建簇并写入 java_home（AC1e）。
 			// Wire ClusterMatcher so discover-confirm can create clusters and persist java_home (AC1e).
 			discoveryService.SetClusterMatcher(clusterService)
-			log.Println("[API] Cluster matcher injected into discovery service / 集群匹配器已注入发现服务")
+			log.Println("[API] Cluster matcher injected into discovery service")
 			discoveryHandler := discovery.NewHandler(discoveryService)
 
 			// Discovery routes on hosts 主机发现路由
@@ -1049,22 +1048,22 @@ func Serve() {
 				pluginService.SetAgentCommandSender(&pluginAgentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 				pluginService.SetClusterNodeGetter(&clusterNodeGetterAdapter{clusterService: clusterService})
 				pluginService.SetHostInfoGetter(&hostInfoGetterAdapter{hostService: hostService})
-				log.Println("[API] Agent command sender injected into plugin service / Agent 命令发送器已注入插件服务")
+				log.Println("[API] Agent command sender injected into plugin service")
 
 				// Inject plugin transferer into installer service for plugin transfer during installation
 				// 将插件传输器注入安装服务，用于安装过程中的插件传输
 				installerService.SetPluginTransferer(pluginService)
-				log.Println("[API] Plugin transferer injected into installer service / 插件传输器已注入安装服务")
+				log.Println("[API] Plugin transferer injected into installer service")
 
 				// Inject node status updater into installer service for updating node status after installation
 				// 将节点状态更新器注入安装服务，用于安装后更新节点状态
 				installerService.SetNodeStatusUpdater(clusterService)
-				log.Println("[API] Node status updater injected into installer service / 节点状态更新器已注入安装服务")
+				log.Println("[API] Node status updater injected into installer service")
 
 				// Inject node starter into installer service for starting nodes after installation
 				// 将节点启动器注入安装服务，用于安装后启动节点
 				installerService.SetNodeStarter(clusterService)
-				log.Println("[API] Node starter injected into installer service / 节点启动器已注入安装服务")
+				log.Println("[API] Node starter injected into installer service")
 
 				// Inject node addresses resolver for member-list fallback during installation
 				// 注入集群节点地址解析器，安装时兜底组装 member-list
@@ -1219,9 +1218,9 @@ func Serve() {
 			})
 			hostService.SetOnHostDeleted(func(ctx context.Context, hostID uint) {
 				if deleted, err := configService.DeleteConfigsByHost(ctx, hostID); err != nil {
-					log.Printf("[API] Delete configs of deleted host %d failed / 删除已删主机的配置记录失败: %v", hostID, err)
+					log.Printf("[API] Delete configs of deleted host %d failed: %v", hostID, err)
 				} else if deleted > 0 {
-					log.Printf("[API] Deleted %d config records of deleted host %d / 已删除已删主机的 %d 条配置记录", deleted, hostID, deleted)
+					log.Printf("[API] Deleted %d config records of deleted host %d", deleted, hostID)
 				}
 			})
 
@@ -1229,7 +1228,7 @@ func Serve() {
 			// 将配置初始化器注入安装服务，用于安装后初始化配置
 			installerService.SetConfigInitializer(configService)
 			installerService.SetEventChannelEnabler(syncService)
-			log.Println("[API] Config initializer injected into installer service / 配置初始化器已注入安装服务")
+			log.Println("[API] Config initializer injected into installer service")
 
 			// Config management routes 配置管理路由
 			appconfig.RegisterRoutes(apiV1Router, configHandler)
@@ -1450,7 +1449,7 @@ func initGRPCServer(ctx context.Context, self *selfmetrics.Metrics) (*grpcServer
 	diagnosticsService.SetHostReader(hostService)
 	diagnosticsService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 	grpcServer.SetDiagnosticsService(diagnosticsService)
-	log.Println("[gRPC] Cluster node provider, monitor service and diagnostics service set for gRPC handlers / 已为 gRPC 处理器设置集群节点提供者、监控服务和诊断服务")
+	log.Println("[gRPC] Cluster node provider, monitor service and diagnostics service set for gRPC handlers")
 
 	if err := srv.Start(ctx); err != nil {
 		log.Printf("[gRPC] 启动 gRPC 服务器失败: %v / Failed to start gRPC server: %v\n", err, err)
@@ -2407,11 +2406,11 @@ func (a *discoveryAgentDiscovererAdapter) DiscoverProcesses(ctx context.Context,
 	// 向 Agent 发送 DISCOVER_CLUSTERS 命令（复用相同的命令类型）
 	resp, err := a.manager.SendCommand(ctx, agentID, pb.CommandType_DISCOVER_CLUSTERS, nil, 60*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send discover processes command: %w / 发送发现进程命令失败: %w", err, err)
+		return nil, fmt.Errorf("failed to send discover processes command: %w", err)
 	}
 
 	if resp.Status != pb.CommandStatus_SUCCESS {
-		return nil, fmt.Errorf("discover processes failed: %s / 发现进程失败: %s", resp.Error, resp.Error)
+		return nil, fmt.Errorf("discover processes failed: %s", resp.Error)
 	}
 
 	// Parse the JSON output to extract discovered processes
@@ -2443,12 +2442,12 @@ func parseDiscoveredProcessesJSON(output string) ([]*discovery.DiscoveredProcess
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		// Fallback to text parsing for backward compatibility
 		// 为了向后兼容，回退到文本解析
-		log.Printf("[Discovery] JSON parse failed, trying text parse: %v / JSON 解析失败，尝试文本解析: %v", err, err)
+		log.Printf("[Discovery] JSON parse failed, trying text parse: %v", err)
 		return parseDiscoveredProcessesText(output), nil
 	}
 
 	if !result.Success {
-		return nil, fmt.Errorf("discovery failed: %s / 发现失败: %s", result.Message, result.Message)
+		return nil, fmt.Errorf("discovery failed: %s", result.Message)
 	}
 
 	// Convert to discovery.DiscoveredProcess / 转换为 discovery.DiscoveredProcess
@@ -2584,7 +2583,7 @@ func (a *monitorAgentConfigSenderAdapter) SendMonitorConfig(ctx context.Context,
 	if len(processes) > 0 {
 		processesJSON, err := json.Marshal(processes)
 		if err != nil {
-			log.Printf("[Monitor] Failed to marshal processes: %v / 序列化进程列表失败: %v", err, err)
+			log.Printf("[Monitor] Failed to marshal processes: %v", err)
 		} else {
 			params["tracked_processes"] = string(processesJSON)
 		}

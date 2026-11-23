@@ -159,7 +159,7 @@ func (e *jobMetricsGatherExporter) exportOnce(ctx context.Context) {
 		}
 	}
 	if err := app.Commit(); err != nil {
-		logger.ErrorF(ctx, "[Observability] 作业指标导出提交失败: %v / job metrics export commit failed: %v", err, err)
+		logger.ErrorF(ctx, "job metrics export commit failed: %v", err)
 	} else if appendErr {
 		logger.WarnF(ctx, "[Observability] 作业指标导出部分样本写入失败（已提交其余样本）/ job metrics export had partial append failures (remaining samples committed)")
 	}

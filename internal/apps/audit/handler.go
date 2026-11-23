@@ -21,6 +21,7 @@ package audit
 
 import (
 	"errors"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"net/http"
 	"strconv"
 	"time"
@@ -136,7 +137,7 @@ func (h *Handler) ListCommandLogs(c *gin.Context) {
 		t, err := time.Parse(time.RFC3339, req.StartTime)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, ListCommandLogsResponse{
-				ErrorMsg: "无效的开始时间格式，请使用 RFC3339 格式 / Invalid start_time format, use RFC3339",
+				ErrorMsg: locale.Pick(c.Request.Context(), "无效的开始时间格式，请使用 RFC3339 格式", "Invalid start_time format, use RFC3339"),
 			})
 			return
 		}
@@ -146,7 +147,7 @@ func (h *Handler) ListCommandLogs(c *gin.Context) {
 		t, err := time.Parse(time.RFC3339, req.EndTime)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, ListCommandLogsResponse{
-				ErrorMsg: "无效的结束时间格式，请使用 RFC3339 格式 / Invalid end_time format, use RFC3339",
+				ErrorMsg: locale.Pick(c.Request.Context(), "无效的结束时间格式，请使用 RFC3339 格式", "Invalid end_time format, use RFC3339"),
 			})
 			return
 		}
@@ -214,7 +215,7 @@ func (h *Handler) GetCommandLog(c *gin.Context) {
 	logID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, GetCommandLogResponse{
-			ErrorMsg: "无效的命令日志 ID / Invalid command log ID",
+			ErrorMsg: locale.Pick(c.Request.Context(), "无效的命令日志 ID", "Invalid command log ID"),
 		})
 		return
 	}
@@ -257,7 +258,7 @@ func (h *Handler) ListAuditLogs(c *gin.Context) {
 		t, err := time.Parse(time.RFC3339, req.StartTime)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, ListAuditLogsResponse{
-				ErrorMsg: "无效的开始时间格式，请使用 RFC3339 格式 / Invalid start_time format, use RFC3339",
+				ErrorMsg: locale.Pick(c.Request.Context(), "无效的开始时间格式，请使用 RFC3339 格式", "Invalid start_time format, use RFC3339"),
 			})
 			return
 		}
@@ -267,7 +268,7 @@ func (h *Handler) ListAuditLogs(c *gin.Context) {
 		t, err := time.Parse(time.RFC3339, req.EndTime)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, ListAuditLogsResponse{
-				ErrorMsg: "无效的结束时间格式，请使用 RFC3339 格式 / Invalid end_time format, use RFC3339",
+				ErrorMsg: locale.Pick(c.Request.Context(), "无效的结束时间格式，请使用 RFC3339 格式", "Invalid end_time format, use RFC3339"),
 			})
 			return
 		}
@@ -356,7 +357,7 @@ func (h *Handler) GetAuditLog(c *gin.Context) {
 	logID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, GetAuditLogResponse{
-			ErrorMsg: "无效的审计日志 ID / Invalid audit log ID",
+			ErrorMsg: locale.Pick(c.Request.Context(), "无效的审计日志 ID", "Invalid audit log ID"),
 		})
 		return
 	}

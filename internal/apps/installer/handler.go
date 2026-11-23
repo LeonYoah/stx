@@ -23,6 +23,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -122,7 +123,7 @@ func (h *Handler) RefreshVersions(c *gin.Context) {
 func (h *Handler) GetPackageInfo(c *gin.Context) {
 	version := c.Param("version")
 	if version == "" {
-		c.JSON(http.StatusBadRequest, GetPackageInfoResponse{ErrorMsg: "版本号不能为空 / Version is required"})
+		c.JSON(http.StatusBadRequest, GetPackageInfoResponse{ErrorMsg: locale.Pick(c.Request.Context(), "版本号不能为空", "Version is required")})
 		return
 	}
 
@@ -162,14 +163,14 @@ type UploadChunkResponse struct {
 func (h *Handler) UploadPackage(c *gin.Context) {
 	version := c.PostForm("version")
 	if version == "" {
-		c.JSON(http.StatusBadRequest, UploadPackageResponse{ErrorMsg: "版本号不能为空 / Version is required"})
+		c.JSON(http.StatusBadRequest, UploadPackageResponse{ErrorMsg: locale.Pick(c.Request.Context(), "版本号不能为空", "Version is required")})
 		return
 	}
 
 	file, err := c.FormFile("file")
 	if err != nil {
 		statusCode := http.StatusBadRequest
-		message := "文件上传失败 / File upload failed: " + err.Error()
+		message := locale.Pick(c.Request.Context(), "文件上传失败", "File upload failed: ") + err.Error()
 		// Common when upstream proxy rejects/interrupts large upload body.
 		// 常见于上游网关限制或中断大文件上传。
 		if errors.Is(err, io.ErrUnexpectedEOF) ||
@@ -183,7 +184,7 @@ func (h *Handler) UploadPackage(c *gin.Context) {
 	}
 	sourceFile, sourceFileErr := c.FormFile("source_file")
 	if sourceFileErr != nil && !errors.Is(sourceFileErr, http.ErrMissingFile) {
-		c.JSON(http.StatusBadRequest, UploadPackageResponse{ErrorMsg: "源码包上传失败 / Source upload failed: " + sourceFileErr.Error()})
+		c.JSON(http.StatusBadRequest, UploadPackageResponse{ErrorMsg: locale.Pick(c.Request.Context(), "源码包上传失败", "Source upload failed: ") + sourceFileErr.Error()})
 		return
 	}
 
@@ -262,7 +263,7 @@ func (h *Handler) UploadSourcePackage(c *gin.Context) {
 	version := strings.TrimSpace(c.Param("version"))
 	file, err := c.FormFile("source_file")
 	if version == "" || err != nil {
-		c.JSON(http.StatusBadRequest, UploadPackageResponse{ErrorMsg: "版本号和源码包不能为空 / Version and source file are required"})
+		c.JSON(http.StatusBadRequest, UploadPackageResponse{ErrorMsg: locale.Pick(c.Request.Context(), "版本号和源码包不能为空", "Version and source file are required")})
 		return
 	}
 	maxPackageSize := config.GetMaxPackageSize()
@@ -373,15 +374,15 @@ func (h *Handler) UploadPackageChunk(c *gin.Context) {
 	totalSizeStr := strings.TrimSpace(c.PostForm("total_size"))
 
 	if version == "" {
-		c.JSON(http.StatusBadRequest, UploadChunkResponse{ErrorMsg: "版本号不能为空 / Version is required"})
+		c.JSON(http.StatusBadRequest, UploadChunkResponse{ErrorMsg: locale.Pick(c.Request.Context(), "版本号不能为空", "Version is required")})
 		return
 	}
 	if uploadID == "" {
-		c.JSON(http.StatusBadRequest, UploadChunkResponse{ErrorMsg: "上传会话 ID 不能为空 / upload_id is required"})
+		c.JSON(http.StatusBadRequest, UploadChunkResponse{ErrorMsg: locale.Pick(c.Request.Context(), "上传会话 ID 不能为空", "upload_id is required")})
 		return
 	}
 	if chunkIndexStr == "" || totalChunksStr == "" || totalSizeStr == "" {
-		c.JSON(http.StatusBadRequest, UploadChunkResponse{ErrorMsg: "缺少分片元数据 / missing chunk metadata"})
+		c.JSON(http.StatusBadRequest, UploadChunkResponse{ErrorMsg: locale.Pick(c.Request.Context(), "缺少分片元数据", "missing chunk metadata")})
 		return
 	}
 
@@ -404,7 +405,7 @@ func (h *Handler) UploadPackageChunk(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
 		statusCode := http.StatusBadRequest
-		message := "分片上传失败 / Chunk upload failed: " + err.Error()
+		message := locale.Pick(c.Request.Context(), "分片上传失败", "Chunk upload failed: ") + err.Error()
 		if errors.Is(err, io.ErrUnexpectedEOF) ||
 			strings.Contains(err.Error(), "unexpected EOF") ||
 			strings.Contains(strings.ToLower(err.Error()), "request body too large") {
@@ -469,7 +470,7 @@ type DeletePackageResponse struct {
 func (h *Handler) DeletePackage(c *gin.Context) {
 	version := c.Param("version")
 	if version == "" {
-		c.JSON(http.StatusBadRequest, DeletePackageResponse{ErrorMsg: "版本号不能为空 / Version is required"})
+		c.JSON(http.StatusBadRequest, DeletePackageResponse{ErrorMsg: locale.Pick(c.Request.Context(), "版本号不能为空", "Version is required")})
 		return
 	}
 
@@ -525,7 +526,7 @@ func (h *Handler) StartDownload(c *gin.Context) {
 	if err != nil {
 		// If download is already in progress, return the existing task / 如果下载已在进行中，返回现有任务
 		if err == ErrDownloadInProgress {
-			c.JSON(http.StatusOK, DownloadResponse{Data: task, ErrorMsg: "下载已在进行中 / Download already in progress"})
+			c.JSON(http.StatusOK, DownloadResponse{Data: task, ErrorMsg: locale.Pick(c.Request.Context(), "下载已在进行中", "Download already in progress")})
 			return
 		}
 		if errors.Is(err, ErrInvalidPackageVersion) {
@@ -550,7 +551,7 @@ func (h *Handler) StartDownload(c *gin.Context) {
 func (h *Handler) GetDownloadStatus(c *gin.Context) {
 	version := c.Param("version")
 	if version == "" {
-		c.JSON(http.StatusBadRequest, DownloadResponse{ErrorMsg: "版本号不能为空 / Version is required"})
+		c.JSON(http.StatusBadRequest, DownloadResponse{ErrorMsg: locale.Pick(c.Request.Context(), "版本号不能为空", "Version is required")})
 		return
 	}
 
@@ -573,7 +574,7 @@ func (h *Handler) GetDownloadStatus(c *gin.Context) {
 func (h *Handler) CancelDownload(c *gin.Context) {
 	version := c.Param("version")
 	if version == "" {
-		c.JSON(http.StatusBadRequest, DownloadResponse{ErrorMsg: "版本号不能为空 / Version is required"})
+		c.JSON(http.StatusBadRequest, DownloadResponse{ErrorMsg: locale.Pick(c.Request.Context(), "版本号不能为空", "Version is required")})
 		return
 	}
 
@@ -760,7 +761,7 @@ type ListJavaRuntimesResponse struct {
 func (h *Handler) ListJavaRuntimes(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ListJavaRuntimesResponse{ErrorMsg: "无效的主机 ID / Invalid host ID"})
+		c.JSON(http.StatusBadRequest, ListJavaRuntimesResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的主机 ID", "Invalid host ID")})
 		return
 	}
 	list, err := h.service.ListJavaRuntimes(c.Request.Context(), uint(hostID))
@@ -777,7 +778,7 @@ func (h *Handler) ListJavaRuntimes(c *gin.Context) {
 func (h *Handler) RunPrecheck(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, PrecheckResponse{ErrorMsg: "无效的主机 ID / Invalid host ID"})
+		c.JSON(http.StatusBadRequest, PrecheckResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的主机 ID", "Invalid host ID")})
 		return
 	}
 
@@ -833,7 +834,7 @@ type InstallResponse struct {
 func (h *Handler) StartInstallation(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, InstallResponse{ErrorMsg: "无效的主机 ID / Invalid host ID"})
+		c.JSON(http.StatusBadRequest, InstallResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的主机 ID", "Invalid host ID")})
 		return
 	}
 
@@ -870,7 +871,7 @@ func (h *Handler) StartInstallation(c *gin.Context) {
 func (h *Handler) GetInstallationStatus(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, InstallResponse{ErrorMsg: "无效的主机 ID / Invalid host ID"})
+		c.JSON(http.StatusBadRequest, InstallResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的主机 ID", "Invalid host ID")})
 		return
 	}
 
@@ -901,7 +902,7 @@ type RetryStepRequest struct {
 func (h *Handler) RetryStep(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, InstallResponse{ErrorMsg: "无效的主机 ID / Invalid host ID"})
+		c.JSON(http.StatusBadRequest, InstallResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的主机 ID", "Invalid host ID")})
 		return
 	}
 
@@ -931,7 +932,7 @@ func (h *Handler) RetryStep(c *gin.Context) {
 func (h *Handler) CancelInstallation(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, InstallResponse{ErrorMsg: "无效的主机 ID / Invalid host ID"})
+		c.JSON(http.StatusBadRequest, InstallResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的主机 ID", "Invalid host ID")})
 		return
 	}
 

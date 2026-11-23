@@ -44,13 +44,13 @@ const (
 var (
 	// ErrOfflineBundleNotFound 表示离线包不存在。
 	// ErrOfflineBundleNotFound means the offline bundle was not found.
-	ErrOfflineBundleNotFound = errors.New("offline bundle not found / 离线资产包未找到")
+	ErrOfflineBundleNotFound = errors.New("offline bundle not found")
 	// ErrOfflineBundleInvalid 表示离线包无效或不完整。
 	// ErrOfflineBundleInvalid means the offline bundle is invalid or incomplete.
-	ErrOfflineBundleInvalid = errors.New("offline bundle invalid / 离线资产包无效")
+	ErrOfflineBundleInvalid = errors.New("offline bundle invalid")
 	// ErrOfflineBundlePackageMissing 表示本地缺少目标版本安装包。
 	// ErrOfflineBundlePackageMissing means the local SeaTunnel package is missing.
-	ErrOfflineBundlePackageMissing = errors.New("local seatunnel package missing / 本地安装包缺失，请先下载或上传")
+	ErrOfflineBundlePackageMissing = errors.New("local seatunnel package missing")
 )
 
 // OfflineBundleCreateRequest 创建离线资产包请求。

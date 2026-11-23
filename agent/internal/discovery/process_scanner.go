@@ -94,10 +94,10 @@ func (s *ProcessScanner) scanProcessesUnix() ([]*DiscoveredProcess, error) {
 	if err != nil {
 		// No processes found is not an error / 未找到进程不是错误
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			logger.InfoF(ctx, "[ProcessScanner] No SeaTunnel processes found / 未找到 SeaTunnel 进程")
+			logger.InfoF(ctx, "[ProcessScanner] No SeaTunnel processes found")
 			return processes, nil
 		}
-		return nil, fmt.Errorf("failed to scan processes: %w / 扫描进程失败：%w", err, err)
+		return nil, fmt.Errorf("failed to scan processes: %w", err)
 	}
 
 	versionDetector := NewVersionDetector()
@@ -157,7 +157,7 @@ func (s *ProcessScanner) scanProcessesWindows() ([]*DiscoveredProcess, error) {
 	cmd := exec.Command("wmic", "process", "where", "name like '%java%'", "get", "ProcessId,CommandLine", "/format:csv")
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("failed to scan processes on Windows: %w / 在 Windows 上扫描进程失败：%w", err, err)
+		return nil, fmt.Errorf("failed to scan processes on Windows: %w", err)
 	}
 
 	versionDetector := NewVersionDetector()
@@ -212,12 +212,12 @@ func (s *ProcessScanner) parseUnixProcessCandidate(line string) (*discoveredProc
 	// ps -ef 格式：UID PID PPID C STIME TTY TIME CMD
 	fields := strings.Fields(line)
 	if len(fields) < 8 {
-		return nil, fmt.Errorf("invalid ps line format / 无效的 ps 行格式")
+		return nil, fmt.Errorf("invalid ps line format")
 	}
 
 	pid, err := strconv.Atoi(fields[1])
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse PID: %w / 解析 PID 失败：%w", err, err)
+		return nil, fmt.Errorf("failed to parse PID: %w", err)
 	}
 	ppid, err := strconv.Atoi(fields[2])
 	if err != nil {

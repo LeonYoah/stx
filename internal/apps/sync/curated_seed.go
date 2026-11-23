@@ -29,9 +29,9 @@ import (
 var curatedSeedFS embed.FS
 
 type curatedSeedManifest struct {
-	Version               int                   `json:"version"`
-	MinSeatunnelPluginIO  string                `json:"min_seatunnel_plugin_io"`
-	Templates             []curatedSeedMeta     `json:"templates"`
+	Version              int               `json:"version"`
+	MinSeatunnelPluginIO string            `json:"min_seatunnel_plugin_io"`
+	Templates            []curatedSeedMeta `json:"templates"`
 }
 
 type curatedSeedMeta struct {
@@ -61,7 +61,7 @@ type curatedSeedTemplate struct {
 }
 
 var (
-	curatedSeedOnce sync.Once
+	curatedSeedOnce  sync.Once
 	curatedSeedCache []curatedSeedTemplate
 	curatedSeedErr   error
 )

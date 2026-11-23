@@ -23,6 +23,7 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"io"
 	"net/http"
 	"regexp"
@@ -227,7 +228,7 @@ func (s *Service) AnalyzeOfficialDependencies(ctx context.Context, pluginName, v
 		version = seatunnel.DefaultVersion()
 	}
 	if s.repo == nil {
-		return nil, fmt.Errorf("repository not configured / 仓储未配置")
+		return nil, fmt.Errorf("repository not configured")
 	}
 	s.ensureBundledSeedLoaded(ctx, version)
 
@@ -780,7 +781,7 @@ func (s *Service) parseOracleLikeDependencies(ctx context.Context, markdown stri
 		Version:    orai18nVersion,
 		TargetDir:  spec.TargetDir,
 		Required:   true,
-		Note:       "Added from official docs note for i18n support / 根据官方文档 i18n 说明补充",
+		Note:       locale.Pick(ctx, "根据官方文档 i18n 说明补充", "Added from official docs note for i18n support"),
 	})
 	return items, false, nil
 }
@@ -805,13 +806,13 @@ func (s *Service) parseHiveJdbcDependencies(markdown string, spec officialDepend
 		Version:    firstNonEmpty(extractSupportedVersion(markdown), "3.1.3"),
 		TargetDir:  spec.TargetDir,
 		Required:   true,
-		Note:       "Recovered from HiveJdbc official docs / 从 HiveJdbc 官方文档恢复",
+		Note:       "Recovered from HiveJdbc official docs",
 	}}, false, nil
 }
 
 func (s *Service) parseHiveSinkDependencies(version, markdown string, spec officialDependencyDocSpec) ([]PluginDependencyProfileItem, bool, error) {
 	if !strings.Contains(markdown, "seatunnel-hadoop3-3.1.4-uber.jar") || !strings.Contains(markdown, "hive-exec-3.1.3.jar") {
-		return nil, false, fmt.Errorf("unexpected Hive docs format / Hive 文档格式不符合预期")
+		return nil, false, fmt.Errorf("unexpected Hive docs format")
 	}
 	return []PluginDependencyProfileItem{
 		{
@@ -820,7 +821,7 @@ func (s *Service) parseHiveSinkDependencies(version, markdown string, spec offic
 			Version:    version,
 			TargetDir:  spec.TargetDir,
 			Required:   true,
-			Note:       "Recovered from official Hive sink docs / 从 Hive 官方文档恢复",
+			Note:       "Recovered from official Hive sink docs",
 		},
 		{
 			GroupID:    "org.apache.hive",

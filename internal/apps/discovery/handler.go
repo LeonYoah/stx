@@ -18,6 +18,7 @@
 package discovery
 
 import (
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"net/http"
 	"strconv"
 
@@ -52,7 +53,7 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) DiscoverProcesses(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid host id / 无效的主机 ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": locale.Pick(c.Request.Context(), "无效的主机 ID", "invalid host id")})
 		return
 	}
 
@@ -88,7 +89,7 @@ func (h *Handler) DiscoverProcesses(c *gin.Context) {
 func (h *Handler) TriggerDiscovery(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid host id / 无效的主机 ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": locale.Pick(c.Request.Context(), "无效的主机 ID", "invalid host id")})
 		return
 	}
 
@@ -124,7 +125,7 @@ func (h *Handler) TriggerDiscovery(c *gin.Context) {
 func (h *Handler) ConfirmDiscovery(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid host id / 无效的主机 ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": locale.Pick(c.Request.Context(), "无效的主机 ID", "invalid host id")})
 		return
 	}
 
@@ -150,7 +151,7 @@ func (h *Handler) ConfirmDiscovery(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":     true,
-		"message":     "clusters imported successfully / 集群导入成功",
+		"message":     locale.Pick(c.Request.Context(), "集群导入成功", "clusters imported successfully"),
 		"cluster_ids": createdIDs,
 		"count":       len(createdIDs),
 	})

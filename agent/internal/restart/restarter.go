@@ -115,8 +115,7 @@ func (r *AutoRestarter) SetConfig(config *RestartConfig) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.config = config
-	logger.InfoF(ctx, "[AutoRestarter] Config updated: enabled=%v, delay=%v, maxRestarts=%d, window=%v, cooldown=%v / 配置已更新",
-		config.Enabled, config.RestartDelay, config.MaxRestarts, config.TimeWindow, config.CooldownPeriod)
+	logger.InfoF(ctx, "[AutoRestarter] Config updated: enabled=%v, delay=%v, maxRestarts=%d, window=%v, cooldown=%v", config.Enabled, config.RestartDelay, config.MaxRestarts, config.TimeWindow, config.CooldownPeriod)
 }
 
 // UpdateConfig updates the restart configuration
@@ -146,21 +145,18 @@ func (r *AutoRestarter) OnProcessCrashed(proc *monitor.TrackedProcess) error {
 	r.mu.Unlock()
 
 	if !config.Enabled {
-		logger.InfoF(ctx, "[AutoRestarter] Auto restart disabled, skipping restart for %s / 自动重启已禁用，跳过 %s 的重启",
-			proc.Name, proc.Name)
+		logger.InfoF(ctx, "[AutoRestarter] Auto restart disabled, skipping restart for %s", proc.Name)
 		return nil
 	}
 
 	// Check if should restart / 检查是否应该重启
 	if !r.ShouldRestart(proc) {
-		logger.WarnF(ctx, "[AutoRestarter] Restart limit reached or in cooldown for %s / %s 已达重启限制或在冷却中",
-			proc.Name, proc.Name)
-		return fmt.Errorf("restart limit reached or in cooldown / 已达重启限制或在冷却中")
+		logger.WarnF(ctx, "[AutoRestarter] Restart limit reached or in cooldown for %s", proc.Name)
+		return fmt.Errorf("restart limit reached or in cooldown")
 	}
 
 	// Wait for restart delay / 等待重启延迟
-	logger.InfoF(ctx, "[AutoRestarter] Waiting %v before restarting %s / 等待 %v 后重启 %s",
-		config.RestartDelay, proc.Name, config.RestartDelay, proc.Name)
+	logger.InfoF(ctx, "[AutoRestarter] Waiting %v before restarting %s", config.RestartDelay, proc.Name)
 	time.Sleep(config.RestartDelay)
 
 	// Re-check enabled after delay: config may have been set to disabled (e.g. cluster deleted).
@@ -169,8 +165,7 @@ func (r *AutoRestarter) OnProcessCrashed(proc *monitor.TrackedProcess) error {
 	stillEnabled := r.config.Enabled
 	r.mu.Unlock()
 	if !stillEnabled {
-		logger.InfoF(ctx, "[AutoRestarter] Auto restart disabled after delay, skipping restart for %s / 延迟后自动重启已禁用，跳过 %s 的重启",
-			proc.Name, proc.Name)
+		logger.InfoF(ctx, "[AutoRestarter] Auto restart disabled after delay, skipping restart for %s", proc.Name)
 		return nil
 	}
 
@@ -196,8 +191,7 @@ func (r *AutoRestarter) ShouldRestart(proc *monitor.TrackedProcess) bool {
 	}
 
 	if proc.ManuallyStopped {
-		logger.InfoF(ctx, "[AutoRestarter] Process %s is manually stopped, skipping restart / 进程 %s 已被手动停止，跳过自动重启",
-			proc.Name, proc.Name)
+		logger.InfoF(ctx, "[AutoRestarter] Process %s is manually stopped, skipping restart", proc.Name)
 		return false
 	}
 
@@ -211,8 +205,7 @@ func (r *AutoRestarter) ShouldRestart(proc *monitor.TrackedProcess) bool {
 
 	// Check if in cooldown / 检查是否在冷却中
 	if now.Before(history.CooldownUntil) {
-		logger.InfoF(ctx, "[AutoRestarter] Process %s is in cooldown until %v / 进程 %s 在冷却中直到 %v",
-			proc.Name, history.CooldownUntil, proc.Name, history.CooldownUntil)
+		logger.InfoF(ctx, "[AutoRestarter] Process %s is in cooldown until %v", proc.Name, history.CooldownUntil)
 		return false
 	}
 
@@ -236,8 +229,7 @@ func (r *AutoRestarter) ShouldRestart(proc *monitor.TrackedProcess) bool {
 	if restartsInWindow >= r.config.MaxRestarts {
 		// Enter cooldown / 进入冷却
 		history.CooldownUntil = now.Add(r.config.CooldownPeriod)
-		logger.WarnF(ctx, "[AutoRestarter] Max restarts (%d) reached for %s, entering cooldown until %v / %s 已达最大重启次数（%d），进入冷却直到 %v",
-			r.config.MaxRestarts, proc.Name, history.CooldownUntil, proc.Name, r.config.MaxRestarts, history.CooldownUntil)
+		logger.WarnF(ctx, "[AutoRestarter] Max restarts (%d) reached for %s, entering cooldown until %v", r.config.MaxRestarts, proc.Name, history.CooldownUntil)
 		return false
 	}
 
@@ -253,7 +245,7 @@ func (r *AutoRestarter) DoRestart(ctx context.Context, proc *monitor.TrackedProc
 	callback := r.callback
 	r.mu.Unlock()
 
-	logger.InfoF(ctx, "[AutoRestarter] Restarting process %s... / 正在重启进程 %s...", proc.Name, proc.Name)
+	logger.InfoF(ctx, "[AutoRestarter] Restarting process %s...", proc.Name)
 
 	// Get start params / 获取启动参数
 	startParams := proc.StartParams
@@ -268,14 +260,14 @@ func (r *AutoRestarter) DoRestart(ctx context.Context, proc *monitor.TrackedProc
 	err := r.processManager.StartProcess(ctx, proc.Name, startParams)
 	if err != nil {
 		if errors.Is(err, process.ErrProcessAlreadyRunning) {
-			logger.InfoF(ctx, "[AutoRestarter] Process %s already running, treating as success / 进程 %s 已在运行，视为成功", proc.Name, proc.Name)
+			logger.InfoF(ctx, "[AutoRestarter] Process %s already running, treating as success", proc.Name)
 			if callback != nil {
 				callback(proc.Name, true, nil)
 			}
 			return nil
 		}
 		r.recordRestart(proc.Name)
-		logger.ErrorF(ctx, "[AutoRestarter] Failed to restart %s: %v / 重启 %s 失败：%v", proc.Name, err, proc.Name, err)
+		logger.ErrorF(ctx, "[AutoRestarter] Failed to restart %s: %v", proc.Name, err)
 		if callback != nil {
 			callback(proc.Name, false, err)
 		}
@@ -283,7 +275,7 @@ func (r *AutoRestarter) DoRestart(ctx context.Context, proc *monitor.TrackedProc
 	}
 
 	r.recordRestart(proc.Name)
-	logger.InfoF(ctx, "[AutoRestarter] Successfully restarted %s / 成功重启 %s", proc.Name, proc.Name)
+	logger.InfoF(ctx, "[AutoRestarter] Successfully restarted %s", proc.Name)
 	if callback != nil {
 		callback(proc.Name, true, nil)
 	}
@@ -323,8 +315,7 @@ func (r *AutoRestarter) recordRestart(processName string) {
 	}
 	history.RestartTimes = newTimes
 
-	logger.InfoF(ctx, "[AutoRestarter] Recorded restart for %s, count in window: %d / 记录 %s 的重启，窗口内次数：%d",
-		processName, len(history.RestartTimes), processName, len(history.RestartTimes))
+	logger.InfoF(ctx, "[AutoRestarter] Recorded restart for %s, count in window: %d", processName, len(history.RestartTimes))
 }
 
 // ResetRestartCount resets the restart count for a process
@@ -346,7 +337,7 @@ func (r *AutoRestarter) resetHistoryLocked(processName string) {
 		history.RestartTimes = make([]time.Time, 0)
 		history.WindowStart = time.Now()
 		history.CooldownUntil = time.Time{}
-		logger.InfoF(ctx, "[AutoRestarter] Reset restart count for %s / 重置 %s 的重启计数", processName, processName)
+		logger.InfoF(ctx, "[AutoRestarter] Reset restart count for %s", processName)
 	}
 }
 

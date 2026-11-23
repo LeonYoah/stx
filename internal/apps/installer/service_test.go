@@ -223,7 +223,7 @@ func TestStartClusterAfterInstallSkipsStandaloneInstallation(t *testing.T) {
 	if status.Status != StepStatusSuccess {
 		t.Fatalf("独立安装状态被意外修改: %s", status.Status)
 	}
-	if status.Message != "Installation completed; cluster startup skipped because no cluster ID was provided / 安装完成；未提供集群 ID，已跳过集群启动" {
+	if status.Message != "安装完成；未提供集群 ID，已跳过集群启动" {
 		t.Fatalf("独立安装完成文案错误: %q", status.Message)
 	}
 	if status.CurrentStep != InstallStepComplete {

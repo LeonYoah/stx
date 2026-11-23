@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"strconv"
 	"strings"
 )
@@ -122,17 +123,17 @@ func (s *TroubleshootingService) GetMemory(ctx context.Context, id uint) (*Troub
 // CreateMemory inserts new troubleshooting memory (enforces non-empty solution)
 func (s *TroubleshootingService) CreateMemory(ctx context.Context, req *CreateTroubleshootingMemoryRequest) (*TroubleshootingMemoryItem, error) {
 	if req == nil {
-		return nil, errors.New("request payload is nil / 请求体不能为空")
+		return nil, errors.New(locale.Pick(ctx, "请求体不能为空", "request payload is nil"))
 	}
 
 	solution := strings.TrimSpace(req.Solution)
 	if solution == "" {
-		return nil, errors.New("解决方案内容不能为空，排障经验必须包含具体的处理措施与步骤 / solution cannot be empty")
+		return nil, errors.New(locale.Pick(ctx, "解决方案内容不能为空，排障经验必须包含具体的处理措施与步骤", "solution cannot be empty"))
 	}
 
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
-		return nil, errors.New("方案标题不能为空 / title cannot be empty")
+		return nil, errors.New(locale.Pick(ctx, "方案标题不能为空", "title cannot be empty"))
 	}
 
 	fingerprint := strings.TrimSpace(req.Fingerprint)
@@ -200,7 +201,7 @@ func (s *TroubleshootingService) CreateMemory(ctx context.Context, req *CreateTr
 // UpdateMemory modifies an existing troubleshooting memory entry
 func (s *TroubleshootingService) UpdateMemory(ctx context.Context, id uint, req *UpdateTroubleshootingMemoryRequest) (*TroubleshootingMemoryItem, error) {
 	if req == nil {
-		return nil, errors.New("request payload is nil / 请求体不能为空")
+		return nil, errors.New(locale.Pick(ctx, "请求体不能为空", "request payload is nil"))
 	}
 
 	existing, err := s.repo.GetByID(ctx, id)

@@ -20,6 +20,7 @@ package stupgrade
 import (
 	"context"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"path/filepath"
 	"strings"
 	"time"
@@ -156,15 +157,15 @@ func (s *Service) executeTask(ctx context.Context, taskID uint) (*UpgradeTask, e
 				task.RollbackStatus = ExecutionStatusRollbackFailed
 				task.RollbackReason = normalizeUserVisibleText(rollbackErr.Error())
 				_ = s.finalizeNodeExecutionsRollbackFailed(ctx, task, rollbackErr.Error())
-				_ = s.recordFailureClosureStep(ctx, task, fmt.Sprintf("upgrade failed at %s: %s; rollback failed: %s / 升级在 %s 失败：%s；回滚失败：%s", task.FailureStep, task.FailureReason, rollbackErr.Error(), task.FailureStep, task.FailureReason, rollbackErr.Error()))
+				_ = s.recordFailureClosureStep(ctx, task, locale.Pick(ctx, fmt.Sprintf("升级在 %s 失败：%s；回滚失败：%s", task.FailureStep, task.FailureReason, rollbackErr.Error()), fmt.Sprintf("upgrade failed at %s: %s; rollback failed: %s", task.FailureStep, task.FailureReason, rollbackErr.Error())))
 			} else {
 				task.RollbackStatus = ExecutionStatusRollbackSucceeded
-				_ = s.recordFailureClosureStep(ctx, task, fmt.Sprintf("upgrade failed at %s: %s; rollback succeeded / 升级在 %s 失败：%s；回滚成功", task.FailureStep, task.FailureReason, task.FailureStep, task.FailureReason))
+				_ = s.recordFailureClosureStep(ctx, task, locale.Pick(ctx, fmt.Sprintf("升级在 %s 失败：%s；回滚成功", task.FailureStep, task.FailureReason), fmt.Sprintf("upgrade failed at %s: %s; rollback succeeded", task.FailureStep, task.FailureReason)))
 			}
 		} else {
 			task.RollbackStatus = ExecutionStatusSkipped
 			_ = s.finalizeNodeExecutionsFailed(ctx, task, normalizeUserVisibleText(err.Error()))
-			_ = s.recordFailureClosureStep(ctx, task, fmt.Sprintf("upgrade failed before rollback point: %s / 升级在回滚点之前失败：%s", err.Error(), err.Error()))
+			_ = s.recordFailureClosureStep(ctx, task, locale.Pick(ctx, fmt.Sprintf("升级在回滚点之前失败：%s", err.Error()), fmt.Sprintf("upgrade failed before rollback point: %s", err.Error())))
 		}
 		completedAt := time.Now()
 		task.CompletedAt = &completedAt
@@ -210,10 +211,10 @@ func (s *Service) executePlanSteps(ctx context.Context, task *UpgradeTask, plan 
 		)
 		switch step.Code {
 		case StepCodePrecheckPackage:
-			stepErr = s.markPlanCheckStep(plan.PackageManifest.Checksum != "", "package checksum is missing / 安装包缺少 checksum")
-			successMessage = fmt.Sprintf("package %s passed checksum gate / 安装包 %s 通过 checksum 门禁", plan.TargetVersion, plan.TargetVersion)
+			stepErr = s.markPlanCheckStep(plan.PackageManifest.Checksum != "", locale.Pick(ctx, "安装包缺少 checksum", "package checksum is missing"))
+			successMessage = locale.Pick(ctx, fmt.Sprintf("安装包 %s 通过 checksum 门禁", plan.TargetVersion), fmt.Sprintf("package %s passed checksum gate", plan.TargetVersion))
 		case StepCodePrecheckConnector:
-			stepErr = s.markPlanCheckStep(plan.ConnectorManifest.Version != "", "connector manifest is missing / connector 清单缺失")
+			stepErr = s.markPlanCheckStep(plan.ConnectorManifest.Version != "", locale.Pick(ctx, "connector 清单缺失", "connector manifest is missing"))
 			successMessage = fmt.Sprintf(
 				"plugin manifest ready with %d connectors, %d libs and %d isolated dependencies / 插件清单已就绪，包含 %d 个 connector、%d 个 lib、%d 个隔离依赖",
 				len(plan.ConnectorManifest.Connectors),
@@ -225,45 +226,45 @@ func (s *Service) executePlanSteps(ctx context.Context, task *UpgradeTask, plan 
 			)
 		case StepCodeBackup:
 			stepErr = s.executeBackupStep(ctx, task, step, plan.NodeTargets, backupPaths, nodesByKey)
-			successMessage = fmt.Sprintf("backed up %d node targets / 已完成 %d 个节点目标的备份", len(plan.NodeTargets), len(plan.NodeTargets))
+			successMessage = locale.Pick(ctx, fmt.Sprintf("已完成 %d 个节点目标的备份", len(plan.NodeTargets)), fmt.Sprintf("backed up %d node targets", len(plan.NodeTargets)))
 		case StepCodeDistributePackage:
 			stepErr = s.executeDistributePackageStep(ctx, task, step, plan, nodesByKey)
-			successMessage = fmt.Sprintf("distributed package %s to %d node targets / 已将安装包 %s 分发到 %d 个节点目标", plan.PackageManifest.FileName, len(plan.NodeTargets), plan.PackageManifest.FileName, len(plan.NodeTargets))
+			successMessage = locale.Pick(ctx, fmt.Sprintf("已将安装包 %s 分发到 %d 个节点目标", plan.PackageManifest.FileName, len(plan.NodeTargets)), fmt.Sprintf("distributed package %s to %d node targets", plan.PackageManifest.FileName, len(plan.NodeTargets)))
 		case StepCodeSyncLib:
 			stepErr = s.executeSyncLibStep(ctx, task, step, plan.NodeTargets, libraryKeepFiles, nodesByKey)
-			successMessage = fmt.Sprintf("synchronized %d lib artifacts on %d node targets / 已在 %d 个节点目标上同步 %d 个 lib 工件", len(libraryKeepFiles), len(plan.NodeTargets), len(plan.NodeTargets), len(libraryKeepFiles))
+			successMessage = locale.Pick(ctx, fmt.Sprintf("已在 %d 个节点目标上同步 %d 个 lib 工件", len(plan.NodeTargets), len(libraryKeepFiles)), fmt.Sprintf("synchronized %d lib artifacts on %d node targets", len(libraryKeepFiles), len(plan.NodeTargets)))
 		case StepCodeSyncConnectors:
 			stepErr = s.executeSyncConnectorsStep(ctx, task, step, plan, connectorKeepFiles, nodesByKey)
-			successMessage = fmt.Sprintf("synchronized %d connectors on %d node targets / 已在 %d 个节点目标上同步 %d 个 connector", len(plan.ConnectorManifest.Connectors), len(plan.NodeTargets), len(plan.NodeTargets), len(plan.ConnectorManifest.Connectors))
+			successMessage = locale.Pick(ctx, fmt.Sprintf("已在 %d 个节点目标上同步 %d 个 connector", len(plan.NodeTargets), len(plan.ConnectorManifest.Connectors)), fmt.Sprintf("synchronized %d connectors on %d node targets", len(plan.ConnectorManifest.Connectors), len(plan.NodeTargets)))
 		case StepCodeSyncPlugins:
 			stepErr = s.executeSyncPluginsStep(ctx, task, step, plan.NodeTargets, pluginKeepFiles, nodesByKey)
-			successMessage = fmt.Sprintf("synchronized %d isolated dependencies on %d node targets / 已在 %d 个节点目标上同步 %d 个隔离依赖", len(pluginKeepFiles), len(plan.NodeTargets), len(plan.NodeTargets), len(pluginKeepFiles))
+			successMessage = locale.Pick(ctx, fmt.Sprintf("已在 %d 个节点目标上同步 %d 个隔离依赖", len(plan.NodeTargets), len(pluginKeepFiles)), fmt.Sprintf("synchronized %d isolated dependencies on %d node targets", len(pluginKeepFiles), len(plan.NodeTargets)))
 		case StepCodeMergeConfig:
 			stepErr = s.executeMergeConfigStep(ctx, task, step, plan, nodesByKey)
-			successMessage = fmt.Sprintf("applied %d merged config files / 已应用 %d 个合并后的配置文件", len(plan.ConfigMergePlan.Files), len(plan.ConfigMergePlan.Files))
+			successMessage = locale.Pick(ctx, fmt.Sprintf("已应用 %d 个合并后的配置文件", len(plan.ConfigMergePlan.Files)), fmt.Sprintf("applied %d merged config files", len(plan.ConfigMergePlan.Files)))
 		case StepCodeStopCluster:
 			// 先停 proxy 再停 SeaTunnel，避免旧 classpath 悬挂。
 			// Stop proxy before SeaTunnel so the old classpath is not left hanging.
 			stepErr = s.stopJavaProxyForUpgrade(ctx, task, step, plan)
 			if stepErr == nil {
 				stepErr = s.executeClusterLifecycleStep(ctx, task, step, clusterapp.OperationStop, nodesByClusterNodeID, ExecutionStatusRunning)
-				successMessage = "cluster stopped and upgrade window opened / 集群已停止，切换窗口已打开"
+				successMessage = locale.Pick(ctx, "集群已停止，切换窗口已打开", "cluster stopped and upgrade window opened")
 			}
 		case StepCodeSwitchVersion:
 			stepErr = s.executeSwitchVersionStep(ctx, task, step, plan, nodesByKey)
-			successMessage = fmt.Sprintf("switched cluster metadata to target version %s / 已将集群元数据切换到目标版本 %s", plan.TargetVersion, plan.TargetVersion)
+			successMessage = locale.Pick(ctx, fmt.Sprintf("已将集群元数据切换到目标版本 %s", plan.TargetVersion), fmt.Sprintf("switched cluster metadata to target version %s", plan.TargetVersion))
 		case StepCodeStartCluster:
 			stepErr = s.executeClusterLifecycleStep(ctx, task, step, clusterapp.OperationStart, nodesByClusterNodeID, ExecutionStatusRunning)
-			successMessage = "cluster started on target version / 目标版本集群已启动"
+			successMessage = locale.Pick(ctx, "目标版本集群已启动", "cluster started on target version")
 		case StepCodeRestartJavaProxy:
 			successMessage, stepErr = s.executeRestartJavaProxyStep(ctx, task, step, plan)
 		case StepCodeHealthCheck:
 			stepErr = s.executeHealthCheckStep(ctx, task, step, plan.NodeTargets, nodesByKey)
-			successMessage = fmt.Sprintf("health checks passed on %d node targets / %d 个节点目标健康检查通过", len(plan.NodeTargets), len(plan.NodeTargets))
+			successMessage = locale.Pick(ctx, fmt.Sprintf("%d 个节点目标健康检查通过", len(plan.NodeTargets)), fmt.Sprintf("health checks passed on %d node targets", len(plan.NodeTargets)))
 		case StepCodeSmokeTest:
 			successMessage, stepErr = s.executeSmokeTestStep(ctx, task, step, plan.NodeTargets, nodesByKey)
 		case StepCodeComplete:
-			successMessage = "upgrade workflow completed / 升级工作流执行完成"
+			successMessage = locale.Pick(ctx, "升级工作流执行完成", "upgrade workflow completed")
 		default:
 			stepErr = fmt.Errorf("unsupported upgrade step: %s", step.Code)
 		}
@@ -309,7 +310,7 @@ func (s *Service) rollbackTask(ctx context.Context, task *UpgradeTask, plan Upgr
 	if err := s.startStep(ctx, task, prepareStep); err != nil {
 		return err
 	}
-	if err := s.appendTaskLog(ctx, task.ID, uintPtr(prepareStep.ID), nil, prepareStep.Code, LogLevelWarn, LogEventTypeRollback, fmt.Sprintf("rollback triggered because %s failed: %s / 因 %s 失败触发回滚：%s", task.FailureStep, task.FailureReason, task.FailureStep, task.FailureReason), ""); err != nil {
+	if err := s.appendTaskLog(ctx, task.ID, uintPtr(prepareStep.ID), nil, prepareStep.Code, LogLevelWarn, LogEventTypeRollback, locale.Pick(ctx, fmt.Sprintf("因 %s 失败触发回滚：%s", task.FailureStep, task.FailureReason), fmt.Sprintf("rollback triggered because %s failed: %s", task.FailureStep, task.FailureReason)), ""); err != nil {
 		return err
 	}
 	// 回滚停集群前先停 proxy，避免目标目录残留进程干扰恢复。
@@ -323,7 +324,7 @@ func (s *Service) rollbackTask(ctx context.Context, task *UpgradeTask, plan Upgr
 		}
 		return err
 	}
-	if err := s.finishStep(ctx, task, prepareStep, "rollback preparation completed / 回滚准备完成"); err != nil {
+	if err := s.finishStep(ctx, task, prepareStep, locale.Pick(ctx, "回滚准备完成", "rollback preparation completed")); err != nil {
 		return err
 	}
 
@@ -334,15 +335,15 @@ func (s *Service) rollbackTask(ctx context.Context, task *UpgradeTask, plan Upgr
 		node := nodesByKey[nodeExecutionKey(target.HostID, target.Role)]
 		backupDir := backupPaths[nodeExecutionKey(target.HostID, target.Role)]
 		commandSummary := fmt.Sprintf("upgrade restore source_install_dir=%s backup_dir=%s", target.SourceInstallDir, backupDir)
-		restoreMessage := fmt.Sprintf("restoring snapshot from %s / 正在从 %s 恢复快照", backupDir, backupDir)
+		restoreMessage := locale.Pick(ctx, fmt.Sprintf("正在从 %s 恢复快照", backupDir), fmt.Sprintf("restoring snapshot from %s", backupDir))
 		if strings.TrimSpace(backupDir) == "" {
-			restoreMessage = fmt.Sprintf("source dir %s was preserved, restoring metadata only / 源目录 %s 未被修改，本次仅恢复元数据", target.SourceInstallDir, target.SourceInstallDir)
+			restoreMessage = locale.Pick(ctx, fmt.Sprintf("源目录 %s 未被修改，本次仅恢复元数据", target.SourceInstallDir), fmt.Sprintf("source dir %s was preserved, restoring metadata only", target.SourceInstallDir))
 		}
 		if err := s.beginNodeStep(ctx, restoreStep, node, ExecutionStatusRollbackRunning, restoreMessage, commandSummary); err != nil {
 			return err
 		}
 		if strings.TrimSpace(backupDir) == "" {
-			if err := s.finishNodeStep(ctx, restoreStep, node, ExecutionStatusRollbackRunning, fmt.Sprintf("source dir %s already intact / 源目录 %s 保持完好", target.SourceInstallDir, target.SourceInstallDir), commandSummary); err != nil {
+			if err := s.finishNodeStep(ctx, restoreStep, node, ExecutionStatusRollbackRunning, locale.Pick(ctx, fmt.Sprintf("源目录 %s 保持完好", target.SourceInstallDir), fmt.Sprintf("source dir %s already intact", target.SourceInstallDir)), commandSummary); err != nil {
 				return err
 			}
 			continue
@@ -358,7 +359,7 @@ func (s *Service) rollbackTask(ctx context.Context, task *UpgradeTask, plan Upgr
 			}
 			return err
 		}
-		if err := s.finishNodeStep(ctx, restoreStep, node, ExecutionStatusRollbackRunning, fmt.Sprintf("snapshot restored to %s / 已恢复到 %s", target.SourceInstallDir, target.SourceInstallDir), commandSummary); err != nil {
+		if err := s.finishNodeStep(ctx, restoreStep, node, ExecutionStatusRollbackRunning, locale.Pick(ctx, fmt.Sprintf("已恢复到 %s", target.SourceInstallDir), fmt.Sprintf("snapshot restored to %s", target.SourceInstallDir)), commandSummary); err != nil {
 			return err
 		}
 	}
@@ -368,7 +369,7 @@ func (s *Service) rollbackTask(ctx context.Context, task *UpgradeTask, plan Upgr
 		}
 		return err
 	}
-	if err := s.finishStep(ctx, task, restoreStep, "rollback restore completed / 回滚恢复完成"); err != nil {
+	if err := s.finishStep(ctx, task, restoreStep, locale.Pick(ctx, "回滚恢复完成", "rollback restore completed")); err != nil {
 		return err
 	}
 
@@ -386,7 +387,7 @@ func (s *Service) rollbackTask(ctx context.Context, task *UpgradeTask, plan Upgr
 	if _, restartErr := s.restartJavaProxyBestEffort(ctx, task, restartStep, plan.SourceVersion); restartErr != nil {
 		return restartErr
 	}
-	if err := s.finishStep(ctx, task, restartStep, "rollback restart completed / 回滚重启完成"); err != nil {
+	if err := s.finishStep(ctx, task, restartStep, locale.Pick(ctx, "回滚重启完成", "rollback restart completed")); err != nil {
 		return err
 	}
 
@@ -396,7 +397,7 @@ func (s *Service) rollbackTask(ctx context.Context, task *UpgradeTask, plan Upgr
 	for _, target := range plan.NodeTargets {
 		node := nodesByKey[nodeExecutionKey(target.HostID, target.Role)]
 		commandSummary := fmt.Sprintf("upgrade verify_cluster_health install_dir=%s", target.SourceInstallDir)
-		if err := s.beginNodeStep(ctx, verifyStep, node, ExecutionStatusRollbackRunning, fmt.Sprintf("verifying restored install dir %s / 正在校验恢复后的目录 %s", target.SourceInstallDir, target.SourceInstallDir), commandSummary); err != nil {
+		if err := s.beginNodeStep(ctx, verifyStep, node, ExecutionStatusRollbackRunning, locale.Pick(ctx, fmt.Sprintf("正在校验恢复后的目录 %s", target.SourceInstallDir), fmt.Sprintf("verifying restored install dir %s", target.SourceInstallDir)), commandSummary); err != nil {
 			return err
 		}
 		if _, err := s.runManagedCommand(ctx, target.HostID, map[string]string{
@@ -416,7 +417,7 @@ func (s *Service) rollbackTask(ctx context.Context, task *UpgradeTask, plan Upgr
 			}
 			return err
 		}
-		if err := s.finishNodeStep(ctx, verifyStep, node, ExecutionStatusRollbackSucceeded, fmt.Sprintf("rollback health check passed for %s / %s 回滚健康检查通过", target.SourceInstallDir, target.SourceInstallDir), commandSummary); err != nil {
+		if err := s.finishNodeStep(ctx, verifyStep, node, ExecutionStatusRollbackSucceeded, locale.Pick(ctx, fmt.Sprintf("%s 回滚健康检查通过", target.SourceInstallDir), fmt.Sprintf("rollback health check passed for %s", target.SourceInstallDir)), commandSummary); err != nil {
 			return err
 		}
 	}
@@ -426,7 +427,7 @@ func (s *Service) rollbackTask(ctx context.Context, task *UpgradeTask, plan Upgr
 		}
 		return err
 	}
-	if err := s.finishStep(ctx, task, verifyStep, "rollback verification completed / 回滚校验完成"); err != nil {
+	if err := s.finishStep(ctx, task, verifyStep, locale.Pick(ctx, "回滚校验完成", "rollback verification completed")); err != nil {
 		return err
 	}
 
@@ -474,7 +475,7 @@ func (s *Service) executeBackupStep(ctx context.Context, task *UpgradeTask, step
 		if sameInstallDirForUpgrade(target.SourceInstallDir, target.TargetInstallDir) {
 			backupDir := fmt.Sprintf("%s.stupgrade-%d-backup", strings.TrimSpace(target.SourceInstallDir), task.ID)
 			commandSummary := fmt.Sprintf("upgrade backup_install_dir install_dir=%s backup_dir=%s", target.SourceInstallDir, backupDir)
-			if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("source and target install dir are the same, backing up %s / 源目录与目标目录相同，正在备份 %s", target.SourceInstallDir, target.SourceInstallDir), commandSummary); err != nil {
+			if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("源目录与目标目录相同，正在备份 %s", target.SourceInstallDir), fmt.Sprintf("source and target install dir are the same, backing up %s", target.SourceInstallDir)), commandSummary); err != nil {
 				return err
 			}
 			if _, err := s.runManagedCommand(ctx, target.HostID, map[string]string{
@@ -486,18 +487,18 @@ func (s *Service) executeBackupStep(ctx context.Context, task *UpgradeTask, step
 				return err
 			}
 			backupPaths[nodeKey] = backupDir
-			if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("backup created at %s / 备份已创建到 %s", backupDir, backupDir), commandSummary); err != nil {
+			if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("备份已创建到 %s", backupDir), fmt.Sprintf("backup created at %s", backupDir)), commandSummary); err != nil {
 				return err
 			}
 			continue
 		}
 
 		commandSummary := fmt.Sprintf("upgrade backup skipped source_install_dir=%s target_install_dir=%s", target.SourceInstallDir, target.TargetInstallDir)
-		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("double-directory upgrade keeps %s intact, skipping extra snapshot / 双目录升级会保留 %s 原目录，本次跳过额外快照", target.SourceInstallDir, target.SourceInstallDir), commandSummary); err != nil {
+		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("双目录升级会保留 %s 原目录，本次跳过额外快照", target.SourceInstallDir), fmt.Sprintf("double-directory upgrade keeps %s intact, skipping extra snapshot", target.SourceInstallDir)), commandSummary); err != nil {
 			return err
 		}
 		backupPaths[nodeKey] = ""
-		message := fmt.Sprintf("no physical backup required because source dir %s and target dir %s are different / 源目录 %s 与目标目录 %s 不重合，无需额外物理备份", target.SourceInstallDir, target.TargetInstallDir, target.SourceInstallDir, target.TargetInstallDir)
+		message := locale.Pick(ctx, fmt.Sprintf("源目录 %s 与目标目录 %s 不重合，无需额外物理备份", target.SourceInstallDir, target.TargetInstallDir), fmt.Sprintf("no physical backup required because source dir %s and target dir %s are different", target.SourceInstallDir, target.TargetInstallDir))
 		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, message, commandSummary); err != nil {
 			return err
 		}
@@ -515,7 +516,7 @@ func (s *Service) executeDistributePackageStep(ctx context.Context, task *Upgrad
 			return err
 		}
 		transferSummary := fmt.Sprintf("transfer package version=%s agent_id=%s", plan.TargetVersion, agentID)
-		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("transferring package %s / 正在传输安装包 %s", plan.PackageManifest.FileName, plan.PackageManifest.FileName), transferSummary); err != nil {
+		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("正在传输安装包 %s", plan.PackageManifest.FileName), fmt.Sprintf("transferring package %s", plan.PackageManifest.FileName)), transferSummary); err != nil {
 			return err
 		}
 		remotePath, err := s.packageTransferer.TransferPackageToAgent(ctx, agentID, plan.TargetVersion, nil)
@@ -524,7 +525,7 @@ func (s *Service) executeDistributePackageStep(ctx context.Context, task *Upgrad
 			return err
 		}
 		extractSummary := fmt.Sprintf("upgrade extract_package_to_dir package_path=%s target_dir=%s checksum=%s", remotePath, target.TargetInstallDir, plan.PackageManifest.Checksum)
-		if err := s.appendNodeLog(ctx, step, node, LogLevelInfo, LogEventTypeProgress, fmt.Sprintf("package transferred to %s / 安装包已传输到 %s", remotePath, remotePath), extractSummary); err != nil {
+		if err := s.appendNodeLog(ctx, step, node, LogLevelInfo, LogEventTypeProgress, locale.Pick(ctx, fmt.Sprintf("安装包已传输到 %s", remotePath), fmt.Sprintf("package transferred to %s", remotePath)), extractSummary); err != nil {
 			return err
 		}
 		if _, err := s.runManagedCommand(ctx, target.HostID, map[string]string{
@@ -536,7 +537,7 @@ func (s *Service) executeDistributePackageStep(ctx context.Context, task *Upgrad
 			_ = s.failNodeStep(ctx, step, node, ExecutionStatusFailed, err, extractSummary)
 			return err
 		}
-		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("package extracted to %s / 安装包已解压到 %s", target.TargetInstallDir, target.TargetInstallDir), extractSummary); err != nil {
+		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("安装包已解压到 %s", target.TargetInstallDir), fmt.Sprintf("package extracted to %s", target.TargetInstallDir)), extractSummary); err != nil {
 			return err
 		}
 	}
@@ -547,7 +548,7 @@ func (s *Service) executeSyncLibStep(ctx context.Context, task *UpgradeTask, ste
 	for _, target := range nodeTargets {
 		node := nodesByKey[nodeExecutionKey(target.HostID, target.Role)]
 		commandSummary := fmt.Sprintf("upgrade sync_lib_manifest install_dir=%s keep_files=%s", target.TargetInstallDir, strings.Join(keepFiles, ","))
-		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("synchronizing lib manifest in %s / 正在同步 %s 的 lib 清单", target.TargetInstallDir, target.TargetInstallDir), commandSummary); err != nil {
+		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("正在同步 %s 的 lib 清单", target.TargetInstallDir), fmt.Sprintf("synchronizing lib manifest in %s", target.TargetInstallDir)), commandSummary); err != nil {
 			return err
 		}
 		if _, err := s.runManagedCommand(ctx, target.HostID, map[string]string{
@@ -558,7 +559,7 @@ func (s *Service) executeSyncLibStep(ctx context.Context, task *UpgradeTask, ste
 			_ = s.failNodeStep(ctx, step, node, ExecutionStatusFailed, err, commandSummary)
 			return err
 		}
-		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("lib manifest synchronized for %s / %s 的 lib 清单已同步", target.TargetInstallDir, target.TargetInstallDir), commandSummary); err != nil {
+		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("%s 的 lib 清单已同步", target.TargetInstallDir), fmt.Sprintf("lib manifest synchronized for %s", target.TargetInstallDir)), commandSummary); err != nil {
 			return err
 		}
 	}
@@ -575,12 +576,12 @@ func (s *Service) executeSyncConnectorsStep(ctx context.Context, task *UpgradeTa
 			return err
 		}
 		manifestSummary := fmt.Sprintf("upgrade sync_connectors_manifest install_dir=%s keep_files=%s", target.TargetInstallDir, strings.Join(keepFiles, ","))
-		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("synchronizing connectors in %s / 正在同步 %s 的 connector", target.TargetInstallDir, target.TargetInstallDir), manifestSummary); err != nil {
+		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("正在同步 %s 的 connector", target.TargetInstallDir), fmt.Sprintf("synchronizing connectors in %s", target.TargetInstallDir)), manifestSummary); err != nil {
 			return err
 		}
 		for _, connector := range plan.ConnectorManifest.Connectors {
 			transferSummary := fmt.Sprintf("transfer plugin plugin=%s version=%s install_dir=%s", connector.PluginName, connector.Version, target.TargetInstallDir)
-			if err := s.appendNodeLog(ctx, step, node, LogLevelInfo, LogEventTypeProgress, fmt.Sprintf("transferring connector %s / 正在传输 connector %s", connector.PluginName, connector.PluginName), transferSummary); err != nil {
+			if err := s.appendNodeLog(ctx, step, node, LogLevelInfo, LogEventTypeProgress, locale.Pick(ctx, fmt.Sprintf("正在传输 connector %s", connector.PluginName), fmt.Sprintf("transferring connector %s", connector.PluginName)), transferSummary); err != nil {
 				return err
 			}
 			// 若计划中包含画像则直接使用；若为空则兜底解析，确保驱动依赖正常传输
@@ -602,7 +603,7 @@ func (s *Service) executeSyncConnectorsStep(ctx context.Context, task *UpgradeTa
 			_ = s.failNodeStep(ctx, step, node, ExecutionStatusFailed, err, manifestSummary)
 			return err
 		}
-		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("connector manifest synchronized for %s / %s 的 connector 清单已同步", target.TargetInstallDir, target.TargetInstallDir), manifestSummary); err != nil {
+		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("%s 的 connector 清单已同步", target.TargetInstallDir), fmt.Sprintf("connector manifest synchronized for %s", target.TargetInstallDir)), manifestSummary); err != nil {
 			return err
 		}
 	}
@@ -613,7 +614,7 @@ func (s *Service) executeSyncPluginsStep(ctx context.Context, task *UpgradeTask,
 	for _, target := range nodeTargets {
 		node := nodesByKey[nodeExecutionKey(target.HostID, target.Role)]
 		commandSummary := fmt.Sprintf("upgrade sync_plugins_manifest install_dir=%s keep_files=%s", target.TargetInstallDir, strings.Join(keepFiles, ","))
-		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("synchronizing isolated dependencies in %s / 正在同步 %s 的隔离依赖", target.TargetInstallDir, target.TargetInstallDir), commandSummary); err != nil {
+		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("正在同步 %s 的隔离依赖", target.TargetInstallDir), fmt.Sprintf("synchronizing isolated dependencies in %s", target.TargetInstallDir)), commandSummary); err != nil {
 			return err
 		}
 		if _, err := s.runManagedCommand(ctx, target.HostID, map[string]string{
@@ -624,7 +625,7 @@ func (s *Service) executeSyncPluginsStep(ctx context.Context, task *UpgradeTask,
 			_ = s.failNodeStep(ctx, step, node, ExecutionStatusFailed, err, commandSummary)
 			return err
 		}
-		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("isolated dependency manifest synchronized for %s / %s 的隔离依赖清单已同步", target.TargetInstallDir, target.TargetInstallDir), commandSummary); err != nil {
+		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("%s 的隔离依赖清单已同步", target.TargetInstallDir), fmt.Sprintf("isolated dependency manifest synchronized for %s", target.TargetInstallDir)), commandSummary); err != nil {
 			return err
 		}
 	}
@@ -636,7 +637,7 @@ func (s *Service) executeMergeConfigStep(ctx context.Context, task *UpgradeTask,
 		node := nodesByKey[nodeExecutionKey(target.HostID, target.Role)]
 		for _, file := range plan.ConfigMergePlan.Files {
 			commandSummary := fmt.Sprintf("upgrade apply_merged_config install_dir=%s config_type=%s", target.TargetInstallDir, file.ConfigType)
-			if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("applying merged config %s / 正在应用合并配置 %s", file.ConfigType, file.ConfigType), commandSummary); err != nil {
+			if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("正在应用合并配置 %s", file.ConfigType), fmt.Sprintf("applying merged config %s", file.ConfigType)), commandSummary); err != nil {
 				return err
 			}
 			if _, err := s.runManagedCommand(ctx, target.HostID, map[string]string{
@@ -649,7 +650,7 @@ func (s *Service) executeMergeConfigStep(ctx context.Context, task *UpgradeTask,
 				_ = s.failNodeStep(ctx, step, node, ExecutionStatusFailed, err, commandSummary)
 				return err
 			}
-			if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("merged config %s applied / 合并配置 %s 已应用", file.ConfigType, file.ConfigType), commandSummary); err != nil {
+			if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("合并配置 %s 已应用", file.ConfigType), fmt.Sprintf("merged config %s applied", file.ConfigType)), commandSummary); err != nil {
 				return err
 			}
 		}
@@ -661,7 +662,7 @@ func (s *Service) executeSwitchVersionStep(ctx context.Context, task *UpgradeTas
 	for _, target := range plan.NodeTargets {
 		node := nodesByKey[nodeExecutionKey(target.HostID, target.Role)]
 		commandSummary := fmt.Sprintf("upgrade switch_install_dir target_dir=%s", target.TargetInstallDir)
-		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("switching install dir to %s / 正在切换安装目录到 %s", target.TargetInstallDir, target.TargetInstallDir), commandSummary); err != nil {
+		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("正在切换安装目录到 %s", target.TargetInstallDir), fmt.Sprintf("switching install dir to %s", target.TargetInstallDir)), commandSummary); err != nil {
 			return err
 		}
 		if _, err := s.runManagedCommand(ctx, target.HostID, map[string]string{
@@ -679,7 +680,7 @@ func (s *Service) executeSwitchVersionStep(ctx context.Context, task *UpgradeTas
 			_ = s.failNodeStep(ctx, step, node, ExecutionStatusFailed, err, commandSummary)
 			return err
 		}
-		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("install dir switched to %s / 安装目录已切换到 %s", target.TargetInstallDir, target.TargetInstallDir), commandSummary); err != nil {
+		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("安装目录已切换到 %s", target.TargetInstallDir), fmt.Sprintf("install dir switched to %s", target.TargetInstallDir)), commandSummary); err != nil {
 			return err
 		}
 	}
@@ -728,7 +729,7 @@ func (s *Service) executeHealthCheckStep(ctx context.Context, task *UpgradeTask,
 	for _, target := range nodeTargets {
 		node := nodesByKey[nodeExecutionKey(target.HostID, target.Role)]
 		commandSummary := fmt.Sprintf("upgrade verify_cluster_health install_dir=%s", target.TargetInstallDir)
-		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("verifying health of %s / 正在校验 %s 的健康状态", target.TargetInstallDir, target.TargetInstallDir), commandSummary); err != nil {
+		if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("正在校验 %s 的健康状态", target.TargetInstallDir), fmt.Sprintf("verifying health of %s", target.TargetInstallDir)), commandSummary); err != nil {
 			return err
 		}
 		if _, err := s.runManagedCommand(ctx, target.HostID, map[string]string{
@@ -744,7 +745,7 @@ func (s *Service) executeHealthCheckStep(ctx context.Context, task *UpgradeTask,
 			_ = s.failNodeStep(ctx, step, node, ExecutionStatusFailed, err, commandSummary)
 			return err
 		}
-		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("health verified for %s (process running) / %s 健康状态校验通过（进程运行中）", target.TargetInstallDir, target.TargetInstallDir), commandSummary); err != nil {
+		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, locale.Pick(ctx, fmt.Sprintf("%s 健康状态校验通过（进程运行中）", target.TargetInstallDir), fmt.Sprintf("health verified for %s (process running)", target.TargetInstallDir)), commandSummary); err != nil {
 			return err
 		}
 	}
@@ -768,7 +769,7 @@ func (s *Service) executeSmokeTestStep(ctx context.Context, task *UpgradeTask, s
 
 	node := nodesByKey[nodeExecutionKey(target.HostID, target.Role)]
 	commandSummary := fmt.Sprintf("upgrade run_smoke_test_template install_dir=%s", target.TargetInstallDir)
-	startMessage := fmt.Sprintf("running post-upgrade smoke test in %s / 正在对 %s 执行升级后可用性验证", target.TargetInstallDir, target.TargetInstallDir)
+	startMessage := locale.Pick(ctx, fmt.Sprintf("正在对 %s 执行升级后可用性验证", target.TargetInstallDir), fmt.Sprintf("running post-upgrade smoke test in %s", target.TargetInstallDir))
 	if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, startMessage, commandSummary); err != nil {
 		return "", err
 	}
@@ -794,13 +795,7 @@ func (s *Service) executeSmokeTestStep(ctx context.Context, task *UpgradeTask, s
 		if updateErr := s.UpdateTaskStep(ctx, step); updateErr != nil {
 			return "", updateErr
 		}
-		retryMessage := fmt.Sprintf(
-			"post-upgrade smoke test attempt %d failed because the cluster is not ready; retrying in %s / 升级后可用性验证第 %d 次执行失败，判断为集群尚未就绪，%s 后重试",
-			attempt,
-			delay.String(),
-			attempt,
-			formatRetryDelayChinese(delay),
-		)
+		retryMessage := locale.Pick(ctx, fmt.Sprintf("升级后可用性验证第 %d 次执行失败，判断为集群尚未就绪，%s 后重试", attempt, formatRetryDelayChinese(delay)), fmt.Sprintf("post-upgrade smoke test attempt %d failed because the cluster is not ready; retrying in %s", attempt, delay.String()))
 		metadata := LogMetadata{
 			"host_id":             target.HostID,
 			"host_name":           target.HostName,
@@ -818,11 +813,11 @@ func (s *Service) executeSmokeTestStep(ctx context.Context, task *UpgradeTask, s
 		}
 	}
 	if err != nil {
-		nodeMessage := fmt.Sprintf("smoke test reported warning on %s / %s 的可用性验证出现告警", target.HostName, target.HostName)
+		nodeMessage := locale.Pick(ctx, fmt.Sprintf("%s 的可用性验证出现告警", target.HostName), fmt.Sprintf("smoke test reported warning on %s", target.HostName))
 		if finishErr := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, nodeMessage, commandSummary); finishErr != nil {
 			return "", finishErr
 		}
-		warningDetail := fmt.Sprintf("post-upgrade smoke test warned on %s after %d attempt(s): %s / %s 的升级后可用性验证在执行 %d 次后仍有告警：%s", target.HostName, attempt, err.Error(), target.HostName, attempt, err.Error())
+		warningDetail := locale.Pick(ctx, fmt.Sprintf("%s 的升级后可用性验证在执行 %d 次后仍有告警：%s", target.HostName, attempt, err.Error()), fmt.Sprintf("post-upgrade smoke test warned on %s after %d attempt(s): %s", target.HostName, attempt, err.Error()))
 		if logErr := s.appendNodeLog(ctx, step, node, LogLevelWarn, LogEventTypeNote, warningDetail, commandSummary); logErr != nil {
 			return "", logErr
 		}
@@ -832,12 +827,12 @@ func (s *Service) executeSmokeTestStep(ctx context.Context, task *UpgradeTask, s
 		return "已完成升级后可用性验证（有告警，不阻塞升级）", nil
 	}
 
-	successMessage := fmt.Sprintf("smoke test passed on %s after %d attempt(s) / %s 的可用性验证在第 %d 次尝试通过", target.HostName, attempt, target.HostName, attempt)
+	successMessage := locale.Pick(ctx, fmt.Sprintf("%s 的可用性验证在第 %d 次尝试通过", target.HostName, attempt), fmt.Sprintf("smoke test passed on %s after %d attempt(s)", target.HostName, attempt))
 	if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, successMessage, commandSummary); err != nil {
 		return "", err
 	}
 	if strings.TrimSpace(output) != "" {
-		outputMessage := fmt.Sprintf("post-upgrade smoke test output: %s / 升级后可用性验证输出：%s", output, output)
+		outputMessage := locale.Pick(ctx, fmt.Sprintf("升级后可用性验证输出：%s", output), fmt.Sprintf("post-upgrade smoke test output: %s", output))
 		if err := s.appendNodeLog(ctx, step, node, LogLevelInfo, LogEventTypeNote, outputMessage, commandSummary); err != nil {
 			return "", err
 		}
@@ -1121,7 +1116,7 @@ func (s *Service) executeClusterLifecycleStep(ctx context.Context, task *Upgrade
 		if trackedNode == nil {
 			continue
 		}
-		message := fmt.Sprintf("cluster %s started on host %s / 主机 %s 开始执行集群%s", operation, trackedNode.HostName, trackedNode.HostName, operation)
+		message := locale.Pick(ctx, fmt.Sprintf("主机 %s 开始执行集群%s", trackedNode.HostName, operation), fmt.Sprintf("cluster %s started on host %s", operation, trackedNode.HostName))
 		if err := s.beginNodeStep(ctx, step, trackedNode, nodeSuccessStatus, message, commandSummary); err != nil {
 			return err
 		}
@@ -1196,7 +1191,7 @@ func (s *Service) finalizeNodeExecutionsSuccess(ctx context.Context, task *Upgra
 		node := &task.NodeExecutions[i]
 		node.Status = ExecutionStatusSucceeded
 		node.CurrentStep = StepCodeComplete
-		node.Message = normalizeUserVisibleText(fmt.Sprintf("upgrade to %s completed / 已完成升级到 %s", task.TargetVersion, task.TargetVersion))
+		node.Message = normalizeUserVisibleText(locale.Pick(ctx, fmt.Sprintf("已完成升级到 %s", task.TargetVersion), fmt.Sprintf("upgrade to %s completed", task.TargetVersion)))
 		node.Error = ""
 		now := time.Now()
 		node.CompletedAt = &now
@@ -1215,7 +1210,7 @@ func (s *Service) finalizeNodeExecutionsFailed(ctx context.Context, task *Upgrad
 		}
 		node.Status = ExecutionStatusFailed
 		node.CurrentStep = task.FailureStep
-		node.Message = normalizeUserVisibleText(fmt.Sprintf("upgrade failed at %s / 升级在 %s 失败", task.FailureStep, task.FailureStep))
+		node.Message = normalizeUserVisibleText(locale.Pick(ctx, fmt.Sprintf("升级在 %s 失败", task.FailureStep), fmt.Sprintf("upgrade failed at %s", task.FailureStep)))
 		node.Error = normalizeUserVisibleText(reason)
 		now := time.Now()
 		node.CompletedAt = &now
@@ -1238,7 +1233,7 @@ func (s *Service) finalizeNodeExecutionsRollbackFailed(ctx context.Context, task
 		}
 		node.Status = ExecutionStatusRollbackFailed
 		node.CurrentStep = task.CurrentStep
-		node.Message = normalizeUserVisibleText("rollback failed / 回滚失败")
+		node.Message = normalizeUserVisibleText(locale.Pick(ctx, "回滚失败", "rollback failed"))
 		node.Error = normalizeUserVisibleText(reason)
 		now := time.Now()
 		node.CompletedAt = &now
@@ -1334,7 +1329,7 @@ func (s *Service) startStep(ctx context.Context, task *UpgradeTask, step *Upgrad
 	step.StartedAt = &now
 	step.CompletedAt = nil
 	step.Error = ""
-	step.Message = normalizeUserVisibleText(fmt.Sprintf("%s is running / %s 执行中", step.Code, step.Code))
+	step.Message = normalizeUserVisibleText(locale.Pick(ctx, fmt.Sprintf("%s 执行中", step.Code), fmt.Sprintf("%s is running", step.Code)))
 	if err := s.UpdateTaskStep(ctx, step); err != nil {
 		return err
 	}
@@ -1448,7 +1443,7 @@ func (s *Service) failNodeStep(ctx context.Context, step *UpgradeTaskStep, node 
 	node.TaskStepID = uintPtr(step.ID)
 	node.CurrentStep = step.Code
 	node.Status = status
-	node.Message = normalizeUserVisibleText(fmt.Sprintf("%s failed on %s / %s 在 %s 上失败", step.Code, node.HostName, step.Code, node.HostName))
+	node.Message = normalizeUserVisibleText(locale.Pick(ctx, fmt.Sprintf("%s 在 %s 上失败", step.Code, node.HostName), fmt.Sprintf("%s failed on %s", step.Code, node.HostName)))
 	node.Error = normalizeUserVisibleText(err.Error())
 	node.CompletedAt = &now
 	if updateErr := s.UpdateNodeExecution(ctx, node); updateErr != nil {
@@ -1626,16 +1621,16 @@ func (s *Service) rollbackBeforeCutover(ctx context.Context, task *UpgradeTask, 
 	if err := s.startStep(ctx, task, prepareStep); err != nil {
 		return err
 	}
-	if err := s.appendTaskLog(ctx, task.ID, uintPtr(prepareStep.ID), nil, prepareStep.Code, LogLevelWarn, LogEventTypeRollback, fmt.Sprintf("rollback triggered because %s failed before the cutover window: %s; the running cluster was not stopped / 因 %s 在切换窗口前失败触发回滚：%s；运行中的集群未被停止", task.FailureStep, task.FailureReason, task.FailureStep, task.FailureReason), ""); err != nil {
+	if err := s.appendTaskLog(ctx, task.ID, uintPtr(prepareStep.ID), nil, prepareStep.Code, LogLevelWarn, LogEventTypeRollback, locale.Pick(ctx, fmt.Sprintf("因 %s 在切换窗口前失败触发回滚：%s；运行中的集群未被停止", task.FailureStep, task.FailureReason), fmt.Sprintf("rollback triggered because %s failed before the cutover window: %s; the running cluster was not stopped", task.FailureStep, task.FailureReason)), ""); err != nil {
 		return err
 	}
-	if err := s.finishStep(ctx, task, prepareStep, "failure happened before cutover; cluster left running, no stop needed / 失败发生在切换窗口之前，集群保持运行，无需停止"); err != nil {
+	if err := s.finishStep(ctx, task, prepareStep, locale.Pick(ctx, "失败发生在切换窗口之前，集群保持运行，无需停止", "failure happened before cutover; cluster left running, no stop needed")); err != nil {
 		return err
 	}
-	if err := s.skipStep(ctx, task, restoreStep, "source install dirs were never modified; nothing to restore / 源安装目录未被修改，无需恢复"); err != nil {
+	if err := s.skipStep(ctx, task, restoreStep, locale.Pick(ctx, "源安装目录未被修改，无需恢复", "source install dirs were never modified; nothing to restore")); err != nil {
 		return err
 	}
-	if err := s.skipStep(ctx, task, restartStep, "cluster was never stopped; restart skipped / 集群未被停止，跳过重启"); err != nil {
+	if err := s.skipStep(ctx, task, restartStep, locale.Pick(ctx, "集群未被停止，跳过重启", "cluster was never stopped; restart skipped")); err != nil {
 		return err
 	}
 
@@ -1645,7 +1640,7 @@ func (s *Service) rollbackBeforeCutover(ctx context.Context, task *UpgradeTask, 
 	for _, target := range plan.NodeTargets {
 		node := nodesByKey[nodeExecutionKey(target.HostID, target.Role)]
 		commandSummary := fmt.Sprintf("upgrade verify_cluster_health install_dir=%s", target.SourceInstallDir)
-		if err := s.beginNodeStep(ctx, verifyStep, node, ExecutionStatusRollbackRunning, fmt.Sprintf("verifying source install dir %s is intact / 正在确认源目录 %s 完好", target.SourceInstallDir, target.SourceInstallDir), commandSummary); err != nil {
+		if err := s.beginNodeStep(ctx, verifyStep, node, ExecutionStatusRollbackRunning, locale.Pick(ctx, fmt.Sprintf("正在确认源目录 %s 完好", target.SourceInstallDir), fmt.Sprintf("verifying source install dir %s is intact", target.SourceInstallDir)), commandSummary); err != nil {
 			return err
 		}
 		if _, err := s.runManagedCommand(ctx, target.HostID, map[string]string{
@@ -1658,11 +1653,11 @@ func (s *Service) rollbackBeforeCutover(ctx context.Context, task *UpgradeTask, 
 			}
 			return err
 		}
-		if err := s.finishNodeStep(ctx, verifyStep, node, ExecutionStatusRollbackSucceeded, fmt.Sprintf("source dir %s intact, cluster kept running / 源目录 %s 完好，集群保持运行", target.SourceInstallDir, target.SourceInstallDir), commandSummary); err != nil {
+		if err := s.finishNodeStep(ctx, verifyStep, node, ExecutionStatusRollbackSucceeded, locale.Pick(ctx, fmt.Sprintf("源目录 %s 完好，集群保持运行", target.SourceInstallDir), fmt.Sprintf("source dir %s intact, cluster kept running", target.SourceInstallDir)), commandSummary); err != nil {
 			return err
 		}
 	}
-	return s.finishStep(ctx, task, verifyStep, "rollback verification completed; cluster was not interrupted / 回滚校验完成，集群未被中断")
+	return s.finishStep(ctx, task, verifyStep, locale.Pick(ctx, "回滚校验完成，集群未被中断", "rollback verification completed; cluster was not interrupted"))
 }
 
 // skipStep 将步骤标记为跳过并记录原因。

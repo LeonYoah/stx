@@ -337,4 +337,3 @@ func TestIsSeaTunnelEngineCommandLine(t *testing.T) {
 		t.Fatal("the proxy (which has SeaTunnel jars on its classpath) must not be treated as the engine")
 	}
 }
-

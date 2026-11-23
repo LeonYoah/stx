@@ -273,11 +273,7 @@ func (p *Prechecker) RunAll(ctx context.Context) (*PrecheckResult, error) {
 	}
 
 	// Generate summary / 生成摘要
-	result.Summary = fmt.Sprintf(
-		"Precheck completed: %d passed, %d failed, %d warnings / 预检查完成：%d 通过，%d 失败，%d 警告",
-		passedCount, failedCount, warningCount,
-		passedCount, failedCount, warningCount,
-	)
+	result.Summary = fmt.Sprintf("Precheck completed: %d passed, %d failed, %d warnings", passedCount, failedCount, warningCount)
 
 	return result, nil
 }
@@ -293,7 +289,7 @@ func (p *Prechecker) CheckMemory(ctx context.Context) PrecheckItem {
 	availableMB, err := p.systemInfoProvider.GetAvailableMemoryMB()
 	if err != nil {
 		item.Status = CheckStatusFailed
-		item.Message = fmt.Sprintf("Failed to get memory info: %v / 获取内存信息失败：%v", err, err)
+		item.Message = fmt.Sprintf("Failed to get memory info: %v", err)
 		return item
 	}
 
@@ -331,16 +327,10 @@ func (p *Prechecker) CheckCPU(ctx context.Context) PrecheckItem {
 
 	if cpuCores >= p.params.MinCPUCores {
 		item.Status = CheckStatusPassed
-		item.Message = fmt.Sprintf(
-			"CPU cores %d >= required %d / CPU 核心数 %d >= 所需 %d",
-			cpuCores, p.params.MinCPUCores, cpuCores, p.params.MinCPUCores,
-		)
+		item.Message = fmt.Sprintf("CPU cores %d >= required %d", cpuCores, p.params.MinCPUCores)
 	} else {
 		item.Status = CheckStatusFailed
-		item.Message = fmt.Sprintf(
-			"CPU cores %d < required %d / CPU 核心数 %d < 所需 %d",
-			cpuCores, p.params.MinCPUCores, cpuCores, p.params.MinCPUCores,
-		)
+		item.Message = fmt.Sprintf("CPU cores %d < required %d", cpuCores, p.params.MinCPUCores)
 	}
 
 	return item
@@ -360,8 +350,7 @@ func (p *Prechecker) CheckDisk(ctx context.Context) PrecheckItem {
 	availableMB, err := p.systemInfoProvider.GetAvailableDiskSpaceMB(p.params.InstallDir)
 	if err != nil {
 		item.Status = CheckStatusFailed
-		item.Message = fmt.Sprintf("Failed to get disk info for %s: %v / 获取 %s 磁盘信息失败：%v",
-			p.params.InstallDir, err, p.params.InstallDir, err)
+		item.Message = fmt.Sprintf("Failed to get disk info for %s: %v", p.params.InstallDir, err)
 		return item
 	}
 
@@ -396,7 +385,7 @@ func (p *Prechecker) CheckPorts(ctx context.Context) PrecheckItem {
 
 	if len(p.params.Ports) == 0 {
 		item.Status = CheckStatusPassed
-		item.Message = "No ports to check / 无需检查端口"
+		item.Message = "No ports to check"
 		return item
 	}
 
@@ -416,16 +405,10 @@ func (p *Prechecker) CheckPorts(ctx context.Context) PrecheckItem {
 
 	if len(unavailablePorts) == 0 {
 		item.Status = CheckStatusPassed
-		item.Message = fmt.Sprintf(
-			"All ports are available: %v / 所有端口可用：%v",
-			p.params.Ports, p.params.Ports,
-		)
+		item.Message = fmt.Sprintf("All ports are available: %v", p.params.Ports)
 	} else {
 		item.Status = CheckStatusFailed
-		item.Message = fmt.Sprintf(
-			"Ports in use: %v / 端口被占用：%v",
-			unavailablePorts, unavailablePorts,
-		)
+		item.Message = fmt.Sprintf("Ports in use: %v", unavailablePorts)
 	}
 
 	return item
@@ -542,10 +525,7 @@ func (p *Prechecker) checkJavaWith(getVersion func() (int, string, error)) Prech
 	version, versionStr, err := getVersion()
 	if err != nil {
 		item.Status = CheckStatusFailed
-		item.Message = fmt.Sprintf(
-			"Java not found: %v. Recommended versions: 8 or 11 / Java 未找到：%v。推荐版本：8 或 11",
-			err, err,
-		)
+		item.Message = fmt.Sprintf("Java not found: %v. Recommended versions: 8 or 11", err)
 		// Add download information / 添加下载信息
 		item.Details["download_info"] = map[string]interface{}{
 			"huaweicloud_java8":  "https://repo.huaweicloud.com/java/jdk/8u202-b08/",
@@ -601,10 +581,7 @@ yum install java-11-openjdk-devel  # CentOS/RHEL`
 	} else {
 		// Version is within recommended range (8-11) / 版本在推荐范围内（8-11）
 		item.Status = CheckStatusPassed
-		item.Message = fmt.Sprintf(
-			"Java version %d (%s) is supported (recommended: 8 or 11) / Java 版本 %d (%s) 受支持（推荐：8 或 11）",
-			version, versionStr, version, versionStr,
-		)
+		item.Message = fmt.Sprintf("Java version %d (%s) is supported (recommended: 8 or 11)", version, versionStr)
 	}
 
 	return item
@@ -670,7 +647,7 @@ func (d *DefaultSystemInfoProvider) GetAvailableMemoryMB() (int64, error) {
 	case "windows":
 		return d.getWindowsAvailableMemory()
 	default:
-		return 0, fmt.Errorf("unsupported OS: %s / 不支持的操作系统：%s", runtime.GOOS, runtime.GOOS)
+		return 0, fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
 }
 
@@ -804,7 +781,7 @@ func (d *DefaultSystemInfoProvider) GetAvailableDiskSpaceMB(path string) (int64,
 	case "windows":
 		return d.getWindowsDiskSpace(path)
 	default:
-		return 0, fmt.Errorf("unsupported OS: %s / 不支持的操作系统：%s", runtime.GOOS, runtime.GOOS)
+		return 0, fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
 }
 

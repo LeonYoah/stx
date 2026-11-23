@@ -20,6 +20,7 @@ package diagnostics
 import (
 	"context"
 	"errors"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"strings"
 	"time"
 
@@ -42,7 +43,7 @@ func NewTroubleshootingRepository(db *gorm.DB) *TroubleshootingRepository {
 // Create inserts a new troubleshooting memory entry
 func (r *TroubleshootingRepository) Create(ctx context.Context, memory *TroubleshootingMemory) error {
 	if r.db == nil {
-		return errors.New("database connection is nil / 数据库连接未初始化")
+		return errors.New(locale.Pick(ctx, "数据库连接未初始化", "database connection is nil"))
 	}
 	return r.db.WithContext(ctx).Create(memory).Error
 }
@@ -51,7 +52,7 @@ func (r *TroubleshootingRepository) Create(ctx context.Context, memory *Troubles
 // Update modifies an existing troubleshooting memory entry by ID
 func (r *TroubleshootingRepository) Update(ctx context.Context, id uint, memory *TroubleshootingMemory) error {
 	if r.db == nil {
-		return errors.New("database connection is nil / 数据库连接未初始化")
+		return errors.New(locale.Pick(ctx, "数据库连接未初始化", "database connection is nil"))
 	}
 	return r.db.WithContext(ctx).Model(&TroubleshootingMemory{}).Where("id = ?", id).Updates(memory).Error
 }
@@ -60,7 +61,7 @@ func (r *TroubleshootingRepository) Update(ctx context.Context, id uint, memory 
 // Delete removes a troubleshooting memory entry by ID
 func (r *TroubleshootingRepository) Delete(ctx context.Context, id uint) error {
 	if r.db == nil {
-		return errors.New("database connection is nil / 数据库连接未初始化")
+		return errors.New(locale.Pick(ctx, "数据库连接未初始化", "database connection is nil"))
 	}
 	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&TroubleshootingMemory{}).Error
 }
@@ -69,7 +70,7 @@ func (r *TroubleshootingRepository) Delete(ctx context.Context, id uint) error {
 // GetByID retrieves a single troubleshooting memory entry by ID
 func (r *TroubleshootingRepository) GetByID(ctx context.Context, id uint) (*TroubleshootingMemory, error) {
 	if r.db == nil {
-		return nil, errors.New("database connection is nil / 数据库连接未初始化")
+		return nil, errors.New(locale.Pick(ctx, "数据库连接未初始化", "database connection is nil"))
 	}
 	var memory TroubleshootingMemory
 	err := r.db.WithContext(ctx).First(&memory, id).Error
@@ -83,7 +84,7 @@ func (r *TroubleshootingRepository) GetByID(ctx context.Context, id uint) (*Trou
 // List queries troubleshooting memory entries based on filter criteria
 func (r *TroubleshootingRepository) List(ctx context.Context, query *TroubleshootingMemoryQuery) ([]*TroubleshootingMemory, int64, error) {
 	if r.db == nil {
-		return nil, 0, errors.New("database connection is nil / 数据库连接未初始化")
+		return nil, 0, errors.New(locale.Pick(ctx, "数据库连接未初始化", "database connection is nil"))
 	}
 
 	dbQuery := r.db.WithContext(ctx).Model(&TroubleshootingMemory{})

@@ -74,7 +74,7 @@ func Migrate() {
 // MigrateWithDB executes full migration using the specified GORM database instance and database type
 func MigrateWithDB(database *gorm.DB, dbType string) error {
 	if database == nil {
-		return errors.New("数据库连接未初始化 / database connection is nil")
+		return errors.New("database connection is nil")
 	}
 
 	// 兼容迁移：若历史数据库中 auth_users 表包含 o_auth_id 列但无 oauth_id 列，自动重命名为 oauth_id
@@ -214,7 +214,7 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 	// 播种预置排障经验库（若排障经验表为空）/ Seed preset troubleshooting memories (if table is empty)
 	troubleshootingRepo := diagnostics.NewTroubleshootingRepository(database)
 	if err := troubleshootingRepo.SeedPresetMemories(context.Background()); err != nil {
-		log.Printf("[Database] 播种预置排障经验库失败 / Failed to seed preset troubleshooting memories: %v\n", err)
+		log.Printf("Failed to seed preset troubleshooting memories: %v\n", err)
 	}
 
 	// 创建存储过程（仅 MySQL 支持）/ Create stored procedures (MySQL only)
@@ -236,7 +236,7 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 // Requirements: 2.1, 2.2
 func InitDefaultAdminUserWithDB(database *gorm.DB) error {
 	if database == nil {
-		return errors.New("数据库连接未初始化 / database connection is nil")
+		return errors.New("database connection is nil")
 	}
 
 	// 获取认证配置 / Get authentication configuration

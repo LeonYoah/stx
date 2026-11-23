@@ -21,6 +21,7 @@ package agent
 
 import (
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -186,7 +187,7 @@ func (h *Handler) GetInstallScript(c *gin.Context) {
 	})
 	if err != nil {
 		logger.ErrorF(c.Request.Context(), "[Agent] Failed to create install script generator: %v", err)
-		c.JSON(http.StatusInternalServerError, ErrorResponse{ErrorMsg: "Failed to generate install script / 生成安装脚本失败"})
+		c.JSON(http.StatusInternalServerError, ErrorResponse{ErrorMsg: "Failed to generate install script"})
 		return
 	}
 
@@ -195,7 +196,7 @@ func (h *Handler) GetInstallScript(c *gin.Context) {
 	script, err := generator.Generate()
 	if err != nil {
 		logger.ErrorF(c.Request.Context(), "[Agent] Failed to generate install script: %v", err)
-		c.JSON(http.StatusInternalServerError, ErrorResponse{ErrorMsg: "Failed to generate install script / 生成安装脚本失败"})
+		c.JSON(http.StatusInternalServerError, ErrorResponse{ErrorMsg: "Failed to generate install script"})
 		return
 	}
 
@@ -298,7 +299,7 @@ func (h *Handler) DownloadAgent(c *gin.Context) {
 	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
 		logger.WarnF(c.Request.Context(), "[Agent] Binary not found: %s", binaryPath)
 		c.JSON(http.StatusNotFound, ErrorResponse{
-			ErrorMsg: fmt.Sprintf("Agent binary not found for %s-%s. Please contact administrator / 未找到 %s-%s 的 Agent 二进制文件，请联系管理员", osType, arch, osType, arch),
+			ErrorMsg: fmt.Sprintf("Agent binary not found for %s-%s. Please contact administrator", osType, arch),
 		})
 		return
 	}
@@ -333,14 +334,14 @@ func (h *Handler) DownloadCA(c *gin.Context) {
 	}
 	if h.caFile == "" {
 		c.JSON(http.StatusNotFound, ErrorResponse{
-			ErrorMsg: "CA certificate path is not configured / 未配置 CA 证书路径",
+			ErrorMsg: locale.Pick(c.Request.Context(), "未配置 CA 证书路径", "CA certificate path is not configured"),
 		})
 		return
 	}
 	if _, err := os.Stat(h.caFile); os.IsNotExist(err) {
 		logger.WarnF(c.Request.Context(), "[Agent] CA certificate not found: %s", h.caFile)
 		c.JSON(http.StatusNotFound, ErrorResponse{
-			ErrorMsg: "CA certificate not found. Please contact administrator / 未找到 CA 证书，请联系管理员",
+			ErrorMsg: "CA certificate not found. Please contact administrator",
 		})
 		return
 	}
@@ -528,7 +529,7 @@ func (h *Handler) serveStaticAssetDownload(
 	if _, err := os.Stat(assetPath); os.IsNotExist(err) {
 		logger.WarnF(c.Request.Context(), "[Agent] %s not found: %s", logLabel, assetPath)
 		c.JSON(http.StatusNotFound, ErrorResponse{
-			ErrorMsg: fmt.Sprintf("%s not found. Please contact administrator / 未找到 %s，请联系管理员", errorLabel, errorLabel),
+			ErrorMsg: fmt.Sprintf("%s not found. Please contact administrator", errorLabel),
 		})
 		return
 	}

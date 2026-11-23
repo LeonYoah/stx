@@ -21,16 +21,16 @@ import "testing"
 
 func TestNormalizeJobStatusEngineAligned(t *testing.T) {
 	cases := map[string]JobStatus{
-		"RUNNING":          JobStatusRunning,
-		"DOING_SAVEPOINT":  JobStatusDoingSavepoint,
-		"SAVEPOINT_DONE":   JobStatusSavepointDone,
-		"FAILING":          JobStatusFailing,
-		"FAILED":           JobStatusFailed,
-		"FINISHED":         JobStatusSuccess,
-		"CANCELED":         JobStatusCanceled,
-		"CANCELLED":        JobStatusCanceled,
-		"CREATED":          JobStatusPending,
-		"CANCELING":        JobStatusCancelling,
+		"RUNNING":         JobStatusRunning,
+		"DOING_SAVEPOINT": JobStatusDoingSavepoint,
+		"SAVEPOINT_DONE":  JobStatusSavepointDone,
+		"FAILING":         JobStatusFailing,
+		"FAILED":          JobStatusFailed,
+		"FINISHED":        JobStatusSuccess,
+		"CANCELED":        JobStatusCanceled,
+		"CANCELLED":       JobStatusCanceled,
+		"CREATED":         JobStatusPending,
+		"CANCELING":       JobStatusCancelling,
 	}
 	for raw, want := range cases {
 		if got := normalizeJobStatus(raw); got != want {

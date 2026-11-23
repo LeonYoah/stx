@@ -142,4 +142,3 @@ func warnCLICompatibility(command *cobra.Command, data cliClient.CapabilityData)
 		Level:   "warn",
 	})
 }
-

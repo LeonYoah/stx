@@ -19,6 +19,7 @@ package cluster
 
 import (
 	"context"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"net/http"
 	"strconv"
 	"strings"
@@ -202,7 +203,7 @@ type WebUIEndpointsResponse struct {
 func (h *Handler) GetWebUIEndpoints(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, WebUIEndpointsResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, WebUIEndpointsResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 	clusterInfo, err := h.service.Get(c.Request.Context(), uint(clusterID))

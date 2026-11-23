@@ -45,7 +45,7 @@ func (s *Service) planRestartDryRun(taskID string) string {
 		Message: "dry-run: would restart via " + info.ControlPlaneStrategy + " / 演练：将通过 " + info.ControlPlaneStrategy + " 重启"}}
 	if info.FrontendDetected {
 		restarts = append(restarts, ProcessRestart{Component: "frontend", Strategy: info.FrontendStrategy, Status: RestartWouldDoThis,
-			Message: "dry-run: would restart the bundled frontend / 演练：将重启随包前端"})
+			Message: "dry-run: would restart the bundled frontend"})
 	}
 	s.mu.Lock()
 	if s.task != nil && s.task.ID == taskID {
@@ -187,7 +187,7 @@ func (s *Service) resumeAfterRestart() {
 		s.task = &task
 		s.mu.Unlock()
 		s.finishRestart(task.ID, &restartPlan{TaskID: task.ID, TargetVersion: task.TargetVersion}, &restartResult{
-			Status: restartOutcomeFailed, Reason: "the control plane stopped during the upgrade before the restart handover / 控制面在重启交棒前中断",
+			Status: restartOutcomeFailed, Reason: "the control plane stopped during the upgrade before the restart handover",
 		})
 		return
 	}
@@ -262,7 +262,7 @@ func (s *Service) finishRestart(taskID string, plan *restartPlan, res *restartRe
 	_ = os.Remove(plan.ResultPath)
 
 	if succeeded {
-		msg := fmt.Sprintf("control plane restarted on %s / 控制面已以 %s 重启", cur, cur)
+		msg := fmt.Sprintf("control plane restarted on %s", cur)
 		if res == nil {
 			msg += " (watchdog did not report; verified by the running version / watchdog 未上报，按实际运行版本确认)"
 		}
@@ -321,7 +321,7 @@ func (s *Service) finishRestart(taskID string, plan *restartPlan, res *restartRe
 	s.task.ErrorCode = CodeVerifyFail
 	s.task.Cancellable = false
 	s.task.CompletedAt = &now
-	s.stage.Message = "upgrade failed and was rolled back / 升级失败已回滚"
+	s.stage.Message = "upgrade failed and was rolled back"
 	s.recordHistoryLocked(s.historyRecordLocked(plan.FromVersion, status, StepRestart, reason, CodeVerifyFail))
 	target := plan.TargetVersion
 	// Add 必须在临界区内完成：外部一旦看到终态，taskWg 计数已 +1，Wait 不会漏过这个

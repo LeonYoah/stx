@@ -21,6 +21,7 @@ package host
 
 import (
 	"errors"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"net/http"
 	"strconv"
 
@@ -192,7 +193,7 @@ func (h *Handler) ListHosts(c *gin.Context) {
 func (h *Handler) GetHost(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, GetHostResponse{ErrorMsg: "无效的主机 ID / Invalid host ID"})
+		c.JSON(http.StatusBadRequest, GetHostResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的主机 ID", "Invalid host ID")})
 		return
 	}
 
@@ -218,7 +219,7 @@ func (h *Handler) GetHost(c *gin.Context) {
 func (h *Handler) UpdateHost(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, UpdateHostResponse{ErrorMsg: "无效的主机 ID / Invalid host ID"})
+		c.JSON(http.StatusBadRequest, UpdateHostResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的主机 ID", "Invalid host ID")})
 		return
 	}
 
@@ -260,7 +261,7 @@ func hostWriteAuditDetails(operationID string) audit.AuditDetails {
 func (h *Handler) DeleteHost(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, DeleteHostResponse{ErrorMsg: "无效的主机 ID / Invalid host ID"})
+		c.JSON(http.StatusBadRequest, DeleteHostResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的主机 ID", "Invalid host ID")})
 		return
 	}
 
@@ -324,7 +325,7 @@ func (h *Handler) DeleteHost(c *gin.Context) {
 func (h *Handler) GetInstallCommand(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, GetInstallCommandResponse{ErrorMsg: "无效的主机 ID / Invalid host ID"})
+		c.JSON(http.StatusBadRequest, GetInstallCommandResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的主机 ID", "Invalid host ID")})
 		return
 	}
 

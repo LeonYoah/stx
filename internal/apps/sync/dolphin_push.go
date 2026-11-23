@@ -610,9 +610,9 @@ func readSchedulesForPush(ctx context.Context, client *DolphinClient, projectCod
 	schedules, err := client.ListSchedules(ctx, projectCode, workflowCode)
 	if err != nil {
 		if wasOnline && !dryRun {
-			return nil, fmt.Errorf("读取工作流定时失败，未做任何修改 / failed to read the workflow schedules, nothing was changed: %w", err)
+			return nil, fmt.Errorf("failed to read the workflow schedules, nothing was changed: %w", err)
 		}
-		result.Warning = joinWarning(result.Warning, "读取工作流定时失败 / failed to read the workflow schedules: "+err.Error())
+		result.Warning = joinWarning(result.Warning, "failed to read the workflow schedules: "+err.Error())
 		return []DolphinScheduleInfo{}, nil
 	}
 	result.Schedules = schedules
@@ -647,7 +647,7 @@ func restoreOnlineSchedules(ctx context.Context, client *DolphinClient, projectC
 	}
 	current, err := client.ListSchedules(ctx, projectCode, workflowCode)
 	if err != nil {
-		return restored, fmt.Errorf("工作流已重新上线，但恢复定时失败，请在 DolphinScheduler 中手动上线 / the workflow is back online but its schedules could not be restored; bring them online in DolphinScheduler: %w", err)
+		return restored, fmt.Errorf("the workflow is back online but its schedules could not be restored; bring them online in DolphinScheduler: %w", err)
 	}
 	for _, item := range current {
 		if _, ok := want[item.ID]; !ok {
@@ -655,7 +655,7 @@ func restoreOnlineSchedules(ctx context.Context, client *DolphinClient, projectC
 		}
 		if !strings.EqualFold(item.ReleaseState, dolphinReleaseOnline) {
 			if err := client.OnlineSchedule(ctx, projectCode, item.ID); err != nil {
-				return restored, fmt.Errorf("工作流已重新上线，但定时 %d 上线失败，请在 DolphinScheduler 中手动上线 / the workflow is back online but schedule %d could not be brought online; do it in DolphinScheduler: %w", item.ID, item.ID, err)
+				return restored, fmt.Errorf("the workflow is back online but schedule %d could not be brought online; do it in DolphinScheduler: %w", item.ID, err)
 			}
 		}
 		restored = append(restored, item.ID)

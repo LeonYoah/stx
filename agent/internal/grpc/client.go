@@ -457,8 +457,7 @@ func (c *Client) Reconnect(ctx context.Context) error {
 
 		// 只记录本次已消耗的退避，避免再调 NextBackoff 把计数翻倍。
 		// Log the backoff already used; do not call NextBackoff again (would double the attempt).
-		logger.WarnF(ctx, "Reconnection attempt %d failed: %v, retrying with backoff up to %v / 重连第 %d 次失败：%v，将按不超过 %v 的退避重试",
-			c.backoff.Attempt(), err, c.backoff.MaxInterval, c.backoff.Attempt(), err, c.backoff.MaxInterval)
+		logger.WarnF(ctx, "Reconnection attempt %d failed: %v, retrying with backoff up to %v", c.backoff.Attempt(), err, c.backoff.MaxInterval)
 	}
 }
 
@@ -478,7 +477,7 @@ func (c *Client) OpenPackageStream(ctx context.Context, transferID string, offse
 	agentID := c.agentID
 	c.mu.RUnlock()
 	if client == nil {
-		return nil, errors.New("client not connected / 客户端未连接")
+		return nil, errors.New("client not connected")
 	}
 	return client.DownloadPackage(ctx, &pb.DownloadPackageRequest{AgentId: agentID, TransferId: transferID, Offset: offset})
 }
@@ -709,7 +708,7 @@ func (c *Client) StartCommandStream(ctx context.Context, handler CommandHandler)
 		return fmt.Errorf("failed to send init message: %w", err)
 	}
 
-	logger.InfoF(ctx, "Command stream established successfully for agent %s / 命令流建立成功，Agent: %s", agentID, agentID)
+	logger.InfoF(ctx, "Command stream established successfully for agent %s", agentID)
 
 	// Start goroutine to receive commands and send responses
 	// 启动 goroutine 接收指令并发送响应

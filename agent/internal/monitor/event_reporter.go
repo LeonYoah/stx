@@ -102,7 +102,7 @@ func (r *EventReporter) SetConnected(connected bool) {
 	// 如果重新连接，尝试刷新缓存的事件
 	if connected && wasDisconnected {
 		ctx := context.Background()
-		logger.InfoF(ctx, "[EventReporter] Connection restored, flushing cached events / 连接恢复，刷新缓存的事件")
+		logger.InfoF(ctx, "[EventReporter] Connection restored, flushing cached events")
 		go r.FlushEvents()
 	}
 }
@@ -151,8 +151,7 @@ func (r *EventReporter) ReportEvent(event *ProcessEvent) {
 	}
 	r.eventCache = append(r.eventCache, event)
 
-	logger.InfoF(ctx, "[EventReporter] Event cached: type=%s, name=%s, pid=%d / 事件已缓存：类型=%s，名称=%s，PID=%d",
-		event.Type, event.Name, event.PID, event.Type, event.Name, event.PID)
+	logger.InfoF(ctx, "[EventReporter] Event cached: type=%s, name=%s, pid=%d", event.Type, event.Name, event.PID)
 
 	// Try to report immediately if connected and batch size reached
 	// 如果已连接且达到批量大小，尝试立即上报
@@ -181,14 +180,13 @@ func (r *EventReporter) flushEventsLocked() {
 
 	if !r.isConnected {
 		ctx := context.Background()
-		logger.WarnF(ctx, "[EventReporter] Not connected, keeping %d events in cache / 未连接，保留 %d 个事件在缓存中",
-			len(r.eventCache), len(r.eventCache))
+		logger.WarnF(ctx, "[EventReporter] Not connected, keeping %d events in cache", len(r.eventCache))
 		return
 	}
 
 	if r.reportFunc == nil {
 		ctx := context.Background()
-		logger.WarnF(ctx, "[EventReporter] No report function set / 未设置上报函数")
+		logger.WarnF(ctx, "[EventReporter] No report function set")
 		return
 	}
 
@@ -202,15 +200,14 @@ func (r *EventReporter) flushEventsLocked() {
 		batch := r.eventCache[:batchEnd]
 		err := r.reportFunc(batch)
 		if err != nil {
-			logger.ErrorF(ctx, "[EventReporter] Failed to report events: %v / 上报事件失败：%v", err, err)
+			logger.ErrorF(ctx, "[EventReporter] Failed to report events: %v", err)
 			// Keep events in cache for retry / 保留事件在缓存中以便重试
 			return
 		}
 
 		// Remove reported events from cache / 从缓存中移除已上报的事件
 		r.eventCache = r.eventCache[batchEnd:]
-		logger.InfoF(ctx, "[EventReporter] Reported %d events, %d remaining / 上报了 %d 个事件，剩余 %d 个",
-			batchEnd, len(r.eventCache), batchEnd, len(r.eventCache))
+		logger.InfoF(ctx, "[EventReporter] Reported %d events, %d remaining", batchEnd, len(r.eventCache))
 	}
 }
 
@@ -229,5 +226,5 @@ func (r *EventReporter) ClearCache() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.eventCache = make([]*ProcessEvent, 0, r.cacheSize)
-	logger.InfoF(ctx, "[EventReporter] Cache cleared / 缓存已清除")
+	logger.InfoF(ctx, "[EventReporter] Cache cleared")
 }

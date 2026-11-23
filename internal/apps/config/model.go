@@ -122,16 +122,16 @@ func GetConfigTypesForMode(deploymentMode string) []ConfigType {
 // Config 配置文件表
 // HostID 为 NULL 表示集群模板配置，否则为节点级配置
 type Config struct {
-	ID         uint       `json:"id" gorm:"primaryKey;autoIncrement"`
-	ClusterID  uint       `json:"cluster_id" gorm:"index;not null"`
-	HostID     *uint      `json:"host_id" gorm:"index"`                // NULL = 集群模板
-	ConfigType ConfigType `json:"config_type" gorm:"size:50;not null"` // 配置类型
+	ID         uint          `json:"id" gorm:"primaryKey;autoIncrement"`
+	ClusterID  uint          `json:"cluster_id" gorm:"index;not null"`
+	HostID     *uint         `json:"host_id" gorm:"index"`                // NULL = 集群模板
+	ConfigType ConfigType    `json:"config_type" gorm:"size:50;not null"` // 配置类型
 	FilePath   string        `json:"file_path" gorm:"size:255"`           // 节点上的实际路径
 	Content    db.ScriptText `json:"content"`                             // 配置内容；MySQL MEDIUMTEXT / PG·SQLite TEXT
 	Version    int           `json:"version" gorm:"default:1"`            // 当前版本号
-	UpdatedAt  time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
-	UpdatedBy  uint       `json:"updated_by"`
-	CreatedAt  time.Time  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt  time.Time     `json:"updated_at" gorm:"autoUpdateTime"`
+	UpdatedBy  uint          `json:"updated_by"`
+	CreatedAt  time.Time     `json:"created_at" gorm:"autoCreateTime"`
 
 	// 节点同步状态：节点配置只有在推送到节点成功后才会提交为新版本；推送失败时新内容暂存为待推送，
 	// 版本号与当前内容保持节点上的真实值，Agent 重连后自动重推。
@@ -177,13 +177,13 @@ func (c *Config) IsTemplate() bool {
 
 // ConfigVersion 配置版本表
 type ConfigVersion struct {
-	ID        uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	ConfigID  uint      `json:"config_id" gorm:"index;not null"`
+	ID        uint          `json:"id" gorm:"primaryKey;autoIncrement"`
+	ConfigID  uint          `json:"config_id" gorm:"index;not null"`
 	Version   int           `json:"version" gorm:"not null"`
-	Content   db.ScriptText `json:"content"`              // 配置版本正文；MySQL MEDIUMTEXT / PG·SQLite TEXT
+	Content   db.ScriptText `json:"content"`                 // 配置版本正文；MySQL MEDIUMTEXT / PG·SQLite TEXT
 	Comment   string        `json:"comment" gorm:"size:255"` // 修改说明
-	CreatedBy uint      `json:"created_by"`
-	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`
+	CreatedBy uint          `json:"created_by"`
+	CreatedAt time.Time     `json:"created_at" gorm:"autoCreateTime"`
 }
 
 // TableName 指定表名

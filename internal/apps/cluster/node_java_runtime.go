@@ -47,17 +47,17 @@ func (s *Service) GetNodeJavaRuntime(ctx context.Context, clusterID, nodeID uint
 		return nil, ErrNodeNotFound
 	}
 	if s.hostProvider == nil {
-		return nil, fmt.Errorf("host provider not configured / 主机提供者未配置")
+		return nil, fmt.Errorf("host provider not configured")
 	}
 	hostInfo, err := s.hostProvider.GetHostByID(ctx, node.HostID)
 	if err != nil {
 		return nil, err
 	}
 	if hostInfo == nil || !hostInfo.IsOnline(s.heartbeatTimeout) {
-		return nil, fmt.Errorf("host is offline / 主机离线")
+		return nil, fmt.Errorf("host is offline")
 	}
 	if s.agentSender == nil || hostInfo.AgentID == "" {
-		return nil, fmt.Errorf("agent sender not configured / Agent 发送器未配置")
+		return nil, fmt.Errorf("agent sender not configured")
 	}
 	// JDK 判定按该节点所属集群的 SeaTunnel 版本分档（读取失败时回退到版本未知，不阻断详情展示）。
 	// The JDK verdict follows the cluster's SeaTunnel version (a read failure falls back to unknown instead of
@@ -69,7 +69,7 @@ func (s *Service) GetNodeJavaRuntime(ctx context.Context, clusterID, nodeID uint
 	configured := javaruntime.Normalize(node.JavaHome)
 	success, output, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "check_java", javaruntime.CheckParams(configured))
 	if err != nil {
-		return nil, fmt.Errorf("check node JDK / 检查节点 JDK: %w", err)
+		return nil, fmt.Errorf("check node JDK: %w", err)
 	}
 	result := javaruntime.Interpret(configured, success, output)
 	// Interpret 已判失败的结果（如旧 Agent 忽略自定义 java_home）不能被版本矩阵翻案，

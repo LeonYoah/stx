@@ -196,7 +196,7 @@ func initPostgresDialector(dbConfig config.DatabaseConfig) (gorm.Dialector, erro
 // configureConnectionPool configures the database connection pool
 func configureConnectionPool(database *gorm.DB, dbConfig config.DatabaseConfig) error {
 	if database == nil {
-		return fmt.Errorf("database 实例为空 / database instance is nil")
+		return fmt.Errorf("database instance is nil")
 	}
 	sqlDB, err := database.DB()
 	if err != nil {
@@ -221,7 +221,7 @@ func configureConnectionPool(database *gorm.DB, dbConfig config.DatabaseConfig) 
 // configureSQLiteRuntime 配置 SQLite 运行时行为。
 func configureSQLiteRuntime(database *gorm.DB) error {
 	if database == nil {
-		return fmt.Errorf("database 实例为空 / database instance is nil")
+		return fmt.Errorf("database instance is nil")
 	}
 	sqlDB, err := database.DB()
 	if err != nil {

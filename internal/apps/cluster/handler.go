@@ -89,23 +89,29 @@ func (h *Handler) notifyOperationExecuted(ctx context.Context, event *OperationE
 }
 
 func (h *Handler) buildNodeOperationEvent(ctx context.Context, clusterID uint, nodeID uint, operation OperationType, result *OperationResult, operator string) *OperationEvent {
-	if h == nil || h.service == nil {
+	if h == nil {
 		return nil
 	}
 
-	clusterName, _ := h.service.GetClusterNodeDisplayInfo(ctx, clusterID, nodeID)
+	// 无 service 时仍返回带 NodeID 的骨架事件，确保 router 能映射 node_restart_requested。
+	// Even without a service, return a NodeID-scoped skeleton so router can map node_restart_requested.
 	event := &OperationEvent{
-		ClusterID:   clusterID,
-		ClusterName: clusterName,
-		NodeID:      nodeID,
-		Operation:   operation,
-		Success:     result != nil && result.Success,
-		Operator:    strings.TrimSpace(operator),
-		Trigger:     "manual_api",
+		ClusterID: clusterID,
+		NodeID:    nodeID,
+		Operation: operation,
+		Success:   result != nil && result.Success,
+		Operator:  strings.TrimSpace(operator),
+		Trigger:   "manual_api",
 	}
 	if result != nil {
 		event.Message = strings.TrimSpace(result.Message)
 	}
+	if h.service == nil {
+		return event
+	}
+
+	clusterName, _ := h.service.GetClusterNodeDisplayInfo(ctx, clusterID, nodeID)
+	event.ClusterName = clusterName
 
 	nodes, err := h.service.GetNodes(ctx, clusterID)
 	if err != nil {
@@ -1328,6 +1334,24 @@ func (h *Handler) RestartNode(c *gin.Context) {
 		return
 	}
 
+	// 先落 node_restart_requested：RestartNode 内含 sleep/detect，若等返回后再记，
+	// 请求取消或中间失败时库中会缺「节点重启已发起」（实机 AC1）。
+	// Persist node_restart_requested first: RestartNode sleeps/detects; waiting until return
+	// dropped the "requested" row on cancel/mid-flight failure (real AC1 gap).
+	h.notifyOperationExecuted(c.Request.Context(), h.buildNodeOperationEvent(
+		c.Request.Context(),
+		uint(clusterID),
+		uint(nodeID),
+		OperationRestart,
+		&OperationResult{
+			ClusterID: uint(clusterID),
+			Operation: OperationRestart,
+			Success:   true,
+			Message:   "restart accepted / 重启已受理",
+		},
+		auth.GetUsernameFromContext(c),
+	))
+
 	result, err := h.service.RestartNode(c.Request.Context(), uint(clusterID), uint(nodeID))
 	if err != nil {
 		statusCode := h.getStatusCodeForError(err)
@@ -1344,14 +1368,6 @@ func (h *Handler) RestartNode(c *gin.Context) {
 	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
 		"restart_node", "cluster_node", resID, resourceName, audit.AuditDetails{"trigger": "manual"})
 	logger.InfoF(c.Request.Context(), "[Cluster] 重启节点: cluster_id=%d, node_id=%d, success=%v", clusterID, nodeID, result.Success)
-	h.notifyOperationExecuted(c.Request.Context(), h.buildNodeOperationEvent(
-		c.Request.Context(),
-		uint(clusterID),
-		uint(nodeID),
-		OperationRestart,
-		result,
-		auth.GetUsernameFromContext(c),
-	))
 	c.JSON(http.StatusOK, ClusterOperationResponse{Data: result})
 }
 

@@ -273,34 +273,23 @@ export function ProcessEventList({
     void loadEvents();
   }, [loadEvents, clusterId, eventTypeFilter, nodeId, page]);
 
-  // 仅在已挂载期间 epoch 递增时开轮询；带着旧 epoch 切回节点页只走首屏 loadEvents，避免空转 90s。
-  // Start poll only when epoch bumps while mounted; remount with a stale epoch uses the initial load only.
-  const prevLifecyclePollEpochRef = useRef(lifecyclePollEpoch);
+  const loadEventsRef = useRef(loadEvents);
+  loadEventsRef.current = loadEvents;
 
-  // 启停/重启后有界静默轮询事件：立即拉一拍，再按与主状态相同的间隔/超时续拉；离开节点页卸载即停。
-  // Bounded silent event poll after lifecycle: one immediate fetch, then same interval/timeout as status; stop on unmount.
+  // 启停/重启后有界静默轮询事件：epoch>0 即开；cleanup 只用 cancelled，避免 Strict remount
+  // 把 prevEpoch 吃掉后永远不再轮询（实机停留 90s+ 事件不刷新的根因之一）。
+  // Bounded silent event poll when epoch>0; cleanup uses cancelled only so Strict remount
+  // cannot consume the epoch and permanently skip polling (a root cause of 90s+ stale events).
   useEffect(() => {
-    const prevEpoch = prevLifecyclePollEpochRef.current;
-    prevLifecyclePollEpochRef.current = lifecyclePollEpoch;
-    if (
-      !lifecyclePollEpoch ||
-      lifecyclePollEpoch < 1 ||
-      lifecyclePollEpoch === prevEpoch
-    ) {
+    if (!lifecyclePollEpoch || lifecyclePollEpoch < 1) {
       return;
     }
-    if (!mountedRef.current) {
-      return;
-    }
-    stopLifecycleEventPoll();
-    if (!mountedRef.current) {
-      return;
-    }
-    const session = pollSessionRef.current;
+    let cancelled = false;
+    const session = ++pollSessionRef.current;
     const startedAt = Date.now();
 
     const schedule = (delayMs: number) => {
-      if (!mountedRef.current || session !== pollSessionRef.current) {
+      if (cancelled || session !== pollSessionRef.current) {
         return;
       }
       clearPollTimer();
@@ -310,11 +299,14 @@ export function ProcessEventList({
     };
 
     const tick = async () => {
-      if (!mountedRef.current || session !== pollSessionRef.current) {
+      if (cancelled || !mountedRef.current || session !== pollSessionRef.current) {
         return;
       }
-      await loadEvents({silent: true, skipMainStatusRefresh: true});
-      if (!mountedRef.current || session !== pollSessionRef.current) {
+      await loadEventsRef.current({
+        silent: true,
+        skipMainStatusRefresh: true,
+      });
+      if (cancelled || !mountedRef.current || session !== pollSessionRef.current) {
         return;
       }
       if (Date.now() - startedAt >= LIFECYCLE_POLL_TIMEOUT_MS) {
@@ -326,16 +318,12 @@ export function ProcessEventList({
 
     void tick();
     return () => {
+      cancelled = true;
       if (session === pollSessionRef.current) {
-        stopLifecycleEventPoll();
+        clearPollTimer();
       }
     };
-  }, [
-    lifecyclePollEpoch,
-    loadEvents,
-    stopLifecycleEventPoll,
-    clearPollTimer,
-  ]);
+  }, [lifecyclePollEpoch, clearPollTimer]);
 
   const filterOptions = [
     {value: 'all', label: t('monitor.allEvents')},

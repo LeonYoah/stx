@@ -2118,7 +2118,10 @@ func (s *Service) executeOperation(ctx context.Context, clusterID uint, operatio
 				_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusStopped)
 				_ = s.repo.UpdateNodeProcess(ctx, node.ID, 0, "stopped")
 			case OperationRestart:
-				_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusRunning)
+				// 与单节点重启一致：先清旧 PID，再检测；避免页头重启后主状态轮询被旧 PID 骗停。
+				// Match single-node restart: clear old PID before detect so header-restart poll is not fooled.
+				_ = s.repo.UpdateNodeProcess(ctx, node.ID, 0, "stopped")
+				_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusStopped)
 				s.detectAndUpdateNodeProcess(ctx, &node, node.HostID)
 			}
 		} else {
@@ -2696,7 +2699,10 @@ func (s *Service) executeNodeOperationWithResolvedNode(ctx context.Context, clus
 			_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusStopped)
 			_ = s.repo.UpdateNodeProcess(ctx, node.ID, 0, "stopped")
 		case OperationRestart:
-			_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusRunning)
+			// 重启受理后先清旧 PID，避免前端轮询把「旧 RUNNING+旧 PID」判成达标后停刷。
+			// Clear the old PID as soon as restart is accepted so the UI poll cannot treat stale RUNNING+PID as success.
+			_ = s.repo.UpdateNodeProcess(ctx, node.ID, 0, "stopped")
+			_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusStopped)
 		}
 		// Detect process after start/restart with a short delay
 		// 启动/重启后延迟检测进程（等待进程完全启动）

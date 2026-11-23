@@ -481,6 +481,9 @@ func Serve() {
 				default:
 					return nil
 				}
+				// 记录请求事件时脱离请求 ctx：RestartNode 内 sleep/detect 较长，客户端断开时勿丢 node_restart_requested。
+				// Persist requested events with a detached ctx: node restart sleeps/detects; client cancel must not drop them.
+				ctx = context.WithoutCancel(ctx)
 				details := map[string]string{
 					"trigger":   event.Trigger,
 					"operator":  event.Operator,

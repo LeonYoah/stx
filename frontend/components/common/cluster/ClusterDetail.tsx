@@ -126,7 +126,11 @@ import {RuntimeStorageFileExplorer} from './RuntimeStorageFileExplorer';
 import {ClusterActions} from './ClusterActions';
 import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
 import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
-import {lifecycleTargetForOperation} from './lifecycle-status-poll';
+import {
+  baselinePidsFromNodes,
+  isRestartLifecycleOperation,
+  lifecycleTargetForOperation,
+} from './lifecycle-status-poll';
 import {
   normalizeLoadClusterDataOptions,
   refreshNodeJavaRuntimes,
@@ -606,6 +610,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       operation: OperationType | 'start' | 'stop' | 'restart',
       scopeNodeIds?: number[],
     ) => {
+      // 重启前冻结基准 PID；若等 load 后再取，可能已是旧 PID 残留，轮询会立刻伪造成功。
+      // Freeze baseline PIDs before refresh; reading after load can keep a stale PID and fake early success.
+      const baselinePids = isRestartLifecycleOperation(operation)
+        ? baselinePidsFromNodes(nodesRef.current, scopeNodeIds)
+        : undefined;
       await loadClusterData({
         silent: true,
         notifyError: false,
@@ -616,6 +625,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       setLifecyclePollEpoch((prev) => prev + 1);
       startLifecyclePoll(lifecycleTargetForOperation(operation), {
         scopeNodeIds,
+        baselinePids,
       });
     },
     [loadClusterData, startLifecyclePoll],

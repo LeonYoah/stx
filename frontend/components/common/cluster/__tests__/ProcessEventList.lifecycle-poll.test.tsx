@@ -293,24 +293,34 @@ describe('ProcessEventList lifecycle event poll', () => {
     expect(listProcessEvents.mock.calls.length).toBe(callsAtTimeout);
   });
 
-  it('does not start a 90s poll when remounting with a stale lifecyclePollEpoch', async () => {
+  it('Strict-style remount with the same epoch still keeps silent polling alive', async () => {
     listProcessEvents.mockResolvedValue({
       events: [eventRow({id: 1, event_type: 'started'})],
       total: 1,
     });
 
-    // 模拟：在其它 Tab 重启后 epoch 已是 1，再进入节点页只应首屏拉一次。
-    // Simulate: epoch already 1 after a header restart elsewhere; opening Nodes should load once.
-    renderList({lifecyclePollEpoch: 1});
-
+    // 模拟 React Strict remount：卸载再挂载且 epoch 仍为 1，不得永久停轮询。
+    // Simulate React Strict remount: unmount/remount with epoch still 1 must not permanently stop polling.
+    const first = renderList({lifecyclePollEpoch: 1});
     await waitFor(() => {
-      expect(listProcessEvents).toHaveBeenCalledTimes(1);
+      expect(listProcessEvents.mock.calls.length).toBeGreaterThanOrEqual(1);
     });
+    first.unmount();
+
+    renderList({lifecyclePollEpoch: 1});
+    await waitFor(() => {
+      expect(listProcessEvents.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+    const callsAfterRemount = listProcessEvents.mock.calls.length;
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LIFECYCLE_POLL_INTERVAL_MS * 3);
+      await vi.advanceTimersByTimeAsync(LIFECYCLE_POLL_INTERVAL_MS);
     });
-    expect(listProcessEvents).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(listProcessEvents.mock.calls.length).toBeGreaterThan(
+        callsAfterRemount,
+      );
+    });
   });
 
   it('keeps current page during silent lifecycle poll (no jump to page 1)', async () => {

@@ -22,6 +22,7 @@ import {
   isLifecyclePollSatisfied,
   LIFECYCLE_POLL_INTERVAL_MS,
   LIFECYCLE_POLL_TIMEOUT_MS,
+  type LifecycleBaselinePids,
   type LifecyclePollSnapshot,
   type LifecyclePollTarget,
 } from './lifecycle-status-poll';
@@ -38,6 +39,11 @@ export interface UseLifecycleStatusPollOptions {
 export interface StartLifecyclePollOptions {
   /** 仅等待这些节点达标（单节点/批量）；省略表示全量节点。 / Wait only for these nodes; omit for all nodes. */
   scopeNodeIds?: number[];
+  /**
+   * 重启前各节点 PID 基准；有值时 running 达标还要求 PID 已变化。
+   * Pre-restart PID baselines; when set, running satisfaction also requires PID change.
+   */
+  baselinePids?: LifecycleBaselinePids;
 }
 
 export interface UseLifecycleStatusPollResult {
@@ -109,6 +115,7 @@ export function useLifecycleStatusPoll(
       const session = sessionRef.current;
       const startedAt = Date.now();
       const scopeNodeIds = options?.scopeNodeIds;
+      const baselinePids = options?.baselinePids;
 
       const schedule = (delayMs: number) => {
         if (!mountedRef.current || session !== sessionRef.current) {
@@ -130,7 +137,12 @@ export function useLifecycleStatusPoll(
         }
         if (
           snapshot &&
-          isLifecyclePollSatisfied(snapshot, target, scopeNodeIds)
+          isLifecyclePollSatisfied(
+            snapshot,
+            target,
+            scopeNodeIds,
+            baselinePids,
+          )
         ) {
           clearTimer();
           onSatisfiedRef.current?.(snapshot);

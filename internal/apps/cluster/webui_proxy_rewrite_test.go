@@ -91,3 +91,64 @@ func TestRewriteSeaTunnelWebUIContent_rewritesVitePreloadAndVueHistory(t *testin
 		t.Fatalf("expected empty axios baseURL rewrite, got: %s", got)
 	}
 }
+
+func TestRewriteSeaTunnelWebUIContent_rewritesViteImportedAssetLiteral(t *testing.T) {
+	t.Parallel()
+
+	prefix := "/api/v1/clusters/11/webui"
+	// SeaTunnel 3.0.0 产物：import logo → Go="/assets/logo-DnrCYlPZ.png"（见 seatunnel-engine-server ui jar）。
+	// SeaTunnel 3.0.0 build: import logo → Go="/assets/logo-DnrCYlPZ.png" (from seatunnel-engine-server ui jar).
+	js := `const Go="/assets/logo-DnrCYlPZ.png";z("img",{src:Go,class:"h-12"});const other='/assets/chunk.js';`
+	got := rewriteSeaTunnelWebUIContent(js, "application/javascript", prefix)
+
+	wantLogo := `"` + prefix + `/assets/logo-DnrCYlPZ.png"`
+	if !strings.Contains(got, wantLogo) {
+		t.Fatalf("expected imported logo path under proxy prefix, want substring %s, got: %s", wantLogo, got)
+	}
+	if strings.Contains(got, `"/assets/logo-DnrCYlPZ.png"`) {
+		t.Fatalf("root-absolute logo literal must not remain: %s", got)
+	}
+	wantChunk := `'` + prefix + `/assets/chunk.js'`
+	if !strings.Contains(got, wantChunk) {
+		t.Fatalf("expected single-quoted asset literal rewrite, got: %s", got)
+	}
+	if strings.Count(got, prefix+prefix) > 0 {
+		t.Fatalf("asset paths must not be double-prefixed: %s", got)
+	}
+}
+
+func TestRewriteSeaTunnelWebUIContent_doesNotBroadenNonAssetRoots(t *testing.T) {
+	t.Parallel()
+
+	prefix := "/api/v1/clusters/11/webui"
+	// 反例（AC3）：只改写 /assets（与 favicon），不要把任意站点根路径并进 /webui 前缀。
+	// Counterexample (AC3): rewrite only /assets (and favicon); do not fold arbitrary roots into /webui.
+	js := strings.Join([]string{
+		`const logo="/assets/logo-DnrCYlPZ.png";`,
+		`const login="/api/v1/auth/login";`,
+		`const clusters="/api/v1/clusters/11/nodes";`,
+		`const page="/clusters/11?tab=runtime";`,
+		`const cdn="https://cdn.example/assets/logo.png";`,
+	}, "")
+	got := rewriteSeaTunnelWebUIContent(js, "application/javascript", prefix)
+
+	if !strings.Contains(got, `"`+prefix+`/assets/logo-DnrCYlPZ.png"`) {
+		t.Fatalf("expected /assets logo rewrite, got: %s", got)
+	}
+	for _, keep := range []string{
+		`"/api/v1/auth/login"`,
+		`"/api/v1/clusters/11/nodes"`,
+		`"/clusters/11?tab=runtime"`,
+		`"https://cdn.example/assets/logo.png"`,
+	} {
+		if !strings.Contains(got, keep) {
+			t.Fatalf("non-asset root must stay unchanged (%s), got: %s", keep, got)
+		}
+	}
+	if strings.Contains(got, `"`+prefix+`/api/v1/auth/login"`) {
+		t.Fatalf("must not prefix STX API paths with webui prefix, got: %s", got)
+	}
+	if strings.Contains(got, `"`+prefix+`/clusters/11`) {
+		t.Fatalf("must not prefix STX page routes with webui prefix, got: %s", got)
+	}
+}

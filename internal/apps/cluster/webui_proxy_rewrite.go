@@ -59,6 +59,12 @@ func rewriteSeaTunnelWebUIContent(content, contentType, prefix string) string {
 	content = strings.ReplaceAll(content, "baseURL:\"\"", "baseURL:\""+prefix+"\"")
 	content = strings.ReplaceAll(content, "baseURL:''", "baseURL:'"+prefix+"'")
 
+	// Vite import 产物常写成 Go="/assets/logo-….png"；属性改写与 <base> 管不到这种 JS 字符串字面量。
+	// Vite imports often emit Go="/assets/logo-….png"; attr rewrite and <base> miss these JS string literals.
+	// 只挂 /assets/ 与站点根静态文件，不把任意根路径并进代理前缀（避免放宽转发范围）。
+	// Only prefix /assets/ and root static files — do not fold arbitrary root paths into the proxy prefix.
+	content = rewriteQuotedRootStaticPaths(content, prefix)
+
 	// Vite 预加载：aE=function(e){return"/"+e} 会请求 /assets/...，必须挂到代理前缀。
 	// Vite preload: aE=function(e){return"/"+e} requests /assets/... and must use the proxy prefix.
 	// RE2 无反向引用，按常见压缩参数名逐个替换。 / RE2 has no backrefs; replace common minified param names.
@@ -86,6 +92,48 @@ func rewriteSeaTunnelWebUIContent(content, contentType, prefix string) string {
 		}
 	}
 
+	return content
+}
+
+// rewriteQuotedRootStaticPaths 把 JS/HTML 中带引号的站点根静态路径挂到代理前缀。
+// 覆盖 Vite 压缩后的 `"/assets/..."` 字面量；已带 prefix 的不重复改写；不改写其它根路径（如 /api、/clusters）。
+// rewriteQuotedRootStaticPaths prefixes quoted site-root static paths onto the proxy prefix.
+// Covers Vite minified `"/assets/..."` literals; skips already-prefixed values; leaves other roots (e.g. /api, /clusters) alone.
+func rewriteQuotedRootStaticPaths(content, prefix string) string {
+	if content == "" || prefix == "" {
+		return content
+	}
+	// favicon 等少数根文件也会以绝对路径出现在 index.html / 产物中。
+	// A few root files such as favicon also appear as absolute paths in index.html / bundles.
+	roots := []string{"/assets/", "/favicon.ico"}
+	for _, root := range roots {
+		for _, q := range []string{`"`, `'`} {
+			from := q + root
+			already := q + prefix + root
+			if !strings.Contains(content, from) {
+				continue
+			}
+			var b strings.Builder
+			b.Grow(len(content) + len(prefix)*4)
+			remaining := content
+			for {
+				idx := strings.Index(remaining, from)
+				if idx < 0 {
+					b.WriteString(remaining)
+					break
+				}
+				b.WriteString(remaining[:idx])
+				if strings.HasPrefix(remaining[idx:], already) {
+					b.WriteString(already)
+					remaining = remaining[idx+len(already):]
+					continue
+				}
+				b.WriteString(q + prefix + root)
+				remaining = remaining[idx+len(from):]
+			}
+			content = b.String()
+		}
+	}
 	return content
 }
 

@@ -64,6 +64,12 @@ interface PendingLifecycle {
 
 export interface UseClusterLifecycleOptions {
   onComplete?: (cluster: ClusterInfo, action: OperationType | 'delete') => void;
+  /**
+   * 重启确认后、POST 返回前触发：详情页用它立刻开轮询，勿与 onComplete 混用以免重采 baseline。
+   * Fires after restart confirm, before POST returns: detail pages start poll here;
+   * do not also refresh baseline from onComplete.
+   */
+  onRestartConfirmed?: (cluster: ClusterInfo) => void;
 }
 
 export interface UseClusterLifecycleResult {
@@ -77,7 +83,7 @@ export interface UseClusterLifecycleResult {
 export function useClusterLifecycle(
   options: UseClusterLifecycleOptions = {},
 ): UseClusterLifecycleResult {
-  const {onComplete} = options;
+  const {onComplete, onRestartConfirmed} = options;
   const t = useTranslations();
 
   const [pendingLifecycle, setPendingLifecycle] =
@@ -98,11 +104,12 @@ export function useClusterLifecycle(
       setPendingLifecycle(null);
 
       // 重启：POST 可能阻塞数十秒后 500/超时，但事件与新 PID 已异步到达。
-      // 确认后立刻 onComplete 开轮询；稍后不再二次 onComplete，避免重采 baseline。
-      // Restart: POST may block tens of seconds then 500/timeout while events/new PID land async.
-      // Fire onComplete immediately; do not call it again later (would recapture baseline).
+      // 确认后立刻 onRestartConfirmed 开轮询；结束后仍调 onComplete（含失败）刷新列表。
+      // Restart: POST may block then 500/timeout while events/new PID land async.
+      // Fire onRestartConfirmed immediately for poll; always call onComplete after finish (incl. failure).
       if (operation === OperationType.RESTART) {
-        onComplete?.(cluster, operation);
+        onRestartConfirmed?.(cluster);
+        toast.info(t('cluster.restartAccepted'));
       }
 
       try {
@@ -122,19 +129,21 @@ export function useClusterLifecycle(
                 nr.message?.includes('auto-restart') ||
                 nr.message?.includes('auto-start'),
             );
-          const successMessage = {
-            [OperationType.START]: isAutoRestart
-              ? t('cluster.startSuccessAutoRestart')
-              : t('cluster.startSuccess'),
-            [OperationType.STOP]: t('cluster.stopSuccess'),
-            [OperationType.RESTART]: isAutoRestart
-              ? t('cluster.restartSuccessAutoRestart')
-              : t('cluster.restartSuccess'),
-          }[operation];
-          toast.success(successMessage);
           if (operation !== OperationType.RESTART) {
-            onComplete?.(cluster, operation);
+            const successMessage = {
+              [OperationType.START]: isAutoRestart
+                ? t('cluster.startSuccessAutoRestart')
+                : t('cluster.startSuccess'),
+              [OperationType.STOP]: t('cluster.stopSuccess'),
+              [OperationType.RESTART]: t('cluster.restartSuccess'),
+            }[operation];
+            toast.success(successMessage);
+          } else if (isAutoRestart) {
+            // 受理已 toast；自动重启托管仅补充说明，成功仍等轮询 onSatisfied。
+            // Accepted already toasted; auto-restart only adds a note — success waits for poll onSatisfied.
+            toast.info(t('cluster.restartSuccessAutoRestart'));
           }
+          onComplete?.(cluster, operation);
         } else {
           const fallbackError = {
             [OperationType.START]: t('cluster.startError'),
@@ -142,13 +151,16 @@ export function useClusterLifecycle(
             [OperationType.RESTART]: t('cluster.restartError'),
           }[operation];
           toast.error(result.error || fallbackError);
+          // 失败也通知调用方：列表页需刷新；详情页勿在 onComplete 里对 RESTART 重采 baseline。
+          // Notify on failure too: list refreshes; detail must not recapture RESTART baseline in onComplete.
+          onComplete?.(cluster, operation);
         }
       } finally {
         setOperatingClusterId(null);
         setOperatingAction(null);
       }
     },
-    [onComplete, t],
+    [onComplete, onRestartConfirmed, t],
   );
 
   const executeDelete = useCallback(

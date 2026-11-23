@@ -845,6 +845,31 @@ func (h *Handler) RestartCluster(c *gin.Context) {
 		if err != nil {
 			logger.WarnF(bgCtx, "[Cluster] 异步重启集群失败 / async Restart failed: cluster_id=%d, err=%v",
 				clusterID, err)
+			// 后台失败除日志外再写 restart_failed，供进程事件列表展示。
+			// On background failure also persist restart_failed for the process-event list.
+			h.notifyOperationExecuted(bgCtx, &OperationEvent{
+				ClusterID:   uint(clusterID),
+				ClusterName: clusterName,
+				Operation:   OperationRestart,
+				Success:     false,
+				Message:     err.Error(),
+				Operator:    username,
+				Trigger:     "manual_api",
+			})
+			return
+		}
+		if result != nil && !result.Success {
+			logger.WarnF(bgCtx, "[Cluster] 异步重启集群未成功 / async Restart unsuccessful: cluster_id=%d, msg=%s",
+				clusterID, result.Message)
+			h.notifyOperationExecuted(bgCtx, &OperationEvent{
+				ClusterID:   uint(clusterID),
+				ClusterName: clusterName,
+				Operation:   OperationRestart,
+				Success:     false,
+				Message:     result.Message,
+				Operator:    username,
+				Trigger:     "manual_api",
+			})
 			return
 		}
 		_ = audit.RecordFromGinNoUser(h.auditRepo, reqCopy, userID, username,
@@ -1385,6 +1410,25 @@ func (h *Handler) RestartNode(c *gin.Context) {
 		if err != nil {
 			logger.WarnF(bgCtx, "[Cluster] 异步重启节点失败 / async RestartNode failed: cluster_id=%d, node_id=%d, err=%v",
 				clusterID, nodeID, err)
+			// 后台失败除日志外再写 restart_failed，供进程事件列表展示。
+			// On background failure also persist restart_failed for the process-event list.
+			failResult := &OperationResult{
+				ClusterID: uint(clusterID),
+				Operation: OperationRestart,
+				Success:   false,
+				Message:   err.Error(),
+			}
+			h.notifyOperationExecuted(bgCtx, h.buildNodeOperationEvent(
+				bgCtx, uint(clusterID), uint(nodeID), OperationRestart, failResult, username,
+			))
+			return
+		}
+		if result != nil && !result.Success {
+			logger.WarnF(bgCtx, "[Cluster] 异步重启节点未成功 / async RestartNode unsuccessful: cluster_id=%d, node_id=%d, msg=%s",
+				clusterID, nodeID, result.Message)
+			h.notifyOperationExecuted(bgCtx, h.buildNodeOperationEvent(
+				bgCtx, uint(clusterID), uint(nodeID), OperationRestart, result, username,
+			))
 			return
 		}
 		clusterName, nodeDisplay := h.service.GetClusterNodeDisplayInfo(bgCtx, uint(clusterID), uint(nodeID))

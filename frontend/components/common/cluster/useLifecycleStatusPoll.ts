@@ -34,6 +34,8 @@ export interface UseLifecycleStatusPollOptions {
   timeoutMs?: number;
   /** 达标时回调（例如补拉一次 JDK runtime）。 / Called when the target is satisfied (e.g. one JDK runtime refresh). */
   onSatisfied?: (snapshot: LifecyclePollSnapshot) => void;
+  /** 超时未达标时回调（勿伪造成功）。 / Called when the poll times out without satisfaction (never fake success). */
+  onTimeout?: () => void;
 }
 
 export interface StartLifecyclePollOptions {
@@ -67,6 +69,7 @@ export function useLifecycleStatusPoll(
     intervalMs = LIFECYCLE_POLL_INTERVAL_MS,
     timeoutMs = LIFECYCLE_POLL_TIMEOUT_MS,
     onSatisfied,
+    onTimeout,
   } = options;
 
   const mountedRef = useRef(true);
@@ -76,6 +79,8 @@ export function useLifecycleStatusPoll(
   loadSnapshotRef.current = loadSnapshot;
   const onSatisfiedRef = useRef(onSatisfied);
   onSatisfiedRef.current = onSatisfied;
+  const onTimeoutRef = useRef(onTimeout);
+  onTimeoutRef.current = onTimeout;
   const intervalRef = useRef(intervalMs);
   intervalRef.current = intervalMs;
   const timeoutRef = useRef(timeoutMs);
@@ -150,6 +155,7 @@ export function useLifecycleStatusPoll(
         }
         if (Date.now() - startedAt >= timeoutRef.current) {
           clearTimer();
+          onTimeoutRef.current?.();
           return;
         }
         schedule(intervalRef.current);

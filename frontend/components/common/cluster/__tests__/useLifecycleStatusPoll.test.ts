@@ -267,4 +267,38 @@ describe('useLifecycleStatusPoll', () => {
     });
     expect(onSatisfied).toHaveBeenCalledTimes(1);
   });
+
+  it('invokes onTimeout when the window elapses without satisfaction', async () => {
+    const onTimeout = vi.fn();
+    const onSatisfied = vi.fn();
+    const loadSnapshot = vi.fn().mockResolvedValue({
+      clusterStatus: ClusterStatus.STOPPED,
+      nodes: [{id: 2, status: NodeStatus.STOPPED, process_pid: 0}],
+    });
+
+    const {result} = renderHook(() =>
+      useLifecycleStatusPoll({
+        loadSnapshot,
+        intervalMs: 1000,
+        timeoutMs: 2500,
+        onSatisfied,
+        onTimeout,
+      }),
+    );
+
+    act(() => {
+      result.current.startLifecyclePoll('running');
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(onSatisfied).not.toHaveBeenCalled();
+    expect(onTimeout).toHaveBeenCalledTimes(1);
+  });
 });

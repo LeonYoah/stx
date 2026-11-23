@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -259,6 +260,123 @@ func TestClusterRestartTimeoutDoesNotMarkWholeOpFailed(t *testing.T) {
 	}
 	if result.Message == "Operation completed with errors" {
 		t.Fatalf("timeout still surfaced as completed with errors: %+v", result)
+	}
+}
+
+func TestRestartNodeAsyncFailureEmitsRestartFailedHook(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	hostProvider := NewMockHostProvider()
+	now := time.Now()
+	hostProvider.AddHost(&HostInfo{
+		ID: 1, Name: "t4-dnode-1", IPAddress: "10.0.0.4",
+		AgentID: "agent-1", LastHeartbeat: &now, HostType: "bare_metal",
+	})
+
+	var restartEntered sync.WaitGroup
+	restartEntered.Add(1)
+	sender := &scriptedAgentSender{
+		send: func(ctx context.Context, agentID string, commandType string, params map[string]string) (bool, string, error) {
+			if commandType == string(OperationRestart) {
+				restartEntered.Done()
+				return false, "", errors.New("connection refused")
+			}
+			return true, "ok", nil
+		},
+	}
+
+	svc := NewService(repo, hostProvider, &ServiceConfig{})
+	svc.SetAgentCommandSender(sender)
+
+	ctx := context.Background()
+	cluster := &Cluster{
+		Name: "t4-fail-event", DeploymentMode: DeploymentModeHybrid,
+		InstallDir: "/opt/seatunnel", Status: ClusterStatusRunning,
+	}
+	if err := repo.Create(ctx, cluster); err != nil {
+		t.Fatalf("create cluster: %v", err)
+	}
+	node := &ClusterNode{
+		ClusterID: cluster.ID, HostID: 1, Role: NodeRoleMasterWorker,
+		InstallDir: "/opt/seatunnel", Status: NodeStatusRunning, ProcessPID: 4488,
+	}
+	if err := repo.AddNode(ctx, node); err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+
+	var mu sync.Mutex
+	var hooks []*OperationEvent
+	handler := NewHandler(svc, nil)
+	handler.SetOnOperationExecuted(func(_ context.Context, event *OperationEvent) error {
+		if event == nil {
+			return nil
+		}
+		copied := *event
+		mu.Lock()
+		hooks = append(hooks, &copied)
+		mu.Unlock()
+		return nil
+	})
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		auth.SetUserToContext(c, &auth.User{ID: 1, Username: "admin"})
+		c.Next()
+	})
+	router.POST("/api/v1/clusters/:id/nodes/:nodeId/restart", handler.RestartNode)
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/clusters/"+strconv.FormatUint(uint64(cluster.ID), 10)+
+			"/nodes/"+strconv.FormatUint(uint64(node.ID), 10)+"/restart",
+		nil,
+	)
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	select {
+	case <-waitGroupDone(&restartEntered):
+	case <-time.After(2 * time.Second):
+		t.Fatal("background RestartNode never reached agent")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(hooks)
+		mu.Unlock()
+		if n >= 2 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(hooks) < 2 {
+		t.Fatalf("hook calls=%d, want >=2 (requested + failed)", len(hooks))
+	}
+	if !hooks[0].Success || hooks[0].NodeID != node.ID {
+		t.Fatalf("first hook (requested)=%+v", hooks[0])
+	}
+	var failed *OperationEvent
+	for _, h := range hooks[1:] {
+		if !h.Success && h.Operation == OperationRestart && h.NodeID == node.ID {
+			failed = h
+			break
+		}
+	}
+	if failed == nil {
+		t.Fatalf("missing Success=false restart hook in %+v", hooks)
+	}
+	if !strings.Contains(failed.Message, "connection refused") {
+		t.Fatalf("failed message=%q", failed.Message)
 	}
 }
 

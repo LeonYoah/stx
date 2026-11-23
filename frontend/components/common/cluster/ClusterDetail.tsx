@@ -129,6 +129,7 @@ import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
 import {
   baselinePidsFromNodes,
   isRestartLifecycleOperation,
+  LIFECYCLE_POLL_TIMEOUT_MS,
   lifecycleTargetForOperation,
 } from './lifecycle-status-poll';
 import {
@@ -480,6 +481,8 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   // PID recorded when JDK runtime was last fetched; incremental compare must use this, not nodesRef (updated every poll).
   const runtimePidRef = useRef<Record<number, number>>({});
   const clusterLoadSeqRef = useRef(0);
+  const clusterIdRef = useRef(clusterId);
+  clusterIdRef.current = clusterId;
 
   /**
    * Fetch effective JDK version for nodes (AC7). Failures only mark version unavailable.
@@ -581,6 +584,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     [clusterId, t, loadNodeJavaRuntimes],
   );
 
+  // 重启受理后待轮询达标再 toast 成功；超时则 warning，避免把受理当成成功。
+  // After restart accept, toast success only when poll is satisfied; timeout → warning (accept ≠ success).
+  const pendingRestartSuccessToastRef = useRef<
+    'cluster' | 'node' | 'batch' | null
+  >(null);
+
   const {startLifecyclePoll, stopLifecyclePoll} = useLifecycleStatusPoll({
     loadSnapshot: () =>
       loadClusterData({
@@ -592,12 +601,34 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       }),
     onSatisfied: () => {
       void loadNodeJavaRuntimes(nodesRef.current, 'incremental');
+      const pending = pendingRestartSuccessToastRef.current;
+      if (pending) {
+        pendingRestartSuccessToastRef.current = null;
+        const successKey =
+          pending === 'node'
+            ? 'cluster.nodeRestartSuccess'
+            : pending === 'batch'
+              ? 'cluster.batchRestartSuccess'
+              : 'cluster.restartSuccess';
+        toast.success(t(successKey));
+      }
+    },
+    onTimeout: () => {
+      if (pendingRestartSuccessToastRef.current) {
+        pendingRestartSuccessToastRef.current = null;
+        toast.warning(
+          t('cluster.restartPollTimeout', {
+            seconds: Math.round(LIFECYCLE_POLL_TIMEOUT_MS / 1000),
+          }),
+        );
+      }
     },
   });
 
   // 切换集群时停止上一集群的轮询，避免串扰。
   // Stop the previous cluster's poll when switching clusters.
   useEffect(() => {
+    pendingRestartSuccessToastRef.current = null;
     stopLifecyclePoll();
   }, [clusterId, stopLifecyclePoll]);
 
@@ -610,6 +641,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       operation: OperationType | 'start' | 'stop' | 'restart',
       scopeNodeIds?: number[],
     ) => {
+      // await 期间若已切到其它集群，丢弃本轮 baseline/轮询，避免套到新集群。
+      // If the user switches clusters during await, drop this baseline/poll so it cannot apply to the new one.
+      const startedForClusterId = clusterIdRef.current;
       // 重启前冻结基准 PID；若等 load 后再取，可能已是旧 PID 残留，轮询会立刻伪造成功。
       // Freeze baseline PIDs before refresh; reading after load can keep a stale PID and fake early success.
       const baselinePids = isRestartLifecycleOperation(operation)
@@ -620,6 +654,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         notifyError: false,
         javaRuntimeMode: 'skip',
       });
+      if (startedForClusterId !== clusterIdRef.current) {
+        return;
+      }
       // 先递增 epoch：节点页挂载时立即静默拉事件；未挂载则切回节点页首屏加载即可看到新事件。
       // Bump epoch first: silent event fetch while Nodes is mounted; otherwise the next mount load shows them.
       setLifecyclePollEpoch((prev) => prev + 1);
@@ -1419,6 +1456,8 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     // 确认后立刻开轮询；不把 refresh 挂在 POST 成功之后，失败/超时也不取消。
     // t4: POST /restart can block ~30s then HTTP 500 while events/new PID land async.
     // Start poll on confirm; never gate refresh on POST success, and never cancel on failure.
+    pendingRestartSuccessToastRef.current = 'node';
+    toast.info(t('cluster.restartAccepted'));
     void refreshMainStatusAfterLifecycle(OperationType.RESTART, [node.id]);
     try {
       const result = await services.cluster.restartNodeSafe(clusterId, node.id);
@@ -1433,11 +1472,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               nr.message?.includes('auto-restart') ||
               nr.message?.includes('auto-start'),
           );
-        toast.success(
-          isAutoRestart
-            ? t('cluster.nodeRestartSuccessAutoRestart')
-            : t('cluster.nodeRestartSuccess'),
-        );
+        // 受理已提示；成功等轮询达标。自动重启仅补充托管说明。
+        // Accepted already toasted; success waits for poll. Auto-restart only adds a managed-start note.
+        if (isAutoRestart) {
+          toast.info(t('cluster.nodeRestartSuccessAutoRestart'));
+        }
       } else {
         toast.error(result.error || t('cluster.nodeRestartError'));
       }
@@ -1531,17 +1570,22 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     const scopeNodeIds = Array.from(selectedNodeIds);
     // 批量重启同样先开轮询，避免被任一节点 POST 阻塞/500 卡住停留页。
     // Batch restart also starts poll first so one blocked/500 POST cannot freeze stay-on-page.
+    pendingRestartSuccessToastRef.current = 'batch';
+    toast.info(t('cluster.restartAccepted'));
     void refreshMainStatusAfterLifecycle(OperationType.RESTART, scopeNodeIds);
     try {
       let hasAutoRestart = false;
-      let anyFailed = false;
+      let successCount = 0;
+      let failedCount = 0;
       for (const nodeId of scopeNodeIds) {
         const result = await services.cluster.restartNodeSafe(
           clusterId,
           nodeId,
         );
         if (!result.success) {
-          anyFailed = true;
+          failedCount += 1;
+        } else {
+          successCount += 1;
         }
         // Check both message and node_results / 检查 message 和 node_results
         if (
@@ -1556,15 +1600,21 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           hasAutoRestart = true;
         }
       }
-      if (anyFailed) {
-        toast.error(t('cluster.nodeRestartError'));
-      } else {
-        toast.success(
-          hasAutoRestart
-            ? t('cluster.batchRestartSuccessAutoRestart')
-            : t('cluster.batchRestartSuccess'),
+      if (failedCount > 0) {
+        // 部分失败：受理结果用批量文案；取消「等待成功」toast，避免误报全成功。
+        // Partial failure: use batch copy for accept outcomes; clear pending success toast.
+        pendingRestartSuccessToastRef.current = null;
+        toast.warning(
+          t('cluster.batchRestartPartial', {
+            success: successCount,
+            failed: failedCount,
+          }),
         );
+      } else if (hasAutoRestart) {
+        toast.info(t('cluster.batchRestartSuccessAutoRestart'));
       }
+      // 全成功时成功 toast 留给轮询 onSatisfied。
+      // On full accept success, leave the success toast to poll onSatisfied.
     } finally {
       setIsOperating(false);
     }
@@ -1899,7 +1949,16 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           <div className='flex flex-wrap items-center gap-1.5'>
             <ClusterActions
               cluster={cluster}
+              onRestartConfirmed={() => {
+                pendingRestartSuccessToastRef.current = 'cluster';
+                void refreshMainStatusAfterLifecycle(OperationType.RESTART);
+              }}
               onOperationComplete={(operation) => {
+                // 重启已在 onRestartConfirmed 开过轮询；此处勿再 refresh，以免重采 baseline。
+                // Restart already started poll in onRestartConfirmed; skip refresh here to keep baseline.
+                if (operation === OperationType.RESTART) {
+                  return;
+                }
                 void refreshMainStatusAfterLifecycle(operation);
               }}
             />

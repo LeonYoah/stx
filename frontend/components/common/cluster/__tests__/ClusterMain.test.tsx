@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import {fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
@@ -410,5 +410,50 @@ describe('ClusterMain', () => {
     expect(
       screen.getByText(zh.cluster.list.configReadFailed),
     ).toBeInTheDocument();
+  });
+
+  it('reloads /clusters after restart finishes (onComplete, not only on confirm)', async () => {
+    restartClusterSafe.mockResolvedValue({
+      success: true,
+      data: {
+        cluster_id: 1,
+        operation: 'restart',
+        success: true,
+        message: 'restart accepted / 重启已受理',
+      },
+    });
+
+    renderMain();
+    await waitFor(() => {
+      expect(screen.getByTestId('cluster-row-1')).toBeInTheDocument();
+    });
+    const loadsBefore = getClustersSafe.mock.calls.length;
+
+    const row = screen.getByTestId('cluster-row-1');
+    const more = within(row).getByRole('button', {
+      name: zh.common.moreActions,
+    });
+    fireEvent.keyDown(more, {key: 'ArrowDown'});
+    const restartItem = await screen.findByRole('menuitem', {
+      name: zh.cluster.restart,
+    });
+    fireEvent.click(restartItem);
+
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(
+      within(dialog).getByRole('button', {
+        name: zh.cluster.list.confirmRestartAction,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(restartClusterSafe).toHaveBeenCalledWith(1);
+    });
+    // 确认当下不应立刻因 onComplete 再拉列表；结束后才应多一次。
+    // Confirm must not loadClusters via onComplete; one more load happens after finish.
+    await waitFor(() => {
+      expect(getClustersSafe.mock.calls.length).toBeGreaterThan(loadsBefore);
+    });
+    expect(restartClusterSafe).toHaveBeenCalledTimes(1);
   });
 });

@@ -475,9 +475,19 @@ func Serve() {
 				case event.NodeID > 0 && event.Operation == cluster.OperationStop:
 					processEventType = monitor.EventTypeNodeStopRequested
 				case event.NodeID > 0 && event.Operation == cluster.OperationRestart:
-					processEventType = monitor.EventTypeNodeRestartRequested
+					// Success=false：后台异步重启失败 → restart_failed（沿用既有事件类型）。
+					// Success=false: async background restart failed → restart_failed (existing event type).
+					if event.Success {
+						processEventType = monitor.EventTypeNodeRestartRequested
+					} else {
+						processEventType = monitor.EventTypeRestartFailed
+					}
 				case event.Operation == cluster.OperationRestart:
-					processEventType = monitor.EventTypeClusterRestartRequested
+					if event.Success {
+						processEventType = monitor.EventTypeClusterRestartRequested
+					} else {
+						processEventType = monitor.EventTypeRestartFailed
+					}
 				default:
 					return nil
 				}

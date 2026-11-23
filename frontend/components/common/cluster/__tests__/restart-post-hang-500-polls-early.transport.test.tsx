@@ -459,6 +459,18 @@ describe('transport: POST hang→500 still polls early (t4 AC1)', () => {
       expect(countGets('/clusters/2/nodes')).toBeGreaterThan(nodesBefore);
     });
 
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LIFECYCLE_POLL_INTERVAL_MS * 3);
+    });
+    await waitFor(() => {
+      expect(within(hostRow()).getByText(String(NEW_PID))).toBeTruthy();
+      expect(screen.getByText(zh.monitor.events.restarted)).toBeTruthy();
+    });
+
     settlePostWith500();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(within(hostRow()).getByText(String(NEW_PID))).toBeTruthy();
   });
 });

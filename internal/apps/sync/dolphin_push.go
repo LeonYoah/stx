@@ -797,6 +797,11 @@ func dolphinCrontab(cronExpr string) string {
 	fields := strings.Fields(strings.TrimSpace(cronExpr))
 	switch len(fields) {
 	case 5:
+		if fields[2] != "*" {
+			fields[4] = "?"
+		} else {
+			fields[2] = "?"
+		}
 		return "0 " + strings.Join(fields, " ")
 	default:
 		return strings.TrimSpace(cronExpr)

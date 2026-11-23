@@ -55,12 +55,21 @@ import {
   type ProcessEventType,
 } from '@/lib/services/monitor';
 import {formatDateTimeMinuteTz} from '@/lib/timezone';
+import {
+  LIFECYCLE_POLL_INTERVAL_MS,
+  LIFECYCLE_POLL_TIMEOUT_MS,
+} from './lifecycle-status-poll';
 
 interface ProcessEventListProps {
   clusterId: number;
   nodeId?: number;
   /** 事件列表成功刷新后联动主状态（节点/头部），避免「事件已重启、主状态仍停」。 / After events reload, refresh main status so events and header/nodes stay aligned. */
   onMainStatusRefresh?: () => void;
+  /**
+   * 启停/重启后由详情页递增；>0 时有界静默轮询事件列表（卸载即停）。
+   * Bumped by detail after lifecycle ops; when >0, bounded silent event poll (stops on unmount).
+   */
+  lifecyclePollEpoch?: number;
 }
 
 const EVENT_TYPE_META: Record<
@@ -130,6 +139,7 @@ export function ProcessEventList({
   clusterId,
   nodeId,
   onMainStatusRefresh,
+  lifecyclePollEpoch = 0,
 }: ProcessEventListProps) {
   const t = useTranslations();
   const [events, setEvents] = useState<ProcessEvent[]>([]);
@@ -141,49 +151,166 @@ export function ProcessEventList({
     ProcessEventType | 'all'
   >('all');
   const reqSeqRef = useRef(0);
+  const mountedRef = useRef(true);
+  const pollSessionRef = useRef(0);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onMainStatusRefreshRef = useRef(onMainStatusRefresh);
   onMainStatusRefreshRef.current = onMainStatusRefresh;
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  const eventTypeFilterRef = useRef(eventTypeFilter);
+  eventTypeFilterRef.current = eventTypeFilter;
+  const nodeIdRef = useRef(nodeId);
+  nodeIdRef.current = nodeId;
+  const clusterIdRef = useRef(clusterId);
+  clusterIdRef.current = clusterId;
 
-  const loadEvents = useCallback(async () => {
-    const seq = ++reqSeqRef.current;
-    setLoading(true);
-    setError(null);
-    try {
-      const filter: ProcessEventFilter = {
-        page,
-        page_size: PAGE_SIZE,
-      };
-      if (nodeId) {
-        filter.node_id = nodeId;
-      }
-      if (eventTypeFilter !== 'all') {
-        filter.event_type = eventTypeFilter;
-      }
-
-      const response = await listProcessEvents(clusterId, filter);
-      if (seq !== reqSeqRef.current) {
-        return;
-      }
-      setEvents(response.events ?? []);
-      setTotal(response.total ?? 0);
-      onMainStatusRefreshRef.current?.();
-    } catch (err) {
-      if (seq !== reqSeqRef.current) {
-        return;
-      }
-      setError(
-        err instanceof Error ? err.message : t('monitor.loadEventsError'),
-      );
-    } finally {
-      if (seq === reqSeqRef.current) {
-        setLoading(false);
-      }
+  const clearPollTimer = useCallback(() => {
+    if (pollTimerRef.current !== null) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
     }
-  }, [clusterId, eventTypeFilter, nodeId, page, t]);
+  }, []);
+
+  const stopLifecycleEventPoll = useCallback(() => {
+    pollSessionRef.current += 1;
+    clearPollTimer();
+  }, [clearPollTimer]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      stopLifecycleEventPoll();
+    };
+  }, [stopLifecycleEventPoll]);
+
+  type LoadEventsOptions = {
+    /** 静默刷新：不亮 loading，避免事件区闪烁与滚回顶部。 / Silent: no loading bar, no flicker or scroll jump. */
+    silent?: boolean;
+    /** 生命周期轮询中跳过主状态联动（详情页已有状态轮询）。 / Skip main-status linkage during lifecycle poll (detail already polls status). */
+    skipMainStatusRefresh?: boolean;
+  };
+
+  const loadEvents = useCallback(
+    async (options?: LoadEventsOptions) => {
+      const silent = options?.silent === true;
+      const skipMainStatusRefresh = options?.skipMainStatusRefresh === true;
+      const seq = ++reqSeqRef.current;
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
+      try {
+        const filter: ProcessEventFilter = {
+          page: pageRef.current,
+          page_size: PAGE_SIZE,
+        };
+        const currentNodeId = nodeIdRef.current;
+        if (currentNodeId) {
+          filter.node_id = currentNodeId;
+        }
+        if (eventTypeFilterRef.current !== 'all') {
+          filter.event_type = eventTypeFilterRef.current;
+        }
+
+        const response = await listProcessEvents(
+          clusterIdRef.current,
+          filter,
+        );
+        if (!mountedRef.current || seq !== reqSeqRef.current) {
+          return;
+        }
+        setEvents(response.events ?? []);
+        setTotal(response.total ?? 0);
+        if (!skipMainStatusRefresh) {
+          onMainStatusRefreshRef.current?.();
+        }
+      } catch (err) {
+        if (!mountedRef.current || seq !== reqSeqRef.current) {
+          return;
+        }
+        if (!silent) {
+          setError(
+            err instanceof Error ? err.message : t('monitor.loadEventsError'),
+          );
+        }
+      } finally {
+        if (!silent && mountedRef.current && seq === reqSeqRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [t],
+  );
 
   useEffect(() => {
     void loadEvents();
-  }, [loadEvents]);
+  }, [loadEvents, clusterId, eventTypeFilter, nodeId, page]);
+
+  // 仅在已挂载期间 epoch 递增时开轮询；带着旧 epoch 切回节点页只走首屏 loadEvents，避免空转 90s。
+  // Start poll only when epoch bumps while mounted; remount with a stale epoch uses the initial load only.
+  const prevLifecyclePollEpochRef = useRef(lifecyclePollEpoch);
+
+  // 启停/重启后有界静默轮询事件：立即拉一拍，再按与主状态相同的间隔/超时续拉；离开节点页卸载即停。
+  // Bounded silent event poll after lifecycle: one immediate fetch, then same interval/timeout as status; stop on unmount.
+  useEffect(() => {
+    const prevEpoch = prevLifecyclePollEpochRef.current;
+    prevLifecyclePollEpochRef.current = lifecyclePollEpoch;
+    if (
+      !lifecyclePollEpoch ||
+      lifecyclePollEpoch < 1 ||
+      lifecyclePollEpoch === prevEpoch
+    ) {
+      return;
+    }
+    if (!mountedRef.current) {
+      return;
+    }
+    stopLifecycleEventPoll();
+    if (!mountedRef.current) {
+      return;
+    }
+    const session = pollSessionRef.current;
+    const startedAt = Date.now();
+
+    const schedule = (delayMs: number) => {
+      if (!mountedRef.current || session !== pollSessionRef.current) {
+        return;
+      }
+      clearPollTimer();
+      pollTimerRef.current = setTimeout(() => {
+        void tick();
+      }, delayMs);
+    };
+
+    const tick = async () => {
+      if (!mountedRef.current || session !== pollSessionRef.current) {
+        return;
+      }
+      await loadEvents({silent: true, skipMainStatusRefresh: true});
+      if (!mountedRef.current || session !== pollSessionRef.current) {
+        return;
+      }
+      if (Date.now() - startedAt >= LIFECYCLE_POLL_TIMEOUT_MS) {
+        clearPollTimer();
+        return;
+      }
+      schedule(LIFECYCLE_POLL_INTERVAL_MS);
+    };
+
+    void tick();
+    return () => {
+      if (session === pollSessionRef.current) {
+        stopLifecycleEventPoll();
+      }
+    };
+  }, [
+    lifecyclePollEpoch,
+    loadEvents,
+    stopLifecycleEventPoll,
+    clearPollTimer,
+  ]);
 
   const filterOptions = [
     {value: 'all', label: t('monitor.allEvents')},

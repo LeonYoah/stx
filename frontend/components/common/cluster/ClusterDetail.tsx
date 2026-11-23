@@ -597,6 +597,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     stopLifecyclePoll();
   }, [clusterId, stopLifecyclePoll]);
 
+  // 启停/重启后递增，驱动节点页 ProcessEventList 有界静默轮询（与主状态轮询同窗口）。
+  // Bumped after lifecycle ops so Nodes-tab ProcessEventList starts a bounded silent poll (same window as status).
+  const [lifecyclePollEpoch, setLifecyclePollEpoch] = useState(0);
+
   const refreshMainStatusAfterLifecycle = useCallback(
     async (
       operation: OperationType | 'start' | 'stop' | 'restart',
@@ -607,6 +611,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         notifyError: false,
         javaRuntimeMode: 'skip',
       });
+      // 先递增 epoch：节点页挂载时立即静默拉事件；未挂载则切回节点页首屏加载即可看到新事件。
+      // Bump epoch first: silent event fetch while Nodes is mounted; otherwise the next mount load shows them.
+      setLifecyclePollEpoch((prev) => prev + 1);
       startLifecyclePoll(lifecycleTargetForOperation(operation), {
         scopeNodeIds,
       });
@@ -2020,6 +2027,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               onEditNode={openEditNodeDialog}
               onRemoveNode={(node) => setNodeToRemove(node)}
               onMainStatusRefresh={refreshMainStatusFromEvents}
+              lifecyclePollEpoch={lifecyclePollEpoch}
             />
           ) : null}
         </ArcTabsContent>

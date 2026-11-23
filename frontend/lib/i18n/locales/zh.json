@@ -6150,7 +6150,8 @@
     "targetTypeLabel": "类型",
     "pickMember": "选择成员",
     "memberSearchPlaceholder": "搜索成员...",
-    "memberEmpty": "无匹配成员"
+    "memberEmpty": "无匹配成员",
+    "fingerprintTooltip": "故障指纹: {fingerprint}"
   },
   "selfUpgrade": {
     "title": "系统升级",
@@ -6796,5 +6797,9 @@
     "switchToGlobalView": "切回全局默认",
     "globalChannelsSummary": "沿用全局渠道：{targets}",
     "selectSearchPlaceholder": "搜索选项"
+  },
+  "theme": {
+    "toDark": "切换深色模式",
+    "toLight": "切换浅色模式"
   }
 }

@@ -6150,7 +6150,8 @@
     "targetTypeLabel": "Type",
     "pickMember": "Pick member",
     "memberSearchPlaceholder": "Search members...",
-    "memberEmpty": "No matching members"
+    "memberEmpty": "No matching members",
+    "fingerprintTooltip": "Fingerprint: {fingerprint}"
   },
   "selfUpgrade": {
     "title": "System Upgrade",
@@ -6796,5 +6797,9 @@
     "switchToGlobalView": "Global default",
     "globalChannelsSummary": "Inheriting global channels: {targets}",
     "selectSearchPlaceholder": "Search options"
+  },
+  "theme": {
+    "toDark": "Switch to dark mode",
+    "toLight": "Switch to light mode"
   }
 }

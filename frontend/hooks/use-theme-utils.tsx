@@ -16,6 +16,7 @@
  */
 
 import {useTheme} from 'next-themes';
+import {useTranslations} from 'next-intl';
 import {SunIcon, MoonIcon} from 'lucide-react';
 import {useCallback} from 'react';
 
@@ -71,6 +72,7 @@ const selectSystem = <T,>(spec: SystemThemeSelectSpec<T>): T => {
 
 export function useThemeUtils() {
   const {theme, setTheme} = useTheme();
+  const t = useTranslations('theme');
 
   const select = useCallback(
     <T,>(spec: ThemeSelectSpec<T>): T => {
@@ -116,13 +118,13 @@ export function useThemeUtils() {
   };
 
   const getAction = () => {
-    const baseRules = getBaseRules('切换深色模式', '切换浅色模式');
+    const baseRules = getBaseRules(t('toDark'), t('toLight'));
     return select({
       ...baseRules,
       system: selectSystem({
         ...baseRules,
       }),
-      default: '切换深色模式',
+      default: t('toDark'),
     });
   };
 

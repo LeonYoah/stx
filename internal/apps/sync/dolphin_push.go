@@ -822,11 +822,16 @@ func domDowWarning(cronExpr string) string {
 func quartzWeekday(expr string) string {
 	parts := strings.Split(expr, ",")
 	for i, part := range parts {
+		suffix := ""
+		if slash := strings.IndexByte(part, '/'); slash >= 0 {
+			suffix = part[slash:]
+			part = part[:slash]
+		}
 		if sub := strings.IndexByte(part, '-'); sub >= 0 {
-			parts[i] = mapQuartzDow(part[:sub]) + "-" + mapQuartzDow(part[sub+1:])
+			parts[i] = mapQuartzDow(part[:sub]) + "-" + mapQuartzDow(part[sub+1:]) + suffix
 			continue
 		}
-		parts[i] = mapQuartzDow(part)
+		parts[i] = mapQuartzDow(part) + suffix
 	}
 	return strings.Join(parts, ",")
 }

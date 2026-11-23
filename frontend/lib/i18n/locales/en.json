@@ -523,6 +523,10 @@
           "emptyPanel": "No data in this window",
           "legendClear": "Clear",
           "legendAll": "Show all",
+          "legendMore": "+{count} more",
+          "legendEmptySelection": "Choose a series to show",
+          "nodeFilter": "Filter node",
+          "allNodes": "All nodes ({count})",
           "time": "Time",
           "groups": {
             "jvm": "JVM memory",
@@ -541,6 +545,12 @@
           "events": {
             "node_restart": "node restart",
             "members_change": "membership change"
+          },
+          "eventsSummary": {
+            "title": "Window changes",
+            "latest": "Latest {time} · {label}",
+            "viewAll": "View all ({count})",
+            "total": "{count} total"
           },
           "panels": {
             "heap_pools": "Heap pools",
@@ -566,7 +576,10 @@
           },
           "legendOwned": "owned",
           "legendBackup": "backup",
-          "other": "Other"
+          "other": "Other",
+          "signalClear": "Clear",
+          "signalAlert": "Detected",
+          "signalPeak": "Window peak {value}"
         }
       },
       "hostsTab": {
@@ -1298,7 +1311,13 @@
       "nodeJdk": "JDK",
       "jdkMajor": "JDK {version}",
       "eventChannelNotConfigured": "Not configured",
-      "eventChannelUnsupportedShort": "Unsupported version"
+      "eventChannelUnsupportedShort": "Unsupported version",
+      "healthReasons": {
+        "nodeOffline": "Node {node} is offline",
+        "processNotRunning": "SeaTunnel process on node {node} is not running (status: {status})",
+        "memberSplitBrain": "Node {node} sees only {observed}/{expected} cluster members (possible split brain)",
+        "engineNotReady": "SeaTunnel engine on node {node} is not ready: {detail}"
+      }
     },
     "copyLog": "Copy Log",
     "logCopied": "Logs copied to clipboard",

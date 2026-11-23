@@ -98,6 +98,37 @@ type HostProvider interface {
 	GetHostByID(ctx context.Context, id uint) (*HostInfo, error)
 }
 
+// ClusterHealthReasonCode 是结构化健康异常原因的稳定编码，前端按 code 走 i18n 单语渲染。
+// ClusterHealthReasonCode is the stable code of a structured health reason; the frontend
+// renders a single-language message via i18n keyed by code.
+type ClusterHealthReasonCode string
+
+const (
+	// ClusterHealthReasonNodeOffline 节点主机离线。
+	// ClusterHealthReasonNodeOffline marks a node whose host is offline.
+	ClusterHealthReasonNodeOffline ClusterHealthReasonCode = "node_offline"
+	// ClusterHealthReasonProcessNotRunning 集群应运行但 SeaTunnel 进程未运行。
+	// ClusterHealthReasonProcessNotRunning marks a node whose SeaTunnel process is down while the cluster should run.
+	ClusterHealthReasonProcessNotRunning ClusterHealthReasonCode = "process_not_running"
+	// ClusterHealthReasonMemberSplitBrain 节点看到的成员数少于运行节点数（可能脑裂）。
+	// ClusterHealthReasonMemberSplitBrain marks a node seeing fewer members than running nodes (possible split brain).
+	ClusterHealthReasonMemberSplitBrain ClusterHealthReasonCode = "member_split_brain"
+	// ClusterHealthReasonEngineNotReady 引擎未就绪（半初始化）。
+	// ClusterHealthReasonEngineNotReady marks a half-initialized engine.
+	ClusterHealthReasonEngineNotReady ClusterHealthReasonCode = "engine_not_ready"
+)
+
+// ClusterHealthReason 是一条结构化健康异常原因，与 HealthReasons 中的文案一一对应。
+// ClusterHealthReason is a structured health issue entry, aligned 1:1 with HealthReasons.
+type ClusterHealthReason struct {
+	Code            ClusterHealthReasonCode `json:"code"`
+	Node            string                  `json:"node,omitempty"`
+	Status          string                  `json:"status,omitempty"`
+	ObservedMembers int                     `json:"observed_members,omitempty"`
+	ExpectedMembers int                     `json:"expected_members,omitempty"`
+	Detail          string                  `json:"detail,omitempty"`
+}
+
 // ClusterStatusInfo represents detailed cluster status information.
 // ClusterStatusInfo 表示详细的集群状态信息。
 type ClusterStatusInfo struct {
@@ -113,8 +144,11 @@ type ClusterStatusInfo struct {
 	RunningNodes int `json:"running_nodes"`
 	// HealthReasons 解释 health_status 不健康的原因（离线、进程未运行、成员分裂）。
 	// HealthReasons explains why health_status is not healthy (offline, process down, split members).
-	HealthReasons []string          `json:"health_reasons,omitempty"`
-	Nodes         []*NodeStatusInfo `json:"nodes"`
+	HealthReasons []string `json:"health_reasons,omitempty"`
+	// HealthReasonDetails 与 HealthReasons 一一对应的结构化原因，供前端按 code 做单语渲染。
+	// HealthReasonDetails mirrors HealthReasons 1:1 as structured entries so the frontend can localize by code.
+	HealthReasonDetails []ClusterHealthReason `json:"health_reason_details,omitempty"`
+	Nodes               []*NodeStatusInfo     `json:"nodes"`
 }
 
 // NodeStatusInfo represents detailed node status information.

@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
+import {useState} from 'react';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
-import {JavaHomePicker} from '../JavaHomePicker';
+import {JavaHomePicker, type JavaHomePickerValue} from '../JavaHomePicker';
 
 const listJavaRuntimes = vi.fn();
 
@@ -187,5 +188,190 @@ describe('JavaHomePicker', () => {
     );
     await waitFor(() => expect(listJavaRuntimes).toHaveBeenCalled());
     expect(await screen.findByText('Detected')).toBeInTheDocument();
+  });
+
+  it('prefers JDK 17 and sorts compatible JDKs ahead of JDK 8/25 for SeaTunnel 3.1.0', async () => {
+    listJavaRuntimes.mockResolvedValue([
+      {java_home: '/jdk/8', version: 8, version_string: '1.8.0_402'},
+      {java_home: '/jdk/11', version: 11, version_string: '11.0.22'},
+      {java_home: '/jdk/17', version: 17, version_string: '17.0.10'},
+      {java_home: '/jdk/21', version: 21, version_string: '21.0.2'},
+      {java_home: '/jdk/25', version: 25, version_string: '25'},
+    ]);
+    const onChange = vi.fn();
+    render(
+      wrap(
+        <JavaHomePicker
+          hostId={10}
+          value=''
+          seatunnelVersion='3.1.0'
+          onChange={onChange}
+          id='jdk-310'
+        />,
+      ),
+    );
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({
+        javaHome: '/jdk/17',
+        isCustom: false,
+        isAutoPrefill: true,
+      }),
+    );
+    fireEvent.click(screen.getByRole('combobox'));
+    const optionTexts = screen
+      .getAllByRole('option')
+      .map((node) => node.textContent);
+    expect(optionTexts).toEqual([
+      '/jdk/17 (Java 17)',
+      '/jdk/11 (Java 11)',
+      '/jdk/21 (Java 21)',
+      '/jdk/8 (Java 8)',
+      '/jdk/25 (Java 25)',
+      'Custom path…',
+    ]);
+  });
+
+  it('falls back to supported warning JDK 21 when only 8, 21, 25 exist for SeaTunnel 3.1.0', async () => {
+    listJavaRuntimes.mockResolvedValue([
+      {java_home: '/jdk/8', version: 8, version_string: '1.8.0_402'},
+      {java_home: '/jdk/21', version: 21, version_string: '21.0.2'},
+      {java_home: '/jdk/25', version: 25, version_string: '25'},
+    ]);
+    const onChange = vi.fn();
+    render(
+      wrap(
+        <JavaHomePicker
+          hostId={11}
+          value=''
+          seatunnelVersion='3.1.0'
+          onChange={onChange}
+        />,
+      ),
+    );
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({
+        javaHome: '/jdk/21',
+        isCustom: false,
+        isAutoPrefill: true,
+      }),
+    );
+  });
+
+  it('does not auto-select incompatible JDK 8 or JDK 25 on SeaTunnel 3.1.0', async () => {
+    listJavaRuntimes.mockResolvedValue([
+      {java_home: '/jdk/8', version: 8, version_string: '1.8.0_402'},
+      {java_home: '/jdk/25', version: 25, version_string: '25'},
+    ]);
+    const onChange = vi.fn();
+    render(
+      wrap(
+        <JavaHomePicker
+          hostId={12}
+          value=''
+          seatunnelVersion='3.1.0'
+          onChange={onChange}
+        />,
+      ),
+    );
+    await waitFor(() => expect(listJavaRuntimes).toHaveBeenCalledWith(12));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('selects JDK 8 and skips JDK 25 for SeaTunnel 3.0.0', async () => {
+    listJavaRuntimes.mockResolvedValue([
+      {java_home: '/jdk/8', version: 8, version_string: '1.8.0_402'},
+      {java_home: '/jdk/25', version: 25, version_string: '25'},
+    ]);
+    const onChange = vi.fn();
+    render(
+      wrap(
+        <JavaHomePicker
+          hostId={13}
+          value=''
+          seatunnelVersion='3.0.0'
+          onChange={onChange}
+        />,
+      ),
+    );
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({
+        javaHome: '/jdk/8',
+        isCustom: false,
+        isAutoPrefill: true,
+      }),
+    );
+  });
+
+  it('upgrades auto-prefilled JDK on version switch from 3.0.0 to 3.1.0 without overwriting manual picks', async () => {
+    listJavaRuntimes.mockResolvedValue([
+      {java_home: '/jdk/8', version: 8, version_string: '1.8.0_402'},
+      {java_home: '/jdk/17', version: 17, version_string: '17.0.10'},
+    ]);
+    const latestChanges: JavaHomePickerValue[] = [];
+    function ControlledPicker({
+      hostId,
+      seatunnelVersion,
+    }: {
+      hostId: number;
+      seatunnelVersion: string;
+    }) {
+      const [val, setVal] = useState('');
+      return (
+        <JavaHomePicker
+          hostId={hostId}
+          value={val}
+          seatunnelVersion={seatunnelVersion}
+          onChange={(next) => {
+            latestChanges.push(next);
+            setVal(next.javaHome);
+          }}
+        />
+      );
+    }
+
+    // 场景 A：自动预填后切换版本，自动从 JDK 8 升级为 JDK 17。
+    // Case A: an auto-prefilled JDK 8 upgrades to JDK 17 when version switches to 3.1.0.
+    const {rerender, unmount} = render(
+      wrap(<ControlledPicker hostId={14} seatunnelVersion='3.0.0' />),
+    );
+    await waitFor(() =>
+      expect(latestChanges.at(-1)?.javaHome).toBe('/jdk/8'),
+    );
+    rerender(wrap(<ControlledPicker hostId={14} seatunnelVersion='3.1.0' />));
+    await waitFor(() =>
+      expect(latestChanges.at(-1)).toEqual({
+        javaHome: '/jdk/17',
+        isCustom: false,
+        isAutoPrefill: true,
+      }),
+    );
+    unmount();
+
+    // 场景 B：用户显式手动选中 JDK 8 后切换版本，不得覆盖用户选择。
+    // Case B: an explicit manual pick stays untouched when version switches to 3.1.0.
+    latestChanges.length = 0;
+    const manualRender = render(
+      wrap(<ControlledPicker hostId={15} seatunnelVersion='3.0.0' />),
+    );
+    await waitFor(() =>
+      expect(latestChanges.at(-1)?.javaHome).toBe('/jdk/8'),
+    );
+    fireEvent.click(screen.getByRole('combobox'));
+    fireEvent.click(await screen.findByRole('option', {name: '/jdk/17 (Java 17)'}));
+    fireEvent.click(screen.getByRole('combobox'));
+    fireEvent.click(await screen.findByRole('option', {name: '/jdk/8 (Java 8)'}));
+    await waitFor(() =>
+      expect(latestChanges.at(-1)).toEqual({
+        javaHome: '/jdk/8',
+        isCustom: false,
+      }),
+    );
+    manualRender.rerender(
+      wrap(<ControlledPicker hostId={15} seatunnelVersion='3.1.0' />),
+    );
+    expect(latestChanges.at(-1)).toEqual({
+      javaHome: '/jdk/8',
+      isCustom: false,
+    });
   });
 });

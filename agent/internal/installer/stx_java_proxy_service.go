@@ -152,6 +152,7 @@ func stxJavaProxyJavaMatchesDesired(pid int, javaHome string) bool {
 
 // GetManagedSTXJavaProxyServiceStatus returns the current stx-java-proxy state.
 func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string) (*STXJavaProxyServiceStatus, error) {
+	preferredPort := stxJavaProxyPortFromContext(ctx)
 	status := &STXJavaProxyServiceStatus{
 		Service:  "stx_java_proxy",
 		Managed:  true,
@@ -159,8 +160,23 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 		LogPath:  filepath.Join(stxJavaProxyServiceStateDir(installDir), "service.log"),
 	}
 
-	if jvmBytes, err := os.ReadFile(filepath.Join(status.StateDir, "service.jvm_opts")); err == nil {
-		status.JvmOpts = strings.TrimSpace(string(jvmBytes))
+	// 升级兼容：引入实例分目录之前的状态文件写在 service 根目录（全 Agent 共享），同机
+	// 其他集群的记录也在那里，不能直接借用；仅当共享目录里的 pid 被证实属于本
+	// installDir 时才按下方逻辑采用，见 legacyAdopted。
+	// Upgrade compat: pre-instance-dir state lived in one dir shared by every cluster on
+	// this Agent, so it must not be read blindly; it is only adopted below once the recorded
+	// pid is proven to belong to this installDir (see legacyAdopted).
+	legacyDir := stxJavaProxyServiceLegacyStateDir(installDir)
+	readStateFile := func(name string) string {
+		bytes, err := os.ReadFile(filepath.Join(status.StateDir, name))
+		if err != nil {
+			return ""
+		}
+		return string(bytes)
+	}
+
+	if content := readStateFile("service.jvm_opts"); content != "" {
+		status.JvmOpts = strings.TrimSpace(content)
 	}
 
 	if endpoint := strings.TrimSpace(os.Getenv(stxJavaProxyEndpointEnvVar)); endpoint != "" {
@@ -184,14 +200,14 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 		return status, nil
 	}
 
-	if bytes, err := os.ReadFile(filepath.Join(status.StateDir, "service.port")); err == nil {
-		if port, ok := parseSTXJavaProxyPort(strings.TrimSpace(string(bytes))); ok {
+	if content := readStateFile("service.port"); content != "" {
+		if port, ok := parseSTXJavaProxyPort(strings.TrimSpace(content)); ok {
 			status.Port = port
 			status.Endpoint = stxJavaProxyServiceBaseURL(port)
 		}
 	}
-	if bytes, err := os.ReadFile(filepath.Join(status.StateDir, "service.pid")); err == nil {
-		if pid, err := strconv.Atoi(strings.TrimSpace(string(bytes))); err == nil && pid > 0 {
+	if content := readStateFile("service.pid"); content != "" {
+		if pid, err := strconv.Atoi(strings.TrimSpace(content)); err == nil && pid > 0 {
 			status.PID = pid
 		}
 	}
@@ -200,10 +216,56 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 	if status.PID > 0 && !stxJavaProxyPIDAlive(status.PID) {
 		status.PID = 0
 	}
+	// 归属校验：PID 复用到其他 installDir 的 proxy 时不能认领为本集群进程。
+	// Ownership check: a PID reused by another installDir's proxy must not be claimed as ours.
+	if status.PID > 0 && stxJavaProxyPIDForeignForInstallDir(status.PID, installDir) {
+		status.PID = 0
+		_ = os.Remove(filepath.Join(status.StateDir, "service.pid"))
+	}
+
+	// 仅在本实例目录没有任何可用记录、且共享旧目录的 pid 被证实属于本 installDir 时才
+	// 采用旧记录：取回 pid/port/jvm_opts，让 Stop/Restart 能停掉仍在运行的旧 proxy；
+	// 归属不明一律不采用，避免认错并停掉同机其他集群的进程，此时继续走下方端口发现。
+	// The shared legacy record is adopted only when this instance dir has nothing and the
+	// legacy pid is provably owned by this installDir — then its pid/port/jvm_opts let
+	// Stop/Restart own the still-running old proxy. An unverifiable record is never adopted
+	// (that could stop another cluster's process); configured-port discovery still runs.
+	legacyAdopted := false
+	if legacyDir != status.StateDir && status.PID <= 0 && status.Port <= 0 {
+		if pid := stxJavaProxyLegacyOwnedPID(legacyDir, installDir); pid > 0 {
+			status.PID = pid
+			if bytes, err := os.ReadFile(filepath.Join(legacyDir, "service.port")); err == nil {
+				if port, ok := parseSTXJavaProxyPort(strings.TrimSpace(string(bytes))); ok {
+					status.Port = port
+					status.Endpoint = stxJavaProxyServiceBaseURL(port)
+				}
+			}
+			if status.JvmOpts == "" {
+				if bytes, err := os.ReadFile(filepath.Join(legacyDir, "service.jvm_opts")); err == nil {
+					status.JvmOpts = strings.TrimSpace(string(bytes))
+				}
+			}
+			legacyAdopted = true
+		}
+	}
 
 	if status.Endpoint == "" {
-		for _, port := range stxJavaProxyPortCandidates(status.StateDir, 0) {
+		checkPorts := stxJavaProxyPortCandidates(status.StateDir, preferredPort)
+		// 显式指定端口时只探测该端口，不扫默认 18080 串到其他集群实例。
+		// With an explicit port, probe only that port instead of scanning the default
+		// 18080, which could belong to another cluster's instance.
+		if preferredPort > 0 {
+			checkPorts = []int{preferredPort}
+		}
+		for _, port := range checkPorts {
 			if port <= 0 {
+				continue
+			}
+			// 归属预检：监听者可确认属于其他 installDir 时直接跳过，不认领端点也不写 stateDir。
+			// Ownership pre-check: a listener provably owned by another installDir is skipped
+			// entirely — its endpoint is never claimed nor written into our stateDir.
+			listenerPID := stxJavaProxyPIDByPort(ctx, port)
+			if listenerPID > 0 && stxJavaProxyPIDForeignForInstallDir(listenerPID, installDir) {
 				continue
 			}
 			endpoint := stxJavaProxyServiceBaseURL(port)
@@ -224,9 +286,21 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 
 	if status.PID <= 0 && status.Port > 0 {
 		if pid := stxJavaProxyPIDByPort(ctx, status.Port); pid > 0 {
-			status.PID = pid
-			_ = os.MkdirAll(status.StateDir, 0o755)
-			_ = os.WriteFile(filepath.Join(status.StateDir, "service.pid"), []byte(strconv.Itoa(pid)+"\n"), 0o644)
+			if stxJavaProxyPIDForeignForInstallDir(pid, installDir) {
+				// 落盘端口实际被他集群 proxy 占用：端点/端口清零并清掉陈旧 port 文件。
+				// The persisted port is actually held by another cluster's proxy: clear
+				// endpoint/port and drop the stale port file.
+				status.Endpoint = ""
+				status.Port = 0
+				status.Healthy = false
+				status.Running = false
+				status.JvmMemory = nil
+				_ = os.Remove(filepath.Join(status.StateDir, "service.port"))
+			} else {
+				status.PID = pid
+				_ = os.MkdirAll(status.StateDir, 0o755)
+				_ = os.WriteFile(filepath.Join(status.StateDir, "service.pid"), []byte(strconv.Itoa(pid)+"\n"), 0o644)
+			}
 		}
 	}
 	if status.PID > 0 {
@@ -239,6 +313,16 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 			if mem != nil {
 				status.JvmMemory = mem
 			}
+		}
+	}
+
+	// 从旧目录接管的在跑进程仍写旧日志文件；重启前预览继续指向旧路径，避免读到一个
+	// 刚被 touch 出来的空文件。/ A running process adopted from the legacy dir still writes
+	// its old log; keep the preview on it until restart so the preview is not an empty file.
+	if status.Running && status.PID > 0 && legacyAdopted {
+		legacyLog := filepath.Join(legacyDir, "service.log")
+		if _, err := os.Stat(legacyLog); err == nil {
+			status.LogPath = legacyLog
 		}
 	}
 
@@ -267,9 +351,16 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 // Skip when no state file is present so uninstall does not probe the default port and kill an unrelated listener.
 func stopTrackedSTXJavaProxy(ctx context.Context, installDir string) {
 	stateDir := stxJavaProxyServiceStateDir(installDir)
-	pidFile := filepath.Join(stateDir, "service.pid")
-	portFile := filepath.Join(stateDir, "service.port")
-	if !fileExists(pidFile) && !fileExists(portFile) {
+	// 旧版 Agent 的 service.pid/service.port 可能在实例分目录前的旧目录里，同样视为有
+	// 可停目标；真正的归属与存活校验在 GetManaged 里做。/ Older agents may have left
+	// service.pid/service.port in the pre-instance dir; either counts as a stoppable
+	// target — ownership and liveness are still verified inside GetManaged.
+	legacyDir := stxJavaProxyServiceLegacyStateDir(installDir)
+	hasState := fileExists(filepath.Join(stateDir, "service.pid")) ||
+		fileExists(filepath.Join(stateDir, "service.port")) ||
+		fileExists(filepath.Join(legacyDir, "service.pid")) ||
+		fileExists(filepath.Join(legacyDir, "service.port"))
+	if !hasState {
 		return
 	}
 	if _, err := StopManagedSTXJavaProxyService(ctx, installDir); err != nil {
@@ -308,7 +399,7 @@ func StopManagedSTXJavaProxyService(ctx context.Context, installDir string) (*ST
 	}
 	if waitErr := waitForSTXJavaProxyShutdown(ctx, status.Endpoint, status.PID, stxJavaProxyStopTimeout); waitErr != nil {
 		logger.WarnF(ctx, "[stx-java-proxy] graceful stop timed out, force killing managed process: pid=%d, port=%d, error=%v", status.PID, status.Port, waitErr)
-		if killErr := forceKillSTXJavaProxyProcesses(ctx, status); killErr != nil {
+		if killErr := forceKillSTXJavaProxyProcesses(ctx, status, installDir); killErr != nil {
 			status.Message = "failed to stop stx-java-proxy service"
 			return status, fmt.Errorf("%w; force kill failed: %v", waitErr, killErr)
 		}
@@ -335,7 +426,7 @@ func StopManagedSTXJavaProxyService(ctx context.Context, installDir string) (*ST
 
 // forceKillSTXJavaProxyProcesses 在优雅停止超时后强制终止已知的 proxy 进程。
 // forceKillSTXJavaProxyProcesses forcefully terminates known proxy processes after graceful shutdown times out.
-func forceKillSTXJavaProxyProcesses(ctx context.Context, status *STXJavaProxyServiceStatus) error {
+func forceKillSTXJavaProxyProcesses(ctx context.Context, status *STXJavaProxyServiceStatus, installDir string) error {
 	if status == nil {
 		return fmt.Errorf("stx-java-proxy service status is unavailable")
 	}
@@ -361,6 +452,13 @@ func forceKillSTXJavaProxyProcesses(ctx context.Context, status *STXJavaProxySer
 		// PIDs discovered from the port are validated by cmdline to avoid killing an unrelated listener.
 		if pid != status.PID && !stxJavaProxyPIDMatches(pid) {
 			logger.WarnF(ctx, "[stx-java-proxy] skip force killing non-proxy listener: pid=%d, port=%d", pid, status.Port)
+			continue
+		}
+		// 归属校验：即便命令行确为 proxy，属于其他 installDir 的实例也绝不强杀。
+		// Ownership check: even a genuine proxy process is never killed when it provably
+		// belongs to another installDir's instance.
+		if stxJavaProxyPIDForeignForInstallDir(pid, installDir) {
+			logger.WarnF(ctx, "[stx-java-proxy] skip force killing proxy of another install dir: pid=%d, port=%d, installDir=%s", pid, status.Port, installDir)
 			continue
 		}
 		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
@@ -479,39 +577,139 @@ func isSTXJavaProxyCommandLine(cmdline string) bool {
 		strings.Contains(cmdline, "stx-java-proxy")
 }
 
+// stxJavaProxyPIDForeignForInstallDir 判断进程是否可确认不属于当前 installDir 的托管 proxy：
+// 命令行可读且不携带本目录标记（-DSEATUNNEL_HOME/-Dstx.java.proxy.seatunnel.home）即视为他集群进程；
+// installDir 为空或命令行不可读时不判外，保持旧行为兼容。
+// stxJavaProxyPIDForeignForInstallDir reports whether a process provably belongs to another
+// installDir's proxy: a readable cmdline missing this dir's markers counts as foreign; an empty
+// installDir or unreadable cmdline stays non-foreign for backward compatibility.
+func stxJavaProxyPIDForeignForInstallDir(pid int, installDir string) bool {
+	installDir = filepath.Clean(strings.TrimSpace(installDir))
+	if installDir == "" || installDir == "." || pid <= 0 {
+		return false
+	}
+	argv := stxJavaProxyProcessArgv(pid)
+	if len(argv) == 0 {
+		return false
+	}
+	return !stxJavaProxyArgvMatchesDesired(argv, installDir, "")
+}
+
+// stxJavaProxyLegacyOwnedPID 在共享的旧状态目录中找出可证实属于本 installDir 的存活
+// proxy PID：要求 pid 文件可读、进程存活、命令行确为 proxy 且安装目录标记精确命中；
+// 任何一步不可验证都返回 0——宁可不认领，也绝不把别集群的进程当成本集群的。
+// stxJavaProxyLegacyOwnedPID finds a live proxy pid in the shared legacy dir only when
+// ownership for this installDir is positively proven: readable pid file, live process,
+// a real proxy cmdline and an exact home-marker match. Any unverifiable step returns 0 —
+// never claim another cluster's process.
+func stxJavaProxyLegacyOwnedPID(legacyDir, installDir string) int {
+	installDir = filepath.Clean(strings.TrimSpace(installDir))
+	if installDir == "" || installDir == "." {
+		return 0
+	}
+	bytes, err := os.ReadFile(filepath.Join(legacyDir, "service.pid"))
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(bytes)))
+	if err != nil || pid <= 0 || !stxJavaProxyPIDAlive(pid) {
+		return 0
+	}
+	argv := stxJavaProxyProcessArgv(pid)
+	if len(argv) == 0 || !stxJavaProxyArgvMatchesDesired(argv, installDir, "") {
+		return 0
+	}
+	return pid
+}
+
+// stxJavaProxyProcessArgv 跨平台读取进程真实 argv：Linux 按 /proc/<pid>/cmdline 的 NUL
+// 分隔还原，路径含空格的参数不会被拆碎；其他平台 ps 无法还原 argv 边界，退回空白切分。
+// stxJavaProxyProcessArgv reads the real process argv cross-platform: on Linux the
+// NUL-separated /proc/<pid>/cmdline is split faithfully so arguments containing spaces
+// survive; other platforms cannot recover argv boundaries via ps and fall back to
+// whitespace splitting.
+func stxJavaProxyProcessArgv(pid int) []string {
+	if pid <= 0 {
+		return nil
+	}
+	if runtime.GOOS == "linux" {
+		content, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+		if err != nil {
+			return nil
+		}
+		raw := strings.TrimRight(string(content), "\x00")
+		if raw == "" {
+			return nil
+		}
+		return strings.Split(raw, "\x00")
+	}
+	cmdline := stxJavaProxyProcessCommandLine(pid)
+	if cmdline == "" {
+		return nil
+	}
+	return strings.Fields(cmdline)
+}
+
+// stxJavaProxyArgvHomeMatches 逐个真实参数校验安装目录标记与目标目录完全一致（按 argv
+// 元素比较而非子串），否则 -DSEATUNNEL_HOME=/opt/seatunnel-blue 会被误判为
+// /opt/seatunnel 的进程并被 Stop/Restart 停掉。
+// stxJavaProxyArgvHomeMatches compares the home marker element-by-element for an exact
+// installDir value (argv compare, not substring) — otherwise
+// -DSEATUNNEL_HOME=/opt/seatunnel-blue is mistaken for /opt/seatunnel's process and gets
+// killed by Stop/Restart.
+func stxJavaProxyArgvHomeMatches(argv []string, installDir string) bool {
+	want := filepath.Clean(strings.TrimSpace(installDir))
+	if want == "" || want == "." {
+		return false
+	}
+	// 不剥引号：真实 argv 里引号就是路径字符本身（如 …Production'），剥掉会把不同目录
+	// 判成同一进程。
+	// No quote stripping: in real argv a quote is part of the path itself (e.g.
+	// …Production'); stripping would conflate distinct directories.
+	for _, arg := range argv {
+		for _, prefix := range []string{"-DSEATUNNEL_HOME=", "-Dstx.java.proxy.seatunnel.home="} {
+			if strings.HasPrefix(arg, prefix) && filepath.Clean(arg[len(prefix):]) == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // stxJavaProxyStatusMatchesDesired 判断当前托管状态是否已对齐目标安装目录与代际 jar。
 // stxJavaProxyStatusMatchesDesired reports whether the managed status already matches the desired runtime.
 func stxJavaProxyStatusMatchesDesired(status *STXJavaProxyServiceStatus, installDir, seatunnelVersion string) bool {
 	if status == nil {
 		return false
 	}
-	cmdline := stxJavaProxyProcessCommandLine(status.PID)
-	if cmdline == "" && status.Port > 0 {
-		cmdline = stxJavaProxyProcessCommandLine(stxJavaProxyPIDByPort(context.Background(), status.Port))
+	argv := stxJavaProxyProcessArgv(status.PID)
+	if len(argv) == 0 && status.Port > 0 {
+		argv = stxJavaProxyProcessArgv(stxJavaProxyPIDByPort(context.Background(), status.Port))
 	}
-	return stxJavaProxyCommandLineMatchesDesired(cmdline, installDir, seatunnelVersion)
+	return stxJavaProxyArgvMatchesDesired(argv, installDir, seatunnelVersion)
 }
 
 // stxJavaProxyCommandLineMatchesDesired 校验命令行是否指向目标 SEATUNNEL_HOME 与代际 jar。
 // stxJavaProxyCommandLineMatchesDesired checks whether cmdline points at the desired SEATUNNEL_HOME and epoch jar.
 func stxJavaProxyCommandLineMatchesDesired(cmdline, installDir, seatunnelVersion string) bool {
+	return stxJavaProxyArgvMatchesDesired(strings.Fields(cmdline), installDir, seatunnelVersion)
+}
+
+// stxJavaProxyArgvMatchesDesired 与上同，但按真实 argv 元素判定：安装目录标记必须作为
+// 完整参数值相等，支持含空格的安装路径。
+// stxJavaProxyArgvMatchesDesired does the same check on real argv elements: the home
+// marker must equal the installDir as a whole argument, so paths with spaces work.
+func stxJavaProxyArgvMatchesDesired(argv []string, installDir, seatunnelVersion string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	cmdline := strings.Join(argv, " ")
 	if !isSTXJavaProxyCommandLine(cmdline) {
 		return false
 	}
 	installDir = filepath.Clean(strings.TrimSpace(installDir))
 	if installDir != "" && installDir != "." {
-		homeMarkers := []string{
-			"-DSEATUNNEL_HOME=" + installDir,
-			"-Dstx.java.proxy.seatunnel.home=" + installDir,
-		}
-		matchedHome := false
-		for _, marker := range homeMarkers {
-			if strings.Contains(cmdline, marker) {
-				matchedHome = true
-				break
-			}
-		}
-		if !matchedHome {
+		if !stxJavaProxyArgvHomeMatches(argv, installDir) {
 			return false
 		}
 	}

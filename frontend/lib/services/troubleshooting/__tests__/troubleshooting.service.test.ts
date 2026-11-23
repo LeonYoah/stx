@@ -228,4 +228,105 @@ describe('TroubleshootingService', () => {
     expect(matchesMemoryKeyword(customEntry, '回滚')).toBe(true);
     expect(matchesMemoryKeyword(customEntry, 'non_existing')).toBe(false);
   });
+
+  it('FileMapStore + getSubject 错误绝不误命中 Checkpoint 超时方案，精准命中 JDK24 方案', () => {
+    // engine_checkpoint-id-map + UnsupportedOperationException 绝不能命中 CheckpointTimeout
+    // 预置方案，且必须精准命中 JDK24 getSubject 预置方案
+    // engine_checkpoint-id-map + UnsupportedOperationException must never hit the
+    // CheckpointTimeout preset, and must precisely hit the JDK24 getSubject preset
+    const checkpoint = troubleshootingService.saveMemory({
+      target_type: 'error',
+      fingerprint: 'CheckpointTimeoutException',
+      title: '流作业 Checkpoint 超时失败排障方案',
+      error_summary:
+        'org.apache.seatunnel.engine.server.checkpoint.CheckpointTimeoutException: Checkpoint 124 expired before completing',
+      solution: '调大 checkpoint.timeout: 120000',
+      tags: ['checkpoint', 'timeout', 'sink', 'barrier', 'storage'],
+    });
+    const jdk24 = troubleshootingService.saveMemory({
+      target_type: 'error',
+      fingerprint: 'getSubject is not supported',
+      title: 'JDK 24+ 环境 Subject.getSubject 被移除排障方案',
+      error_summary:
+        'java.lang.UnsupportedOperationException: getSubject is not supported',
+      solution: '切回 JDK 8/11/17/21 并重启',
+      tags: ['jdk24', 'jep486', 'subject', 'hadoop', 'unsupportedoperationexception'],
+    });
+
+    // 现场查询：指纹为 SHA256 哈希，标题含 checkpoint-id-map 与宽泛 storage/checkpoint 词，
+    // 不含 getSubject 签名——仅凭相同的通用异常类不得命中 JDK24 方案，否则同类无关报错
+    // （如 schema evolution is not supported）都会拿到降 JDK 建议。
+    // A query without the getSubject signature must not hit the JDK24 preset on the class
+    // alone — otherwise every unrelated UnsupportedOperationException (e.g. schema
+    // evolution) would get JDK-downgrade advice.
+    const matches = troubleshootingService.findMatchingMemories({
+      fingerprint: 'f'.repeat(64),
+      exception_class: 'java.lang.UnsupportedOperationException',
+      title: "Failed to initialize IMap storage for map 'engine_checkpoint-id-map'",
+      target_type: 'error',
+    });
+    expect(matches.map((m) => m.id)).not.toContain(checkpoint.id);
+    expect(matches.map((m) => m.id)).not.toContain(jdk24.id);
+
+    // 以归一化后的异常标题为查询标题时精准命中 jdk24 方案
+    // Querying with the normalized exception title precisely hits the jdk24 preset
+    const precise = troubleshootingService.findMatchingMemories({
+      fingerprint: 'e'.repeat(64),
+      exception_class: 'java.lang.UnsupportedOperationException',
+      title:
+        'java.lang.UnsupportedOperationException: getSubject is not supported',
+      target_type: 'error',
+    });
+    expect(precise.length).toBeGreaterThan(0);
+    expect(precise[0].id).toBe(jdk24.id);
+    expect(precise.map((m) => m.id)).not.toContain(checkpoint.id);
+
+    // 归一化指纹本身携带 getSubject 签名时同样精准命中（升级后指纹即异常行）。
+    // A normalized fingerprint carrying the getSubject signature hits the preset too
+    // (post-upgrade fingerprints are the exception line itself).
+    const byFingerprint = troubleshootingService.findMatchingMemories({
+      fingerprint:
+        'java.lang.unsupportedoperationexception getsubject is not supported',
+      target_type: 'error',
+    });
+    expect(byFingerprint.map((m) => m.id)).toContain(jdk24.id);
+
+    // checkpoint 自身查询仍按强特征命中自己的方案
+    // A checkpoint query still hits its own preset via strong features
+    const checkpointHits = troubleshootingService.findMatchingMemories({
+      exception_class:
+        'org.apache.seatunnel.engine.server.checkpoint.CheckpointTimeoutException',
+      title:
+        'CheckpointTimeoutException: Checkpoint 125 expired before completing',
+      target_type: 'error',
+    });
+    expect(checkpointHits.map((m) => m.id)).toContain(checkpoint.id);
+  });
+
+  it('仅凭宽泛 tag 命中（checkpoint/storage/worker/timeout）不产生任何匹配', () => {
+    // 仅凭宽泛词的 tag 命中必须完全不产生匹配
+    // Tag-only hits on generic words must produce no matches at all
+    troubleshootingService.saveMemory({
+      target_type: 'error',
+      fingerprint: 'CheckpointTimeoutException',
+      title: '流作业 Checkpoint 超时失败排障方案',
+      error_summary: 'CheckpointTimeoutException occurred',
+      solution: '调大 checkpoint.timeout',
+      tags: ['checkpoint', 'timeout', 'sink', 'barrier', 'storage'],
+    });
+    troubleshootingService.saveMemory({
+      target_type: 'error',
+      fingerprint: 'SlotNotEnoughException',
+      title: 'Worker 节点 Slot 耗尽恢复方案',
+      error_summary: 'SlotNotEnoughException occurred',
+      solution: '扩容 Worker',
+      tags: ['slot', 'worker', 'parallelism'],
+    });
+
+    const matches = troubleshootingService.findMatchingMemories({
+      title: 'checkpoint storage worker timeout sink barrier',
+      target_type: 'error',
+    });
+    expect(matches.length).toBe(0);
+  });
 });

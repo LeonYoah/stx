@@ -311,9 +311,20 @@ describe('ClusterTab', () => {
     });
     expect(await within(section).findByText('堆内存池')).toBeTruthy();
     const events = within(section).getByTestId('detail-events');
-    expect(events.textContent).toContain('节点重启');
-    expect(events.textContent).toContain('成员数变化');
+    expect(events.textContent).toContain('时间窗变动');
+    expect(events.textContent).toContain('节点重启 1');
+    expect(events.textContent).toContain('成员数变化 1');
     expect(events.textContent).toContain('2 → 3');
+
+    // 点开明细弹层，按时间倒序展示全部事件（最新在最前）。
+    // Opening the details popover lists every event newest-first.
+    fireEvent.click(within(events).getByTestId('detail-events-trigger'));
+    const popover = await screen.findByTestId('detail-events-popover');
+    expect(popover.textContent).toContain('共 2 条');
+    const items = within(popover).getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(items[0]?.textContent).toContain('2 → 3');
+    expect(items[1]?.textContent).toContain('10.0.0.1:5801');
 
     // 切换到未上报的组 → 组级空态。/ Switching to an unreported group shows the group empty state.
     fireEvent.click(
@@ -327,5 +338,201 @@ describe('ClusterTab', () => {
     expect(home.getClustersDetail).toHaveBeenLastCalledWith(
       expect.objectContaining({group: 'store'}),
     );
+  });
+
+  it('defaults detail groups to the first node on multi-node clusters and switches between node & all views', async () => {
+    const pools = [
+      "CodeHeap 'non-nmethods'",
+      "CodeHeap 'non-profiled nmethods'",
+      "CodeHeap 'profiled nmethods'",
+      'Compressed Class Space',
+      'Metaspace',
+    ];
+    const multiDetail: HomeClusterDetail = {
+      source: 'prometheus',
+      range: '1h',
+      start_ms: 0,
+      end_ms: 3_600_000,
+      step_seconds: 15,
+      group: 'jvm',
+      panels: [
+        {
+          key: 'nonheap',
+          unit: 'bytes',
+          series: [
+            ...pools.map((pool) => ({
+              instance: '192.168.0.105:15801',
+              label: pool,
+              points: [
+                [0, 100],
+                [15_000, 110],
+              ] as [number, number][],
+            })),
+            ...pools.map((pool) => ({
+              instance: '192.168.0.105:35801',
+              label: pool,
+              points: [
+                [0, 200],
+                [15_000, 220],
+              ] as [number, number][],
+            })),
+          ],
+        },
+      ],
+      events: [],
+      partial_errors: [],
+    };
+    home.getClusters.mockResolvedValue(dashboard('prometheus'));
+    home.getClustersDetail.mockResolvedValue(multiDetail);
+    renderTab();
+
+    const section = await screen.findByTestId('home-cluster-detail');
+    const nonheapChart = await within(section).findByText(/^非堆内存:/);
+    // 默认聚焦首个节点且去掉冗长 IP 前缀：仅 5 条序列。
+    // Defaults to first node and drops redundant IP prefix: 5 series total.
+    expect(nonheapChart.textContent).toBe(`非堆内存:${pools.join(',')}`);
+
+    const selectBtn = within(section).getByTestId('detail-node-select');
+    expect(selectBtn.textContent).toContain('192.168.0.105:15801');
+
+    // 切到第二节点，序列仍保持精简 5 条。/ Switch to node 2: stays at 5 clean labels.
+    fireEvent.click(selectBtn);
+    fireEvent.click(
+      await screen.findByRole('option', {name: '192.168.0.105:35801'}),
+    );
+    expect(selectBtn.textContent).toContain('192.168.0.105:35801');
+    expect(nonheapChart.textContent).toBe(`非堆内存:${pools.join(',')}`);
+
+    // 切到全部节点对比，恢复带节点前缀的 10 条序列。/ Switch to all nodes: shows 10 prefixed series.
+    fireEvent.click(selectBtn);
+    fireEvent.click(await screen.findByRole('option', {name: '全部节点 (2)'}));
+    const keys = (nonheapChart.textContent ?? '').replace('非堆内存:', '').split(',');
+    expect(keys).toHaveLength(10);
+    expect(keys[0]).toBe("192.168.0.105:15801 · CodeHeap 'non-nmethods'");
+    expect(keys[5]).toBe("192.168.0.105:35801 · CodeHeap 'non-nmethods'");
+  });
+
+  it('flattens deadlocked/reject into signal rows and keeps members visible under node filter', async () => {
+    // 30 点序列带一个历史尖刺：最新值 0 但窗口峰值 >0。
+    // A 30-point series with one historical spike: latest is 0 while the window peak >0.
+    const spikePoints = (
+      count: number,
+      spikeIndex: number,
+      spikeValue: number,
+    ): [number, number][] =>
+      Array.from(
+        {length: count},
+        (_, index): [number, number] => [
+          index * 15_000,
+          index === spikeIndex ? spikeValue : 0,
+        ],
+      );
+    const detailFor = (group: string): HomeClusterDetail => ({
+      source: 'prometheus',
+      range: '1h',
+      start_ms: 0,
+      end_ms: 3_600_000,
+      step_seconds: 15,
+      group,
+      panels:
+        group === 'gc'
+          ? [
+              {
+                key: 'deadlocked',
+                unit: 'count',
+                series: [
+                  {
+                    instance: '10.0.0.1:5801',
+                    label: 'deadlocked',
+                    points: spikePoints(30, 10, 5),
+                  },
+                ],
+              },
+            ]
+          : group === 'sched'
+            ? [
+                {
+                  key: 'reject',
+                  unit: 'per_second',
+                  series: [
+                    {
+                      instance: '10.0.0.1:5801',
+                      label: 'reject',
+                      points: spikePoints(30, 3, 2),
+                    },
+                    {
+                      instance: '10.0.0.2:5801',
+                      label: 'reject',
+                      points: [
+                        [0, 0],
+                        [15_000, 0],
+                      ],
+                    },
+                  ],
+                },
+                {
+                  key: 'members',
+                  unit: 'count',
+                  series: [
+                    {
+                      instance: 'prod',
+                      label: 'members',
+                      points: [
+                        [0, 2],
+                        [15_000, 3],
+                      ],
+                    },
+                  ],
+                },
+              ]
+            : [],
+      events: [],
+      partial_errors: [],
+    });
+    home.getClusters.mockResolvedValue(dashboard('prometheus'));
+    home.getClustersDetail.mockImplementation(({group}) =>
+      Promise.resolve(detailFor(group)),
+    );
+    renderTab();
+    const section = await screen.findByTestId('home-cluster-detail');
+
+    // gc 组：死锁面板是单层行 + 峰值信号条，不再嵌 MetricCard（<article>）。
+    // gc group: the deadlocked panel is flat rows + a peak signal bar — no nested
+    // MetricCard (<article>).
+    fireEvent.click(within(section).getByRole('button', {name: 'GC 与线程'}));
+    const deadlocked = await within(section).findByTestId(
+      'detail-panel-deadlocked',
+    );
+    expect(deadlocked.querySelector('article')).toBeNull();
+    const deadBar = within(deadlocked).getByTestId('status-bar');
+    const deadText = deadBar.textContent ?? '';
+    const deadStatuses = deadText.slice(deadText.lastIndexOf(':') + 1).split(',');
+    // 30 个原始点降采样到 ≤24 桶，尖刺所在桶保留为 alert。
+    // 30 raw points downsample to ≤24 buckets and the spike bucket stays alert.
+    expect(deadStatuses.length).toBeLessThanOrEqual(24);
+    expect(deadStatuses).toContain('alert');
+    // 最新值 0、窗口峰值 5 → 峰值提示 + 检出异常徽标。
+    // Latest 0 with window peak 5 → peak hint + detected chip.
+    expect(deadlocked.textContent).toContain('窗内峰值 5');
+    expect(deadlocked.textContent).toContain('检出异常');
+
+    // sched 组：拒绝面板同构；members 的 instance 是集群名，按节点过滤不能筛没。
+    // sched group: reject follows the same shape; members carries cluster names
+    // as instance, so node filtering must not empty it.
+    fireEvent.click(within(section).getByRole('button', {name: '调度与集群'}));
+    const reject = await within(section).findByTestId('detail-panel-reject');
+    expect(reject.querySelector('article')).toBeNull();
+    expect(within(reject).getAllByTestId('status-bar')).toHaveLength(2);
+    const selectBtn = within(section).getByTestId('detail-node-select');
+    fireEvent.click(selectBtn);
+    // 集群名 'prod' 不进入节点选项。/ The cluster name 'prod' stays out of the node options.
+    expect(screen.queryByRole('option', {name: 'prod'})).toBeNull();
+    fireEvent.click(
+      await screen.findByRole('option', {name: '10.0.0.2:5801'}),
+    );
+    const members = within(section).getByTestId('detail-panel-members');
+    expect(
+      within(members).getByTestId('line-chart').textContent,
+    ).toContain('prod · members');
   });
 });

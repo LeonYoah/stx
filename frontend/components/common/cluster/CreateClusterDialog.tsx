@@ -906,6 +906,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                                       >
                                         <JavaHomePicker
                                           hostId={hostId}
+                                          seatunnelVersion={version}
                                           value={
                                             javaHomesByKey[key] ||
                                             proc.java_home ||

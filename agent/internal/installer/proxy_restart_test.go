@@ -206,6 +206,129 @@ func TestRestartRunningSTXJavaProxiesNotRunning(t *testing.T) {
 	}
 }
 
+// 升级前的旧版 Agent 状态目录（无 instances/<id>）里仍有存活的 proxy：新 Agent 必须能
+// 接管它——GetManaged 找回 PID、Stop 能停掉，且日志预览指向旧路径。
+// A live proxy whose state still sits in the pre-instance-dir layout must be adoptable
+// after upgrade: GetManaged recovers its PID, Stop kills it, and the log preview keeps
+// pointing at the old file until restart.
+func TestManagedSTXJavaProxyAdoptsLegacyStateDirProcess(t *testing.T) {
+	skipUnlessLinux(t)
+	agentHome := t.TempDir()
+	t.Setenv(stxJavaProxyHomeEnvVar, agentHome)
+	installDir := "/opt/legacy-seatunnel"
+	legacyDir := stxJavaProxyServiceLegacyStateDir(installDir)
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatalf("create legacy state dir: %v", err)
+	}
+	pid := startFakeProcess(t, "stx-java-proxy", "-DSEATUNNEL_HOME="+installDir)
+	if err := os.WriteFile(filepath.Join(legacyDir, "service.pid"), []byte(strconv.Itoa(pid)+"\n"), 0o644); err != nil {
+		t.Fatalf("write legacy service.pid: %v", err)
+	}
+	legacyLog := filepath.Join(legacyDir, "service.log")
+	if err := os.WriteFile(legacyLog, []byte("legacy log\n"), 0o644); err != nil {
+		t.Fatalf("write legacy service.log: %v", err)
+	}
+
+	status, err := GetManagedSTXJavaProxyServiceStatus(context.Background(), installDir)
+	if err != nil {
+		t.Fatalf("GetManagedSTXJavaProxyServiceStatus: %v", err)
+	}
+	if status.PID != pid || !status.Running {
+		t.Fatalf("expected adopted legacy pid %d running, got %+v", pid, status)
+	}
+	if status.LogPath != legacyLog {
+		t.Fatalf("legacy proxy must keep its old log path, got %s", status.LogPath)
+	}
+
+	stopped, err := StopManagedSTXJavaProxyService(context.Background(), installDir)
+	if err != nil {
+		t.Fatalf("stop must own the legacy proxy: %v", err)
+	}
+	if stopped.Running {
+		t.Fatalf("expected stopped status, got %+v", stopped)
+	}
+	waitFor(t, func() bool { return !alive(pid) })
+}
+
+// 共享旧目录里的记录属于「路径是请求前缀」的另一集群时绝不能采用：/opt/seatunnel-blue
+// 不是 /opt/seatunnel，GetManaged 不认领、Stop 也不杀错进程。
+// A shared legacy record belonging to a cluster whose path merely has the requested path
+// as a prefix must never be adopted: /opt/seatunnel-blue is not /opt/seatunnel — GetManaged
+// must not claim it and Stop must not kill it.
+func TestManagedSTXJavaProxyRejectsLegacyPidOfPrefixSiblingDir(t *testing.T) {
+	skipUnlessLinux(t)
+	agentHome := t.TempDir()
+	t.Setenv(stxJavaProxyHomeEnvVar, agentHome)
+	otherDir := "/opt/seatunnel-blue"
+	requestedDir := "/opt/seatunnel"
+	legacyDir := stxJavaProxyServiceLegacyStateDir(requestedDir)
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatalf("create legacy state dir: %v", err)
+	}
+	pid := startFakeProcess(t, "stx-java-proxy", "-DSEATUNNEL_HOME="+otherDir)
+	if err := os.WriteFile(filepath.Join(legacyDir, "service.pid"), []byte(strconv.Itoa(pid)+"\n"), 0o644); err != nil {
+		t.Fatalf("write legacy service.pid: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "service.jvm_opts"), []byte("-Xmx4g\n"), 0o644); err != nil {
+		t.Fatalf("write legacy service.jvm_opts: %v", err)
+	}
+
+	status, err := GetManagedSTXJavaProxyServiceStatus(context.Background(), requestedDir)
+	if err != nil {
+		t.Fatalf("GetManagedSTXJavaProxyServiceStatus: %v", err)
+	}
+	if status.PID == pid || status.Running {
+		t.Fatalf("must not adopt the sibling cluster's legacy proxy, got %+v", status)
+	}
+	if status.JvmOpts == "-Xmx4g" {
+		t.Fatalf("must not borrow the sibling cluster's jvm_opts, got %+v", status)
+	}
+
+	stopped, err := StopManagedSTXJavaProxyService(context.Background(), requestedDir)
+	if err != nil {
+		t.Fatalf("stop on an absent proxy should not error: %v", err)
+	}
+	if stopped.Running {
+		t.Fatalf("unexpected stop status %+v", stopped)
+	}
+	if !alive(pid) {
+		t.Fatal("the sibling cluster's proxy must stay running")
+	}
+}
+
+// 安装路径含空格的集群：归属校验按真实 argv 比较（/proc cmdline 的 NUL 分隔），本集群
+// 进程仍可被认领，且 /opt/SeaTunnel 这样的前缀目录不会误认领它。
+// An installDir containing spaces: ownership is checked on real argv (NUL-separated
+// /proc cmdline), so the cluster's own proxy is still claimable while a shorter prefix
+// path like /opt/SeaTunnel never claims it.
+func TestSTXJavaProxyOwnershipMatchesInstallDirWithSpaces(t *testing.T) {
+	skipUnlessLinux(t)
+	spaced := "/opt/SeaTunnel Production"
+	pid := startFakeProcess(t, "stx-java-proxy", "-DSEATUNNEL_HOME="+spaced)
+	if stxJavaProxyPIDForeignForInstallDir(pid, spaced) {
+		t.Fatalf("proxy with spaced installDir must be owned by %q", spaced)
+	}
+	if !stxJavaProxyPIDForeignForInstallDir(pid, "/opt/SeaTunnel") {
+		t.Fatal("a shorter prefix path must not claim the spaced-dir proxy")
+	}
+}
+
+// 路径以引号字符结尾的目录：引号是目录名的一部分，剥掉后会把不带引号的兄弟目录误判为
+// 同一进程。
+// A directory ending in a literal quote: the quote is part of the name, so stripping it
+// would conflate it with the unquoted sibling.
+func TestSTXJavaProxyOwnershipKeepsTrailingQuoteInDir(t *testing.T) {
+	skipUnlessLinux(t)
+	quoted := "/opt/SeaTunnel Production'"
+	pid := startFakeProcess(t, "stx-java-proxy", "-DSEATUNNEL_HOME="+quoted)
+	if stxJavaProxyPIDForeignForInstallDir(pid, quoted) {
+		t.Fatalf("proxy must be owned by its quoted dir %q", quoted)
+	}
+	if !stxJavaProxyPIDForeignForInstallDir(pid, "/opt/SeaTunnel Production") {
+		t.Fatal("the unquoted sibling path must not claim the quoted-dir proxy")
+	}
+}
+
 func TestIsSeaTunnelEngineCommandLine(t *testing.T) {
 	if !IsSeaTunnelEngineCommandLine("java -cp x org.apache.seatunnel.core.starter.seatunnel.SeaTunnelServer -c conf") {
 		t.Fatal("SeaTunnel server must be recognised")
@@ -214,3 +337,4 @@ func TestIsSeaTunnelEngineCommandLine(t *testing.T) {
 		t.Fatal("the proxy (which has SeaTunnel jars on its classpath) must not be treated as the engine")
 	}
 }
+

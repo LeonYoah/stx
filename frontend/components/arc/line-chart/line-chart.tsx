@@ -33,6 +33,8 @@
 
 import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type PointerEvent, type Ref } from "react";
 import { AnimatePresence, animate, motion, useInView, useMotionValue, useMotionValueEvent, useReducedMotion, useSpring, useTransform, type MotionValue } from "motion/react";
+// STX：引入 Popover 承接超限多序列图例的完整选择列表。/ STX: import Popover for overflowing series selection.
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./line-chart.module.css";
 
@@ -86,6 +88,16 @@ export interface LineChartProps {
   emptyLabel?: string;
   /** Series toggles above the plot. Shown by default when there is more than one series. */
   legend?: boolean;
+  /** STX：图例位置（"top" 置顶或 "bottom" 置底，置底时并排卡片的折线绘图区水平对齐）。
+      STX: Legend placement ("top" above plot or "bottom" below plot so side-by-side cards align). */
+  legendPosition?: "top" | "bottom";
+  /** STX：行内最多直接展示的图例项数（默认 4，超限折叠进 "+N" 弹层；传 Infinity 禁用折叠）。
+      STX: Max inline legend toggles before overflowing into a "+N" popover (default 4; pass Infinity to disable). */
+  maxLegendItems?: number;
+  /** STX：图例折叠按钮文案。/ STX: Label formatter for the overflow legend trigger button. */
+  moreLabel?: (overflowCount: number) => string;
+  /** STX：全部序列被隐藏时的画布提示文案。/ STX: Prompt shown on the plot when every series is hidden. */
+  emptySelectionLabel?: string;
   /** 序列全显示时图例末尾「清空」按钮的文案，点一下隐藏全部序列再逐个挑。
       Label of the legend clear button shown while every series is visible; hides all so the user can cherry-pick. */
   clearLabel?: string;
@@ -209,7 +221,7 @@ function axisPicks(data: LineChartDatum[], width: number) {
   return labeled.reverse().filter((_, rank) => rank % stride === 0).reverse();
 }
 
-export function LineChart({ data, series, label, unit = "", height = 220, formatValue, formatTick = value => compact.format(value), hiddenSeries, defaultHiddenSeries, onHiddenSeriesChange, onActiveChange, loading = false, emptyLabel = "No data for this range", legend, clearLabel = "Clear", resetLabel = "Show all", categoryLabel = "Date", curve = "smooth", ref, className }: LineChartProps) {
+export function LineChart({ data, series, label, unit = "", height = 220, formatValue, formatTick = value => compact.format(value), hiddenSeries, defaultHiddenSeries, onHiddenSeriesChange, onActiveChange, loading = false, emptyLabel = "No data for this range", legend, legendPosition = "top", maxLegendItems = 4, moreLabel, emptySelectionLabel = "Choose a series to show", clearLabel = "Clear", resetLabel = "Show all", categoryLabel = "Date", curve = "smooth", ref, className }: LineChartProps) {
   const reduced = useReducedMotionSafe();
   const figure = useRef<HTMLElement>(null);
   const plot = useRef<HTMLDivElement>(null);
@@ -235,7 +247,10 @@ export function LineChart({ data, series, label, unit = "", height = 220, format
   };
   const toggle = (key: string) => applyHidden(hidden.includes(key) ? hidden.filter(item => item !== key) : [...hidden, key]);
   const visible = series.filter(item => !hidden.includes(item.key));
-  const showLegend = legend ?? series.length > 1;
+  // 当前序列里只要还有被隐藏的项就保留图例——单序列被藏掉后图例消失就没有恢复入口了。
+  // Keep the legend while any live series is hidden: once the only remaining series is
+  // hidden, a disappeared legend would leave no way to bring it back.
+  const showLegend = legend ?? (series.length > 1 || visible.length < series.length);
 
   // Each series becomes a dense curve in data units; the scale fits only the series on show.
   const signature = `${curve}|${series.map(item => item.key).join(",")}|${data.map(item => `${item.key}:${series.map(line => item.values[line.key] ?? 0).join(",")}`).join(";")}`;
@@ -411,19 +426,49 @@ export function LineChart({ data, series, label, unit = "", height = 220, format
   const allHidden = !empty && visible.length === 0;
   const tipX = reduced ? tipTargetX : tipSpringX, tipY = reduced ? tipTargetY : tipSpringY;
 
-  return <figure ref={figure} className={[styles.figure, className].filter(Boolean).join(" ")} aria-label={label} aria-busy={loading || undefined}>
-    {showLegend && <div className={styles.legend} role="group" aria-label={`${label} series`}>
-      {series.map((line, at) => <button key={line.key} type="button" className={styles.toggle} aria-pressed={!hidden.includes(line.key)} onClick={() => toggle(line.key)} style={{ "--series": colorOf(line, at) } as CSSProperties}>
+  // STX：多序列时按 maxLegendItems 折叠行内开关，超出部分收入 Popover，防多列图表被图例撑爆或错位。
+  // STX: Collapse overflowing inline legend toggles into a Popover when series exceed maxLegendItems.
+  const collapsed = showLegend && Number.isFinite(maxLegendItems) && maxLegendItems >= 0 && series.length > maxLegendItems;
+  const inlineSeries = collapsed ? series.slice(0, maxLegendItems) : series;
+  const overflowCount = series.length - inlineSeries.length;
+  const bulkSwitchButton = hidden.length === 0
+    ? <button type="button" className={styles.reset} onClick={() => applyHidden(series.map(line => line.key))}>{clearLabel}</button>
+    : <button type="button" className={styles.reset} onClick={() => applyHidden([])}>{resetLabel}</button>;
+  const legendNode = showLegend ? <div className={styles.legend} role="group" aria-label={`${label} series`}>
+    {inlineSeries.map((line) => {
+      const at = series.indexOf(line);
+      return <button key={line.key} type="button" className={styles.toggle} aria-pressed={!hidden.includes(line.key)} title={line.label} onClick={() => toggle(line.key)} style={{ "--series": colorOf(line, at) } as CSSProperties}>
         <span className={styles.swatch} data-dashed={line.dashed || undefined} aria-hidden="true" />
         <span className={styles.toggleLabel}>{line.label}</span>
-      </button>)}
-      {/* STX：批量开关——默认全显示时一键清空方便逐个挑；有隐藏时变为全选还原。
-          STX: bulk switch — clear all while everything shows so the user can cherry-pick;
-          becomes a restore-all once anything is hidden. */}
-      {hidden.length === 0
-        ? <button type="button" className={styles.reset} onClick={() => applyHidden(series.map(line => line.key))}>{clearLabel}</button>
-        : <button type="button" className={styles.reset} onClick={() => applyHidden([])}>{resetLabel}</button>}
-    </div>}
+      </button>;
+    })}
+    {collapsed && <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className={styles.moreBtn} data-testid="line-chart-legend-more">
+          {moreLabel ? moreLabel(overflowCount) : `+${overflowCount}`}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={6} className={`${styles.legendPopover} w-[280px] max-w-[calc(100vw-2rem)] p-2`}>
+        <div className={styles.legendPopoverHeader}>
+          <span>{`${visible.length}/${series.length}`}</span>
+          {bulkSwitchButton}
+        </div>
+        <div className={styles.legendPopoverList}>
+          {series.map((line, at) => <button key={line.key} type="button" className={styles.legendPopoverItem} aria-pressed={!hidden.includes(line.key)} title={line.label} onClick={() => toggle(line.key)} style={{ "--series": colorOf(line, at) } as CSSProperties}>
+            <span className={styles.swatch} data-dashed={line.dashed || undefined} aria-hidden="true" />
+            <span className={styles.legendPopoverLabel}>{line.label}</span>
+          </button>)}
+        </div>
+      </PopoverContent>
+    </Popover>}
+    {/* STX：批量开关——默认全显示时一键清空方便逐个挑；有隐藏时变为全选还原。
+        STX: bulk switch — clear all while everything shows so the user can cherry-pick;
+        becomes a restore-all once anything is hidden. */}
+    {bulkSwitchButton}
+  </div> : null;
+
+  return <figure ref={figure} className={[styles.figure, className].filter(Boolean).join(" ")} aria-label={label} aria-busy={loading || undefined}>
+    {legendPosition !== "bottom" && legendNode}
     <div className={styles.chart} data-scrubbing={scrubbing || undefined} data-loading={loading || undefined}>
       <div ref={plot} className={styles.plot} style={{ height }} role="slider" tabIndex={empty ? -1 : 0} aria-label={`${label}, explore by ${categoryLabel.toLowerCase()}`} aria-orientation="horizontal" aria-valuemin={1} aria-valuemax={Math.max(1, data.length)} aria-valuenow={(index ?? last) + 1} aria-valuetext={valueText}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={event => { if (event.pointerType !== "mouse") setActive(null); }} onPointerCancel={() => setActive(null)} onPointerLeave={event => { if (event.pointerType === "mouse") setActive(null); }} onKeyDown={onKeyDown} onBlur={() => setActive(null)}
@@ -450,7 +495,7 @@ export function LineChart({ data, series, label, unit = "", height = 220, format
           </p>)}
         </motion.div>
         <AnimatePresence initial={false}>
-          {(empty || allHidden) && !loading && <motion.p key={empty ? "empty" : "hidden"} className={styles.message} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: fadeFast }}>{empty ? emptyLabel : "Choose a series to show"}</motion.p>}
+          {(empty || allHidden) && !loading && <motion.p key={empty ? "empty" : "hidden"} className={styles.message} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: fadeFast }}>{empty ? emptyLabel : emptySelectionLabel}</motion.p>}
           {loading && empty && <motion.span key="skeleton" className={styles.skeleton} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: fadeFast }} aria-hidden="true" />}
         </AnimatePresence>
       </div>
@@ -463,6 +508,7 @@ export function LineChart({ data, series, label, unit = "", height = 220, format
         </AnimatePresence>
       </div>
     </div>
+    {legendPosition === "bottom" && legendNode}
     <p className={styles.srOnly}>{summary}</p>
     {!empty && <div className={styles.srOnly}><table>
       <caption>{label}</caption>

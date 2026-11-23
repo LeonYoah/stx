@@ -20,7 +20,6 @@
 import {useMemo} from 'react';
 import {useTranslations} from 'next-intl';
 import {LineChart} from '@/components/arc/line-chart/line-chart';
-import {MetricCard} from '@/components/arc/metric-card/metric-card';
 import {Sparkline} from '@/components/charts/sparkline';
 import {Progress} from '@/components/ui/progress';
 import {
@@ -92,12 +91,12 @@ const usageTone = (percent: number) =>
  * 主机页签：每台 agent 主机一张卡，卡里是该主机的 stx_host_* 面板组；
  * 无 agent 的主机（docker/k8s）收成一条紧凑提示，不出空图。
  * 一个指标一种图：折线看趋势；文件系统改 Progress 列表回答「哪个快满了」；
- * TCP / fd 是单值指标，收成 MetricCard + Sparkline 小卡。
+ * TCP / fd 是单值指标，收成 0.5px 分行列表 + 行内 Sparkline。
  * The hosts tab: one card per agent host carrying its stx_host_* panel set;
  * agent-less hosts (docker/k8s) collapse into a compact note instead of empty charts.
  * One chart shape per metric: lines answer "how did it trend"; the filesystem view is a
  * sorted progress list answering "what fills up first"; TCP/fd are single values and get
- * MetricCard + Sparkline mini cards.
+ * flat 0.5px-divided rows with an inline sparkline.
  */
 export function HostsTab({query}: {query: DashboardQuery}) {
   const t = useTranslations('dashboard.home.hostsTab');
@@ -414,8 +413,9 @@ function HostCard({
               );
             }
             if (key === 'tcp' || key === 'fds') {
-              // TCP + fd：两张 MetricCard + Sparkline 小卡合成一格。
-              // TCP + fds: two MetricCard + Sparkline mini cards in one cell.
+              // TCP + fd：两个单值指标压平成 0.5px 分行列表，行内挂迷你趋势。
+              // TCP + fds: the two single values flatten into 0.5px-divided rows
+              // with an inline mini trend.
               return (
                 <div
                   key='conn'
@@ -425,24 +425,37 @@ function HostCard({
                   <div className='mb-2 flex items-baseline gap-2'>
                     <h4 className='text-xs font-medium'>{t('panels.conn')}</h4>
                   </div>
-                  <div className='flex flex-col gap-3'>
+                  <ul className='divide-y-[0.5px] divide-border/70'>
                     {connCards.map((card) => (
-                      <div key={card.key}>
-                        <MetricCard
-                          label={card.title}
-                          value={card.value}
-                          context={t('units.count')}
-                        />
-                        <Sparkline
-                          data={card.points.map((point) => point[1])}
-                          label={card.title}
-                          variant='area'
-                          height={30}
-                          className='mt-1 text-[var(--series-1)]'
-                        />
-                      </div>
+                      <li
+                        key={card.key}
+                        className='py-2.5 first:pt-1 last:pb-0'
+                      >
+                        <div className='flex items-baseline justify-between gap-2'>
+                          <span className='truncate text-xs text-muted-foreground'>
+                            {card.title}
+                          </span>
+                          <span className='shrink-0 font-mono text-base font-semibold tabular-nums text-foreground'>
+                            {formatCompactNumber(card.value)}
+                            <span className='ml-1 text-[11px] font-normal text-muted-foreground'>
+                              {t('units.count')}
+                            </span>
+                          </span>
+                        </div>
+                        {card.points.length >= 2 ? (
+                          <Sparkline
+                            data={card.points.map((point) => point[1])}
+                            label={card.title}
+                            variant='line'
+                            height={26}
+                            strokeWidth={1.5}
+                            interactive
+                            className='mt-1.5 text-[var(--series-1)]'
+                          />
+                        ) : null}
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
               );
             }

@@ -523,6 +523,10 @@
           "emptyPanel": "该时间窗内没有数据",
           "legendClear": "清空",
           "legendAll": "全选",
+          "legendMore": "+{count} 更多",
+          "legendEmptySelection": "请至少选择一条曲线",
+          "nodeFilter": "筛选节点",
+          "allNodes": "全部节点 ({count})",
           "time": "时间",
           "groups": {
             "jvm": "JVM 内存",
@@ -541,6 +545,12 @@
           "events": {
             "node_restart": "节点重启",
             "members_change": "成员数变化"
+          },
+          "eventsSummary": {
+            "title": "时间窗变动",
+            "latest": "最近 {time} · {label}",
+            "viewAll": "查看全部 ({count})",
+            "total": "共 {count} 条"
           },
           "panels": {
             "heap_pools": "堆内存池",
@@ -566,7 +576,10 @@
           },
           "legendOwned": "持有",
           "legendBackup": "备份",
-          "other": "其他"
+          "other": "其他",
+          "signalClear": "正常",
+          "signalAlert": "检出异常",
+          "signalPeak": "窗内峰值 {value}"
         }
       },
       "hostsTab": {
@@ -1298,7 +1311,13 @@
       "nodeJdk": "JDK",
       "jdkMajor": "JDK {version}",
       "eventChannelNotConfigured": "未配置",
-      "eventChannelUnsupportedShort": "当前版本不支持"
+      "eventChannelUnsupportedShort": "当前版本不支持",
+      "healthReasons": {
+        "nodeOffline": "节点 {node} 离线",
+        "processNotRunning": "节点 {node} 的 SeaTunnel 进程未运行（状态：{status}）",
+        "memberSplitBrain": "节点 {node} 只看到 {observed}/{expected} 个集群成员（可能脑裂）",
+        "engineNotReady": "节点 {node} 的 SeaTunnel 引擎未就绪：{detail}"
+      }
     },
     "copyLog": "复制日志",
     "logCopied": "日志已复制到剪贴板",

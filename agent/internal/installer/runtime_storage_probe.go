@@ -20,7 +20,9 @@ package installer
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -671,8 +673,28 @@ func ensureSTXJavaProxyService(
 	if preferredPort > 0 {
 		checkPorts = []int{preferredPort}
 	}
+	// foreignOwned 记录探测中确认被他集群占用的候选端口，启动选段时必须避开，
+	// 否则启动探测会把别人的健康端点误当成自己刚拉起的服务。
+	// foreignOwned tracks candidate ports proven to be held by another cluster; the start
+	// port must avoid them or the post-start health check would mistake the foreign
+	// endpoint for the service it just launched.
+	foreignOwned := make(map[int]bool)
 	for _, port := range checkPorts {
 		if port <= 0 {
+			continue
+		}
+		// 归属预检：监听者可确认属于其他 installDir 时绝不重启/误杀——
+		// 显式端口直接返回端口冲突错误，自动分配场景跳过该候选端口去申请空闲端口。
+		// Ownership pre-check: a listener provably owned by another installDir is never
+		// restarted or killed — an explicit preferred port fails with a clear conflict
+		// error, while auto-assignment simply skips the candidate and picks a free port.
+		listenerPID := stxJavaProxyPIDByPort(ctx, port)
+		if listenerPID > 0 && stxJavaProxyPIDForeignForInstallDir(listenerPID, installDir) {
+			if preferredPort > 0 && port == preferredPort {
+				return "", fmt.Errorf("stx-java-proxy port %d is already used by another install dir's proxy (pid %d); refusing to disturb it", port, listenerPID)
+			}
+			logger.InfoF(ctx, "[stx-java-proxy] skip candidate port owned by another install dir: port=%d, pid=%d, installDir=%s", port, listenerPID, installDir)
+			foreignOwned[port] = true
 			continue
 		}
 		baseURL := stxJavaProxyServiceBaseURL(port)
@@ -692,11 +714,23 @@ func ensureSTXJavaProxyService(
 			}
 		}
 		if pid <= 0 {
-			pid = stxJavaProxyPIDByPort(ctx, port)
+			pid = listenerPID
 		}
-		if pid > 0 && (!stxJavaProxyCommandLineMatchesDesired(stxJavaProxyProcessCommandLine(pid), installDir, seatunnelVersion) ||
+		if pid > 0 && stxJavaProxyPIDForeignForInstallDir(pid, installDir) {
+			// 缓存 PID 复用到他集群进程上同样不认错。
+			// A cached PID reused by another cluster's process is never claimed either.
+			if preferredPort > 0 && port == preferredPort {
+				return "", fmt.Errorf("stx-java-proxy port %d is already used by another install dir's proxy (pid %d); refusing to disturb it", port, pid)
+			}
+			continue
+		}
+		if pid > 0 && (!stxJavaProxyArgvMatchesDesired(stxJavaProxyProcessArgv(pid), installDir, seatunnelVersion) ||
 			!stxJavaProxyJavaMatchesDesired(pid, javaenv.HomeFromContext(ctx))) {
 			logger.WarnF(ctx, "[stx-java-proxy] healthy listener mismatches desired runtime, restarting: port=%d, pid=%d, installDir=%s, version=%s", port, pid, installDir, seatunnelVersion)
+			// 已验证归属本 installDir 的 pid/port 先落盘，确保 Stop 只在本集群 stateDir 内定位目标进程。
+			// Persist the verified-own pid/port first so Stop resolves the target inside this cluster's stateDir only.
+			_ = os.WriteFile(filepath.Join(stateDir, "service.port"), []byte(strconv.Itoa(port)+"\n"), 0o644)
+			_ = os.WriteFile(filepath.Join(stateDir, "service.pid"), []byte(strconv.Itoa(pid)+"\n"), 0o644)
 			if _, stopErr := StopManagedSTXJavaProxyService(ctx, installDir); stopErr != nil {
 				logger.WarnF(ctx, "[stx-java-proxy] stop mismatched healthy listener failed: port=%d, pid=%d, error=%v", port, pid, stopErr)
 			}
@@ -710,6 +744,16 @@ func ensureSTXJavaProxyService(
 	}
 
 	port := stxJavaProxyPreferredPort(stateDir, preferredPort)
+	if foreignOwned[port] {
+		// 首选候选端口落在他集群手里：直接申请空闲端口，不做注定串台的启动尝试。
+		// The preferred candidate is held by another cluster: request a free port instead
+		// of a bind attempt that would wrongly claim the foreign endpoint.
+		openPort, portErr := findOpenSTXJavaProxyPort()
+		if portErr != nil {
+			return "", fmt.Errorf("stx-java-proxy candidate port %d is used by another install dir's proxy and no free port is available: %w", port, portErr)
+		}
+		port = openPort
+	}
 	baseURL, err := startSTXJavaProxyService(ctx, installDir, seatunnelVersion, scriptPath, jarPath, stateDir, port, jvmOpts)
 	if err == nil {
 		return baseURL, nil
@@ -880,9 +924,36 @@ func waitForSTXJavaProxyHealthy(ctx context.Context, baseURL string, timeout tim
 }
 
 func stxJavaProxyServiceStateDir(installDir string) string {
-	// 状态与日志统一落在 Agent 主目录下，不再挂到 SeaTunnel installDir/.stx。
-	// Persist state/logs under Agent home instead of SeaTunnel installDir/.stx.
+	// 状态与日志统一落在 Agent 主目录下，不再挂到 SeaTunnel installDir/.stx；
+	// 同机多集群按 installDir 的短哈希分实例目录，service.pid/service.port/service.jvm_opts/service.log
+	// 彻底隔离，绝不跨集群共享。installDir 为空时保持旧目录兼容。
+	// Persist state/logs under Agent home instead of SeaTunnel installDir/.stx; on the same host each
+	// cluster gets an instance dir keyed by a short hash of installDir so service.pid/service.port/
+	// service.jvm_opts/service.log never collide across clusters. An empty installDir keeps the legacy dir.
+	base := filepath.Join(resolveSTXJavaProxyHome(installDir), "logs", stxJavaProxyServiceDirName)
+	cleanInstallDir := filepath.Clean(strings.TrimSpace(installDir))
+	if cleanInstallDir == "" || cleanInstallDir == "." {
+		return base
+	}
+	return filepath.Join(base, "instances", stxJavaProxyInstallDirInstanceID(cleanInstallDir))
+}
+
+// stxJavaProxyServiceLegacyStateDir 返回引入实例分目录之前的状态目录（base 层）。
+// installDir 为空时与新目录相同（旧路径本身就是共享目录）。
+// stxJavaProxyServiceLegacyStateDir returns the state dir used before per-instance
+// dirs existed (the base layer). With an empty installDir it equals the new dir,
+// which kept the legacy shared path.
+func stxJavaProxyServiceLegacyStateDir(installDir string) string {
 	return filepath.Join(resolveSTXJavaProxyHome(installDir), "logs", stxJavaProxyServiceDirName)
+}
+
+// stxJavaProxyInstallDirInstanceID 返回 installDir 的稳定短实例 ID（sha256 前 12 位十六进制），
+// 仅做状态目录隔离用途，不承载安全语义。
+// stxJavaProxyInstallDirInstanceID returns the stable short instance ID of installDir
+// (first 12 hex chars of sha256); it only namespaces the state dir and carries no security meaning.
+func stxJavaProxyInstallDirInstanceID(installDir string) string {
+	sum := sha256.Sum256([]byte(installDir))
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 // resolveSTXJavaProxyHome 解析 Agent 主目录（jar/scripts/logs 的统一根）。

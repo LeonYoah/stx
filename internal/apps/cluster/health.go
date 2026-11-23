@@ -123,18 +123,21 @@ func clusterExpectsRunning(status ClusterStatus) bool {
 // evaluateClusterHealth computes cluster health from host liveness, process liveness and member agreement.
 func (s *Service) evaluateClusterHealth(ctx context.Context, cluster *Cluster, statusInfo *ClusterStatusInfo) {
 	statusInfo.HealthReasons = nil
+	statusInfo.HealthReasonDetails = nil
 	if statusInfo.TotalNodes == 0 {
 		statusInfo.HealthStatus = HealthStatusUnknown
 		return
 	}
 
 	reasons := make([]string, 0)
+	details := make([]ClusterHealthReason, 0)
 	for _, node := range statusInfo.Nodes {
 		if node == nil {
 			continue
 		}
 		if !node.IsOnline {
 			reasons = append(reasons, fmt.Sprintf("node %s is offline / 节点 %s 离线", nodeLabel(node), nodeLabel(node)))
+			details = append(details, ClusterHealthReason{Code: ClusterHealthReasonNodeOffline, Node: nodeLabel(node)})
 		}
 	}
 
@@ -150,12 +153,15 @@ func (s *Service) evaluateClusterHealth(ctx context.Context, cluster *Cluster, s
 		}
 		if expectRunning {
 			reasons = append(reasons, fmt.Sprintf("SeaTunnel process on node %s is not running (status: %s) / 节点 %s 的 SeaTunnel 进程未运行（状态：%s）", nodeLabel(node), node.Status, nodeLabel(node), node.Status))
+			details = append(details, ClusterHealthReason{Code: ClusterHealthReasonProcessNotRunning, Node: nodeLabel(node), Status: string(node.Status)})
 		}
 	}
 	statusInfo.RunningNodes = len(runningNodes)
 
 	if expectRunning && len(runningNodes) >= 2 && !s.inMemberGrace(cluster.ID) {
-		reasons = append(reasons, s.checkMemberAgreement(ctx, cluster, runningNodes)...)
+		memberReasons, memberDetails := s.checkMemberAgreement(ctx, cluster, runningNodes)
+		reasons = append(reasons, memberReasons...)
+		details = append(details, memberDetails...)
 	}
 
 	// 进程存活但引擎半初始化（coordinatorService == null 等）时 maps/overview 明确返回失败；
@@ -164,10 +170,13 @@ func (s *Service) evaluateClusterHealth(ctx context.Context, cluster *Cluster, s
 	// maps/overview fails explicitly; single-node clusters are probed too, and only a definitive
 	// unhealthy answer counts.
 	if expectRunning && len(runningNodes) >= 1 {
-		reasons = append(reasons, s.checkEngineReadiness(ctx, cluster, runningNodes)...)
+		engineReasons, engineDetails := s.checkEngineReadiness(ctx, cluster, runningNodes)
+		reasons = append(reasons, engineReasons...)
+		details = append(details, engineDetails...)
 	}
 
 	statusInfo.HealthReasons = reasons
+	statusInfo.HealthReasonDetails = details
 	if len(reasons) > 0 {
 		statusInfo.HealthStatus = HealthStatusUnhealthy
 		return
@@ -200,9 +209,9 @@ func (s *Service) inMemberGrace(clusterID uint) bool {
 // checkMemberAgreement asks each running node how many Hazelcast members it sees; seeing fewer than the
 // number of running nodes means members are missing or the cluster is split. Unknown counts (old Agents,
 // unreachable REST) never mark the cluster unhealthy to avoid false alarms.
-func (s *Service) checkMemberAgreement(ctx context.Context, cluster *Cluster, runningNodes []*NodeStatusInfo) []string {
+func (s *Service) checkMemberAgreement(ctx context.Context, cluster *Cluster, runningNodes []*NodeStatusInfo) ([]string, []ClusterHealthReason) {
 	if s.agentSender == nil || s.hostProvider == nil || cluster == nil {
-		return nil
+		return nil, nil
 	}
 	nodesByID := make(map[uint]*ClusterNode, len(cluster.Nodes))
 	for i := range cluster.Nodes {
@@ -210,6 +219,7 @@ func (s *Service) checkMemberAgreement(ctx context.Context, cluster *Cluster, ru
 	}
 	expected := len(runningNodes)
 	reasons := make([]string, 0)
+	details := make([]ClusterHealthReason, 0)
 	for _, info := range runningNodes {
 		node := nodesByID[info.NodeID]
 		if node == nil {
@@ -223,9 +233,10 @@ func (s *Service) checkMemberAgreement(ctx context.Context, cluster *Cluster, ru
 		info.MemberCount = &count
 		if count < expected {
 			reasons = append(reasons, fmt.Sprintf("node %s sees only %d/%d cluster members (possible split brain) / 节点 %s 只看到 %d/%d 个集群成员（可能脑裂）", nodeLabel(info), count, expected, nodeLabel(info), count, expected))
+			details = append(details, ClusterHealthReason{Code: ClusterHealthReasonMemberSplitBrain, Node: nodeLabel(info), ObservedMembers: count, ExpectedMembers: expected})
 		}
 	}
-	return reasons
+	return reasons, details
 }
 
 func (s *Service) probeNodeMembers(ctx context.Context, node *ClusterNode, hostIP string) memberProbeResult {
@@ -266,15 +277,16 @@ func (s *Service) probeNodeMembers(ctx context.Context, node *ClusterNode, hostI
 // 明确回答 known=true 且 unhealthy 时把原因并入健康检查，未知结果一律跳过。
 // checkEngineReadiness probes running master / master_worker nodes for engine readiness;
 // only a definitive known=true + unhealthy answer adds a health reason, unknown results are skipped.
-func (s *Service) checkEngineReadiness(ctx context.Context, cluster *Cluster, runningNodes []*NodeStatusInfo) []string {
+func (s *Service) checkEngineReadiness(ctx context.Context, cluster *Cluster, runningNodes []*NodeStatusInfo) ([]string, []ClusterHealthReason) {
 	if s.agentSender == nil || s.hostProvider == nil || cluster == nil {
-		return nil
+		return nil, nil
 	}
 	nodesByID := make(map[uint]*ClusterNode, len(cluster.Nodes))
 	for i := range cluster.Nodes {
 		nodesByID[cluster.Nodes[i].ID] = &cluster.Nodes[i]
 	}
 	reasons := make([]string, 0)
+	details := make([]ClusterHealthReason, 0)
 	for _, info := range runningNodes {
 		node := nodesByID[info.NodeID]
 		if node == nil {
@@ -289,8 +301,9 @@ func (s *Service) checkEngineReadiness(ctx context.Context, cluster *Cluster, ru
 		}
 		reasons = append(reasons, fmt.Sprintf("SeaTunnel engine on node %s is not ready: %s / 节点 %s 的 SeaTunnel 引擎未就绪：%s",
 			nodeLabel(info), probe.reason, nodeLabel(info), probe.reason))
+		details = append(details, ClusterHealthReason{Code: ClusterHealthReasonEngineNotReady, Node: nodeLabel(info), Detail: probe.reason})
 	}
-	return reasons
+	return reasons, details
 }
 
 func (s *Service) probeNodeEngine(ctx context.Context, node *ClusterNode, hostIP string) engineProbeResult {

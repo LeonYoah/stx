@@ -231,6 +231,7 @@ export function DiscoverClusterDialog({
                 <JavaHomePicker
                   hostId={hostId}
                   value={javaHomes[cluster.install_dir] || ''}
+                  seatunnelVersion={cluster.version}
                   preferredJavaHome={
                     cluster.nodes?.find((n) => n.java_home)?.java_home
                   }

@@ -226,12 +226,12 @@ export function TroubleshootingMemoryCard({
       {/* 防范建议与标签 / Preventive Tips & Tags */}
       <div className='flex flex-wrap items-center justify-between gap-2 pt-0.5 text-[11px] text-muted-foreground'>
         {memory.preventive_tips ? (
-          <div className='flex items-center gap-1.5 leading-snug'>
-            <Lightbulb className='h-3 w-3 shrink-0' />
-            <span className='font-medium text-foreground'>
+          <div className='flex items-start gap-1.5 leading-snug'>
+            <Lightbulb className='mt-0.5 h-3 w-3 shrink-0' />
+            <span className='shrink-0 whitespace-nowrap font-medium text-foreground'>
               {t('preventiveTips')}:
             </span>
-            <span className='text-pretty'>{memory.preventive_tips}</span>
+            <span className='min-w-0 text-pretty'>{memory.preventive_tips}</span>
           </div>
         ) : (
           <div />

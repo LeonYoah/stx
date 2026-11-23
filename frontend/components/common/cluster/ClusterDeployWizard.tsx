@@ -267,20 +267,47 @@ export function ClusterDeployWizard({
 
 
   /** Update one host's JDK path (AC1) / 更新单个主机的 JDK 路径（AC1） */
-  const setHostJavaHome = useCallback((hostId: number, javaHome: string) => {
-    setHostsWithRole((prev) =>
-      prev.map((h) =>
-        h.host.id === hostId ? {...h, javaHome} : h,
-      ),
-    );
-  }, []);
+  const setHostJavaHome = useCallback(
+    (hostId: number, javaHome: string, isAutoPrefill?: boolean) => {
+      setHostsWithRole((prev) =>
+        prev.map((h) =>
+          h.host.id === hostId
+            ? {...h, javaHome, javaHomeAutoPrefilled: Boolean(isAutoPrefill)}
+            : h,
+        ),
+      );
+    },
+    [],
+  );
 
   /** Apply one JDK path to all selected hosts (AC1a) / 一键把同一路径填到全部已选主机（AC1a） */
   const fillAllJavaHome = useCallback((javaHome: string) => {
     setHostsWithRole((prev) =>
-      prev.map((h) => (h.selected ? {...h, javaHome} : h)),
+      prev.map((h) =>
+        h.selected ? {...h, javaHome, javaHomeAutoPrefilled: false} : h,
+      ),
     );
   }, []);
+
+  // 目标版本变更后清除自动预填的 JDK（如 3.0.0→3.1.0 清除误留的 JDK 8），切回配置步骤时按新版本重选；手动选择不受影响。
+  // When target version switches, reset auto-prefilled JDKs so Step 3 re-selects for the new version while manual picks stay intact.
+  const prevVersionRef = useRef<string>('');
+  useEffect(() => {
+    const currentVersion = config.version.trim();
+    if (!currentVersion) {
+      return;
+    }
+    if (prevVersionRef.current && prevVersionRef.current !== currentVersion) {
+      setHostsWithRole((prev) =>
+        prev.map((h) =>
+          h.javaHomeAutoPrefilled
+            ? {...h, javaHome: '', javaHomeAutoPrefilled: false}
+            : h,
+        ),
+      );
+    }
+    prevVersionRef.current = currentVersion;
+  }, [config.version]);
 
   // Run precheck for selected hosts / 运行选定主机的环境预检查
   const runPrecheck = useCallback(async () => {

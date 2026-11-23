@@ -24,7 +24,7 @@
  * replacing bottom dead space with real health and observability signals via 0.5px hairlines.
  */
 import {useState} from 'react';
-import {useTranslations} from 'next-intl';
+import {useLocale, useTranslations} from 'next-intl';
 import {Activity, ArrowRight, Check, Copy} from 'lucide-react';
 import {Alert as ArcAlert} from '@/components/arc/alert/alert';
 import {Button} from '@/components/arc/button/button';
@@ -40,6 +40,7 @@ import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
 import {
   HealthStatus,
   NodeRole,
+  type ClusterHealthReason,
   type ClusterInfo,
   type ClusterStatusInfo,
   type NodeInfo,
@@ -111,6 +112,21 @@ function healthChipTone(health?: string): ChipTone {
   }
 }
 
+const CJK_RE = /[\u3400-\u9fff\uf900-\ufaff]/;
+
+// 历史版本后端把同一原因拼成 "EN / 中文"；仅当 " / " 右侧包含中文字符时才判定为双语分隔，
+// 避免误切路径或 URL 里的 " / "。
+// Legacy backends join one reason as "EN / 中文"; treat " / " as the bilingual separator
+// only when the right side contains CJK, so paths/URLs are never split accidentally.
+function localizeLegacyHealthReason(reason: string, locale: string): string {
+  const idx = reason.indexOf(' / ');
+  if (idx < 0) return reason;
+  const right = reason.slice(idx + 3);
+  if (!CJK_RE.test(right)) return reason;
+  const left = reason.slice(0, idx);
+  return locale.startsWith('zh') ? right.trim() : left.trim();
+}
+
 export function ClusterOverviewTab({
   cluster,
   clusterStatus,
@@ -136,6 +152,7 @@ export function ClusterOverviewTab({
   onStartInspection,
 }: ClusterOverviewTabProps) {
   const t = useTranslations();
+  const locale = useLocale();
   const [copiedField, setCopiedField] = useState<'dir' | 'code' | null>(null);
   const [pendingLogMode, setPendingLogMode] = useState<
     'per_job' | 'mixed' | null
@@ -174,6 +191,51 @@ export function ClusterOverviewTab({
   const healthReasons = (clusterStatus?.health_reasons ?? []).filter(
     (reason) => Boolean(reason?.trim()),
   );
+  const healthReasonDetails = clusterStatus?.health_reason_details ?? [];
+
+  // 结构化原因优先按 code 走 i18n 单语渲染；未知 code 回退同下标旧文案并按 locale 裁剪。
+  // Structured reasons render single-language via i18n by code; unknown codes fall back
+  // to the legacy string at the same index, cropped to the active locale.
+  const formatHealthReasonDetail = (
+    detail: ClusterHealthReason,
+    legacyReason?: string,
+  ): string => {
+    const node = detail.node ?? '';
+    switch (detail.code) {
+      case 'node_offline':
+        return t('cluster.overview.healthReasons.nodeOffline', {node});
+      case 'process_not_running':
+        return t('cluster.overview.healthReasons.processNotRunning', {
+          node,
+          status: detail.status ?? '',
+        });
+      case 'member_split_brain':
+        return t('cluster.overview.healthReasons.memberSplitBrain', {
+          node,
+          observed: detail.observed_members ?? 0,
+          expected: detail.expected_members ?? 0,
+        });
+      case 'engine_not_ready':
+        return t('cluster.overview.healthReasons.engineNotReady', {
+          node,
+          detail: detail.detail ?? '',
+        });
+      default:
+        return localizeLegacyHealthReason(
+          legacyReason ?? detail.detail ?? detail.code,
+          locale,
+        );
+    }
+  };
+
+  const healthItems: string[] =
+    healthReasonDetails.length > 0
+      ? healthReasonDetails.map((detail, idx) =>
+          formatHealthReasonDetail(detail, healthReasons[idx]),
+        )
+      : healthReasons.map((reason) =>
+          localizeLegacyHealthReason(reason, locale),
+        );
   const onlineNodes = clusterStatus?.online_nodes ?? cluster.online_nodes ?? 0;
   const totalNodes = clusterStatus?.total_nodes ?? nodes.length;
   const activeAlerts1h = monitoringOverview?.stats.active_alerts_1h ?? 0;
@@ -207,16 +269,16 @@ export function ClusterOverviewTab({
   return (
     <div className='space-y-4' data-testid='cluster-overview-panel'>
       {/* 集群不健康时在总览顶部显式列出根因（含引擎半初始化探测结果）/ Surface health reasons at the top when unhealthy */}
-      {healthReasons.length > 0 ? (
+      {healthItems.length > 0 ? (
         <ArcAlert
           tone='danger'
           title={t('cluster.overview.healthAlertTitle')}
           data-testid='cluster-overview-health-alert'
         >
           <ul className='mt-1.5 list-disc space-y-1 pl-4 text-xs'>
-            {healthReasons.map((reason, idx) => (
+            {healthItems.map((item, idx) => (
               <li key={idx} className='break-words'>
-                {reason}
+                {item}
               </li>
             ))}
           </ul>

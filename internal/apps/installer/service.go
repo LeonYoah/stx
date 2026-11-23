@@ -3268,8 +3268,8 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 
 	if s.memberListReconciler != nil {
 		if err := s.memberListReconciler.ReconcileClusterMemberList(ctx, clusterID); err != nil {
-			logger.WarnF(ctx, "[Installer] member-list 对账失败 / member-list reconcile failed: cluster=%d, err=%v", clusterID, err)
-			appendInstallationWarning(status, fmt.Sprintf("Warning: member-list reconcile failed (%v); run config sync to refresh node member lists / 警告：member-list 对账失败（%v），可用配置同步刷新节点成员列表", err, err))
+			logger.WarnF(ctx, "Member-list reconcile failed: cluster=%d, err=%v", clusterID, err)
+			appendInstallationWarning(status, fmt.Sprintf(locale.Pick(ctx, "警告：member-list 对账失败（%v），可用配置同步刷新节点成员列表", "Warning: member-list reconcile failed (%v); run config sync to refresh node member lists"), err))
 		}
 	}
 

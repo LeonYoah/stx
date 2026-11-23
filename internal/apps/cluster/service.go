@@ -327,7 +327,7 @@ func (s *Service) reconcileMemberList(ctx context.Context, clusterID uint) {
 	reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
 	defer cancel()
 	if err := s.memberListReconciler.ReconcileClusterMemberList(reconcileCtx, clusterID); err != nil {
-		logger.WarnF(ctx, "[Cluster] 节点变更后对账 member-list 失败 / Member-list reconcile after node change failed: cluster=%d, error=%v", clusterID, err)
+		logger.WarnF(ctx, "Member-list reconcile after node change failed: cluster=%d, error=%v", clusterID, err)
 	}
 }
 
@@ -1684,7 +1684,7 @@ func (s *Service) GetNodeInstallDirs(ctx context.Context, clusterID uint, hostID
 		dirs = append(dirs, dir)
 	}
 	if len(dirs) == 0 {
-		return nil, fmt.Errorf("node not found for cluster %d and host %d / 未找到集群 %d 主机 %d 对应的节点", clusterID, hostID, clusterID, hostID)
+		return nil, fmt.Errorf(locale.Pick(ctx, "未找到集群 %d 主机 %d 对应的节点", "node not found for cluster %d and host %d"), clusterID, hostID)
 	}
 	return dirs, nil
 }

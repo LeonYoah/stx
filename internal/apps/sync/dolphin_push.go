@@ -26,6 +26,7 @@ import (
 	"time"
 
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/LeonYoah/stx/internal/pkg/schedulex"
 )
 
@@ -288,7 +289,7 @@ func (s *Service) PushDolphin(ctx context.Context, actor executionapp.Actor, tas
 	// Carrying over the STX cron only applies to new workflows: an existing workflow's schedule is workflow-wide and
 	// overwriting it would change when every other node runs.
 	if req.UseBuiltinSchedule && mode != "new" {
-		result.Warning = joinWarning(result.Warning, "use_builtin_schedule 仅对新建工作流生效；已有工作流沿用其自身定时，STX 内置定时将关闭 / use_builtin_schedule only applies to new workflows; an existing workflow keeps its own schedule and the STX built-in schedule is turned off")
+		result.Warning = joinWarning(result.Warning, locale.Pick(ctx, "use_builtin_schedule 仅对新建工作流生效；已有工作流沿用其自身定时，STX 内置定时将关闭", "use_builtin_schedule only applies to new workflows; an existing workflow keeps its own schedule and the STX built-in schedule is turned off"))
 	}
 	switch mode {
 	case "new":
@@ -370,7 +371,7 @@ func (s *Service) pushNewWorkflow(ctx context.Context, actor executionapp.Actor,
 	if req.UseBuiltinSchedule {
 		cronExpr, timezone := builtinScheduleForDolphin(task)
 		if cronExpr != "" {
-			result.Warning = joinWarning(result.Warning, domDowWarning(cronExpr))
+			result.Warning = joinWarning(result.Warning, domDowWarning(ctx, cronExpr))
 			if err := client.CreateSchedule(ctx, projectCode, graph.Code, dolphinCrontab(cronExpr), timezone); err != nil {
 				result.Warning = joinWarning(result.Warning, err.Error())
 			}
@@ -811,10 +812,10 @@ func dolphinCrontab(cronExpr string) string {
 	}
 }
 
-func domDowWarning(cronExpr string) string {
+func domDowWarning(ctx context.Context, cronExpr string) string {
 	fields := strings.Fields(strings.TrimSpace(cronExpr))
 	if len(fields) == 5 && fields[2] != "*" && fields[4] != "*" {
-		return "cron 同时限制日期与星期：DolphinScheduler 无法表达“或”语义，已按日期保留，星期规则被丢弃 / both day-of-month and day-of-week restricted; Quartz cannot express OR semantics, the day-of-week rule was dropped"
+		return locale.Pick(ctx, "cron 同时限制日期与星期：DolphinScheduler 无法表达“或”语义，已按日期保留，星期规则被丢弃", "both day-of-month and day-of-week restricted; Quartz cannot express OR semantics, the day-of-week rule was dropped")
 	}
 	return ""
 }

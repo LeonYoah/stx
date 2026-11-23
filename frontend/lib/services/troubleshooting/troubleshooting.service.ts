@@ -294,12 +294,19 @@ export class TroubleshootingService extends BaseService {
       ) {
         score += 80;
       }
-      if (
+      // 条目已带强指纹时指纹即签名，异常类名不允许单独命中——否则像
+      // UnsupportedOperationException 这种通用异常会把「getSubject 专属」的
+      // 预置经验贴到所有同类报错上。
+      // When an entry carries a strong fingerprint, that fingerprint is the signature:
+      // an exception class alone must not match — otherwise a generic class like
+      // UnsupportedOperationException would attach the getSubject-specific preset to
+      // every unrelated error of the same class.
+      const exceptionClassHit =
         isStrongFeature(normalizedException) &&
-        (entryFp.includes(normalizedException!) ||
-          entryTitle.includes(normalizedException!) ||
-          entrySummary.includes(normalizedException!))
-      ) {
+        (entryFp.includes(normalizedException) ||
+          entryTitle.includes(normalizedException) ||
+          entrySummary.includes(normalizedException));
+      if (exceptionClassHit && !isStrongFeature(entryFp)) {
         score += 80;
       }
 

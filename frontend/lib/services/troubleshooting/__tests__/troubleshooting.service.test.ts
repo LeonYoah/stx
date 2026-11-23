@@ -253,8 +253,12 @@ describe('TroubleshootingService', () => {
       tags: ['jdk24', 'jep486', 'subject', 'hadoop', 'unsupportedoperationexception'],
     });
 
-    // 现场查询：指纹为 SHA256 哈希，标题含 checkpoint-id-map 与宽泛 storage/checkpoint 词
-    // Real-world query: SHA256 fingerprint, title carrying checkpoint/storage buzzwords
+    // 现场查询：指纹为 SHA256 哈希，标题含 checkpoint-id-map 与宽泛 storage/checkpoint 词，
+    // 不含 getSubject 签名——仅凭相同的通用异常类不得命中 JDK24 方案，否则同类无关报错
+    // （如 schema evolution is not supported）都会拿到降 JDK 建议。
+    // A query without the getSubject signature must not hit the JDK24 preset on the class
+    // alone — otherwise every unrelated UnsupportedOperationException (e.g. schema
+    // evolution) would get JDK-downgrade advice.
     const matches = troubleshootingService.findMatchingMemories({
       fingerprint: 'f'.repeat(64),
       exception_class: 'java.lang.UnsupportedOperationException',
@@ -262,9 +266,7 @@ describe('TroubleshootingService', () => {
       target_type: 'error',
     });
     expect(matches.map((m) => m.id)).not.toContain(checkpoint.id);
-    // 异常类强特征仍能精准命中 jdk24 方案
-    // The exception-class strong feature still precisely hits the jdk24 preset
-    expect(matches.map((m) => m.id)).toContain(jdk24.id);
+    expect(matches.map((m) => m.id)).not.toContain(jdk24.id);
 
     // 以归一化后的异常标题为查询标题时精准命中 jdk24 方案
     // Querying with the normalized exception title precisely hits the jdk24 preset
@@ -278,6 +280,16 @@ describe('TroubleshootingService', () => {
     expect(precise.length).toBeGreaterThan(0);
     expect(precise[0].id).toBe(jdk24.id);
     expect(precise.map((m) => m.id)).not.toContain(checkpoint.id);
+
+    // 归一化指纹本身携带 getSubject 签名时同样精准命中（升级后指纹即异常行）。
+    // A normalized fingerprint carrying the getSubject signature hits the preset too
+    // (post-upgrade fingerprints are the exception line itself).
+    const byFingerprint = troubleshootingService.findMatchingMemories({
+      fingerprint:
+        'java.lang.unsupportedoperationexception getsubject is not supported',
+      target_type: 'error',
+    });
+    expect(byFingerprint.map((m) => m.id)).toContain(jdk24.id);
 
     // checkpoint 自身查询仍按强特征命中自己的方案
     // A checkpoint query still hits its own preset via strong features

@@ -287,8 +287,20 @@ func TestDeleteStopsSTXJavaProxy(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add worker node: %v", err)
 	}
-	// 删除要求集群非 running/deploying；显式置为 stopped。
-	// Delete rejects running/deploying clusters; mark stopped explicitly.
+	// 删除要求集群与节点均非运行态；先清节点状态/PID，再标集群 stopped。
+	// Delete rejects running cluster/node processes; clear node status/PID, then mark cluster stopped.
+	nodes, err := repo.GetNodesByClusterID(context.Background(), clusterInfo.ID)
+	if err != nil {
+		t.Fatalf("GetNodesByClusterID: %v", err)
+	}
+	for _, n := range nodes {
+		if err := service.UpdateNodeProcess(context.Background(), n.ID, 0, "stopped"); err != nil {
+			t.Fatalf("UpdateNodeProcess node=%d: %v", n.ID, err)
+		}
+		if err := service.UpdateNodeStatus(context.Background(), n.ID, NodeStatusStopped); err != nil {
+			t.Fatalf("UpdateNodeStatus node=%d: %v", n.ID, err)
+		}
+	}
 	if err := service.UpdateStatus(context.Background(), clusterInfo.ID, ClusterStatusStopped); err != nil {
 		t.Fatalf("UpdateStatus returned error: %v", err)
 	}

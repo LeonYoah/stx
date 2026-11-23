@@ -28,8 +28,6 @@ import (
 	"time"
 )
 
-// engineNode 启动一个模拟 SeaTunnel 节点：isMaster=true 时实时接口返回 200，否则返回 404 "Not a master node"。
-// engineNode starts a fake SeaTunnel node: the realtime API answers 200 when isMaster is true and 404 otherwise.
 func engineNode(t *testing.T, id uint, isMaster *atomic.Bool, hits *atomic.Int32) *NodeInfo {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -71,8 +69,6 @@ func TestWebUIMasterSelector_picksActiveMasterAndCaches(t *testing.T) {
 		t.Fatalf("cached pick must not probe again")
 	}
 
-	// 切主后缓存过期，重新探测到新 master。
-	// After failover and cache expiry the new master is probed.
 	firstMaster.Store(true)
 	secondMaster.Store(false)
 	now = now.Add(webUIMasterCacheTTL + time.Second)
@@ -89,8 +85,6 @@ func TestWebUIMasterSelector_fallbacks(t *testing.T) {
 	selector := &webUIMasterSelector{}
 	ctx := context.Background()
 
-	// 2.3.x 没有实时接口：全部探测失败时退回第一个在线节点（与旧行为一致）。
-	// 2.3.x lacks the realtime API: when every probe fails fall back to the first online node (previous behavior).
 	if got := selector.pick(ctx, 1, []*NodeInfo{first, second}); got.ID != 1 {
 		t.Fatalf("expected fallback to first online node, got %d", got.ID)
 	}
@@ -108,5 +102,29 @@ func TestWebUIMasterSelector_fallbacks(t *testing.T) {
 	}
 	if got := (&webUIMasterSelector{}).pick(ctx, 4, []*NodeInfo{worker}); got != nil {
 		t.Fatalf("worker-only clusters have no Web UI target, got %+v", got)
+	}
+}
+
+func TestWebUIMasterSelector_activeMasterNodeID(t *testing.T) {
+	var firstMaster, secondMaster atomic.Bool
+	var hits atomic.Int32
+	secondMaster.Store(true)
+	first := engineNode(t, 1, &firstMaster, &hits)
+	second := engineNode(t, 2, &secondMaster, &hits)
+	ctx := context.Background()
+
+	id, ok := (&webUIMasterSelector{}).activeMasterNodeID(ctx, 9, []*NodeInfo{first, second})
+	if !ok || id != 2 {
+		t.Fatalf("expected confirmed active master 2, got id=%d ok=%v", id, ok)
+	}
+
+	firstMaster.Store(false)
+	secondMaster.Store(false)
+	selector := &webUIMasterSelector{}
+	if id, ok := selector.activeMasterNodeID(ctx, 10, []*NodeInfo{first, second}); ok || id != 0 {
+		t.Fatalf("expected unconfirmed when all probes fail, got id=%d ok=%v", id, ok)
+	}
+	if got := selector.pick(ctx, 10, []*NodeInfo{first, second}); got.ID != 1 {
+		t.Fatalf("pick still falls back to first online node, got %d", got.ID)
 	}
 }

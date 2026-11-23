@@ -604,12 +604,44 @@ definitions:
   cluster.ClusterConfig:
     additionalProperties: true
     type: object
+  cluster.ClusterHealthReason:
+    properties:
+      code:
+        $ref: '#/definitions/cluster.ClusterHealthReasonCode'
+      detail:
+        type: string
+      expected_members:
+        type: integer
+      node:
+        type: string
+      observed_members:
+        type: integer
+      status:
+        type: string
+    type: object
+  cluster.ClusterHealthReasonCode:
+    enum:
+    - node_offline
+    - process_not_running
+    - member_split_brain
+    - engine_not_ready
+    type: string
+    x-enum-varnames:
+    - ClusterHealthReasonNodeOffline
+    - ClusterHealthReasonProcessNotRunning
+    - ClusterHealthReasonMemberSplitBrain
+    - ClusterHealthReasonEngineNotReady
   cluster.ClusterInfo:
     properties:
       cluster_code:
         type: string
       config:
         $ref: '#/definitions/cluster.ClusterConfig'
+      config_error:
+        description: |-
+          ConfigError 非空表示该行 config 列读取/解析失败，集群其余字段仍可用。
+          ConfigError is set when the config column failed to load/parse; other fields remain usable.
+        type: string
       created_at:
         type: string
       deployment_mode:
@@ -664,6 +696,13 @@ definitions:
         type: integer
       cluster_name:
         type: string
+      health_reason_details:
+        description: |-
+          HealthReasonDetails 与 HealthReasons 一一对应的结构化原因，供前端按 code 做单语渲染。
+          HealthReasonDetails mirrors HealthReasons 1:1 as structured entries so the frontend can localize by code.
+        items:
+          $ref: '#/definitions/cluster.ClusterHealthReason'
+        type: array
       health_reasons:
         description: |-
           HealthReasons 解释 health_status 不健康的原因（离线、进程未运行、成员分裂）。
@@ -820,6 +859,13 @@ definitions:
             type: array
           total:
             type: integer
+          warnings:
+            description: |-
+              Warnings 汇总本页 config 软加载失败提示（行内另有 config_error）。
+              Warnings summarizes config soft-load failures on this page (rows also carry config_error).
+            items:
+              type: string
+            type: array
         type: object
       error_msg:
         type: string
@@ -827,14 +873,12 @@ definitions:
   cluster.NodeInfo:
     properties:
       api_port:
-        description: REST API port (Master only) / REST API 端口（仅 Master）
         type: integer
       cluster_id:
         type: integer
       created_at:
         type: string
       hazelcast_port:
-        description: Hazelcast cluster port / Hazelcast 集群端口
         type: integer
       host_id:
         type: integer
@@ -845,33 +889,24 @@ definitions:
       id:
         type: integer
       install_dir:
-        description: SeaTunnel installation directory / SeaTunnel 安装目录
         type: string
       is_online:
-        description: Whether host is online; when false, status may be shown as offline
-          / 主机是否在线
         type: boolean
       java_home:
-        description: 节点指定的 JDK，为空表示自动探测 / Node JDK; empty means auto detection
+        type: string
+      master_state:
         type: string
       overrides:
-        allOf:
-        - $ref: '#/definitions/cluster.NodeOverrides'
-        description: Node-level JSON overrides / 节点级 JSON 覆盖配置
+        $ref: '#/definitions/cluster.NodeOverrides'
       process_pid:
-        description: SeaTunnel process PID / SeaTunnel 进程 PID
         type: integer
       role:
         $ref: '#/definitions/cluster.NodeRole'
       status:
-        allOf:
-        - $ref: '#/definitions/cluster.NodeStatus'
-        description: 'Unified status: pending, installing, running, stopped, error,
-          offline / 统一状态'
+        $ref: '#/definitions/cluster.NodeStatus'
       updated_at:
         type: string
       worker_port:
-        description: Worker hazelcast port (Hybrid only) / Worker Hazelcast 端口（仅混合模式）
         type: integer
     type: object
   cluster.NodeJVMOverrides:
@@ -1605,6 +1640,14 @@ definitions:
       install_dir:
         description: SeaTunnel installation directory / SeaTunnel 安装目录
         type: string
+      java_home:
+        description: |-
+          JavaHome 显式指定该节点的新 JDK 目录；显式空串表示清除自定义路径回到自动探测。
+          升级为需要更高 JDK 的 SeaTunnel 版本（≥3.1.0）时用于换 JDK 后重跑预检。
+          JavaHome explicitly sets the node's JDK directory; an explicit empty string clears the
+          custom path back to auto detection. Used to swap JDKs (e.g. before upgrading to a
+          SeaTunnel ≥3.1.0 target that requires Java 11+) and rerun precheck.
+        type: string
       overrides:
         allOf:
         - $ref: '#/definitions/cluster.NodeOverrides'
@@ -1620,9 +1663,6 @@ definitions:
       host_name:
         type: string
       job_path_template:
-        description: |-
-          JobPathTemplate 是作业详情页的 hash 路由，前端把 {job_id} 替换为引擎作业 ID 后拼在基础地址后面。
-          JobPathTemplate is the job detail hash route; the frontend substitutes {job_id} and appends it to a base URL.
         type: string
       native_base_url:
         type: string
@@ -1879,6 +1919,8 @@ definitions:
     type: object
   dashboard.DashboardSeries:
     properties:
+      cluster_id:
+        type: integer
       key:
         type: string
       label:
@@ -1886,6 +1928,7 @@ definitions:
       points:
         items:
           items:
+            format: float64
             type: number
           type: array
         type: array
@@ -1922,6 +1965,7 @@ definitions:
       points:
         items:
           items:
+            format: float64
             type: number
           type: array
         type: array
@@ -2233,6 +2277,7 @@ definitions:
       points:
         items:
           items:
+            format: float64
             type: number
           type: array
         type: array
@@ -3888,6 +3933,10 @@ definitions:
       MirrorSourceAliyun: 阿里云镜像
       MirrorSourceApache: Apache 官方仓库
       MirrorSourceHuaweiCloud: 华为云镜像
+    x-enum-descriptions:
+    - Apache 官方仓库
+    - 阿里云镜像
+    - 华为云镜像
     x-enum-varnames:
     - MirrorSourceApache
     - MirrorSourceAliyun
@@ -3956,6 +4005,12 @@ definitions:
       PluginCategorySource: Source / Data source (legacy, for compatibility / 遗留，用于兼容)
       PluginCategoryTransform: Transform / 数据转换 (deprecated, not fetched from Maven
         / 已弃用，不从 Maven 获取)
+    x-enum-descriptions:
+    - Source / Data source (legacy, for compatibility / 遗留，用于兼容)
+    - Sink / Data sink (legacy, for compatibility / 遗留，用于兼容)
+    - Connector / 连接器 (primary category, can be used as source or sink / 主要分类，可作为
+      source 或 sink)
+    - Transform / 数据转换 (deprecated, not fetched from Maven / 已弃用，不从 Maven 获取)
     x-enum-varnames:
     - PluginCategorySource
     - PluginCategorySink
@@ -4123,6 +4178,12 @@ definitions:
       PluginStatusDisabled: 已禁用 / Disabled
       PluginStatusEnabled: 已启用 / Enabled
       PluginStatusInstalled: 已安装 / Installed
+    x-enum-descriptions:
+    - 可用 / Available
+    - 已安装 / Installed
+    - 已启用 / Enabled
+    - 已禁用 / Disabled
+    - ""
     x-enum-varnames:
     - PluginStatusAvailable
     - PluginStatusInstalled
@@ -4165,6 +4226,20 @@ definitions:
         type: string
       default_static_slot_num:
         type: integer
+      max_recommended_java_version:
+        type: integer
+      min_java_version:
+        description: |-
+          MinJavaVersion 是该版本可启动的最低 JDK 主版本（低于则引擎无法运行）。
+          MinJavaVersion is the lowest JDK major version that can start this release.
+        type: integer
+      recommended_java_versions:
+        description: |-
+          RecommendedJavaVersions 是判定为通过的 JDK 主版本；高于 MaxRecommendedJavaVersion 仅告警。
+          RecommendedJavaVersions are the JDK majors treated as passed; anything above MaxRecommendedJavaVersion only warns.
+        items:
+          type: integer
+        type: array
       supports_dynamic_slot:
         type: boolean
       supports_event_channel:
@@ -4605,6 +4680,7 @@ definitions:
       cdc_trend:
         items:
           items:
+            format: float64
             type: number
           type: array
         type: array
@@ -4637,6 +4713,7 @@ definitions:
       write_trend:
         items:
           items:
+            format: float64
             type: number
           type: array
         type: array
@@ -4713,6 +4790,13 @@ definitions:
           AttachGeneration 在同一 external_ref 被 CLI 接管时递增，用来忽略过期停止请求。
           AttachGeneration increments when another CLI attaches to the same external_ref so stale cancel requests are ignored.
         type: integer
+      can_recover:
+        type: boolean
+      can_stop:
+        description: |-
+          CanStop / CanRecover 是按当前用户裁决的操作权限，响应时填充，不落库。
+          CanStop / CanRecover are the caller's action permissions, filled at response time and not persisted.
+        type: boolean
       cancel_overdue:
         description: |-
           CancelOverdue 表示取消中作业已越过停止截止时间，由 API 派生，不落库。
@@ -4769,6 +4853,12 @@ definitions:
         $ref: '#/definitions/sync.JSONMap'
       run_type:
         $ref: '#/definitions/sync.RunType'
+      source:
+        allOf:
+        - $ref: '#/definitions/sync.JobSource'
+        description: |-
+          Source 区分 STX 提交与外部发现的作业；老数据靠列默认值视为 stx。
+          Source separates STX-submitted jobs from discovered external ones; old rows default to stx via the column.
       started_at:
         description: |-
           StartedAt / FinishedAt / CreatedBy / CreatedAt 是列表默认排序、24 小时窗口与非管理员可见性筛选的
@@ -4796,6 +4886,12 @@ definitions:
         description: |-
           SyncState 表示观察面新鲜度：ok / degraded / stale / unknown。
           SyncState indicates observation freshness: ok / degraded / stale / unknown.
+      task_deleted_at:
+        description: |-
+          TaskDeletedAt 记录所属任务被删除的时间：作业行保留，避免引擎上的历史作业被再次当作外部作业导入。
+          TaskDeletedAt marks when the owning task was deleted; the row is kept so the engine's history is not
+          re-imported as external jobs.
+        type: string
       task_id:
         type: integer
       task_name:
@@ -4816,6 +4912,7 @@ definitions:
         type: array
       status_counts:
         additionalProperties:
+          format: int64
           type: integer
         description: |-
           StatusCounts 只在 with_counts=1 时返回：按状态组计数，不受状态筛选影响。
@@ -4942,6 +5039,14 @@ definitions:
       error_msg:
         type: string
     type: object
+  sync.JobSource:
+    enum:
+    - stx
+    - external
+    type: string
+    x-enum-varnames:
+    - JobSourceSTX
+    - JobSourceExternal
   sync.JobSparklinesResponse:
     properties:
       data:
@@ -4955,6 +5060,7 @@ definitions:
         additionalProperties:
           items:
             items:
+              format: float64
               type: number
             type: array
           type: array
@@ -5059,6 +5165,7 @@ definitions:
         description: '[ts_ms, value]'
         items:
           items:
+            format: float64
             type: number
           type: array
         type: array
@@ -5112,12 +5219,14 @@ definitions:
     - run
     - recover
     - schedule
+    - external
     type: string
     x-enum-varnames:
     - RunTypePreview
     - RunTypeRun
     - RunTypeRecover
     - RunTypeSchedule
+    - RunTypeExternal
   sync.SchedulerConnection:
     properties:
       api_style:
@@ -6061,6 +6170,7 @@ paths:
           description: OK
           schema:
             additionalProperties:
+              format: int64
               type: integer
             type: object
         "400":
@@ -8621,7 +8731,8 @@ paths:
         in: query
         name: exclude_run_type
         type: string
-      - description: attention|started_at|created_at|finished_at|duration|rate|cdc_delay（后两者需 status_group=running）
+      - description: attention|started_at|created_at|finished_at|duration|rate|cdc_delay（后两者需
+          status_group=running）
         in: query
         name: sort
         type: string

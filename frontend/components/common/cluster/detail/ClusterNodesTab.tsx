@@ -17,12 +17,6 @@
 
 'use client';
 
-/**
- * 集群详情「节点」Tab：单行 Arc 工具栏 + TableCard + 0.5px 细线表行 +
- * 底部浮动 BatchBar（避让 Dock，替代原卡片头内联批量条）+ ProcessEventList。
- * Cluster detail Nodes tab: single-row Arc toolbar + TableCard + 0.5px row dividers +
- * floating BatchBar above Dock + ProcessEventList.
- */
 import {useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {
@@ -44,6 +38,7 @@ import SegmentedControl from '@/components/arc/segmented-control/segmented-contr
 import {
   BatchBar,
   NeutralChip,
+  SoftChip,
   TableCard,
   TruncatedText,
 } from '@/components/common/layout';
@@ -89,7 +84,6 @@ export interface ClusterNodesTabProps {
   onEditNode: (node: NodeInfo) => void;
   onRemoveNode: (node: NodeInfo) => void;
   onMainStatusRefresh?: () => void;
-  /** 启停/重启后递增，驱动进程事件区有界静默轮询。 / Bumped after lifecycle ops to drive bounded silent event poll. */
   lifecyclePollEpoch?: number;
 }
 
@@ -166,7 +160,6 @@ export function ClusterNodesTab({
 
   return (
     <div className='space-y-6' data-testid='cluster-nodes-panel'>
-      {/* 节点单行工具栏 / Single-row nodes toolbar */}
       <div className={layout.toolbar}>
         <SegmentedControl
           label={t('cluster.list.statusFilterNodes')}
@@ -224,7 +217,6 @@ export function ClusterNodesTab({
         </div>
       </div>
 
-      {/* 扩缩容进行中提示条 / Running scale operation banner */}
       {runningScaleOperation ? (
         <Alert
           tone={runningScaleOperation.status === 'running' ? 'info' : 'danger'}
@@ -254,7 +246,6 @@ export function ClusterNodesTab({
         </Alert>
       ) : null}
 
-      {/* 节点主表格卡片 / Main nodes TableCard */}
       <TableCard
         loading={refreshing}
         hasData={filteredNodes.length > 0}
@@ -323,6 +314,13 @@ export function ClusterNodesTab({
               {filteredNodes.map((node) => {
                 const roleKey = `cluster.roles.${getRoleKey(node.role)}`;
                 const roleLabel = t.has(roleKey) ? t(roleKey) : node.role;
+                const masterStateKey = node.master_state
+                  ? `cluster.masterStates.${node.master_state}`
+                  : '';
+                const masterStateLabel =
+                  masterStateKey && t.has(masterStateKey)
+                    ? t(masterStateKey)
+                    : node.master_state;
                 const busy = nodeOperating === node.id;
                 return (
                   <TableRow key={node.id} className='hover:bg-muted/25'>
@@ -343,7 +341,20 @@ export function ClusterNodesTab({
                       {node.host_ip || '-'}
                     </TableCell>
                     <TableCell>
-                      <NeutralChip>{roleLabel}</NeutralChip>
+                      <div className='flex items-center gap-1.5'>
+                        <NeutralChip>{roleLabel}</NeutralChip>
+                        {node.master_state ? (
+                          <SoftChip
+                            tone={
+                              node.master_state === 'active'
+                                ? 'emerald'
+                                : 'muted'
+                            }
+                          >
+                            {masterStateLabel}
+                          </SoftChip>
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell className='max-w-[220px] font-mono text-xs'>
                       <TruncatedText
@@ -464,8 +475,6 @@ export function ClusterNodesTab({
         </div>
       </TableCard>
 
-      {/* 底部浮动批量操作条，避让 Dock（ui-conventions §5） */}
-      {/* Floating bottom batch bar above Dock (ui-conventions §5) */}
       {selectedNodeIds.size > 0 ? (
         <div
           className='fixed bottom-24 left-1/2 z-30 -translate-x-1/2'
@@ -510,7 +519,6 @@ export function ClusterNodesTab({
         </div>
       ) : null}
 
-      {/* 进程事件列表 / Process lifecycle events */}
       <ProcessEventList
         clusterId={clusterId}
         onMainStatusRefresh={onMainStatusRefresh}

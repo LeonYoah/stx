@@ -1135,7 +1135,8 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
-                                "type": "integer"
+                                "type": "integer",
+                                "format": "int64"
                             }
                         }
                     },
@@ -7108,6 +7109,44 @@ const docTemplate = `{
             "type": "object",
             "additionalProperties": true
         },
+        "cluster.ClusterHealthReason": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/cluster.ClusterHealthReasonCode"
+                },
+                "detail": {
+                    "type": "string"
+                },
+                "expected_members": {
+                    "type": "integer"
+                },
+                "node": {
+                    "type": "string"
+                },
+                "observed_members": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.ClusterHealthReasonCode": {
+            "type": "string",
+            "enum": [
+                "node_offline",
+                "process_not_running",
+                "member_split_brain",
+                "engine_not_ready"
+            ],
+            "x-enum-varnames": [
+                "ClusterHealthReasonNodeOffline",
+                "ClusterHealthReasonProcessNotRunning",
+                "ClusterHealthReasonMemberSplitBrain",
+                "ClusterHealthReasonEngineNotReady"
+            ]
+        },
         "cluster.ClusterInfo": {
             "type": "object",
             "properties": {
@@ -7116,6 +7155,10 @@ const docTemplate = `{
                 },
                 "config": {
                     "$ref": "#/definitions/cluster.ClusterConfig"
+                },
+                "config_error": {
+                    "description": "ConfigError 非空表示该行 config 列读取/解析失败，集群其余字段仍可用。\nConfigError is set when the config column failed to load/parse; other fields remain usable.",
+                    "type": "string"
                 },
                 "created_at": {
                     "type": "string"
@@ -7193,6 +7236,13 @@ const docTemplate = `{
                 },
                 "cluster_name": {
                     "type": "string"
+                },
+                "health_reason_details": {
+                    "description": "HealthReasonDetails 与 HealthReasons 一一对应的结构化原因，供前端按 code 做单语渲染。\nHealthReasonDetails mirrors HealthReasons 1:1 as structured entries so the frontend can localize by code.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.ClusterHealthReason"
+                    }
                 },
                 "health_reasons": {
                     "description": "HealthReasons 解释 health_status 不健康的原因（离线、进程未运行、成员分裂）。\nHealthReasons explains why health_status is not healthy (offline, process down, split members).",
@@ -7409,6 +7459,13 @@ const docTemplate = `{
                         },
                         "total": {
                             "type": "integer"
+                        },
+                        "warnings": {
+                            "description": "Warnings 汇总本页 config 软加载失败提示（行内另有 config_error）。\nWarnings summarizes config soft-load failures on this page (rows also carry config_error).",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
                         }
                     }
                 },
@@ -7421,7 +7478,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "api_port": {
-                    "description": "REST API port (Master only) / REST API 端口（仅 Master）",
                     "type": "integer"
                 },
                 "cluster_id": {
@@ -7431,7 +7487,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "hazelcast_port": {
-                    "description": "Hazelcast cluster port / Hazelcast 集群端口",
                     "type": "integer"
                 },
                 "host_id": {
@@ -7447,45 +7502,33 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "install_dir": {
-                    "description": "SeaTunnel installation directory / SeaTunnel 安装目录",
                     "type": "string"
                 },
                 "is_online": {
-                    "description": "Whether host is online; when false, status may be shown as offline / 主机是否在线",
                     "type": "boolean"
                 },
                 "java_home": {
-                    "description": "节点指定的 JDK，为空表示自动探测 / Node JDK; empty means auto detection",
+                    "type": "string"
+                },
+                "master_state": {
                     "type": "string"
                 },
                 "overrides": {
-                    "description": "Node-level JSON overrides / 节点级 JSON 覆盖配置",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/cluster.NodeOverrides"
-                        }
-                    ]
+                    "$ref": "#/definitions/cluster.NodeOverrides"
                 },
                 "process_pid": {
-                    "description": "SeaTunnel process PID / SeaTunnel 进程 PID",
                     "type": "integer"
                 },
                 "role": {
                     "$ref": "#/definitions/cluster.NodeRole"
                 },
                 "status": {
-                    "description": "Unified status: pending, installing, running, stopped, error, offline / 统一状态",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/cluster.NodeStatus"
-                        }
-                    ]
+                    "$ref": "#/definitions/cluster.NodeStatus"
                 },
                 "updated_at": {
                     "type": "string"
                 },
                 "worker_port": {
-                    "description": "Worker hazelcast port (Hybrid only) / Worker Hazelcast 端口（仅混合模式）",
                     "type": "integer"
                 }
             }
@@ -8530,6 +8573,10 @@ const docTemplate = `{
                     "description": "SeaTunnel installation directory / SeaTunnel 安装目录",
                     "type": "string"
                 },
+                "java_home": {
+                    "description": "JavaHome 显式指定该节点的新 JDK 目录；显式空串表示清除自定义路径回到自动探测。\n升级为需要更高 JDK 的 SeaTunnel 版本（≥3.1.0）时用于换 JDK 后重跑预检。\nJavaHome explicitly sets the node's JDK directory; an explicit empty string clears the\ncustom path back to auto detection. Used to swap JDKs (e.g. before upgrading to a\nSeaTunnel ≥3.1.0 target that requires Java 11+) and rerun precheck.",
+                    "type": "string"
+                },
                 "overrides": {
                     "description": "Node-level JSON overrides / 节点级 JSON 覆盖配置",
                     "allOf": [
@@ -8554,7 +8601,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "job_path_template": {
-                    "description": "JobPathTemplate 是作业详情页的 hash 路由，前端把 {job_id} 替换为引擎作业 ID 后拼在基础地址后面。\nJobPathTemplate is the job detail hash route; the frontend substitutes {job_id} and appends it to a base URL.",
                     "type": "string"
                 },
                 "native_base_url": {
@@ -8945,6 +8991,9 @@ const docTemplate = `{
         "dashboard.DashboardSeries": {
             "type": "object",
             "properties": {
+                "cluster_id": {
+                    "type": "integer"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -8956,7 +9005,8 @@ const docTemplate = `{
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number"
+                            "type": "number",
+                            "format": "float64"
                         }
                     }
                 }
@@ -9011,7 +9061,8 @@ const docTemplate = `{
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number"
+                            "type": "number",
+                            "format": "float64"
                         }
                     }
                 }
@@ -9475,7 +9526,8 @@ const docTemplate = `{
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number"
+                            "type": "number",
+                            "format": "float64"
                         }
                     }
                 }
@@ -11830,6 +11882,11 @@ const docTemplate = `{
                 "MirrorSourceApache": "Apache 官方仓库",
                 "MirrorSourceHuaweiCloud": "华为云镜像"
             },
+            "x-enum-descriptions": [
+                "Apache 官方仓库",
+                "阿里云镜像",
+                "华为云镜像"
+            ],
             "x-enum-varnames": [
                 "MirrorSourceApache",
                 "MirrorSourceAliyun",
@@ -11926,6 +11983,12 @@ const docTemplate = `{
                 "PluginCategorySource": "Source / Data source (legacy, for compatibility / 遗留，用于兼容)",
                 "PluginCategoryTransform": "Transform / 数据转换 (deprecated, not fetched from Maven / 已弃用，不从 Maven 获取)"
             },
+            "x-enum-descriptions": [
+                "Source / Data source (legacy, for compatibility / 遗留，用于兼容)",
+                "Sink / Data sink (legacy, for compatibility / 遗留，用于兼容)",
+                "Connector / 连接器 (primary category, can be used as source or sink / 主要分类，可作为 source 或 sink)",
+                "Transform / 数据转换 (deprecated, not fetched from Maven / 已弃用，不从 Maven 获取)"
+            ],
             "x-enum-varnames": [
                 "PluginCategorySource",
                 "PluginCategorySink",
@@ -12151,6 +12214,13 @@ const docTemplate = `{
                 "PluginStatusEnabled": "已启用 / Enabled",
                 "PluginStatusInstalled": "已安装 / Installed"
             },
+            "x-enum-descriptions": [
+                "可用 / Available",
+                "已安装 / Installed",
+                "已启用 / Enabled",
+                "已禁用 / Disabled",
+                ""
+            ],
             "x-enum-varnames": [
                 "PluginStatusAvailable",
                 "PluginStatusInstalled",
@@ -12209,6 +12279,20 @@ const docTemplate = `{
                 },
                 "default_static_slot_num": {
                     "type": "integer"
+                },
+                "max_recommended_java_version": {
+                    "type": "integer"
+                },
+                "min_java_version": {
+                    "description": "MinJavaVersion 是该版本可启动的最低 JDK 主版本（低于则引擎无法运行）。\nMinJavaVersion is the lowest JDK major version that can start this release.",
+                    "type": "integer"
+                },
+                "recommended_java_versions": {
+                    "description": "RecommendedJavaVersions 是判定为通过的 JDK 主版本；高于 MaxRecommendedJavaVersion 仅告警。\nRecommendedJavaVersions are the JDK majors treated as passed; anything above MaxRecommendedJavaVersion only warns.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "supports_dynamic_slot": {
                     "type": "boolean"
@@ -12856,7 +12940,8 @@ const docTemplate = `{
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number"
+                            "type": "number",
+                            "format": "float64"
                         }
                     }
                 },
@@ -12904,7 +12989,8 @@ const docTemplate = `{
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number"
+                            "type": "number",
+                            "format": "float64"
                         }
                     }
                 }
@@ -13016,6 +13102,13 @@ const docTemplate = `{
                     "description": "AttachGeneration 在同一 external_ref 被 CLI 接管时递增，用来忽略过期停止请求。\nAttachGeneration increments when another CLI attaches to the same external_ref so stale cancel requests are ignored.",
                     "type": "integer"
                 },
+                "can_recover": {
+                    "type": "boolean"
+                },
+                "can_stop": {
+                    "description": "CanStop / CanRecover 是按当前用户裁决的操作权限，响应时填充，不落库。\nCanStop / CanRecover are the caller's action permissions, filled at response time and not persisted.",
+                    "type": "boolean"
+                },
                 "cancel_overdue": {
                     "description": "CancelOverdue 表示取消中作业已越过停止截止时间，由 API 派生，不落库。\nCancelOverdue reports a cancelling job past its stop deadline; derived at read time and not persisted.",
                     "type": "boolean"
@@ -13080,6 +13173,14 @@ const docTemplate = `{
                 "run_type": {
                     "$ref": "#/definitions/sync.RunType"
                 },
+                "source": {
+                    "description": "Source 区分 STX 提交与外部发现的作业；老数据靠列默认值视为 stx。\nSource separates STX-submitted jobs from discovered external ones; old rows default to stx via the column.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/sync.JobSource"
+                        }
+                    ]
+                },
                 "started_at": {
                     "description": "StartedAt / FinishedAt / CreatedBy / CreatedAt 是列表默认排序、24 小时窗口与非管理员可见性筛选的\n高频条件列，建索引避免全表扫描与 filesort。\nStartedAt / FinishedAt / CreatedBy / CreatedAt back the list's default ordering, 24h windows and the\nnon-admin visibility filter; index them to avoid full scans and filesorts.",
                     "type": "string"
@@ -13105,6 +13206,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/sync.JobSyncState"
                         }
                     ]
+                },
+                "task_deleted_at": {
+                    "description": "TaskDeletedAt 记录所属任务被删除的时间：作业行保留，避免引擎上的历史作业被再次当作外部作业导入。\nTaskDeletedAt marks when the owning task was deleted; the row is kept so the engine's history is not\nre-imported as external jobs.",
+                    "type": "string"
                 },
                 "task_id": {
                     "type": "integer"
@@ -13134,7 +13239,8 @@ const docTemplate = `{
                     "description": "StatusCounts 只在 with_counts=1 时返回：按状态组计数，不受状态筛选影响。\nStatusCounts is returned only with with_counts=1: counts per status group, ignoring the status filter.",
                     "type": "object",
                     "additionalProperties": {
-                        "type": "integer"
+                        "type": "integer",
+                        "format": "int64"
                     }
                 },
                 "total": {
@@ -13306,6 +13412,17 @@ const docTemplate = `{
                 }
             }
         },
+        "sync.JobSource": {
+            "type": "string",
+            "enum": [
+                "stx",
+                "external"
+            ],
+            "x-enum-varnames": [
+                "JobSourceSTX",
+                "JobSourceExternal"
+            ]
+        },
         "sync.JobSparklinesResponse": {
             "type": "object",
             "properties": {
@@ -13327,7 +13444,8 @@ const docTemplate = `{
                         "items": {
                             "type": "array",
                             "items": {
-                                "type": "number"
+                                "type": "number",
+                                "format": "float64"
                             }
                         }
                     }
@@ -13472,7 +13590,8 @@ const docTemplate = `{
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number"
+                            "type": "number",
+                            "format": "float64"
                         }
                     }
                 },
@@ -13549,13 +13668,15 @@ const docTemplate = `{
                 "preview",
                 "run",
                 "recover",
-                "schedule"
+                "schedule",
+                "external"
             ],
             "x-enum-varnames": [
                 "RunTypePreview",
                 "RunTypeRun",
                 "RunTypeRecover",
-                "RunTypeSchedule"
+                "RunTypeSchedule",
+                "RunTypeExternal"
             ]
         },
         "sync.SchedulerConnection": {

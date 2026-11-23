@@ -390,8 +390,6 @@ type UpdateNodeRequest struct {
 	JavaHome *string `json:"java_home,omitempty"`
 }
 
-// NodeInfo represents node information for API responses.
-// 节点信息，用于 API 响应
 type NodeInfo struct {
 	ID            uint          `json:"id"`
 	ClusterID     uint          `json:"cluster_id"`
@@ -399,18 +397,24 @@ type NodeInfo struct {
 	HostName      string        `json:"host_name"`
 	HostIP        string        `json:"host_ip"`
 	Role          NodeRole      `json:"role"`
-	InstallDir    string        `json:"install_dir"`    // SeaTunnel installation directory / SeaTunnel 安装目录
-	HazelcastPort int           `json:"hazelcast_port"` // Hazelcast cluster port / Hazelcast 集群端口
-	APIPort       int           `json:"api_port"`       // REST API port (Master only) / REST API 端口（仅 Master）
-	WorkerPort    int           `json:"worker_port"`    // Worker hazelcast port (Hybrid only) / Worker Hazelcast 端口（仅混合模式）
-	Overrides     NodeOverrides `json:"overrides"`      // Node-level JSON overrides / 节点级 JSON 覆盖配置
-	Status        NodeStatus    `json:"status"`         // Unified status: pending, installing, running, stopped, error, offline / 统一状态
-	IsOnline      bool          `json:"is_online"`      // Whether host is online; when false, status may be shown as offline / 主机是否在线
-	ProcessPID    int           `json:"process_pid"`    // SeaTunnel process PID / SeaTunnel 进程 PID
-	JavaHome      string        `json:"java_home"`      // 节点指定的 JDK，为空表示自动探测 / Node JDK; empty means auto detection
+	InstallDir    string        `json:"install_dir"`
+	HazelcastPort int           `json:"hazelcast_port"`
+	APIPort       int           `json:"api_port"`
+	WorkerPort    int           `json:"worker_port"`
+	Overrides     NodeOverrides `json:"overrides"`
+	Status        NodeStatus    `json:"status"`
+	IsOnline      bool          `json:"is_online"`
+	ProcessPID    int           `json:"process_pid"`
+	JavaHome      string        `json:"java_home"`
+	MasterState   string        `json:"master_state,omitempty"`
 	CreatedAt     time.Time     `json:"created_at"`
 	UpdatedAt     time.Time     `json:"updated_at"`
 }
+
+const (
+	NodeMasterStateActive  = "active"
+	NodeMasterStateStandby = "standby"
+)
 
 // DefaultPorts defines default port values for different node roles
 // DefaultPorts 定义不同节点角色的默认端口值

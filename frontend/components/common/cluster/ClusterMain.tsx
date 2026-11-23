@@ -65,6 +65,7 @@ import {
   DetailHost,
   ModuleNavTabs,
   NeutralChip,
+  SoftChip,
   TableCard,
   WorkspaceHeader,
   useDetailNarrow,
@@ -201,6 +202,7 @@ export function ClusterMain() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [refreshTick, setRefreshTick] = useState(0);
   const reqSeqRef = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -267,7 +269,8 @@ export function ClusterMain() {
   const loadClusters = useCallback(async () => {
     const seq = ++reqSeqRef.current;
     setLoading(true);
-    setError(null);
+    // 成功前保留旧 error，避免无数据重试窗口落到空态「还没有纳管集群」。
+    // Keep prior error until success so a no-data retry cannot fall through to the empty state.
     try {
       const params: ListClustersRequest = {
         current: currentPage,
@@ -283,6 +286,8 @@ export function ClusterMain() {
       if (result.success && result.data) {
         setClusters(result.data.clusters ?? []);
         setTotal(result.data.total ?? 0);
+        setWarnings(result.data.warnings ?? []);
+        setError(null);
       } else {
         setError(result.error || t('cluster.loadError'));
       }
@@ -609,6 +614,15 @@ export function ClusterMain() {
               )
             }
           >
+            {!error && warnings.length > 0 ? (
+              <div
+                className='border-b border-(--border) bg-amber-500/5 px-4 py-2 text-xs text-amber-800 dark:text-amber-200'
+                role='status'
+                data-testid='cluster-list-warnings'
+              >
+                {t('cluster.list.configWarnings', {count: warnings.length})}
+              </div>
+            ) : null}
             <LayoutGroup>
               {viewMode === 'grid' ? (
                 <div
@@ -859,6 +873,13 @@ function ClusterListTable({
                   </motion.span>
                   {isSoleDefaultCluster ? (
                     <NeutralChip>{t('cluster.defaultBadge')}</NeutralChip>
+                  ) : null}
+                  {cluster.config_error ? (
+                    <span data-testid={`cluster-config-error-${cluster.id}`}>
+                      <SoftChip tone='amber'>
+                        {t('cluster.list.configReadFailed')}
+                      </SoftChip>
+                    </span>
                   ) : null}
                 </div>
                 <span

@@ -21,9 +21,11 @@ package cluster
 import (
 	"database/sql/driver"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"strings"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/db"
 )
 
 // DeploymentMode represents the deployment mode of a SeaTunnel cluster.
@@ -96,13 +98,13 @@ func (c ClusterConfig) Value() (driver.Value, error) {
 
 // Scan implements the sql.Scanner interface for database retrieval.
 func (c *ClusterConfig) Scan(value interface{}) error {
-	if value == nil {
+	bytes, err := db.JSONScanBytes(value)
+	if err != nil {
+		return fmt.Errorf("cluster: failed to scan ClusterConfig: %w", err)
+	}
+	if len(bytes) == 0 {
 		*c = nil
 		return nil
-	}
-	bytes, ok := value.([]byte)
-	if !ok {
-		return errors.New("cluster: failed to scan ClusterConfig - expected []byte")
 	}
 	return json.Unmarshal(bytes, c)
 }
@@ -163,27 +165,15 @@ func (o NodeOverrides) Value() (driver.Value, error) {
 // Scan implements sql.Scanner for database retrieval.
 // Scan 实现 sql.Scanner 以便从数据库读取。
 func (o *NodeOverrides) Scan(value interface{}) error {
-	if value == nil {
+	bytes, err := db.JSONScanBytes(value)
+	if err != nil {
+		return fmt.Errorf("cluster: failed to scan NodeOverrides: %w", err)
+	}
+	if len(bytes) == 0 {
 		*o = NodeOverrides{}
 		return nil
 	}
-
-	switch v := value.(type) {
-	case []byte:
-		if len(v) == 0 {
-			*o = NodeOverrides{}
-			return nil
-		}
-		return json.Unmarshal(v, o)
-	case string:
-		if v == "" {
-			*o = NodeOverrides{}
-			return nil
-		}
-		return json.Unmarshal([]byte(v), o)
-	default:
-		return errors.New("cluster: failed to scan NodeOverrides - expected []byte or string")
-	}
+	return json.Unmarshal(bytes, o)
 }
 
 // Cluster represents a SeaTunnel cluster consisting of multiple nodes.
@@ -197,12 +187,15 @@ type Cluster struct {
 	DeploymentMode DeploymentMode `json:"deployment_mode" gorm:"size:20;not null"`
 	Version        string         `json:"version" gorm:"size:20"`
 	Status         ClusterStatus  `json:"status" gorm:"size:20;default:created;index"`
-	InstallDir     string         `json:"install_dir" gorm:"size:255"`
-	Config         ClusterConfig  `json:"config" gorm:"type:json"`
-	CreatedAt      time.Time      `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt      time.Time      `json:"updated_at" gorm:"autoUpdateTime"`
-	CreatedBy      uint           `json:"created_by"`
-	Nodes          []ClusterNode  `json:"nodes" gorm:"foreignKey:ClusterID"`
+	InstallDir string        `json:"install_dir" gorm:"size:255"`
+	Config     ClusterConfig `json:"config" gorm:"type:json"`
+	// ConfigScanError 仅内存字段：列表软加载 config 失败时保留原因，不落库。
+	// ConfigScanError is in-memory only: set when list soft-load of config fails; not persisted.
+	ConfigScanError string        `json:"-" gorm:"-"`
+	CreatedAt       time.Time     `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt       time.Time     `json:"updated_at" gorm:"autoUpdateTime"`
+	CreatedBy       uint          `json:"created_by"`
+	Nodes           []ClusterNode `json:"nodes" gorm:"foreignKey:ClusterID"`
 }
 
 // EffectiveClusterCode 返回当前集群的有效底层标识；若为空则返回兜底默认值 "seatunnel"。
@@ -267,11 +260,14 @@ type ClusterInfo struct {
 	Status         ClusterStatus  `json:"status"`
 	InstallDir     string         `json:"install_dir"`
 	Config         ClusterConfig  `json:"config"`
-	NodeCount      int            `json:"node_count"`
-	OnlineNodes    int            `json:"online_nodes"`  // number of nodes whose host is online / 主机在线的节点数
-	HealthStatus   string         `json:"health_status"` // healthy, unhealthy, unknown / 健康状态
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
+	// ConfigError 非空表示该行 config 列读取/解析失败，集群其余字段仍可用。
+	// ConfigError is set when the config column failed to load/parse; other fields remain usable.
+	ConfigError  string    `json:"config_error,omitempty"`
+	NodeCount    int       `json:"node_count"`
+	OnlineNodes  int       `json:"online_nodes"`  // number of nodes whose host is online / 主机在线的节点数
+	HealthStatus string    `json:"health_status"` // healthy, unhealthy, unknown / 健康状态
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // ToClusterInfo converts a Cluster to ClusterInfo (OnlineNodes and HealthStatus are set by caller).
@@ -286,6 +282,7 @@ func (c *Cluster) ToClusterInfo() *ClusterInfo {
 		Status:         c.Status,
 		InstallDir:     c.InstallDir,
 		Config:         c.Config,
+		ConfigError:    c.ConfigScanError,
 		NodeCount:      len(c.Nodes),
 		CreatedAt:      c.CreatedAt,
 		UpdatedAt:      c.UpdatedAt,

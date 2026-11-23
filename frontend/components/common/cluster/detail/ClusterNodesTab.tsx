@@ -88,6 +88,7 @@ export interface ClusterNodesTabProps {
   onViewLogs: (node: NodeInfo) => void;
   onEditNode: (node: NodeInfo) => void;
   onRemoveNode: (node: NodeInfo) => void;
+  onMainStatusRefresh?: () => void;
 }
 
 function getRoleKey(role: string): string {
@@ -113,6 +114,7 @@ export function ClusterNodesTab({
   onViewLogs,
   onEditNode,
   onRemoveNode,
+  onMainStatusRefresh,
 }: ClusterNodesTabProps) {
   const t = useTranslations();
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -506,7 +508,10 @@ export function ClusterNodesTab({
       ) : null}
 
       {/* 进程事件列表 / Process lifecycle events */}
-      <ProcessEventList clusterId={clusterId} />
+      <ProcessEventList
+        clusterId={clusterId}
+        onMainStatusRefresh={onMainStatusRefresh}
+      />
     </div>
   );
 }

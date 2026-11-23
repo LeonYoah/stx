@@ -102,41 +102,46 @@ func (s *ProcessScanner) scanProcessesUnix() ([]*DiscoveredProcess, error) {
 
 	versionDetector := NewVersionDetector()
 	configReader := NewConfigReader()
+	candidates := make([]*discoveredProcessCandidate, 0)
 
 	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
 		if line == "" {
 			continue
 		}
 
-		proc, err := s.parseUnixProcessLine(line)
+		candidate, err := s.parseUnixProcessCandidate(line)
 		if err != nil {
 			logger.WarnF(ctx, "[ProcessScanner] Warning: failed to parse process line: %v", err)
 			continue
 		}
-
-		if proc != nil {
-			if rt, ok := javaenv.FromProcess(proc.PID); ok {
-				proc.JavaHome = rt.JavaHome
-			}
-			// Enhance with version and port info / 增强版本和端口信息
-			if proc.InstallDir != "" {
-				// Detect version from connector jars / 从 connector jar 检测版本
-				proc.Version = versionDetector.DetectVersion(proc.InstallDir)
-
-				// Read hazelcast port from config / 从配置读取 hazelcast 端口
-				proc.HazelcastPort = configReader.ReadHazelcastPort(proc.InstallDir, proc.Role)
-
-				// Read hazelcast cluster-name from config / 从配置读取 hazelcast 集群标识
-				proc.ClusterName = configReader.ReadHazelcastClusterName(proc.InstallDir, proc.Role)
-
-				// Read API port from seatunnel.yaml / 从 seatunnel.yaml 读取 API 端口
-				proc.APIPort = configReader.ReadAPIPort(proc.InstallDir)
-			}
-
-			processes = append(processes, proc)
-			logger.InfoF(ctx, "[ProcessScanner] Found: PID=%d, Role=%s, InstallDir=%s, Version=%s, HazelcastPort=%d, APIPort=%d, ClusterName=%s",
-				proc.PID, proc.Role, proc.InstallDir, proc.Version, proc.HazelcastPort, proc.APIPort, proc.ClusterName)
+		if candidate == nil {
+			continue
 		}
+
+		if rt, ok := javaenv.FromProcess(candidate.PID); ok {
+			candidate.JavaHome = rt.JavaHome
+		}
+		// Enhance with version and port info / 增强版本和端口信息
+		if candidate.InstallDir != "" {
+			candidate.Version = versionDetector.DetectVersion(candidate.InstallDir)
+			// 优先进程活动 -Dhazelcast.config，避免读到未生效默认文件或解析失败回落到 5801。
+			// Prefer active -Dhazelcast.config so we do not fall back to stale defaults / 5801.
+			candidate.HazelcastPort = configReader.ReadHazelcastPortPrefer(
+				candidate.InstallDir,
+				candidate.Role,
+				candidate.HazelcastCfg,
+			)
+			candidate.ClusterName = configReader.ReadHazelcastClusterName(candidate.InstallDir, candidate.Role)
+			candidate.APIPort = configReader.ReadAPIPort(candidate.InstallDir)
+		}
+		candidates = append(candidates, candidate)
+	}
+
+	for _, candidate := range dedupeDiscoveredProcesses(candidates) {
+		proc := candidate.toDiscoveredProcess()
+		processes = append(processes, proc)
+		logger.InfoF(ctx, "[ProcessScanner] Found: PID=%d, Role=%s, InstallDir=%s, Version=%s, HazelcastPort=%d, APIPort=%d, ClusterName=%s",
+			proc.PID, proc.Role, proc.InstallDir, proc.Version, proc.HazelcastPort, proc.APIPort, proc.ClusterName)
 	}
 
 	return processes, nil
@@ -178,6 +183,7 @@ func (s *ProcessScanner) scanProcessesWindows() ([]*DiscoveredProcess, error) {
 
 		cmdline := strings.Join(parts[1:len(parts)-1], ",")
 		installDir, role := s.parseCommandLine(cmdline)
+		hazelcastCfg := extractHazelcastConfigPath(cmdline)
 
 		proc := &DiscoveredProcess{
 			PID:        pid,
@@ -188,7 +194,7 @@ func (s *ProcessScanner) scanProcessesWindows() ([]*DiscoveredProcess, error) {
 		// Enhance with version and port info / 增强版本和端口信息
 		if installDir != "" {
 			proc.Version = versionDetector.DetectVersion(installDir)
-			proc.HazelcastPort = configReader.ReadHazelcastPort(installDir, role)
+			proc.HazelcastPort = configReader.ReadHazelcastPortPrefer(installDir, role, hazelcastCfg)
 			proc.ClusterName = configReader.ReadHazelcastClusterName(installDir, role)
 			proc.APIPort = configReader.ReadAPIPort(installDir)
 		}
@@ -199,9 +205,9 @@ func (s *ProcessScanner) scanProcessesWindows() ([]*DiscoveredProcess, error) {
 	return processes, nil
 }
 
-// parseUnixProcessLine parses a single line from ps output
-// parseUnixProcessLine 解析 ps 输出的单行
-func (s *ProcessScanner) parseUnixProcessLine(line string) (*DiscoveredProcess, error) {
+// parseUnixProcessCandidate 解析 ps -ef 单行，保留 PPID/命令行供 shell 父子去重。
+// parseUnixProcessCandidate parses one ps -ef line, keeping PPID/cmdline for shell parent dedupe.
+func (s *ProcessScanner) parseUnixProcessCandidate(line string) (*discoveredProcessCandidate, error) {
 	// ps -ef format: UID PID PPID C STIME TTY TIME CMD
 	// ps -ef 格式：UID PID PPID C STIME TTY TIME CMD
 	fields := strings.Fields(line)
@@ -213,16 +219,44 @@ func (s *ProcessScanner) parseUnixProcessLine(line string) (*DiscoveredProcess, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse PID: %w / 解析 PID 失败：%w", err, err)
 	}
+	ppid, err := strconv.Atoi(fields[2])
+	if err != nil {
+		ppid = 0
+	}
 
 	// Get full command line / 获取完整命令行
 	cmdline := strings.Join(fields[7:], " ")
 	installDir, role := s.parseCommandLine(cmdline)
 
-	return &DiscoveredProcess{
-		PID:        pid,
-		InstallDir: installDir,
-		Role:       role,
+	return &discoveredProcessCandidate{
+		PID:          pid,
+		PPID:         ppid,
+		InstallDir:   installDir,
+		Role:         role,
+		CommandLine:  cmdline,
+		HazelcastCfg: extractHazelcastConfigPath(cmdline),
 	}, nil
+}
+
+// parseUnixProcessLine parses a single line from ps output
+// parseUnixProcessLine 解析 ps 输出的单行
+func (s *ProcessScanner) parseUnixProcessLine(line string) (*DiscoveredProcess, error) {
+	candidate, err := s.parseUnixProcessCandidate(line)
+	if err != nil {
+		return nil, err
+	}
+	return candidate.toDiscoveredProcess(), nil
+}
+
+// extractHazelcastConfigPath 提取进程活动 -Dhazelcast.config= 路径。
+// extractHazelcastConfigPath extracts the active -Dhazelcast.config= path from a cmdline.
+func extractHazelcastConfigPath(cmdline string) string {
+	hazelcastConfigRegex := regexp.MustCompile(`-Dhazelcast\.config=([^\s]+)`)
+	matches := hazelcastConfigRegex.FindStringSubmatch(cmdline)
+	if len(matches) < 2 {
+		return ""
+	}
+	return strings.Trim(matches[1], "\"'")
 }
 
 // parseCommandLine extracts install directory and role from command line

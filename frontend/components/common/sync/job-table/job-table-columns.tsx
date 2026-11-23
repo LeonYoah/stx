@@ -19,7 +19,7 @@
 
 import {Badge} from '@/components/ui/badge';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
-import {mergeIdsIntoSelection} from '@/components/common/layout';
+import {TruncatedText, mergeIdsIntoSelection} from '@/components/common/layout';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {Sparkline} from '@/components/charts/sparkline';
 import type {SyncJobInstance, SyncJobListSort} from '@/lib/services/sync';
@@ -132,12 +132,11 @@ function JobNameCell({job, ctx}: CellProps) {
           #{job.id}
         </span>
         {secondary ? (
-          <span
-            className='truncate font-mono text-[11px] text-muted-foreground'
-            title={secondary}
-          >
-            {secondary}
-          </span>
+          <TruncatedText
+            text={secondary}
+            mono
+            className='text-[11px] text-muted-foreground'
+          />
         ) : null}
       </div>
     );
@@ -145,20 +144,19 @@ function JobNameCell({job, ctx}: CellProps) {
   const name = jobDisplayName(job);
   const engineRef = job.engine_job_id ? ` · ${job.engine_job_id}` : '';
   // 外部作业 task_id 恒为 0，「任务 #0」没有引用价值，悬浮提示只留作业与引擎 ID。
-  // External jobs always have task_id 0, so "Task #0" is noise — keep only job and engine IDs in the title.
+  // External jobs always have task_id 0, so "Task #0" is noise — keep only job and engine IDs in the tooltip.
   const taskRef =
     job.task_id > 0 ? ctx.t('taskRef', {id: job.task_id}) : `#${job.id}`;
   return (
     <div className='flex min-w-0 max-w-[280px] flex-col'>
-      <span className='truncate font-medium text-foreground' title={name}>
-        {name}
-      </span>
-      <span
-        className='truncate font-mono text-[11px] text-muted-foreground'
-        title={`${taskRef}${engineRef}`}
-      >
-        {`#${job.id}${engineRef}`}
-      </span>
+      <TruncatedText text={name} className='font-medium text-foreground' />
+      <TruncatedText
+        text={`#${job.id}${engineRef}`}
+        tooltip={`${taskRef}${engineRef}`}
+        alwaysTooltip={job.task_id > 0}
+        mono
+        className='text-[11px] text-muted-foreground'
+      />
     </div>
   );
 }

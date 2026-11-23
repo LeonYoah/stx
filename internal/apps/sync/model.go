@@ -20,7 +20,7 @@ package sync
 import (
 	"database/sql/driver"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -44,18 +44,15 @@ func (m JSONMap) Value() (driver.Value, error) {
 // Scan implements the sql.Scanner interface.
 // Scan 实现 sql.Scanner 接口。
 func (m *JSONMap) Scan(value interface{}) error {
-	if value == nil {
+	bytes, err := db.JSONScanBytes(value)
+	if err != nil {
+		return fmt.Errorf("sync: failed to scan JSONMap: %w", err)
+	}
+	if len(bytes) == 0 {
 		*m = nil
 		return nil
 	}
-	switch v := value.(type) {
-	case []byte:
-		return json.Unmarshal(v, m)
-	case string:
-		return json.Unmarshal([]byte(v), m)
-	default:
-		return errors.New("sync: failed to scan JSONMap - expected []byte or string")
-	}
+	return json.Unmarshal(bytes, m)
 }
 
 // JSONStringSlice represents one JSON-encoded string array.
@@ -74,18 +71,15 @@ func (s JSONStringSlice) Value() (driver.Value, error) {
 // Scan implements the sql.Scanner interface.
 // Scan 实现 sql.Scanner 接口。
 func (s *JSONStringSlice) Scan(value interface{}) error {
-	if value == nil {
+	bytes, err := db.JSONScanBytes(value)
+	if err != nil {
+		return fmt.Errorf("sync: failed to scan JSONStringSlice: %w", err)
+	}
+	if len(bytes) == 0 {
 		*s = nil
 		return nil
 	}
-	switch v := value.(type) {
-	case []byte:
-		return json.Unmarshal(v, s)
-	case string:
-		return json.Unmarshal([]byte(v), s)
-	default:
-		return errors.New("sync: failed to scan JSONStringSlice - expected []byte or string")
-	}
+	return json.Unmarshal(bytes, s)
 }
 
 // TaskStatus represents sync task lifecycle status.

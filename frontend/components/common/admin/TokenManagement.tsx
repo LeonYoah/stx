@@ -50,6 +50,7 @@ import {
 import {
   BatchBar,
   TableCard,
+  TruncatedText,
   WorkspaceHeader,
   usePagedSelection,
 } from '@/components/common/layout';
@@ -514,12 +515,10 @@ export function TokenManagement() {
                     })}
                   />
                   <div className={layout.rowName}>
-                    <span className={layout.name} title={token.name || '-'}>
-                      {token.name || '-'}
-                    </span>
+                    <TruncatedText text={token.name} className={layout.name} />
                     <span className={layout.sub}>#{token.id}</span>
                   </div>
-                  <span className={layout.sub}>{token.username || '-'}</span>
+                  <TruncatedText text={token.username} className={layout.sub} />
                   <span className='font-mono text-xs whitespace-nowrap'>
                     {token.token_prefix}******
                   </span>

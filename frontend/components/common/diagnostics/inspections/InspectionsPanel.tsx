@@ -76,7 +76,7 @@ import {formatErrorDateTime} from '../errors/error-utils';
 import {localizeDiagnosticsText} from '../text-utils';
 import {DetailHost, useDetailNarrow} from '@/components/common/layout';
 import {DirtyCloseDialog} from '@/components/common/layout';
-import {NeutralChip, SoftChip} from '@/components/common/layout';
+import {NeutralChip, SoftChip, TruncatedText} from '@/components/common/layout';
 import {BatchBar, usePagedSelection} from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 
@@ -850,32 +850,22 @@ export function InspectionsPanel({
                     <button
                       type='button'
                       className={cn(layout.chipBtn, 'min-w-0 max-w-full')}
-                      title={t('trigger.autoChip', {
-                        name: policyLabel(report.auto_policy_id),
-                      })}
                       onClick={(e) => {
                         e.stopPropagation();
                         onOpenPolicy?.(report.auto_policy_id as number);
                       }}
                       data-testid={`inspection-auto-chip-${report.id}`}
                     >
-                      {/* 策略名长于触发列时文字截断，完整名见按钮 title；不截断会溢出压到状态列。
-                          Truncate long policy names to the trigger column (full name stays on the button title); otherwise the chip bleeds over the status column. */}
-                      <SoftChip
-                        tone='blue'
-                        className='shrink min-w-0 max-w-full'
-                      >
-                        <span className='min-w-0 truncate'>
-                          {t('trigger.autoChip', {
-                            name: policyLabel(report.auto_policy_id),
-                          })}
-                        </span>
+                      {/* 策略名长于触发列时在 SoftChip 内省略并通过溢出浮层展示完整名，避免压到状态列。
+                          Ellipsize long policy names inside SoftChip with a lazy overflow tooltip so the chip never bleeds over the status column. */}
+                      <SoftChip tone='blue' truncate>
+                        {t('trigger.autoChip', {
+                          name: policyLabel(report.auto_policy_id),
+                        })}
                       </SoftChip>
                     </button>
                   ) : (
-                    <NeutralChip
-                      title={t(`trigger.${report.trigger_source}`)}
-                    >
+                    <NeutralChip>
                       {t(`trigger.${report.trigger_source}`)}
                     </NeutralChip>
                   )}
@@ -883,22 +873,16 @@ export function InspectionsPanel({
                     {t(`status.${report.status}`)}
                   </SoftChip>
                   <div className={layout.rowName}>
-                    <span
-                      className={layout.name}
-                      title={
+                    <TruncatedText
+                      text={
                         report.status === 'completed' &&
                         report.finding_total === 0
                           ? t('evidence.zeroShort')
                           : localizeDiagnosticsText(report.summary) ||
                             t('summaryFallback')
                       }
-                    >
-                      {report.status === 'completed' &&
-                      report.finding_total === 0
-                        ? t('evidence.zeroShort')
-                        : localizeDiagnosticsText(report.summary) ||
-                          t('summaryFallback')}
-                    </span>
+                      className={layout.name}
+                    />
                     <span className={layout.sub}>
                       <span className='inline-flex flex-wrap items-center gap-1.5'>
                         {report.critical_count > 0 ? (

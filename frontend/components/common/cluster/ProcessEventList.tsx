@@ -59,6 +59,8 @@ import {formatDateTimeMinuteTz} from '@/lib/timezone';
 interface ProcessEventListProps {
   clusterId: number;
   nodeId?: number;
+  /** 事件列表成功刷新后联动主状态（节点/头部），避免「事件已重启、主状态仍停」。 / After events reload, refresh main status so events and header/nodes stay aligned. */
+  onMainStatusRefresh?: () => void;
 }
 
 const EVENT_TYPE_META: Record<
@@ -154,7 +156,11 @@ const EVENT_TYPE_META: Record<
 
 const PAGE_SIZE = 20;
 
-export function ProcessEventList({clusterId, nodeId}: ProcessEventListProps) {
+export function ProcessEventList({
+  clusterId,
+  nodeId,
+  onMainStatusRefresh,
+}: ProcessEventListProps) {
   const t = useTranslations();
   const [events, setEvents] = useState<ProcessEvent[]>([]);
   const [total, setTotal] = useState(0);
@@ -165,6 +171,8 @@ export function ProcessEventList({clusterId, nodeId}: ProcessEventListProps) {
     ProcessEventType | 'all'
   >('all');
   const reqSeqRef = useRef(0);
+  const onMainStatusRefreshRef = useRef(onMainStatusRefresh);
+  onMainStatusRefreshRef.current = onMainStatusRefresh;
 
   const loadEvents = useCallback(async () => {
     const seq = ++reqSeqRef.current;
@@ -188,6 +196,7 @@ export function ProcessEventList({clusterId, nodeId}: ProcessEventListProps) {
       }
       setEvents(response.events ?? []);
       setTotal(response.total ?? 0);
+      onMainStatusRefreshRef.current?.();
     } catch (err) {
       if (seq !== reqSeqRef.current) {
         return;

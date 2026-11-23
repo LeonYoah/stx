@@ -619,9 +619,26 @@ func (s *Service) List(ctx context.Context, filter *ClusterFilter) ([]*Cluster, 
 // ListWithInfo retrieves clusters and converts them to ClusterInfo with online_nodes and health_status.
 // ListWithInfo 获取集群列表并转换为 ClusterInfo，包含 online_nodes 与 health_status。
 func (s *Service) ListWithInfo(ctx context.Context, filter *ClusterFilter) ([]*ClusterInfo, int64, error) {
-	clusters, total, err := s.List(ctx, filter)
+	infos, total, _, err := s.ListWithInfoAndWarnings(ctx, filter)
+	return infos, total, err
+}
+
+// ListWithInfoAndWarnings 同 ListWithInfo，并返回 config 软加载产生的 warnings。
+// ListWithInfoAndWarnings is ListWithInfo plus warnings from soft-loaded configs.
+func (s *Service) ListWithInfoAndWarnings(ctx context.Context, filter *ClusterFilter) ([]*ClusterInfo, int64, []string, error) {
+	// 与 List 一致：先按节点刷新状态，再取最终页并带上 warnings。
+	// Same as List: refresh status from nodes, then re-fetch the page with warnings.
+	clusters, _, err := s.repo.List(ctx, filter)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
+	}
+	for _, c := range clusters {
+		s.updateClusterStatusFromNodes(ctx, c.ID)
+	}
+
+	clusters, total, warnings, err := s.repo.ListWithWarnings(ctx, filter)
+	if err != nil {
+		return nil, 0, nil, err
 	}
 
 	infos := make([]*ClusterInfo, len(clusters))
@@ -629,7 +646,7 @@ func (s *Service) ListWithInfo(ctx context.Context, filter *ClusterFilter) ([]*C
 		infos[i] = s.clusterInfoWithStatus(ctx, c)
 	}
 
-	return infos, total, nil
+	return infos, total, warnings, nil
 }
 
 // GetWithInfo 获取单个集群并填充 online_nodes 与 health_status，与列表接口口径一致。

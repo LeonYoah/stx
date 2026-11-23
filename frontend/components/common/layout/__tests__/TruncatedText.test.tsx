@@ -15,31 +15,40 @@
  * limitations under the License.
  */
 
-import {describe, it, expect} from 'vitest';
-import {render, screen} from '@testing-library/react';
-import {NextIntlClientProvider} from 'next-intl';
+import {act, fireEvent, render, screen} from '@testing-library/react';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
   TruncatedText,
   splitPathForMiddleEllipsis,
 } from '../TruncatedText';
+import {resetOverflowTooltipWarmth} from '../OverflowTooltip';
 
-const messages = {
-  common: {
-    copy: 'Copy',
-    copied: 'Copied',
+vi.mock('next-intl', () => ({
+  useTranslations: () => (key: string) => key,
+}));
+
+vi.mock('@/lib/toast', () => ({
+  toast: {
+    success: vi.fn(),
   },
-};
+}));
 
-function wrap(ui: React.ReactElement) {
-  return (
-    <NextIntlClientProvider locale='en' messages={messages}>
-      {ui}
-    </NextIntlClientProvider>
-  );
+function mockElementOverflow(
+  el: HTMLElement,
+  {scrollWidth, clientWidth}: {scrollWidth: number; clientWidth: number},
+) {
+  Object.defineProperty(el, 'scrollWidth', {
+    configurable: true,
+    value: scrollWidth,
+  });
+  Object.defineProperty(el, 'clientWidth', {
+    configurable: true,
+    value: clientWidth,
+  });
 }
 
 describe('splitPathForMiddleEllipsis', () => {
-  it('splits deep JDK paths while preserving distinguishing tail segments', () => {
+  it('splits long unix paths while preserving distinguishing tail segments', () => {
     expect(
       splitPathForMiddleEllipsis(
         '/Library/Java/JavaVirtualMachines/jdk-26.jdk/Contents/Home',
@@ -50,8 +59,10 @@ describe('splitPathForMiddleEllipsis', () => {
     ]);
   });
 
-  it('keeps short 2-segment paths intact without splitting', () => {
+  it('keeps short paths as a single node without splitting', () => {
+    expect(splitPathForMiddleEllipsis('/usr/lib/jvm/java-8')).toBeNull();
     expect(splitPathForMiddleEllipsis('/opt/jdk11')).toBeNull();
+    expect(splitPathForMiddleEllipsis('plain-text-value')).toBeNull();
     expect(splitPathForMiddleEllipsis('Auto detect')).toBeNull();
   });
 
@@ -63,22 +74,92 @@ describe('splitPathForMiddleEllipsis', () => {
 });
 
 describe('TruncatedText', () => {
-  it('renders fallback when text is empty', () => {
-    render(wrap(<TruncatedText text='' fallback='—' />));
-    expect(screen.getByText('—')).toBeInTheDocument();
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetOverflowTooltipWarmth();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('mounts zero tooltip portals at rest and when hovering non-overflowing text', () => {
+    render(<TruncatedText text='Short job name' data-testid='cell' />);
+
+    const cell = screen.getByTestId('cell');
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(cell.getAttribute('title')).toBeNull();
+
+    mockElementOverflow(cell, {scrollWidth: 100, clientWidth: 120});
+    fireEvent.pointerEnter(cell, {pointerType: 'mouse'});
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('lazily mounts a single tooltip portal on overflow after hover delay and unmounts on leave or Escape', () => {
+    render(
+      <TruncatedText
+        text='very-long-seatunnel-sync-job-name-that-overflows-narrow-column'
+        data-testid='cell'
+      />,
+    );
+
+    const cell = screen.getByTestId('cell');
+    mockElementOverflow(cell, {scrollWidth: 320, clientWidth: 120});
+
+    fireEvent.pointerEnter(cell, {pointerType: 'mouse'});
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(180);
+    });
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toHaveTextContent(
+      'very-long-seatunnel-sync-job-name-that-overflows-narrow-column',
+    );
+
+    fireEvent.keyDown(window, {key: 'Escape'});
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    // 300ms 温热窗口内再次移入相邻单元格应立即打开，无额外延迟。
+    // Within the 300ms warm window, hovering another overflowing cell opens immediately.
+    fireEvent.pointerEnter(cell, {pointerType: 'mouse'});
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+
+    fireEvent.pointerLeave(cell);
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('forwards data-detail-name for DetailHost fly-in and renders fallback when empty', () => {
+    const {rerender} = render(
+      <TruncatedText text='OOM Error Group' detailName data-testid='title' />,
+    );
+    expect(screen.getByTestId('title')).toHaveAttribute('data-detail-name');
+
+    rerender(<TruncatedText text='' fallback='—' data-testid='title' />);
+    expect(screen.getByTestId('title')).toHaveTextContent('—');
+  });
+
+  it('only renders copy button when copyable is enabled', () => {
+    const {rerender} = render(<TruncatedText text='/opt/seatunnel/bin' />);
+    expect(screen.queryByRole('button')).toBeNull();
+
+    rerender(<TruncatedText text='/opt/seatunnel/bin' copyable />);
+    expect(screen.getByRole('button', {name: 'copy'})).toBeInTheDocument();
   });
 
   it('keeps full textContent intact in path mode', () => {
     const full = '/Library/Java/JavaVirtualMachines/jdk-26.jdk/Contents/Home';
     render(
-      wrap(
-        <TruncatedText
-          text={full}
-          mode='path'
-          mono
-          data-testid='jdk-path-trunc'
-        />,
-      ),
+      <TruncatedText
+        text={full}
+        mode='path'
+        mono
+        data-testid='jdk-path-trunc'
+      />,
     );
     expect(screen.getByTestId('jdk-path-trunc')).toHaveTextContent(full);
   });

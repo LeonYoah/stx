@@ -1003,6 +1003,9 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 				zap.Int32("pid", report.Pid),
 				zap.String("status", processStatus),
 			)
+			// 与心跳路径对齐：节点进程状态变更后重算集群 status，避免事件已是 running 而 cluster.status 仍停。
+			// Align with heartbeat: refresh cluster.status after node process updates so it does not lag behind events.
+			clusterNodeProvider.RefreshClusterStatusFromNodes(ctx, clusterID)
 		}
 	}
 

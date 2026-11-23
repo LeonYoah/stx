@@ -24,12 +24,7 @@
 
 import {useTranslations} from 'next-intl';
 import {Badge} from '@/components/ui/badge';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import {TruncatedText} from '@/components/common/layout';
 import {Globe, KeyRound, User} from 'lucide-react';
 import {cn} from '@/lib/utils';
 import {AuditLogInfo} from '@/lib/services/audit/types';
@@ -275,16 +270,18 @@ export function AuditLogTable({logs, onOpenTrace}: AuditLogTableProps) {
             <div className={layout.rowName}>
               <div className={layout.rowNameInline}>
                 <User className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
-                <span className={layout.name} title={getActorLabel(log, t)}>
-                  {getActorLabel(log, t)}
-                </span>
+                <TruncatedText
+                  text={getActorLabel(log, t)}
+                  className={layout.name}
+                />
               </div>
             </div>
             <div className={cn(layout.sub, 'flex min-w-0 items-center gap-1.5 font-mono text-xs')}>
               <KeyRound className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
-              <span className='truncate whitespace-nowrap' title={getTokenLabel(log, t)}>
-                {getTokenLabel(log, t)}
-              </span>
+              <TruncatedText
+                text={getTokenLabel(log, t)}
+                className='whitespace-nowrap'
+              />
             </div>
             <span className={layout.sub}>{getSourceLabel(log, t)}</span>
             <Badge variant={getActionBadgeVariant(log.action)}>
@@ -293,25 +290,23 @@ export function AuditLogTable({logs, onOpenTrace}: AuditLogTableProps) {
             <Badge variant='outline'>
               {getResourceTypeLabel(log.resource_type, t)}
             </Badge>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className={cn(layout.sub, 'truncate')}>
-                    {formatResourceDisplay(
-                      log.resource_type,
-                      log.resource_id || '',
-                      log.resource_name || '',
-                      log.details,
-                      t,
-                    )}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
+            <TruncatedText
+              text={formatResourceDisplay(
+                log.resource_type,
+                log.resource_id || '',
+                log.resource_name || '',
+                log.details,
+                t,
+              )}
+              tooltip={
+                <div>
                   <p>ID: {log.resource_id || '-'}</p>
                   <p>Name: {log.resource_name || '-'}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+                </div>
+              }
+              alwaysTooltip
+              className={layout.sub}
+            />
             <div>
               {log.command_count && log.request_id && onOpenTrace ? (
                 <button

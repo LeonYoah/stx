@@ -295,4 +295,120 @@ describe('ClusterMain', () => {
     // 旧数据仍然可见 / Stale rows stay visible
     expect(screen.getByTestId('cluster-row-1')).toBeInTheDocument();
   });
+
+  it('shows error state instead of empty state when list load fails, including after retry', async () => {
+    getClustersSafe.mockResolvedValue({
+      success: false,
+      error: 'sql: Scan error on column index 8',
+    });
+    renderMain();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('sql: Scan error on column index 8'),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByText(zh.cluster.list.emptyFirstTitle),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', {name: zh.common.retry}));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('sql: Scan error on column index 8'),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByText(zh.cluster.list.emptyFirstTitle),
+    ).not.toBeInTheDocument();
+    expect(getClustersSafe.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('surfaces config soft-load warnings from the list response', async () => {
+    getClustersSafe.mockResolvedValueOnce({
+      success: true,
+      data: {
+        total: 1,
+        clusters: [
+          makeCluster({
+            id: 7,
+            name: 'degraded',
+            config_error: 'invalid config JSON',
+          }),
+        ],
+        warnings: ['cluster "degraded" (id=7): invalid config JSON'],
+      },
+    });
+    renderMain();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('cluster-list-warnings')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('cluster-config-error-7')).toBeInTheDocument();
+    expect(
+      screen.getByText(zh.cluster.list.configReadFailed),
+    ).toBeInTheDocument();
+  });
+
+  it('hides stale config warnings while the list request is in error', async () => {
+    getClustersSafe.mockResolvedValueOnce({
+      success: true,
+      data: {
+        total: 1,
+        clusters: [
+          makeCluster({
+            id: 7,
+            name: 'degraded',
+            config_error: 'invalid config JSON',
+          }),
+        ],
+        warnings: ['cluster "degraded" (id=7): invalid config JSON'],
+      },
+    });
+    renderMain();
+    await waitFor(() => {
+      expect(screen.getByTestId('cluster-list-warnings')).toBeInTheDocument();
+    });
+
+    getClustersSafe.mockResolvedValueOnce({
+      success: false,
+      error: 'network timeout',
+    });
+    fireEvent.click(screen.getByRole('button', {name: zh.common.refresh}));
+
+    await waitFor(() => {
+      expect(screen.getByText('network timeout')).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId('cluster-list-warnings'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('marks config read failures in grid card view', async () => {
+    currentSearch = 'view=grid';
+    getClustersSafe.mockResolvedValueOnce({
+      success: true,
+      data: {
+        total: 1,
+        clusters: [
+          makeCluster({
+            id: 8,
+            name: 'card-degraded',
+            config_error: 'invalid config JSON',
+          }),
+        ],
+        warnings: ['cluster "card-degraded" (id=8): invalid config JSON'],
+      },
+    });
+    renderMain();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('cluster-card-8')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('cluster-config-error-8')).toBeInTheDocument();
+    expect(
+      screen.getByText(zh.cluster.list.configReadFailed),
+    ).toBeInTheDocument();
+  });
 });

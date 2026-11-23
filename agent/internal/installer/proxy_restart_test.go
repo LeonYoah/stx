@@ -206,6 +206,50 @@ func TestRestartRunningSTXJavaProxiesNotRunning(t *testing.T) {
 	}
 }
 
+// 升级前的旧版 Agent 状态目录（无 instances/<id>）里仍有存活的 proxy：新 Agent 必须能
+// 接管它——GetManaged 找回 PID、Stop 能停掉，且日志预览指向旧路径。
+// A live proxy whose state still sits in the pre-instance-dir layout must be adoptable
+// after upgrade: GetManaged recovers its PID, Stop kills it, and the log preview keeps
+// pointing at the old file until restart.
+func TestManagedSTXJavaProxyAdoptsLegacyStateDirProcess(t *testing.T) {
+	skipUnlessLinux(t)
+	agentHome := t.TempDir()
+	t.Setenv(stxJavaProxyHomeEnvVar, agentHome)
+	installDir := "/opt/legacy-seatunnel"
+	legacyDir := stxJavaProxyServiceLegacyStateDir(installDir)
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatalf("create legacy state dir: %v", err)
+	}
+	pid := startFakeProcess(t, "stx-java-proxy", "-DSEATUNNEL_HOME="+installDir)
+	if err := os.WriteFile(filepath.Join(legacyDir, "service.pid"), []byte(strconv.Itoa(pid)+"\n"), 0o644); err != nil {
+		t.Fatalf("write legacy service.pid: %v", err)
+	}
+	legacyLog := filepath.Join(legacyDir, "service.log")
+	if err := os.WriteFile(legacyLog, []byte("legacy log\n"), 0o644); err != nil {
+		t.Fatalf("write legacy service.log: %v", err)
+	}
+
+	status, err := GetManagedSTXJavaProxyServiceStatus(context.Background(), installDir)
+	if err != nil {
+		t.Fatalf("GetManagedSTXJavaProxyServiceStatus: %v", err)
+	}
+	if status.PID != pid || !status.Running {
+		t.Fatalf("expected adopted legacy pid %d running, got %+v", pid, status)
+	}
+	if status.LogPath != legacyLog {
+		t.Fatalf("legacy proxy must keep its old log path, got %s", status.LogPath)
+	}
+
+	stopped, err := StopManagedSTXJavaProxyService(context.Background(), installDir)
+	if err != nil {
+		t.Fatalf("stop must own the legacy proxy: %v", err)
+	}
+	if stopped.Running {
+		t.Fatalf("expected stopped status, got %+v", stopped)
+	}
+	waitFor(t, func() bool { return !alive(pid) })
+}
+
 func TestIsSeaTunnelEngineCommandLine(t *testing.T) {
 	if !IsSeaTunnelEngineCommandLine("java -cp x org.apache.seatunnel.core.starter.seatunnel.SeaTunnelServer -c conf") {
 		t.Fatal("SeaTunnel server must be recognised")

@@ -938,6 +938,15 @@ func stxJavaProxyServiceStateDir(installDir string) string {
 	return filepath.Join(base, "instances", stxJavaProxyInstallDirInstanceID(cleanInstallDir))
 }
 
+// stxJavaProxyServiceLegacyStateDir 返回引入实例分目录之前的状态目录（base 层）。
+// installDir 为空时与新目录相同（旧路径本身就是共享目录）。
+// stxJavaProxyServiceLegacyStateDir returns the state dir used before per-instance
+// dirs existed (the base layer). With an empty installDir it equals the new dir,
+// which kept the legacy shared path.
+func stxJavaProxyServiceLegacyStateDir(installDir string) string {
+	return filepath.Join(resolveSTXJavaProxyHome(installDir), "logs", stxJavaProxyServiceDirName)
+}
+
 // stxJavaProxyInstallDirInstanceID 返回 installDir 的稳定短实例 ID（sha256 前 12 位十六进制），
 // 仅做状态目录隔离用途，不承载安全语义。
 // stxJavaProxyInstallDirInstanceID returns the stable short instance ID of installDir

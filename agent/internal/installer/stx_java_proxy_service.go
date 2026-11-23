@@ -160,8 +160,26 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 		LogPath:  filepath.Join(stxJavaProxyServiceStateDir(installDir), "service.log"),
 	}
 
-	if jvmBytes, err := os.ReadFile(filepath.Join(status.StateDir, "service.jvm_opts")); err == nil {
-		status.JvmOpts = strings.TrimSpace(string(jvmBytes))
+	// 升级兼容：引入实例分目录之前的状态文件直接写在 service 根目录，升级后仍在运行的
+	// 旧 proxy 只存在于旧目录。新目录缺失时回退读取旧目录，否则旧进程既无法被认领也
+	// 无法被停止，重启会因端口被占失败。
+	// Upgrade compat: state files written before per-instance dirs lived directly under
+	// the service dir, and an upgraded legacy proxy only exists there. Falling back to the
+	// legacy dir lets status adopt (and Stop/Restart own) a proxy still holding its port.
+	legacyDir := stxJavaProxyServiceLegacyStateDir(installDir)
+	readStateFile := func(name string) (string, bool) {
+		if bytes, err := os.ReadFile(filepath.Join(status.StateDir, name)); err == nil {
+			return string(bytes), false
+		}
+		bytes, err := os.ReadFile(filepath.Join(legacyDir, name))
+		if err != nil {
+			return "", false
+		}
+		return string(bytes), true
+	}
+
+	if content, _ := readStateFile("service.jvm_opts"); content != "" {
+		status.JvmOpts = strings.TrimSpace(content)
 	}
 
 	if endpoint := strings.TrimSpace(os.Getenv(stxJavaProxyEndpointEnvVar)); endpoint != "" {
@@ -185,15 +203,19 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 		return status, nil
 	}
 
-	if bytes, err := os.ReadFile(filepath.Join(status.StateDir, "service.port")); err == nil {
-		if port, ok := parseSTXJavaProxyPort(strings.TrimSpace(string(bytes))); ok {
+	portFromLegacy := false
+	if content, fromLegacy := readStateFile("service.port"); content != "" {
+		if port, ok := parseSTXJavaProxyPort(strings.TrimSpace(content)); ok {
 			status.Port = port
 			status.Endpoint = stxJavaProxyServiceBaseURL(port)
+			portFromLegacy = fromLegacy
 		}
 	}
-	if bytes, err := os.ReadFile(filepath.Join(status.StateDir, "service.pid")); err == nil {
-		if pid, err := strconv.Atoi(strings.TrimSpace(string(bytes))); err == nil && pid > 0 {
+	pidFromLegacy := false
+	if content, fromLegacy := readStateFile("service.pid"); content != "" {
+		if pid, err := strconv.Atoi(strings.TrimSpace(content)); err == nil && pid > 0 {
 			status.PID = pid
+			pidFromLegacy = fromLegacy
 		}
 	}
 	// 状态文件 PID 已失效时清零，后续按端口回填真实监听进程。
@@ -275,6 +297,16 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 		}
 	}
 
+	// 从旧目录接管的在跑进程仍写旧日志文件；重启前预览继续指向旧路径，避免读到一个
+	// 刚被 touch 出来的空文件。/ A running process adopted from the legacy dir still writes
+	// its old log; keep the preview on it until restart so the preview is not an empty file.
+	if status.Running && status.PID > 0 && (pidFromLegacy || portFromLegacy) {
+		legacyLog := filepath.Join(legacyDir, "service.log")
+		if _, err := os.Stat(legacyLog); err == nil {
+			status.LogPath = legacyLog
+		}
+	}
+
 	if status.Managed && strings.TrimSpace(status.LogPath) != "" && status.Running {
 		if _, err := os.Stat(status.LogPath); os.IsNotExist(err) {
 			_ = os.MkdirAll(filepath.Dir(status.LogPath), 0o755)
@@ -300,9 +332,16 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 // Skip when no state file is present so uninstall does not probe the default port and kill an unrelated listener.
 func stopTrackedSTXJavaProxy(ctx context.Context, installDir string) {
 	stateDir := stxJavaProxyServiceStateDir(installDir)
-	pidFile := filepath.Join(stateDir, "service.pid")
-	portFile := filepath.Join(stateDir, "service.port")
-	if !fileExists(pidFile) && !fileExists(portFile) {
+	// 旧版 Agent 的 service.pid/service.port 可能在实例分目录前的旧目录里，同样视为有
+	// 可停目标；真正的归属与存活校验在 GetManaged 里做。/ Older agents may have left
+	// service.pid/service.port in the pre-instance dir; either counts as a stoppable
+	// target — ownership and liveness are still verified inside GetManaged.
+	legacyDir := stxJavaProxyServiceLegacyStateDir(installDir)
+	hasState := fileExists(filepath.Join(stateDir, "service.pid")) ||
+		fileExists(filepath.Join(stateDir, "service.port")) ||
+		fileExists(filepath.Join(legacyDir, "service.pid")) ||
+		fileExists(filepath.Join(legacyDir, "service.port"))
+	if !hasState {
 		return
 	}
 	if _, err := StopManagedSTXJavaProxyService(ctx, installDir); err != nil {

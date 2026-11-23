@@ -22,6 +22,7 @@
 
 import { BaseService } from '../core/base.service';
 import apiClient from '../core/api-client';
+import {translateApiError} from '@/lib/i18n/api-error-text';
 import type {
   Plugin,
   InstalledPlugin,
@@ -407,7 +408,7 @@ export class PluginService extends BaseService {
       throw new Error(response.data.error_msg);
     }
     if (!response.data.data) {
-      throw new Error('上传依赖返回为空 / Empty upload dependency response');
+      throw new Error(translateApiError('upload.depEmpty', '上传依赖返回为空'));
     }
     return response.data.data;
   }

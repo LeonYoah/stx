@@ -704,7 +704,7 @@ export function CheckpointWorkspacePanel({
                         >
                           #{item.checkpoint?.checkpointId || '-'} · {dur}ms ·{' '}
                           {item.checkpoint?.status || 'UNKNOWN'}
-                          {canInspect && ' (点击查看 / Click to inspect)'}
+                          {canInspect && ` (${t('clickToInspect')})`}
                         </TooltipContent>
                       </Tooltip>
                     );

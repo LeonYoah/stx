@@ -101,7 +101,25 @@
       "prev": "Previous item",
       "next": "Next item"
     },
-    "searchClear": "Clear search"
+    "searchClear": "Clear search",
+    "dragToReorder": "Drag to reorder"
+  },
+  "apiErrors": {
+    "network": {
+      "timeout": "Request timed out. Check your network connection.",
+      "forbidden": "Insufficient permissions.",
+      "payloadTooLarge": "The upload is too large or blocked by a gateway limit (e.g. Cloudflare/Nginx body size). Use a smaller file, a direct entrypoint, or let the server download it instead.",
+      "serverError": "Internal server error. Please try again later.",
+      "failed": "Network request failed"
+    },
+    "upload": {
+      "fileEmpty": "Upload file is empty",
+      "chunkEmpty": "Empty chunk upload response",
+      "chunkIncomplete": "Chunk upload did not complete; please retry",
+      "sourceEmpty": "Empty source upload response",
+      "sourceFetchEmpty": "Empty source fetch response",
+      "depEmpty": "Empty upload dependency response"
+    }
   },
   "dashboard": {
     "title": "Console",
@@ -6072,7 +6090,8 @@
     "previewEmptyString": "(empty)",
     "copyCellValue": "Copy {column} value",
     "previewResizeColumn": "Resize {column} column",
-    "previewReorderColumn": "Drag to reorder {column} column"
+    "previewReorderColumn": "Drag to reorder {column} column",
+    "clickToInspect": "Click to inspect"
   },
   "troubleshooting": {
     "title": "Playbooks",

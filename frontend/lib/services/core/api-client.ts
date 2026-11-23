@@ -17,6 +17,8 @@
 
 import axios, {AxiosError, AxiosResponse} from 'axios';
 import {ApiError, ApiResponse} from './types';
+import {getCurrentLocale} from '@/lib/i18n/config';
+import {translateApiError} from '@/lib/i18n/api-error-text';
 
 /**
  * API客户端实例
@@ -37,9 +39,19 @@ const apiClient = axios.create({
  * 请求拦截器
  * 确保所有请求带上凭证
  */
+export function applyRequestLocale(config: {
+  headers?: Record<string, unknown>;
+}): void {
+  const headers = (config.headers ??= {});
+  if (headers['Accept-Language'] == null) {
+    headers['Accept-Language'] = getCurrentLocale();
+  }
+}
+
 apiClient.interceptors.request.use(
   (config) => {
     config.withCredentials = true;
+    applyRequestLocale(config);
     return config;
   },
   (error) => Promise.reject(error),
@@ -81,7 +93,12 @@ apiClient.interceptors.response.use(
 
     // 处理后端返回的错误信息
     if (error.response?.data?.error_msg) {
-      const apiError = new Error(error.response.data.error_msg);
+      const apiError = new Error(
+        translateApiError(
+          error.response.data.error_code,
+          error.response.data.error_msg,
+        ),
+      );
       apiError.name = 'ApiError';
       // 保留结构化错误数据，供需要二次确认的写操作继续提交。
       // Preserve structured error data so confirmed writes can be retried safely.
@@ -97,29 +114,42 @@ apiClient.interceptors.response.use(
 
     // 处理网络错误
     if (error.code === 'ECONNABORTED') {
-      return Promise.reject(new Error('请求超时，请检查网络连接'));
+      return Promise.reject(
+        new Error(translateApiError('network.timeout', '网络请求失败')),
+      );
     }
 
     // 处理权限错误
     if (error.response?.status === 403) {
-      return Promise.reject(new Error('权限不足'));
+      return Promise.reject(
+        new Error(translateApiError('network.forbidden', '权限不足')),
+      );
     }
 
     // 处理请求体过大（常见于网关上传限制）
     if (error.response?.status === 413) {
       return Promise.reject(
         new Error(
-          '上传文件过大或被网关限制（如 Cloudflare/Nginx body size 限制）。请使用更小文件、直连入口，或改用服务器下载。',
+          translateApiError(
+            'network.payloadTooLarge',
+            '上传文件过大或被网关限制，请使用更小文件或改用服务器下载',
+          ),
         ),
       );
     }
 
     // 处理服务器错误
     if (error.response && error.response.status >= 500) {
-      return Promise.reject(new Error('服务器内部错误，请稍后重试'));
+      return Promise.reject(
+        new Error(translateApiError('network.serverError', '服务器内部错误，请稍后重试')),
+      );
     }
 
-    return Promise.reject(new Error(error.message || '网络请求失败'));
+    return Promise.reject(
+      new Error(
+        error.message || translateApiError('network.failed', '网络请求失败'),
+      ),
+    );
   },
 );
 

@@ -2276,6 +2276,12 @@ func (a *configPortMetadataUpdaterAdapter) UpdateHazelcastPortByHost(ctx context
 		return err
 	}
 	var clusterObj *cluster.Cluster
+	if configType == appconfig.ConfigTypeHazelcast {
+		if clusterObj, _ = a.clusterRepo.GetByID(ctx, clusterID, false); clusterObj != nil &&
+			clusterObj.DeploymentMode == cluster.DeploymentModeSeparated {
+			return nil
+		}
+	}
 	for _, node := range nodes {
 		if node == nil || node.ClusterID != clusterID {
 			continue

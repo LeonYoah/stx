@@ -709,7 +709,17 @@ func (s *Service) Delete(ctx context.Context, id uint, forceRemoveInstallDir boo
 	// Get cluster with nodes to send stop to each node's agent (best effort)
 	// 获取带节点的集群，向各节点 Agent 发送停止命令（尽力而为）
 	clusterWithNodes, err := s.repo.GetByID(ctx, id, true)
-	if err == nil && len(clusterWithNodes.Nodes) > 0 {
+	if err != nil {
+		return err
+	}
+	// 集群状态非 running 时仍可能有节点进程在跑（如 degraded/error）；必须先停再删。
+	// Cluster status may be non-running while node processes still live (e.g. degraded/error); stop first.
+	for i := range clusterWithNodes.Nodes {
+		if NodeHasActiveProcess(&clusterWithNodes.Nodes[i]) {
+			return ErrClusterHasRunningTask
+		}
+	}
+	if len(clusterWithNodes.Nodes) > 0 {
 		s.stopProcessesForDeletion(ctx, clusterWithNodes)
 		if forceRemoveInstallDir {
 			s.removeInstallDirOnAgents(ctx, clusterWithNodes)
@@ -1398,6 +1408,19 @@ func (s *Service) AddNodes(ctx context.Context, clusterID uint, req *AddNodesReq
 	return createdNodes, nil
 }
 
+// NodeHasActiveProcess 判断节点是否仍有受管进程（运行中/安装中或仍登记 PID）。
+// NodeHasActiveProcess reports whether the node still has a managed process (running/installing or a recorded PID).
+func NodeHasActiveProcess(node *ClusterNode) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Status {
+	case NodeStatusRunning, NodeStatusInstalling:
+		return true
+	}
+	return node.ProcessPID > 0
+}
+
 // RemoveNode removes a node from a cluster.
 // RemoveNode 从集群中移除节点。
 // Requirements: 7.4 - Removes node from cluster.
@@ -1411,6 +1434,11 @@ func (s *Service) RemoveNode(ctx context.Context, clusterID uint, nodeID uint) e
 
 	if node.ClusterID != clusterID {
 		return ErrNodeNotFound
+	}
+	// 运行中移除只删记录会留下孤儿 SeaTunnel 进程；必须先停止。
+	// Removing a running node only deletes the record and leaves an orphan SeaTunnel process; stop first.
+	if NodeHasActiveProcess(node) {
+		return ErrNodeStillRunning
 	}
 
 	if err := s.repo.RemoveNode(ctx, nodeID); err != nil {
@@ -1429,6 +1457,16 @@ func (s *Service) RemoveNode(ctx context.Context, clusterID uint, nodeID uint) e
 // RemoveNodeByHostID removes a node from a cluster by host ID.
 // RemoveNodeByHostID 根据主机 ID 从集群中移除节点。
 func (s *Service) RemoveNodeByHostID(ctx context.Context, clusterID uint, hostID uint) error {
+	node, err := s.repo.GetNodeByClusterAndHost(ctx, clusterID, hostID)
+	if err != nil {
+		return err
+	}
+	if node == nil {
+		return ErrNodeNotFound
+	}
+	if NodeHasActiveProcess(node) {
+		return ErrNodeStillRunning
+	}
 	if err := s.repo.RemoveNodeByClusterAndHost(ctx, clusterID, hostID); err != nil {
 		return err
 	}

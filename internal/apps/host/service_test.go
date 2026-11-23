@@ -1119,3 +1119,31 @@ func TestUpdateHeartbeatPersistsTimezone(t *testing.T) {
 		t.Fatalf("HostInfo.Timezone = %q", info.Timezone)
 	}
 }
+
+// TestDeleteRejectsHostWithRunningNode 主机上仍有运行中节点时拒绝删除并提示先停止。
+// TestDeleteRejectsHostWithRunningNode rejects host deletion when a cluster node is still running.
+func TestDeleteRejectsHostWithRunningNode(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+	clusterRepo := cluster.NewRepository(db)
+	svc := NewService(NewRepository(db), clusterRepo, nil)
+	ctx := context.Background()
+
+	host, err := svc.Create(ctx, &CreateHostRequest{Name: "running-host", IPAddress: "10.0.0.9"})
+	if err != nil {
+		t.Fatalf("create host: %v", err)
+	}
+	clusterObj := &cluster.Cluster{Name: "running-c", DeploymentMode: cluster.DeploymentModeHybrid, Status: cluster.ClusterStatusRunning}
+	if err := clusterRepo.Create(ctx, clusterObj); err != nil {
+		t.Fatalf("create cluster: %v", err)
+	}
+	if err := clusterRepo.AddNode(ctx, &cluster.ClusterNode{
+		ClusterID: clusterObj.ID, HostID: host.ID, Role: cluster.NodeRoleMasterWorker,
+		InstallDir: "/opt/st", HazelcastPort: 5801, Status: cluster.NodeStatusRunning, ProcessPID: 99,
+	}); err != nil {
+		t.Fatalf("add running node: %v", err)
+	}
+	if err := svc.Delete(ctx, host.ID); err != ErrHostHasRunningNode {
+		t.Fatalf("expected ErrHostHasRunningNode, got %v", err)
+	}
+}

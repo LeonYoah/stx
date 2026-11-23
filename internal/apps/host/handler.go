@@ -273,9 +273,9 @@ func (h *Handler) DeleteHost(c *gin.Context) {
 
 	if err := h.service.Delete(c.Request.Context(), uint(hostID)); err != nil {
 		statusCode := h.getStatusCodeForError(err)
-		// If host has associated clusters, return the cluster info
-		// 如果主机关联了集群，返回集群信息
-		if errors.Is(err, ErrHostHasCluster) {
+		// 关联了集群或仍有运行中节点时，一并返回关联集群列表便于前端提示。
+		// When clusters are linked or nodes are still running, also return associated clusters for UI tips.
+		if errors.Is(err, ErrHostHasCluster) || errors.Is(err, ErrHostHasRunningNode) {
 			clusters, _ := h.service.GetAssociatedClusters(c.Request.Context(), uint(hostID))
 			c.JSON(statusCode, DeleteHostResponse{
 				ErrorMsg: err.Error(),
@@ -342,7 +342,8 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		errors.Is(err, ErrK8sAPIURLInvalid),
 		errors.Is(err, ErrK8sCredentialsRequired):
 		return http.StatusBadRequest
-	case errors.Is(err, ErrHostHasCluster):
+	case errors.Is(err, ErrHostHasCluster),
+		errors.Is(err, ErrHostHasRunningNode):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError

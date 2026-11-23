@@ -1264,7 +1264,8 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		errors.Is(err, ErrInvalidDeploymentMode),
 		errors.Is(err, ErrInvalidNodeRole):
 		return http.StatusBadRequest
-	case errors.Is(err, ErrClusterHasRunningTask):
+	case errors.Is(err, ErrClusterHasRunningTask),
+		errors.Is(err, ErrNodeStillRunning):
 		return http.StatusConflict
 	case errors.Is(err, ErrNodeNotFound):
 		return http.StatusNotFound

@@ -808,3 +808,28 @@ func writeDolphinOK(writer http.ResponseWriter, data any) {
 	writer.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(writer).Encode(map[string]any{"code": 0, "msg": "success", "data": data})
 }
+
+func TestDolphinCrontab(t *testing.T) {
+	cases := map[string]string{
+		"*/5 * * * *":   "0 */5 * ? * *",
+		"0 9 * * 1":     "0 0 9 ? * 2",
+		"0 9 * * 0":     "0 0 9 ? * 1",
+		"0 9 * * 7":     "0 0 9 ? * 1",
+		"0 9 * * 1-5":   "0 0 9 ? * 2-6",
+		"0 9 1 * *":     "0 0 9 1 * ?",
+		"0 9 1 * 3":     "0 0 9 1 * ?",
+		"0 9 * * 1,3,5": "0 0 9 ? * 2,4,6",
+		"0 0 9 * * ? *": "0 0 9 * * ? *",
+	}
+	for in, want := range cases {
+		if got := dolphinCrontab(in); got != want {
+			t.Fatalf("dolphinCrontab(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if w := domDowWarning("0 9 1 * 3"); w == "" {
+		t.Fatal("expected dom+dow restricted warning")
+	}
+	if w := domDowWarning("0 9 * * 3"); w != "" {
+		t.Fatalf("unexpected warning %q", w)
+	}
+}

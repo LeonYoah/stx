@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -369,6 +370,7 @@ func (s *Service) pushNewWorkflow(ctx context.Context, actor executionapp.Actor,
 	if req.UseBuiltinSchedule {
 		cronExpr, timezone := builtinScheduleForDolphin(task)
 		if cronExpr != "" {
+			result.Warning = joinWarning(result.Warning, domDowWarning(cronExpr))
 			if err := client.CreateSchedule(ctx, projectCode, graph.Code, dolphinCrontab(cronExpr), timezone); err != nil {
 				result.Warning = joinWarning(result.Warning, err.Error())
 			}
@@ -797,6 +799,7 @@ func dolphinCrontab(cronExpr string) string {
 	fields := strings.Fields(strings.TrimSpace(cronExpr))
 	switch len(fields) {
 	case 5:
+		fields[4] = quartzWeekday(fields[4])
 		if fields[2] != "*" {
 			fields[4] = "?"
 		} else {
@@ -805,6 +808,43 @@ func dolphinCrontab(cronExpr string) string {
 		return "0 " + strings.Join(fields, " ")
 	default:
 		return strings.TrimSpace(cronExpr)
+	}
+}
+
+func domDowWarning(cronExpr string) string {
+	fields := strings.Fields(strings.TrimSpace(cronExpr))
+	if len(fields) == 5 && fields[2] != "*" && fields[4] != "*" {
+		return "cron 同时限制日期与星期：DolphinScheduler 无法表达“或”语义，已按日期保留，星期规则被丢弃 / both day-of-month and day-of-week restricted; Quartz cannot express OR semantics, the day-of-week rule was dropped"
+	}
+	return ""
+}
+
+func quartzWeekday(expr string) string {
+	parts := strings.Split(expr, ",")
+	for i, part := range parts {
+		if sub := strings.IndexByte(part, '-'); sub >= 0 {
+			parts[i] = mapQuartzDow(part[:sub]) + "-" + mapQuartzDow(part[sub+1:])
+			continue
+		}
+		parts[i] = mapQuartzDow(part)
+	}
+	return strings.Join(parts, ",")
+}
+
+func mapQuartzDow(token string) string {
+	n, err := strconv.Atoi(strings.TrimSpace(token))
+	if err != nil {
+		return token
+	}
+	switch {
+	case n == 0:
+		return "1"
+	case n >= 1 && n <= 6:
+		return strconv.Itoa(n + 1)
+	case n == 7:
+		return "1"
+	default:
+		return token
 	}
 }
 

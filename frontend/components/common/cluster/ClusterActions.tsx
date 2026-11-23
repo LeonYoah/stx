@@ -32,7 +32,7 @@ import {
 
 interface ClusterActionsProps {
   cluster: ClusterInfo;
-  onOperationComplete: () => void;
+  onOperationComplete: (operation: OperationType) => void;
   variant?: 'default' | 'compact';
 }
 
@@ -45,7 +45,15 @@ export function ClusterActions({
   const {canStart, canStop, canRestart} = getClusterActionFlags(cluster);
   const {operatingClusterId, operatingAction, requestLifecycle, dialogs} =
     useClusterLifecycle({
-      onComplete: () => onOperationComplete(),
+      onComplete: (_cluster, action) => {
+        if (
+          action === OperationType.START ||
+          action === OperationType.STOP ||
+          action === OperationType.RESTART
+        ) {
+          onOperationComplete(action);
+        }
+      },
     });
 
   const busy = operatingClusterId === cluster.id;

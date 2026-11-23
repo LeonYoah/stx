@@ -96,6 +96,7 @@ import {
   ClusterStatus,
   ClusterStatusInfo,
   NodeInfo,
+  OperationType,
   RuntimeStorageDetails,
   RuntimeStorageSpec,
   RuntimeStorageValidationResult,
@@ -125,6 +126,8 @@ import {RuntimeStorageFileExplorer} from './RuntimeStorageFileExplorer';
 import {ClusterActions} from './ClusterActions';
 import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
 import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
+import {lifecycleTargetForOperation} from './lifecycle-status-poll';
+import {useLifecycleStatusPoll} from './useLifecycleStatusPoll';
 import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
 import {useOnboardingOptional} from '@/components/common/onboarding/OnboardingContext';
 
@@ -508,6 +511,8 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   /**
    * Load cluster data
    * 加载集群数据
+   * @returns 成功时返回主状态快照，供启停/重启后有界轮询判断是否达标。
+   *          On success returns a main-status snapshot for bounded post-lifecycle polling.
    */
   const loadClusterData = useCallback(
     async (isSilent = false) => {
@@ -521,13 +526,18 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           services.cluster.getClusterStatusSafe(clusterId),
         ]);
 
+        let nextCluster: ClusterInfo | null = null;
+        let nextNodes: NodeInfo[] | null = null;
+
         if (clusterResult.success && clusterResult.data) {
+          nextCluster = clusterResult.data;
           setCluster(clusterResult.data);
-        } else {
+        } else if (!isSilent) {
           toast.error(clusterResult.error || t('cluster.loadError'));
         }
 
         if (nodesResult.success && nodesResult.data) {
+          nextNodes = nodesResult.data;
           setNodes(nodesResult.data);
           void loadNodeJavaRuntimes(nodesResult.data);
         }
@@ -535,10 +545,21 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         if (statusResult.success && statusResult.data) {
           setClusterStatus(statusResult.data);
         }
+
+        if (nextCluster && nextNodes) {
+          return {
+            clusterStatus: nextCluster.status,
+            nodes: nextNodes,
+          };
+        }
+        return null;
       } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : t('cluster.loadError'),
-        );
+        if (!isSilent) {
+          toast.error(
+            error instanceof Error ? error.message : t('cluster.loadError'),
+          );
+        }
+        return null;
       } finally {
         if (!isSilent) {
           setLoading(false);
@@ -547,6 +568,27 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     },
     [clusterId, t, loadNodeJavaRuntimes],
   );
+
+  const {startLifecyclePoll} = useLifecycleStatusPoll({
+    loadSnapshot: () => loadClusterData(true),
+  });
+
+  const refreshMainStatusAfterLifecycle = useCallback(
+    async (
+      operation: OperationType | 'start' | 'stop' | 'restart',
+      scopeNodeIds?: number[],
+    ) => {
+      await loadClusterData(true);
+      startLifecyclePoll(lifecycleTargetForOperation(operation), {
+        scopeNodeIds,
+      });
+    },
+    [loadClusterData, startLifecyclePoll],
+  );
+
+  const refreshMainStatusFromEvents = useCallback(() => {
+    void loadClusterData(true);
+  }, [loadClusterData]);
 
   // 进行中的伸缩操作（页面刷新后恢复）/ Scaling operation in progress (restored after a page refresh)
   const [runningScaleOperation, setRunningScaleOperation] =
@@ -1276,7 +1318,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             ? t('cluster.nodeStartSuccessAutoRestart')
             : t('cluster.nodeStartSuccess'),
         );
-        loadClusterData();
+        await refreshMainStatusAfterLifecycle(OperationType.START, [node.id]);
       } else {
         toast.error(result.error || t('cluster.nodeStartError'));
       }
@@ -1295,7 +1337,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       const result = await services.cluster.stopNodeSafe(clusterId, node.id);
       if (result.success) {
         toast.success(t('cluster.nodeStopSuccess'));
-        loadClusterData();
+        await refreshMainStatusAfterLifecycle(OperationType.STOP, [node.id]);
       } else {
         toast.error(result.error || t('cluster.nodeStopError'));
       }
@@ -1328,7 +1370,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             ? t('cluster.nodeRestartSuccessAutoRestart')
             : t('cluster.nodeRestartSuccess'),
         );
-        loadClusterData();
+        await refreshMainStatusAfterLifecycle(OperationType.RESTART, [
+          node.id,
+        ]);
       } else {
         toast.error(result.error || t('cluster.nodeRestartError'));
       }
@@ -1378,7 +1422,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           ? t('cluster.batchStartSuccessAutoRestart')
           : t('cluster.batchStartSuccess'),
       );
-      loadClusterData();
+      await refreshMainStatusAfterLifecycle(
+        OperationType.START,
+        Array.from(selectedNodeIds),
+      );
     } finally {
       setIsOperating(false);
     }
@@ -1395,11 +1442,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     }
     setIsOperating(true);
     try {
-      for (const nodeId of selectedNodeIds) {
+      const scopeNodeIds = Array.from(selectedNodeIds);
+      for (const nodeId of scopeNodeIds) {
         await services.cluster.stopNodeSafe(clusterId, nodeId);
       }
       toast.success(t('cluster.batchStopSuccess'));
-      loadClusterData();
+      await refreshMainStatusAfterLifecycle(OperationType.STOP, scopeNodeIds);
     } finally {
       setIsOperating(false);
     }
@@ -1440,7 +1488,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           ? t('cluster.batchRestartSuccessAutoRestart')
           : t('cluster.batchRestartSuccess'),
       );
-      loadClusterData();
+      await refreshMainStatusAfterLifecycle(
+        OperationType.RESTART,
+        Array.from(selectedNodeIds),
+      );
     } finally {
       setIsOperating(false);
     }
@@ -1775,7 +1826,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           <div className='flex flex-wrap items-center gap-1.5'>
             <ClusterActions
               cluster={cluster}
-              onOperationComplete={() => void loadClusterData(true)}
+              onOperationComplete={(operation) => {
+                void refreshMainStatusAfterLifecycle(operation);
+              }}
             />
             <ArcButton
               type='button'
@@ -1920,6 +1973,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               onViewLogs={handleViewLogs}
               onEditNode={openEditNodeDialog}
               onRemoveNode={(node) => setNodeToRemove(node)}
+              onMainStatusRefresh={refreshMainStatusFromEvents}
             />
           ) : null}
         </ArcTabsContent>

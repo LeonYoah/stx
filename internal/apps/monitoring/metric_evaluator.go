@@ -431,7 +431,7 @@ func (e *MetricEvaluator) onRuleAlerts(_ context.Context, _ string, alerts ...*r
 			dropped := e.droppedDispatches.Add(1)
 			now := time.Now().UnixNano()
 			if last := e.lastDropWarnAt.Load(); now-last >= int64(metricEvaluatorDropWarnInterval) && e.lastDropWarnAt.CompareAndSwap(last, now) {
-				logger.WarnF(e.ctx, "[Observability] 告警投递队列已满，累计丢弃 %d 条；firing 告警按重推节奏自愈 / alert dispatch queue is full, %d records dropped so far; firing alerts self-heal on resend", dropped, dropped)
+				logger.WarnF(e.ctx, "alert dispatch queue is full, %d records dropped so far; firing alerts self-heal on resend", dropped)
 			}
 		}
 	}

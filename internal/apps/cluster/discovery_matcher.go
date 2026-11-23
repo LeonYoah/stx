@@ -125,8 +125,7 @@ func (s *Service) CreateClusterFromDiscovery(ctx context.Context, hostID uint, d
 	if err != nil {
 		return 0, err
 	}
-	logger.InfoF(ctx, "[Cluster] Created cluster %d from discovery at %s (java_home=%q) / 从发现结果创建集群 %d（目录 %s，java_home=%q）",
-		created.ID, installDir, clusterJavaHome, created.ID, installDir, clusterJavaHome)
+	logger.InfoF(ctx, "[Cluster] Created cluster %d from discovery at %s (java_home=%q)", created.ID, installDir, clusterJavaHome)
 	return created.ID, nil
 }
 

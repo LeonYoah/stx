@@ -31,6 +31,7 @@ IGNORE_MARK = "i18n-lint:ignore"
 
 CJK_RE = re.compile(r"[一-鿿]")
 EN_WORD_RE = re.compile(r"[A-Za-z]{2,}")
+TAG_TOKEN_RE = re.compile(r"[A-Za-z0-9.+_:/-]+")
 RULE_B_RE = re.compile(
     r'\.Query\(\s*"(?:lang|language|locale)"\s*\)'
     r'|\.GetHeader\(\s*"Accept-Language"\s*\)'
@@ -65,6 +66,21 @@ def _strip_interpolation(text: str) -> str:
     out = []
     i, n = 0, len(text)
     while i < n:
+        if text[i] == "{":
+            depth, j = 0, i
+            while j < n:
+                if text[j] == "{":
+                    depth += 1
+                elif text[j] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        j += 1
+                        break
+                j += 1
+            if j <= n and depth == 0:
+                out.append(" ")
+                i = j
+                continue
         if text[i] == "$" and i + 1 < n and text[i + 1] == "{":
             depth, j = 0, i + 1
             while j < n:
@@ -150,14 +166,22 @@ def iter_literals(text: str, allow_single_quote: bool):
 
 
 def _is_zh_segment(segment: str) -> bool:
-    return (
-        len(CJK_RE.findall(segment)) >= 2
-        and len(EN_WORD_RE.findall(segment)) <= 1
-    )
+    return len(CJK_RE.findall(segment)) >= 2 and len(EN_WORD_RE.findall(segment)) <= 3
 
 
 def _is_en_segment(segment: str) -> bool:
-    return CJK_RE.search(segment) is None and len(EN_WORD_RE.findall(segment)) >= 2
+    if CJK_RE.search(segment) is not None:
+        return False
+    words = EN_WORD_RE.findall(segment)
+    if not words:
+        return False
+    if len(words) <= 2:
+        tokens = segment.split()
+        if all(TAG_TOKEN_RE.fullmatch(t) for t in tokens) and any(
+            any(ch.isdigit() for ch in t) for t in tokens
+        ):
+            return False
+    return True
 
 
 def _paren_depth(text: str, pos: int) -> int:

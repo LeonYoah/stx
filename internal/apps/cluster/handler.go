@@ -1138,7 +1138,7 @@ func (h *Handler) ProxyWebUI(c *gin.Context) {
 	targetNode := h.webUIMaster.pick(c.Request.Context(), uint(clusterID), nodes)
 
 	if targetNode == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error_msg": "当前集群未找到可用的 SeaTunnel Web UI 节点 / No available SeaTunnel Web UI node found"})
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": locale.Pick(c.Request.Context(), "当前集群未找到可用的 SeaTunnel Web UI 节点", "No available SeaTunnel Web UI node found")})
 		return
 	}
 
@@ -1147,7 +1147,7 @@ func (h *Handler) ProxyWebUI(c *gin.Context) {
 		upstreamHost = strings.TrimSpace(targetNode.HostName)
 	}
 	if upstreamHost == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error_msg": "目标节点缺少主机地址，无法代理 Web UI / Target node has no host address for Web UI proxy"})
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": locale.Pick(c.Request.Context(), "目标节点缺少主机地址，无法代理 Web UI", "Target node has no host address for Web UI proxy")})
 		return
 	}
 

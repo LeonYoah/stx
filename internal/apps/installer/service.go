@@ -1421,7 +1421,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		return
 	}
 	task.Status = DownloadStatusDownloading
-	task.Message = "正在下载 / Downloading"
+	task.Message = locale.Pick(ctx, "正在下载", "Downloading")
 	s.downloadsMu.Unlock()
 
 	fileName := packageFileName(task.Version)
@@ -1468,7 +1468,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.ErrorF(ctx, "[Installer] 下载 HTTP 错误 / Download HTTP error: version=%s, status=%d", task.Version, resp.StatusCode)
+		logger.ErrorF(ctx, "Download HTTP error: version=%s, status=%d", task.Version, resp.StatusCode)
 		s.downloadsMu.Lock()
 		now := time.Now()
 		task.Status = DownloadStatusFailed
@@ -1545,7 +1545,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 				if elapsed > 0 {
 					task.Speed = int64(float64(downloaded-lastDownloaded) / elapsed)
 				}
-				task.Message = fmt.Sprintf("正在下载 / Downloading: %d%%", task.Progress)
+				task.Message = locale.Pick(ctx, "正在下载", fmt.Sprintf("Downloading: %d%%", task.Progress))
 				s.downloadsMu.Unlock()
 
 				lastUpdate = time.Now()
@@ -2018,7 +2018,7 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 		javaItem.Message = locale.Pick(ctx, fmt.Sprintf("检查 Java 失败: %v", err), fmt.Sprintf("Failed to check Java: %v", err))
 	} else if !success {
 		javaItem.Status = CheckStatusFailed
-		javaItem.Message = fmt.Sprintf("Java is not installed. Please install Java %d+. / Java 未安装。请安装 Java %d+。", minJavaMajor, minJavaMajor)
+		javaItem.Message = locale.Pick(ctx, fmt.Sprintf("Java 未安装。请安装 Java %d+。", minJavaMajor), fmt.Sprintf("Java is not installed. Please install Java %d+.", minJavaMajor))
 		// Agent 检出具体版本但判失败（过低或 JDK 24+ 超上限）时采用其原始原因，
 		// 避免把"版本不可用"误报成"未安装"。
 		// When the Agent detected a concrete version but still failed (too old, or JDK 24+
@@ -2066,7 +2066,7 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 			} else {
 				// 目标版本要求更高 JDK（如 ≥3.1.0 要求 11+），低于下限必失败。
 				// The target requires a newer JDK (≥3.1.0 needs 11+); anything below must block.
-				javaItem.Message = fmt.Sprintf("Java %d is installed but SeaTunnel %s requires Java %d+. / Java %d 已安装，但 SeaTunnel %s 要求 Java %d+。", javaVersion, targetVersion, minJavaMajor, javaVersion, targetVersion, minJavaMajor)
+				javaItem.Message = locale.Pick(ctx, fmt.Sprintf("Java %d 已安装，但 SeaTunnel %s 要求 Java %d+。", javaVersion, targetVersion, minJavaMajor), fmt.Sprintf("Java %d is installed but SeaTunnel %s requires Java %d+.", javaVersion, targetVersion, minJavaMajor))
 			}
 			result.OverallStatus = CheckStatusFailed
 		case javaruntime.StatusWarning:
@@ -2078,7 +2078,7 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 			} else {
 				// 高于推荐上限或非推荐版本 - 警告但不阻塞
 				// Above the recommended max or otherwise unrecommended - warning but not blocking
-				javaItem.Message = fmt.Sprintf("Java %d is installed. Recommended: Java %s. / Java %d 已安装。推荐：Java %s。", javaVersion, javaRequirement.RecommendedText(" or "), javaVersion, javaRequirement.RecommendedText(" 或 "))
+				javaItem.Message = locale.Pick(ctx, fmt.Sprintf("Java %d 已安装。推荐：Java %s。", javaVersion, javaRequirement.RecommendedText(" 或 ")), fmt.Sprintf("Java %d is installed. Recommended: Java %s.", javaVersion, javaRequirement.RecommendedText(" or ")))
 			}
 		}
 	}
@@ -2185,12 +2185,12 @@ func (s *Service) runCustomJavaPrecheck(ctx context.Context, hostInfo *HostInfo,
 			// but the wording differs.
 			item.Message = fmt.Sprintf("节点 %s 的 Java %d 超过最高支持版本 %d（JDK 24+ 移除 Subject.getSubject / JEP 486，SeaTunnel 无法启动），请改用 JDK 8 / 11 / 17 / 21 / Node %s runs Java %d, above the maximum supported Java %d (JDK 24+ removed Subject.getSubject / JEP 486; SeaTunnel cannot start). Use JDK 8, 11, 17 or 21", nodeName, rt.Version, javaruntime.MaxSupportedMajor(targetVersion), nodeName, rt.Version, javaruntime.MaxSupportedMajor(targetVersion))
 		} else {
-			item.Message = fmt.Sprintf("节点 %s 的 Java %d 低于 SeaTunnel %s 要求的 Java %d+ / Node %s runs Java %d but SeaTunnel %s requires Java %d+", nodeName, rt.Version, targetVersion, javaruntime.MinSupportedMajor(targetVersion), nodeName, rt.Version, targetVersion, javaruntime.MinSupportedMajor(targetVersion))
+			item.Message = locale.Pick(ctx, fmt.Sprintf("节点 %s 的 Java %d 低于 SeaTunnel %s 要求的 Java %d+", nodeName, rt.Version, targetVersion, javaruntime.MinSupportedMajor(targetVersion)), fmt.Sprintf("Node %s runs Java %d but SeaTunnel %s requires Java %d+", nodeName, rt.Version, targetVersion, javaruntime.MinSupportedMajor(targetVersion)))
 		}
 	default:
 		recommended := seatunnel.JavaRequirementForVersion(targetVersion)
 		item.Status = CheckStatusWarning
-		item.Message = fmt.Sprintf("节点 %s 使用 JDK %s，Java %d，推荐 %s / Node %s uses JDK %s, Java %d; Java %s is recommended", nodeName, rt.JavaBin, rt.Version, recommended.RecommendedText(" 或 "), nodeName, rt.JavaBin, rt.Version, recommended.RecommendedText(" or "))
+		item.Message = locale.Pick(ctx, fmt.Sprintf("节点 %s 使用 JDK %s，Java %d，推荐 %s", nodeName, rt.JavaBin, rt.Version, recommended.RecommendedText(" 或 ")), fmt.Sprintf("Node %s uses JDK %s, Java %d; Java %s is recommended", nodeName, rt.JavaBin, rt.Version, recommended.RecommendedText(" or ")))
 	}
 	// JDK 完全不可用（路径错误、执行失败、Agent 过旧）时保持阻断，不进入版本矩阵。
 	// A JDK that is unusable at all (bad path, exec failure, old Agent) stays blocking
@@ -2205,7 +2205,7 @@ func (s *Service) runCustomJavaPrecheck(ctx context.Context, hostInfo *HostInfo,
 // ValidateRuntimeStorage 校验所选主机到 checkpoint 或 IMAP 存储的可达性。
 func (s *Service) ValidateRuntimeStorage(ctx context.Context, req *RuntimeStorageValidationRequest) (*RuntimeStorageValidationResult, error) {
 	if req == nil || len(req.HostIDs) == 0 {
-		return nil, fmt.Errorf("host_ids is required / 必须提供 host_ids")
+		return nil, fmt.Errorf("host_ids is required")
 	}
 	if s.hostProvider == nil || s.agentManager == nil {
 		return nil, fmt.Errorf("runtime storage validation is not configured")
@@ -2764,7 +2764,7 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 	// Check if agent manager is available
 	// 检查 Agent 管理器是否可用
 	if s.agentManager == nil {
-		logger.ErrorF(ctx, "[Installer] Agent 管理器不可用 / Agent manager not available")
+		logger.ErrorF(ctx, "Agent manager not available")
 		s.installMu.Lock()
 		now := time.Now()
 		status.Status = StepStatusFailed
@@ -2778,7 +2778,7 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 	// 获取主机的 Agent 连接
 	hostID, err := parseHostID(req.HostID)
 	if err != nil {
-		logger.ErrorF(ctx, "[Installer] 无效的主机 ID / Invalid host ID: %s", req.HostID)
+		logger.ErrorF(ctx, "Invalid host ID: %s", req.HostID)
 		s.installMu.Lock()
 		now := time.Now()
 		status.Status = StepStatusFailed
@@ -2792,7 +2792,7 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 	if !connected || agentID == "" {
 		// Agent not connected, return error
 		// Agent 未连接，返回错误
-		logger.ErrorF(ctx, "[Installer] Agent 未连接 / Agent not connected: host=%d", hostID)
+		logger.ErrorF(ctx, "Agent not connected: host=%d", hostID)
 		s.installMu.Lock()
 		now := time.Now()
 		status.Status = StepStatusFailed
@@ -2802,7 +2802,7 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 		return
 	}
 
-	logger.DebugF(ctx, "[Installer] 连接到 Agent / Connected to Agent: host=%d, agent=%s", hostID, agentID)
+	logger.DebugF(ctx, "Connected to Agent: host=%d, agent=%s", hostID, agentID)
 
 	// For online/offline mode, resolve package on Control Plane and transfer to Agent
 	// 对于在线/离线模式，先在 Control Plane 上确定安装包并传输到 Agent
@@ -2927,7 +2927,7 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 					// the Agent fails with a clear error naming the paths it tried.
 					// 传输失败：回退到 Agent 主机上已有的安装包（agent_package_path 或 Agent 的 seatunnel.package_dir）。
 					// 此处绝不从互联网下载；若未找到，Agent 会返回包含已尝试路径的明确错误。
-					logger.WarnF(ctx, "[Installer] 安装包传输失败，回退到 Agent 本地安装包 / Package transfer failed, falling back to Agent-local package: %v", err)
+					logger.WarnF(ctx, "Package transfer failed, falling back to Agent-local package: %v", err)
 					s.installMu.Lock()
 					status.Message = fmt.Sprintf("Package transfer failed (%v), using Agent-local package...", err)
 					s.installMu.Unlock()
@@ -3160,7 +3160,7 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 			status.Message = locale.Pick(ctx, "安装完成；未提供集群 ID，已跳过集群启动", "Installation completed; cluster startup skipped because no cluster ID was provided")
 		}
 		s.installMu.Unlock()
-		logger.InfoF(ctx, "[Installer] 未提供集群 ID，跳过安装后启动 / Cluster ID not provided; skipping post-install startup: host=%s", req.HostID)
+		logger.InfoF(ctx, "Cluster ID not provided; skipping post-install startup: host=%s", req.HostID)
 		return
 	}
 
@@ -3183,8 +3183,7 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	clusterID, clusterErr := parseClusterID(req.ClusterID)
 	hostID, hostErr := parseHostID(req.HostID)
 	if clusterErr != nil || hostErr != nil {
-		logger.ErrorF(ctx, "[Installer] 解析 ID 失败 / Failed to parse IDs: cluster=%s, host=%s, role=%s, clusterErr=%v, hostErr=%v",
-			req.ClusterID, req.HostID, nodeRole, clusterErr, hostErr)
+		logger.ErrorF(ctx, "Failed to parse IDs: cluster=%s, host=%s, role=%s, clusterErr=%v, hostErr=%v", req.ClusterID, req.HostID, nodeRole, clusterErr, hostErr)
 		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): invalid cluster or host ID", nodeRole))
 		return
 	}
@@ -3192,8 +3191,7 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	// Use nodeStarter to start the node (reuses cluster service logic)
 	// 使用 nodeStarter 启动节点（复用集群服务逻辑）
 	if s.nodeStarter == nil {
-		logger.ErrorF(ctx, "[Installer] nodeStarter 未配置 / nodeStarter not configured: cluster=%d, host=%d, role=%s",
-			clusterID, hostID, nodeRole)
+		logger.ErrorF(ctx, "nodeStarter not configured: cluster=%d, host=%d, role=%s", clusterID, hostID, nodeRole)
 		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): nodeStarter not configured", nodeRole))
 		return
 	}
@@ -3711,7 +3709,7 @@ func createInitialSteps() []StepInfo {
 		{Step: InstallStepConfigureJVM, Name: "configure_jvm", Description: "Configure JVM", Status: StepStatusPending, Retryable: true},
 		{Step: InstallStepInstallPlugins, Name: "install_plugins", Description: "Install plugins", Status: StepStatusPending, Retryable: true},
 		{Step: InstallStepRegisterCluster, Name: "register_cluster", Description: "Register to cluster", Status: StepStatusPending, Retryable: true},
-		{Step: InstallStepComplete, Name: "complete", Description: "Complete / 完成", Status: StepStatusPending, Retryable: false},
+		{Step: InstallStepComplete, Name: "complete", Description: "Complete", Status: StepStatusPending, Retryable: false},
 	}
 }
 
@@ -3985,7 +3983,7 @@ func (s *Service) TransferPackageToAgent(ctx context.Context, agentID string, ve
 // transferPackageFileToAgent 通过专用 DownloadPackage RPC 将 localPath 传给 Agent。
 // 复用基于校验和：仅当缓存记录对应相同 CP 内容时才提供 Agent 路径提示，且仅当 Agent 文件大小+SHA256 一致时才跳过下载。
 func (s *Service) transferPackageFileToAgent(ctx context.Context, agentID string, version string, localPath string, status *InstallationStatus) (remotePath string, checksum string, err error) {
-	logger.InfoF(ctx, "[Installer] 开始传输安装包到 Agent / Start transferring package to Agent: agent=%s, version=%s", agentID, version)
+	logger.InfoF(ctx, "Start transferring package to Agent: agent=%s, version=%s", agentID, version)
 
 	if _, err := os.Stat(localPath); err != nil {
 		return "", "", fmt.Errorf("package not found: %s", localPath)
@@ -4020,8 +4018,7 @@ func (s *Service) transferPackageFileToAgent(ctx context.Context, agentID string
 	s.rememberPreparedPackage(agentID, version, localPath, remotePath, checksum, size)
 
 	if reused {
-		logger.InfoF(ctx, "[Installer] Agent 已有校验一致的安装包，跳过传输 / Agent already has a matching package, transfer skipped: agent=%s, version=%s, remote_path=%s",
-			agentID, version, remotePath)
+		logger.InfoF(ctx, "Agent already has a matching package, transfer skipped: agent=%s, version=%s, remote_path=%s", agentID, version, remotePath)
 		if status != nil {
 			s.installMu.Lock()
 			status.Message = "Reusing package already on Agent (checksum verified)..."

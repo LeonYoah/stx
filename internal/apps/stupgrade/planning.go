@@ -448,7 +448,7 @@ func (s *Service) buildConnectorManifest(ctx context.Context, clusterID uint, ta
 			issues = append(issues, blockingIssue(
 				CheckCategoryConnector,
 				"profiles_missing",
-				fmt.Sprintf("connector %s (%s) requires dependency profiles but none were resolved; set connector_profiles / 连接器 %s (%s) 需要依赖画像但未能解析，请设置 connector_profiles", connectorName, targetVersion, connectorName, targetVersion),
+				locale.Pick(ctx, fmt.Sprintf("连接器 %s (%s) 需要依赖画像但未能解析，请设置 connector_profiles", connectorName, targetVersion), fmt.Sprintf("connector %s (%s) requires dependency profiles but none were resolved; set connector_profiles", connectorName, targetVersion)),
 				map[string]string{"connector": connectorName, "version": targetVersion},
 			))
 			continue
@@ -979,7 +979,7 @@ func (s *Service) checkJavaRuntimeForTarget(ctx context.Context, node *clusterap
 		issue := blockingIssue(
 			CheckCategoryNode,
 			"java_unusable",
-			fmt.Sprintf("node %s has no usable JDK for SeaTunnel %s: %s / 节点 %s 的 JDK 不可用于 SeaTunnel %s：%s", target.HostName, target.TargetVersion, rt.FailureMessage(target.HostName), target.HostName, target.TargetVersion, rt.FailureMessage(target.HostName)),
+			locale.Pick(ctx, fmt.Sprintf("节点 %s 的 JDK 不可用于 SeaTunnel %s：%s", target.HostName, target.TargetVersion, rt.FailureMessage(target.HostName)), fmt.Sprintf("node %s has no usable JDK for SeaTunnel %s: %s", target.HostName, target.TargetVersion, rt.FailureMessage(target.HostName))),
 			metadata,
 		)
 		return &issue
@@ -1012,7 +1012,7 @@ func (s *Service) checkJavaRuntimeForTarget(ctx context.Context, node *clusterap
 		issue := warningIssue(
 			CheckCategoryNode,
 			"jdk_unusual_version",
-			fmt.Sprintf("node %s runs Java %d; SeaTunnel %s recommends Java %s / 节点 %s 运行 Java %d；SeaTunnel %s 推荐 Java %s", target.HostName, rt.Version, target.TargetVersion, recommended.RecommendedText(" or "), target.HostName, rt.Version, target.TargetVersion, recommended.RecommendedText(" 或 ")),
+			locale.Pick(ctx, fmt.Sprintf("节点 %s 运行 Java %d；SeaTunnel %s 推荐 Java %s", target.HostName, rt.Version, target.TargetVersion, recommended.RecommendedText(" 或 ")), fmt.Sprintf("node %s runs Java %d; SeaTunnel %s recommends Java %s", target.HostName, rt.Version, target.TargetVersion, recommended.RecommendedText(" or "))),
 			metadata,
 		)
 		return &issue

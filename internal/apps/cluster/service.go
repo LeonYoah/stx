@@ -556,9 +556,9 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 				bgCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 				defer cancel()
 				if _, err := s.StartSTXJavaProxy(bgCtx, cid); err != nil {
-					logger.WarnF(bgCtx, "[Cluster] Auto-start stx-java-proxy on cluster %d registration failed: %v / 注册集群 %d 时自动拉起 stx-java-proxy 失败: %v", cid, err, cid, err)
+					logger.WarnF(bgCtx, "[Cluster] Auto-start stx-java-proxy on cluster %d registration failed: %v", cid, err)
 				} else {
-					logger.InfoF(bgCtx, "[Cluster] Auto-started stx-java-proxy for registered cluster %d / 已为注册集群 %d 成功启动 stx-java-proxy", cid, cid)
+					logger.InfoF(bgCtx, "[Cluster] Auto-started stx-java-proxy for registered cluster %d", cid)
 				}
 			}(cluster.ID)
 		}
@@ -1832,7 +1832,7 @@ func (s *Service) verifyNodeJavaRuntime(ctx context.Context, hostID uint, javaHo
 		return fmt.Errorf("host %d is offline, cannot verify JDK", hostID)
 	}
 	if hostInfo.AgentID == "" {
-		return fmt.Errorf("host %d has no agent, cannot verify JDK / 主机 %d 未安装 Agent，无法校验 JDK", hostID, hostID)
+		return fmt.Errorf("host %d has no agent, cannot verify JDK", hostID)
 	}
 	success, output, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "check_java", javaruntime.CheckParams(javaHome))
 	if err != nil {
@@ -1863,34 +1863,34 @@ func (s *Service) syncNodeRuntimeAPIPort(ctx context.Context, clusterID uint, no
 
 	content, err := s.configAgentClient.PullConfig(ctx, node.HostID, installDir, appconfig.ConfigTypeSeatunnel)
 	if err != nil {
-		return fmt.Errorf("pull seatunnel.yaml failed: %w / 拉取 seatunnel.yaml 失败: %w", err, err)
+		return fmt.Errorf("pull seatunnel.yaml failed: %w", err)
 	}
 	updatedContent, err := updateSeatunnelHTTPPort(content, node.APIPort)
 	if err != nil {
 		return err
 	}
 	if err := s.configAgentClient.PushConfig(ctx, node.HostID, installDir, appconfig.ConfigTypeSeatunnel, updatedContent); err != nil {
-		return fmt.Errorf("push seatunnel.yaml failed: %w / 推送 seatunnel.yaml 失败: %w", err, err)
+		return fmt.Errorf("push seatunnel.yaml failed: %w", err)
 	}
 
 	logger.InfoF(ctx, "[Cluster] synced seatunnel.yaml http.port for node=%d: %d -> %d", node.ID, previousAPIPort, node.APIPort)
 
 	if _, err := s.restartNodeWithResolvedSpec(ctx, clusterID, node); err != nil {
-		return fmt.Errorf("restart node after api_port change failed: %w / 修改 api_port 后重启节点失败: %w", err, err)
+		return fmt.Errorf("restart node after api_port change failed: %w", err)
 	}
 	return nil
 }
 
 func updateSeatunnelHTTPPort(content string, port int) (string, error) {
 	if strings.TrimSpace(content) == "" {
-		return "", fmt.Errorf("seatunnel.yaml content is empty / seatunnel.yaml 内容为空")
+		return "", fmt.Errorf("seatunnel.yaml content is empty")
 	}
 	var root yaml.Node
 	if err := yaml.Unmarshal([]byte(content), &root); err != nil {
-		return "", fmt.Errorf("invalid seatunnel.yaml: %w / 非法 seatunnel.yaml: %w", err, err)
+		return "", fmt.Errorf("invalid seatunnel.yaml: %w", err)
 	}
 	if len(root.Content) == 0 {
-		return "", fmt.Errorf("invalid seatunnel.yaml root / 非法 seatunnel.yaml 根节点")
+		return "", fmt.Errorf("invalid seatunnel.yaml root")
 	}
 
 	top := root.Content[0]
@@ -1903,7 +1903,7 @@ func updateSeatunnelHTTPPort(content string, port int) (string, error) {
 
 	normalized, err := yaml.Marshal(&root)
 	if err != nil {
-		return "", fmt.Errorf("marshal seatunnel.yaml failed: %w / 序列化 seatunnel.yaml 失败: %w", err, err)
+		return "", fmt.Errorf("marshal seatunnel.yaml failed: %w", err)
 	}
 	return string(normalized), nil
 }
@@ -2382,14 +2382,14 @@ func (s *Service) PrecheckNode(ctx context.Context, clusterID uint, req *Prechec
 		success, _, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "check_http", params)
 		if err != nil {
 			apiV1Check.Status = PrecheckStatusFailed
-			apiV1Check.Message = fmt.Sprintf("Failed to check SeaTunnel API V1: %v / 检查 SeaTunnel API V1 失败: %v", err, err)
+			apiV1Check.Message = locale.Pick(ctx, fmt.Sprintf("检查 SeaTunnel API V1 失败: %v", err), fmt.Sprintf("Failed to check SeaTunnel API V1: %v", err))
 			result.Success = false
 		} else if success {
 			apiV1Check.Status = PrecheckStatusPassed
-			apiV1Check.Message = "SeaTunnel REST API V1 is accessible / SeaTunnel REST API V1 可访问"
+			apiV1Check.Message = locale.Pick(ctx, "SeaTunnel REST API V1 可访问", "SeaTunnel REST API V1 is accessible")
 		} else {
 			apiV1Check.Status = PrecheckStatusFailed
-			apiV1Check.Message = "SeaTunnel REST API V1 is not accessible / SeaTunnel REST API V1 不可访问"
+			apiV1Check.Message = locale.Pick(ctx, "SeaTunnel REST API V1 不可访问", "SeaTunnel REST API V1 is not accessible")
 			result.Success = false
 		}
 	} else {
@@ -2412,14 +2412,14 @@ func (s *Service) PrecheckNode(ctx context.Context, clusterID uint, req *Prechec
 			success, _, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "check_http", params)
 			if err != nil {
 				apiV2Check.Status = PrecheckStatusFailed
-				apiV2Check.Message = fmt.Sprintf("Failed to check SeaTunnel API V2: %v / 检查 SeaTunnel API V2 失败: %v", err, err)
+				apiV2Check.Message = locale.Pick(ctx, fmt.Sprintf("检查 SeaTunnel API V2 失败: %v", err), fmt.Sprintf("Failed to check SeaTunnel API V2: %v", err))
 				result.Success = false
 			} else if success {
 				apiV2Check.Status = PrecheckStatusPassed
-				apiV2Check.Message = "SeaTunnel REST API V2 is accessible / SeaTunnel REST API V2 可访问"
+				apiV2Check.Message = locale.Pick(ctx, "SeaTunnel REST API V2 可访问", "SeaTunnel REST API V2 is accessible")
 			} else {
 				apiV2Check.Status = PrecheckStatusFailed
-				apiV2Check.Message = "SeaTunnel REST API V2 is not accessible / SeaTunnel REST API V2 不可访问"
+				apiV2Check.Message = locale.Pick(ctx, "SeaTunnel REST API V2 不可访问", "SeaTunnel REST API V2 is not accessible")
 				result.Success = false
 			}
 		} else {

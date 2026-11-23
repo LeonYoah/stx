@@ -298,16 +298,10 @@ func (p *Prechecker) CheckMemory(ctx context.Context) PrecheckItem {
 
 	if availableMB >= p.params.MinMemoryMB {
 		item.Status = CheckStatusPassed
-		item.Message = fmt.Sprintf(
-			"Available memory %d MB >= required %d MB / 可用内存 %d MB >= 所需 %d MB",
-			availableMB, p.params.MinMemoryMB, availableMB, p.params.MinMemoryMB,
-		)
+		item.Message = fmt.Sprintf("Available memory %d MB >= required %d MB", availableMB, p.params.MinMemoryMB)
 	} else {
 		item.Status = CheckStatusFailed
-		item.Message = fmt.Sprintf(
-			"Available memory %d MB < required %d MB / 可用内存 %d MB < 所需 %d MB",
-			availableMB, p.params.MinMemoryMB, availableMB, p.params.MinMemoryMB,
-		)
+		item.Message = fmt.Sprintf("Available memory %d MB < required %d MB", availableMB, p.params.MinMemoryMB)
 	}
 
 	return item
@@ -358,16 +352,10 @@ func (p *Prechecker) CheckDisk(ctx context.Context) PrecheckItem {
 
 	if availableMB >= p.params.MinDiskSpaceMB {
 		item.Status = CheckStatusPassed
-		item.Message = fmt.Sprintf(
-			"Available disk space %d MB >= required %d MB / 可用磁盘空间 %d MB >= 所需 %d MB",
-			availableMB, p.params.MinDiskSpaceMB, availableMB, p.params.MinDiskSpaceMB,
-		)
+		item.Message = fmt.Sprintf("Available disk space %d MB >= required %d MB", availableMB, p.params.MinDiskSpaceMB)
 	} else {
 		item.Status = CheckStatusFailed
-		item.Message = fmt.Sprintf(
-			"Available disk space %d MB < required %d MB / 可用磁盘空间 %d MB < 所需 %d MB",
-			availableMB, p.params.MinDiskSpaceMB, availableMB, p.params.MinDiskSpaceMB,
-		)
+		item.Message = fmt.Sprintf("Available disk space %d MB < required %d MB", availableMB, p.params.MinDiskSpaceMB)
 	}
 
 	return item
@@ -550,11 +538,7 @@ yum install java-11-openjdk-devel  # CentOS/RHEL`
 	if version < JavaMinVersion {
 		// Version too low / 版本过低
 		item.Status = CheckStatusFailed
-		item.Message = fmt.Sprintf(
-			"Java version %d (%s) < minimum required %d. Please install Java 8 or 11. / Java 版本 %d (%s) < 最低要求 %d。请安装 Java 8 或 11。",
-			version, versionStr, JavaMinVersion,
-			version, versionStr, JavaMinVersion,
-		)
+		item.Message = fmt.Sprintf("Java version %d (%s) < minimum required %d. Please install Java 8 or 11.", version, versionStr, JavaMinVersion)
 		item.Details["download_info"] = map[string]interface{}{
 			"huaweicloud_java8":  "https://repo.huaweicloud.com/java/jdk/8u202-b08/",
 			"huaweicloud_java11": "https://repo.huaweicloud.com/java/jdk/11.0.2+9/",
@@ -572,12 +556,8 @@ yum install java-11-openjdk-devel  # CentOS/RHEL`
 	} else if version > JavaMaxRecommendedVersion {
 		// Version higher than recommended - warning / 版本高于推荐 - 警告
 		item.Status = CheckStatusWarning
-		item.Message = fmt.Sprintf(
-			"Java version %d (%s) > recommended max %d. May have compatibility issues. Recommended: Java 8 or 11. / Java 版本 %d (%s) > 推荐最高版本 %d。可能存在兼容性问题。推荐：Java 8 或 11。",
-			version, versionStr, JavaMaxRecommendedVersion,
-			version, versionStr, JavaMaxRecommendedVersion,
-		)
-		item.Details["warning"] = "Higher Java versions may cause compatibility issues with SeaTunnel / 较高的 Java 版本可能导致与 SeaTunnel 的兼容性问题"
+		item.Message = fmt.Sprintf("Java version %d (%s) > recommended max %d. May have compatibility issues. Recommended: Java 8 or 11.", version, versionStr, JavaMaxRecommendedVersion)
+		item.Details["warning"] = "Higher Java versions may cause compatibility issues with SeaTunnel"
 	} else {
 		// Version is within recommended range (8-11) / 版本在推荐范围内（8-11）
 		item.Status = CheckStatusPassed

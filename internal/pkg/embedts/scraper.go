@@ -246,8 +246,7 @@ func StartScraper(ctx context.Context, provider MetricsTargetProvider, opts Scra
 	instanceMu.Unlock()
 
 	go s.run(scrapeCtx)
-	logger.InfoF(ctx, "[Observability] 内嵌抓取循环已启动: interval=%s refresh=%s / embedded scrape loop started: interval=%s refresh=%s",
-		s.opts.Interval, s.opts.RefreshInterval, s.opts.Interval, s.opts.RefreshInterval)
+	logger.InfoF(ctx, "embedded scrape loop started: interval=%s refresh=%s", s.opts.Interval, s.opts.RefreshInterval)
 	return nil
 }
 
@@ -346,7 +345,7 @@ func (s *scraper) refreshTargets(ctx context.Context) {
 	// Historical series of removed targets (including up) get stale markers so PromQL
 	// queries do not keep seeing a ghosted last value.
 	if err := AppendStaleMarkers(ctx, staleLsets, s.ts.NextNow()); err != nil {
-		logger.ErrorF(ctx, "[Observability] 消失目标写入 stale marker 失败: %v / writing stale markers for removed targets failed: %v", err, err)
+		logger.ErrorF(ctx, "writing stale markers for removed targets failed: %v", err)
 	}
 }
 

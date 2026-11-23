@@ -103,7 +103,7 @@ func (h *Handler) RefreshVersions(c *gin.Context) {
 		// Return fallback versions with warning / 返回备用版本并带警告
 		logger.WarnF(c.Request.Context(), "[Installer] 刷新版本列表失败，使用备用列表: %v", err)
 		c.JSON(http.StatusOK, RefreshVersionsResponse{
-			ErrorMsg: "无法从 Apache Archive 获取版本列表，使用备用列表 / Failed to fetch from Apache Archive, using fallback list",
+			ErrorMsg: "Failed to fetch from Apache Archive, using fallback list",
 			Data:     versions,
 		})
 		return
@@ -177,7 +177,7 @@ func (h *Handler) UploadPackage(c *gin.Context) {
 			strings.Contains(err.Error(), "unexpected EOF") ||
 			strings.Contains(strings.ToLower(err.Error()), "request body too large") {
 			statusCode = http.StatusRequestEntityTooLarge
-			message = "上传内容被中断或超过网关限制（可能是 Cloudflare/Nginx 上传大小限制） / Upload interrupted or blocked by upstream size limit"
+			message = locale.Pick(c.Request.Context(), "上传内容被中断或超过网关限制（可能是 Cloudflare/Nginx 上传大小限制）", "Upload interrupted or blocked by upstream size limit")
 		}
 		c.JSON(statusCode, UploadPackageResponse{ErrorMsg: message})
 		return
@@ -191,21 +191,13 @@ func (h *Handler) UploadPackage(c *gin.Context) {
 	maxPackageSize := config.GetMaxPackageSize()
 	if maxPackageSize > 0 && file.Size > maxPackageSize {
 		c.JSON(http.StatusRequestEntityTooLarge, UploadPackageResponse{
-			ErrorMsg: fmt.Sprintf(
-				"安装包超过配置上限（%.2f MB > %.2f MB） / Package exceeds configured max size",
-				float64(file.Size)/1024.0/1024.0,
-				float64(maxPackageSize)/1024.0/1024.0,
-			),
+			ErrorMsg: locale.Pick(c.Request.Context(), fmt.Sprintf("安装包超过配置上限（%.2f MB > %.2f MB）", float64(file.Size)/1024.0/1024.0, float64(maxPackageSize)/1024.0/1024.0), "Package exceeds configured max size"),
 		})
 		return
 	}
 	if sourceFile != nil && maxPackageSize > 0 && sourceFile.Size > maxPackageSize {
 		c.JSON(http.StatusRequestEntityTooLarge, UploadPackageResponse{
-			ErrorMsg: fmt.Sprintf(
-				"源码包超过配置上限（%.2f MB > %.2f MB） / Source package exceeds configured max size",
-				float64(sourceFile.Size)/1024.0/1024.0,
-				float64(maxPackageSize)/1024.0/1024.0,
-			),
+			ErrorMsg: locale.Pick(c.Request.Context(), fmt.Sprintf("源码包超过配置上限（%.2f MB > %.2f MB）", float64(sourceFile.Size)/1024.0/1024.0, float64(maxPackageSize)/1024.0/1024.0), "Source package exceeds configured max size"),
 		})
 		return
 	}
@@ -269,11 +261,7 @@ func (h *Handler) UploadSourcePackage(c *gin.Context) {
 	maxPackageSize := config.GetMaxPackageSize()
 	if maxPackageSize > 0 && file.Size > maxPackageSize {
 		c.JSON(http.StatusRequestEntityTooLarge, UploadPackageResponse{
-			ErrorMsg: fmt.Sprintf(
-				"源码包超过配置上限（%.2f MB > %.2f MB） / Source package exceeds configured max size",
-				float64(file.Size)/1024.0/1024.0,
-				float64(maxPackageSize)/1024.0/1024.0,
-			),
+			ErrorMsg: locale.Pick(c.Request.Context(), fmt.Sprintf("源码包超过配置上限（%.2f MB > %.2f MB）", float64(file.Size)/1024.0/1024.0, float64(maxPackageSize)/1024.0/1024.0), "Source package exceeds configured max size"),
 		})
 		return
 	}
@@ -388,17 +376,17 @@ func (h *Handler) UploadPackageChunk(c *gin.Context) {
 
 	chunkIndex, err := strconv.Atoi(chunkIndexStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, UploadChunkResponse{ErrorMsg: "chunk_index 必须为整数 / chunk_index must be an integer"})
+		c.JSON(http.StatusBadRequest, UploadChunkResponse{ErrorMsg: locale.Pick(c.Request.Context(), "chunk_index 必须为整数", "chunk_index must be an integer")})
 		return
 	}
 	totalChunks, err := strconv.Atoi(totalChunksStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, UploadChunkResponse{ErrorMsg: "total_chunks 必须为整数 / total_chunks must be an integer"})
+		c.JSON(http.StatusBadRequest, UploadChunkResponse{ErrorMsg: locale.Pick(c.Request.Context(), "total_chunks 必须为整数", "total_chunks must be an integer")})
 		return
 	}
 	totalSize, err := strconv.ParseInt(totalSizeStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, UploadChunkResponse{ErrorMsg: "total_size 必须为整数 / total_size must be an integer"})
+		c.JSON(http.StatusBadRequest, UploadChunkResponse{ErrorMsg: locale.Pick(c.Request.Context(), "total_size 必须为整数", "total_size must be an integer")})
 		return
 	}
 
@@ -410,7 +398,7 @@ func (h *Handler) UploadPackageChunk(c *gin.Context) {
 			strings.Contains(err.Error(), "unexpected EOF") ||
 			strings.Contains(strings.ToLower(err.Error()), "request body too large") {
 			statusCode = http.StatusRequestEntityTooLarge
-			message = "上传内容被中断或超过网关限制（可能是 Cloudflare/Nginx 上传大小限制） / Upload interrupted or blocked by upstream size limit"
+			message = locale.Pick(c.Request.Context(), "上传内容被中断或超过网关限制（可能是 Cloudflare/Nginx 上传大小限制）", "Upload interrupted or blocked by upstream size limit")
 		}
 		c.JSON(statusCode, UploadChunkResponse{ErrorMsg: message})
 		return

@@ -210,7 +210,7 @@ func proxyJarDestinations(targetDir, base string, running []string) []string {
 func (a *Agent) handleAgentUpdateProxyJars(ctx context.Context, cmd *pb.CommandRequest) (*pb.CommandResponse, error) {
 	jars := splitCSV(cmd.Parameters["jar_paths"])
 	if len(jars) == 0 {
-		err := fmt.Errorf("jar_paths is required / jar_paths 必填")
+		err := fmt.Errorf("jar_paths is required")
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 	installDirs := a.proxyInstallDirs(cmd)
@@ -218,7 +218,7 @@ func (a *Agent) handleAgentUpdateProxyJars(ctx context.Context, cmd *pb.CommandR
 	result := proxyJarUpdateResult{TargetDir: resolveProxyJarDir()}
 	if result.TargetDir == "" && len(running) == 0 {
 		result.Skipped = true
-		result.Reason = "no stx-java-proxy installation found on this node / 本节点未安装 stx-java-proxy"
+		result.Reason = "no stx-java-proxy installation found on this node"
 		out, _ := json.Marshal(result)
 		return executor.CreateSuccessResponse(cmd.CommandId, string(out)), nil
 	}
@@ -241,19 +241,19 @@ func (a *Agent) handleAgentUpdateProxyJars(ctx context.Context, cmd *pb.CommandR
 		base := filepath.Base(src)
 		if !strings.HasPrefix(base, "stx-java-proxy-") || !strings.HasSuffix(base, ".jar") {
 			_ = undo()
-			err := fmt.Errorf("unexpected proxy jar name %q / 非法 proxy jar 文件名", base)
+			err := fmt.Errorf("unexpected proxy jar name %q", base)
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
 		if _, err := os.Stat(src); err != nil {
 			_ = undo()
-			err = fmt.Errorf("proxy jar not found: %s / 未找到 proxy jar", src)
+			err = fmt.Errorf("proxy jar not found: %s", src)
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
 		for _, dst := range proxyJarDestinations(result.TargetDir, base, running) {
 			backedUp, err := selfupdate.ReplaceFileWithBackup(src, dst, 0o644)
 			if err != nil {
 				_ = undo()
-				err = fmt.Errorf("update %s: %v / 更新 proxy jar 失败", dst, err)
+				err = fmt.Errorf("update %s: %v", dst, err)
 				return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 			}
 			changes = append(changes, change{dst: dst, backedUp: backedUp})
@@ -263,7 +263,7 @@ func (a *Agent) handleAgentUpdateProxyJars(ctx context.Context, cmd *pb.CommandR
 			}
 		}
 	}
-	logger.InfoF(ctx, "[SelfUpdate] Updated %d stx-java-proxy jar(s) in %s / 已更新 proxy jar", len(result.Updated), result.TargetDir)
+	logger.InfoF(ctx, "[SelfUpdate] Updated %d stx-java-proxy jar(s) in %s", len(result.Updated), result.TargetDir)
 	if cmd.Parameters["restart_running"] == "true" {
 		// 只重启 stx-java-proxy 进程；SeaTunnel/Hazelcast 进程不在处理范围内。
 		// Only stx-java-proxy processes are restarted; SeaTunnel/Hazelcast processes are out of scope.
@@ -308,14 +308,14 @@ func (a *Agent) handleAgentRollbackProxyJars(ctx context.Context, cmd *pb.Comman
 			continue
 		}
 		if err := restoreProxyJar(jar, true); err != nil {
-			err = fmt.Errorf("restore %s: %v / 恢复 proxy jar 失败", jar, err)
+			err = fmt.Errorf("restore %s: %v", jar, err)
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
 		result.Restored = append(result.Restored, jar)
 	}
 	if len(result.Restored) == 0 {
 		result.Skipped = true
-		result.Reason = "no proxy jar backup on this node / 本节点没有 proxy jar 备份"
+		result.Reason = "no proxy jar backup on this node"
 	} else {
 		result.Restarts = proxyRestartFn(ctx, installDirs, nil)
 	}

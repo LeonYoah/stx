@@ -49,7 +49,7 @@ func DefaultAssetCatalog() []AssetSpec {
 		{ID: "bundle", Name: fmt.Sprintf("stx-upgrade-linux-%s.tar.gz", runtimeGOARCH()), Description: "Unified self-upgrade bundle", Required: true},
 		{ID: "stx", Name: fmt.Sprintf("stx-%s-%s", runtimeGOOS(), runtimeGOARCH()), Description: "Control plane binary", Required: true},
 		{ID: "agent", Name: fmt.Sprintf("stx-agent-%s-%s", runtimeGOOS(), runtimeGOARCH()), Description: "Agent binary", Required: true},
-		{ID: "proxy", Name: "stx-java-proxy-*.jar", Description: "全部代理 Java Proxy jar / All Java Proxy jars", Required: true, Glob: true},
+		{ID: "proxy", Name: "stx-java-proxy-*.jar", Description: "All Java Proxy jars", Required: true, Glob: true},
 		{ID: "frontend", Name: "frontend-standalone-*.tar.gz", Description: "Frontend standalone", Required: false, Glob: true},
 	}
 }
@@ -1318,7 +1318,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) (*TaskState, 
 		{Code: StepAgent, Label: "Agent", Status: StepPending},
 		{Code: StepProxy, Label: "Proxy (stx-java-proxy-*.jar)", Status: StepPending},
 		{Code: StepRestart, Label: locale.Pick(ctx, "重启 STX 进程", "Restart STX processes"), Status: StepPending},
-		{Code: StepVerify, Label: "版本校验 / Verify", Status: StepPending},
+		{Code: StepVerify, Label: locale.Pick(ctx, "版本校验", "Verify"), Status: StepPending},
 	}
 	task := &TaskState{
 		ID:            taskID,

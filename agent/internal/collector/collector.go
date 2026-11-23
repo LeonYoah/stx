@@ -1487,7 +1487,7 @@ func (c *MetricsCollector) getJVMThreadCount(pid int) int {
 func (c *MetricsCollector) GetJVMMetricsSummary() string {
 	metrics := c.CollectJVMMetrics()
 	if len(metrics) == 0 {
-		return "No SeaTunnel JVM processes found / 未找到 SeaTunnel JVM 进程"
+		return "No SeaTunnel JVM processes found"
 	}
 
 	var sb strings.Builder

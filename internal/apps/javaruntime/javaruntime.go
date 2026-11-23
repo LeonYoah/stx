@@ -168,7 +168,7 @@ func Interpret(configured string, success bool, output string) *Result {
 		result.JavaHome = configured
 		result.Status = StatusFailed
 		result.Reason = ReasonAgentUnsupported
-		result.Message = "Agent 版本不支持自定义 JDK 路径，请先升级 Agent / The Agent version does not support a custom JDK path; upgrade the Agent first"
+		result.Message = "The Agent version does not support a custom JDK path; upgrade the Agent first"
 		return result
 	}
 

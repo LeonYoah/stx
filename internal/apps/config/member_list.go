@@ -157,13 +157,13 @@ func memberListValues(value *yaml.Node) ([]string, error) {
 		result := make([]string, 0, len(value.Content))
 		for _, item := range value.Content {
 			if item.Kind != yaml.ScalarNode {
-				return nil, fmt.Errorf("member-list item is not a scalar / member-list 条目不是标量")
+				return nil, fmt.Errorf("member-list item is not a scalar")
 			}
 			result = append(result, item.Value)
 		}
 		return result, nil
 	default:
-		return nil, fmt.Errorf("member-list is not a list / member-list 不是列表")
+		return nil, fmt.Errorf("member-list is not a list")
 	}
 }
 
@@ -347,7 +347,7 @@ func verifyMemberListPatch(original, patched string, members []string) error {
 		return ErrMemberListNotFound
 	}
 	if !reflect.DeepEqual(before, after) {
-		return errors.New("member-list patch changed other content / 修补 member-list 时意外改动了其他内容")
+		return errors.New("member-list patch changed other content")
 	}
 	return nil
 }

@@ -117,7 +117,7 @@ func RestartRunningSTXJavaProxies(ctx context.Context, installDirs []string, rol
 		}
 		seen[key] = true
 		if !status.Managed {
-			results = append(results, ProxyRestartResult{StateDir: key, Status: ProxyRestartSkipped, Message: "external stx-java-proxy endpoint is not managed by this agent / 外部 proxy 不由 Agent 管理"})
+			results = append(results, ProxyRestartResult{StateDir: key, Status: ProxyRestartSkipped, Message: "external stx-java-proxy endpoint is not managed by this agent"})
 			continue
 		}
 		if !status.Running || status.PID <= 0 {
@@ -126,7 +126,7 @@ func RestartRunningSTXJavaProxies(ctx context.Context, installDirs []string, rol
 		results = append(results, restartOneProxy(ctx, dir, status, rollback))
 	}
 	if len(results) == 0 {
-		results = append(results, ProxyRestartResult{Status: ProxyRestartNotRunning, Message: "no running stx-java-proxy; new jars are used on its next start / 没有运行中的 proxy，下次启动即使用新 jar"})
+		results = append(results, ProxyRestartResult{Status: ProxyRestartNotRunning, Message: "no running stx-java-proxy; new jars are used on its next start"})
 	}
 	return results
 }
@@ -185,7 +185,7 @@ func restartOneProxy(ctx context.Context, installDir string, status *STXJavaProx
 		return res
 	}
 	res.Status, res.NewPID = ProxyRestartRolledBack, pid
-	res.Message = fmt.Sprintf("new jars failed (%v); restored backup jars and restarted (pid %d) / 新 jar 启动失败，已恢复备份 jar 并重启", firstErr, pid)
+	res.Message = fmt.Sprintf("new jars failed (%v); restored backup jars and restarted (pid %d)", firstErr, pid)
 	return res
 }
 

@@ -358,7 +358,7 @@ func (s *Server) handleCommandResponse(agentID string, resp *pb.CommandResponse)
 
 	// Handle special command IDs / 处理特殊命令 ID
 	if resp.CommandId == "PROCESS_EVENT_REPORT" {
-		s.logger.Info("Received PROCESS_EVENT_REPORT / 收到 PROCESS_EVENT_REPORT",
+		s.logger.Info("Received PROCESS_EVENT_REPORT",
 			zap.String("agent_id", agentID),
 			zap.String("output_preview", truncateString(resp.Output, 200)),
 		)
@@ -785,7 +785,7 @@ func SetDiagnosticsService(svc *diagnostics.Service) {
 // Requirements: 1.3, 1.7 - Trigger agent discovery
 // Task 11.1
 func (s *Server) HandleDiscoverClusters(ctx context.Context, agentID string, params map[string]string) (*pb.CommandResponse, error) {
-	s.logger.Info("Handling DISCOVER_CLUSTERS command / 处理 DISCOVER_CLUSTERS 命令",
+	s.logger.Info("Handling DISCOVER_CLUSTERS command",
 		zap.String("agent_id", agentID),
 	)
 
@@ -798,14 +798,14 @@ func (s *Server) HandleDiscoverClusters(ctx context.Context, agentID string, par
 	// Send DISCOVER_CLUSTERS command to agent / 向 Agent 发送 DISCOVER_CLUSTERS 命令
 	cmdResp, err := s.agentManager.SendCommand(ctx, agentID, pb.CommandType_DISCOVER_CLUSTERS, params, 60*time.Second)
 	if err != nil {
-		s.logger.Error("Failed to send DISCOVER_CLUSTERS command / 发送 DISCOVER_CLUSTERS 命令失败",
+		s.logger.Error("Failed to send DISCOVER_CLUSTERS command",
 			zap.String("agent_id", agentID),
 			zap.Error(err),
 		)
 		return nil, err
 	}
 
-	s.logger.Info("DISCOVER_CLUSTERS command completed / DISCOVER_CLUSTERS 命令完成",
+	s.logger.Info("DISCOVER_CLUSTERS command completed",
 		zap.String("agent_id", agentID),
 		zap.Uint("host_id", conn.HostID),
 		zap.String("status", cmdResp.Status.String()),
@@ -819,7 +819,7 @@ func (s *Server) HandleDiscoverClusters(ctx context.Context, agentID string, par
 // Requirements: 5.4, 7.5 - Push monitor config to agent
 // Task 11.2
 func (s *Server) HandleUpdateMonitorConfig(ctx context.Context, agentID string, config *monitor.MonitorConfig, processes []*monitor.TrackedProcessInfo) error {
-	s.logger.Info("Handling UPDATE_MONITOR_CONFIG command / 处理 UPDATE_MONITOR_CONFIG 命令",
+	s.logger.Info("Handling UPDATE_MONITOR_CONFIG command",
 		zap.String("agent_id", agentID),
 		zap.Uint("cluster_id", config.ClusterID),
 		zap.Int("config_version", config.ConfigVersion),
@@ -852,14 +852,14 @@ func (s *Server) HandleUpdateMonitorConfig(ctx context.Context, agentID string, 
 	// Send UPDATE_MONITOR_CONFIG command to agent / 向 Agent 发送 UPDATE_MONITOR_CONFIG 命令
 	_, err := s.agentManager.SendCommand(ctx, agentID, pb.CommandType_UPDATE_MONITOR_CONFIG, params, 30*time.Second)
 	if err != nil {
-		s.logger.Error("Failed to send UPDATE_MONITOR_CONFIG command / 发送 UPDATE_MONITOR_CONFIG 命令失败",
+		s.logger.Error("Failed to send UPDATE_MONITOR_CONFIG command",
 			zap.String("agent_id", agentID),
 			zap.Error(err),
 		)
 		return err
 	}
 
-	s.logger.Info("UPDATE_MONITOR_CONFIG command sent / UPDATE_MONITOR_CONFIG 命令已发送",
+	s.logger.Info("UPDATE_MONITOR_CONFIG command sent",
 		zap.String("agent_id", agentID),
 		zap.Uint("cluster_id", config.ClusterID),
 		zap.Int("process_count", len(processes)),

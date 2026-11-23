@@ -79,7 +79,7 @@ func runServer() error {
 	// data is kept). Non-install layouts (dev machines, Docker) skip everything.
 	healResult, healErr := layoutheal.Heal(context.Background(), layoutheal.Options{})
 	if healErr != nil {
-		log.Printf("[LayoutHeal] WARN 安装布局自修复失败 / install layout heal failed: %v\n", healErr)
+		log.Printf("install layout heal failed: %v\n", healErr)
 	}
 	if healResult.InstallDir != "" {
 		go layoutheal.ReapLegacyObservability(context.Background(), healResult.InstallDir,

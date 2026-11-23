@@ -246,7 +246,7 @@ func (h *Handler) DownloadAgent(c *gin.Context) {
 	// 验证参数
 	if osType == "" || arch == "" {
 		c.JSON(http.StatusBadRequest, ErrorResponse{
-			ErrorMsg: "Missing required parameters: os and arch / 缺少必需参数: os 和 arch",
+			ErrorMsg: locale.Pick(c.Request.Context(), "缺少必需参数: os 和 arch", "Missing required parameters: os and arch"),
 		})
 		return
 	}
@@ -256,7 +256,7 @@ func (h *Handler) DownloadAgent(c *gin.Context) {
 	archMap, osSupported := supportedArchitectures[osType]
 	if !osSupported {
 		c.JSON(http.StatusBadRequest, ErrorResponse{
-			ErrorMsg: fmt.Sprintf("Unsupported operating system: %s. Supported: linux, darwin / 不支持的操作系统: %s. 支持: linux, darwin", osType, osType),
+			ErrorMsg: locale.Pick(c.Request.Context(), fmt.Sprintf("不支持的操作系统: %s. 支持: linux, darwin", osType), fmt.Sprintf("Unsupported operating system: %s. Supported: linux, darwin", osType)),
 		})
 		return
 	}
@@ -266,7 +266,7 @@ func (h *Handler) DownloadAgent(c *gin.Context) {
 	binaryName, archSupported := archMap[arch]
 	if !archSupported {
 		c.JSON(http.StatusBadRequest, ErrorResponse{
-			ErrorMsg: fmt.Sprintf("Unsupported architecture: %s. Supported: amd64, arm64 / 不支持的架构: %s. 支持: amd64, arm64", arch, arch),
+			ErrorMsg: locale.Pick(c.Request.Context(), fmt.Sprintf("不支持的架构: %s. 支持: amd64, arm64", arch), fmt.Sprintf("Unsupported architecture: %s. Supported: amd64, arm64", arch)),
 		})
 		return
 	}

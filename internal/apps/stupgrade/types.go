@@ -411,7 +411,7 @@ type StepLogFilter struct {
 func DefaultExecutionSteps() []PlanStep {
 	return []PlanStep{
 		{Sequence: 1, Code: StepCodePrecheckPackage, Title: "安装包预检查", Description: "检查目标安装包、checksum 与架构匹配。", Required: true},
-		{Sequence: 2, Code: StepCodePrecheckConnector, Title: "插件预检查", Description: "检查 connector / lib / plugins 清单是否齐全。", Required: true},
+		{Sequence: 2, Code: StepCodePrecheckConnector, Title: "插件预检查", Description: "lib", Required: true},
 		{Sequence: 3, Code: StepCodeBackup, Title: "确认回滚基线", Description: "确认旧版本目录仍被保留，可作为双目录升级的回滚基线。", Required: true},
 		{Sequence: 4, Code: StepCodeDistributePackage, Title: "分发安装包", Description: "将目标安装包准备到所有目标节点。", Required: true},
 		{Sequence: 5, Code: StepCodeSyncLib, Title: "同步 Lib", Description: "保留目标安装包自带 lib，并叠加平台管理依赖。", Required: true},

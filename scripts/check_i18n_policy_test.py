@@ -64,7 +64,10 @@ class TestBilingualRule(unittest.TestCase):
 
     def test_progress_counter(self):
         self.assertPass("已完成 {done} / {total}")
-        self.assertPass("主机名 / IP")
+
+    def test_single_word_en_side(self):
+        self.assertHit("主机名 / IP")
+        self.assertHit("Downloaded / 已下载")
 
 
 class TestIterLiterals(unittest.TestCase):

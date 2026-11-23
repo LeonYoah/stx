@@ -270,7 +270,7 @@ func restartFrontend(ctx context.Context, plan *restartPlan) ProcessRestart {
 			time.Sleep(watchdogPoll)
 		}
 		if newPID == 0 {
-			pr.Status, pr.Message = RestartFailed, "frontend did not come back after the "+fp.ManagedBy+" restart / 前端未随服务重启恢复"
+			pr.Status, pr.Message = RestartFailed, "frontend did not come back after the "+fp.ManagedBy+locale.Pick(ctx, "前端未随服务重启恢复", " restart")
 			return pr
 		}
 		pr.Status, pr.NewPID = RestartSucceeded, newPID

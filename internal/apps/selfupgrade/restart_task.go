@@ -86,7 +86,7 @@ func (s *Service) beginControlPlaneRestart(taskID, target string) error {
 		return fmt.Errorf("task %s is no longer active", taskID)
 	}
 	s.task.Restarts = restarts
-	s.setStepLocked(StepRestart, StepRunning, "restarting STX processes; SeaTunnel is not touched / 正在重启 STX 进程，SeaTunnel 不受影响")
+	s.setStepLocked(StepRestart, StepRunning, "restarting STX processes; SeaTunnel is not touched")
 	snapshot := s.snapshotTaskLocked()
 	s.mu.Unlock()
 

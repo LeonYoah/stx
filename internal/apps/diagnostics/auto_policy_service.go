@@ -225,7 +225,7 @@ func (s *Service) WarnOnInvalidAutoPolicies(ctx context.Context) {
 	}
 	policies, _, err := s.repo.ListAutoPolicies(ctx, nil, 1, 1000)
 	if err != nil {
-		log.Printf("[DiagnosticsAutoPolicy] WARN 扫描失效自动巡检策略失败 / failed to scan invalid auto policies: %v\n", err)
+		log.Printf("failed to scan invalid auto policies: %v\n", err)
 		return
 	}
 	invalid := make([]uint, 0)
@@ -235,8 +235,7 @@ func (s *Service) WarnOnInvalidAutoPolicies(ctx context.Context) {
 		}
 	}
 	if len(invalid) > 0 {
-		log.Printf("[DiagnosticsAutoPolicy] WARN 发现 %d 条失效自动巡检策略（旧巡检条件，永远不会触发），受影响 ID: %v / found %d invalid auto policies (legacy conditions that never fire), affected IDs: %v\n",
-			len(invalid), invalid, len(invalid), invalid)
+		log.Printf("found %d invalid auto policies (legacy conditions that never fire), affected IDs: %v\n", len(invalid), invalid)
 	}
 }
 

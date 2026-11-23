@@ -498,7 +498,7 @@ var InstallationSteps = []StepInfo{
 	{Step: InstallStepConfigureJVM, Name: "configure_jvm", Description: "Configure JVM", Retryable: true},
 	{Step: InstallStepInstallPlugins, Name: "install_plugins", Description: "Install plugins", Retryable: true},
 	{Step: InstallStepRegisterCluster, Name: "register_cluster", Description: "Register to cluster", Retryable: true},
-	{Step: InstallStepComplete, Name: "complete", Description: "Complete / 完成", Retryable: false},
+	{Step: InstallStepComplete, Name: "complete", Description: "Complete", Retryable: false},
 }
 
 // ============================================================================
@@ -1617,7 +1617,7 @@ func (m *InstallerManager) executeStepDownload(ctx context.Context, params *Inst
 	transfer := params.PackageTransfer
 	switch transfer.Source {
 	case PackageTransferFromControlPlane:
-		reporter.Report(InstallStepDownload, 0, "Receiving package from Control Plane... / 从 Control Plane 接收安装包...")
+		reporter.Report(InstallStepDownload, 0, "Receiving package from Control Plane...")
 		// Package will be received via gRPC stream, set the expected path
 		// 安装包将通过 gRPC 流接收，设置预期路径
 		params.PackagePath = filepath.Join(m.tempDir, transfer.FileName)
@@ -1663,7 +1663,7 @@ func (m *InstallerManager) ReceivePackage(ctx context.Context, transfer *Package
 		return "", errors.New("transfer info is required")
 	}
 
-	reporter.Report(InstallStepDownload, 0, "Receiving package from Control Plane... / 从 Control Plane 接收安装包...")
+	reporter.Report(InstallStepDownload, 0, "Receiving package from Control Plane...")
 
 	// Create temp file for the package
 	// 为安装包创建临时文件

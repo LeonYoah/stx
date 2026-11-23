@@ -6091,7 +6091,8 @@
     "copyCellValue": "复制 {column} 的值",
     "previewResizeColumn": "调整 {column} 列宽",
     "previewReorderColumn": "拖动调整 {column} 列顺序",
-    "clickToInspect": "点击查看"
+    "clickToInspect": "点击查看",
+    "presetCustomConnector": "其他自定义连接器"
   },
   "troubleshooting": {
     "title": "经验库",

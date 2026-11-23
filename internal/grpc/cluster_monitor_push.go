@@ -48,7 +48,7 @@ const clusterMonitorPushTimeout = 30 * time.Second
 // (called after scale-in).
 func (s *Server) PushClusterMonitorConfigToHost(ctx context.Context, clusterID uint, hostID uint) error {
 	if clusterID == 0 || hostID == 0 {
-		return fmt.Errorf("cluster id and host id are required / 集群 ID 与主机 ID 必填")
+		return fmt.Errorf("cluster id and host id are required")
 	}
 	if s == nil || s.hostService == nil || s.agentManager == nil || clusterNodeProvider == nil {
 		return ErrClusterMonitorPushUnavailable

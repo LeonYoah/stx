@@ -566,7 +566,7 @@ func truncateComment(comment string) string {
 // returns how many config records were deleted, 0 when the host had none.
 func (s *Service) DeleteHostConfigs(ctx context.Context, clusterID uint, hostID uint) (int, error) {
 	if clusterID == 0 || hostID == 0 {
-		return 0, fmt.Errorf("cluster id and host id are required / 集群 ID 与主机 ID 必填")
+		return 0, fmt.Errorf("cluster id and host id are required")
 	}
 	hostRef := hostID
 	return s.deleteHostRecords(ctx, &ConfigFilter{ClusterID: clusterID, HostID: &hostRef})

@@ -177,7 +177,7 @@ func platformTrends(ctx context.Context, now time.Time) *PlatformTrends {
 		series, err := promquery.Range(ctx, promQL, start, now, 60)
 		if err != nil || len(series) == 0 {
 			if err != nil {
-				logger.WarnF(ctx, "[Platform] 趋势查询失败 expr=%q: %v / platform trend query failed expr=%q: %v", promQL, err, promQL, err)
+				logger.WarnF(ctx, "platform trend query failed expr=%q: %v", promQL, err)
 			}
 			return nil
 		}
@@ -236,7 +236,7 @@ func (s *Service) platformAgentSnapshots(ctx context.Context, now time.Time) []P
 		PageSize: 10000,
 	})
 	if err != nil {
-		logger.WarnF(ctx, "[Platform] 读取 hosts 失败，平台快照 Agent 列表为空: %v / failed to list hosts for platform snapshot, agent list left empty: %v", err, err)
+		logger.WarnF(ctx, "failed to list hosts for platform snapshot, agent list left empty: %v", err)
 		return out
 	}
 
@@ -298,7 +298,7 @@ func (s *Service) platformAgentSnapshots(ctx context.Context, now time.Time) []P
 func platformInstant(ctx context.Context, promQL string, at time.Time) []promquery.Sample {
 	samples, err := promquery.Instant(ctx, promQL, at)
 	if err != nil {
-		logger.WarnF(ctx, "[Platform] 快照查询失败 expr=%q: %v / platform snapshot query failed expr=%q: %v", promQL, err, promQL, err)
+		logger.WarnF(ctx, "platform snapshot query failed expr=%q: %v", promQL, err)
 		return nil
 	}
 	return samples

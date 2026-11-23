@@ -264,5 +264,5 @@ func logSelfScrapeError(ctx context.Context, err error) {
 	if err == nil || errors.Is(err, errSelfNotReady) {
 		return
 	}
-	logger.WarnF(ctx, "[Observability] 内嵌 tsdb 自抓取失败: %v / embedded tsdb self-scrape failed: %v", err, err)
+	logger.WarnF(ctx, "embedded tsdb self-scrape failed: %v", err)
 }

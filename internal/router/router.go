@@ -136,7 +136,7 @@ func Serve() {
 			err = embedts.Start(ctx, embedOpts)
 		}
 		if err != nil {
-			logger.ErrorF(ctx, "[Observability] 内嵌 tsdb 启动失败，可观测查询将降级为空态: %v / embedded tsdb failed to start, observability queries will degrade: %v", err, err)
+			logger.ErrorF(ctx, "embedded tsdb failed to start, observability queries will degrade: %v", err)
 		} else {
 			// Start 成功后注册平台自监控采集器与 SQL 连接池统计（db_name="stx"）。
 			// 注册失败只记 WARN：自监控降级不影响业务接口。
@@ -171,7 +171,7 @@ func Serve() {
 		// Provision gRPC TLS only when grpc.tls_enabled is explicitly true.
 		// 仅当 grpc.tls_enabled 显式为 true 时准备 gRPC TLS。
 		if _, err := tlsbootstrap.EnsureGRPCTLS(tlsbootstrap.Options{}); err != nil {
-			log.Printf("[TLS] 准备 gRPC TLS 失败，将按当前配置继续: %v / Failed to bootstrap gRPC TLS, continuing with current config: %v\n", err, err)
+			log.Printf("Failed to bootstrap gRPC TLS, continuing with current config: %v\n", err)
 		}
 		grpcSrv, agentManager = initGRPCServer(ctx, self)
 		if grpcSrv != nil {
@@ -181,7 +181,7 @@ func Serve() {
 			defer agentManager.Stop()
 		}
 	} else {
-		log.Println("[API] gRPC 服务器已禁用 / gRPC server is disabled")
+		log.Println("gRPC server is disabled")
 	}
 
 	// 初始化路由
@@ -572,7 +572,7 @@ func Serve() {
 					err = embedts.StartScraper(ctx, embedts.MetricsTargetProviderFunc(monitoringService.ScrapeTargets), scrapeOpts)
 				}
 				if err != nil {
-					logger.ErrorF(ctx, "[Observability] 内嵌抓取循环启动失败，SeaTunnel 指标不会采集: %v / embedded scrape loop failed to start, SeaTunnel metrics will not be collected: %v", err, err)
+					logger.ErrorF(ctx, "embedded scrape loop failed to start, SeaTunnel metrics will not be collected: %v", err)
 				}
 				// 内嵌告警评估器取代外部 Prometheus rule 文件 + Alertmanager 回路：
 				// rules.Manager 在同一进程评估内嵌默认规则与启用中的指标策略，失败仅降级告警链路。
@@ -1331,7 +1331,7 @@ func Serve() {
 
 	// Serve HTTP API
 	// 启动 HTTP API 服务
-	log.Printf("[API] HTTP 服务器启动于 %s / HTTP server starting on %s\n", config.Config.App.Addr, config.Config.App.Addr)
+	log.Printf("HTTP server starting on %s\n", config.Config.App.Addr)
 	if err := r.Run(config.Config.App.Addr); err != nil {
 		log.Fatalf("[API] serve api failed: %v\n", err)
 	}
@@ -1368,7 +1368,7 @@ func initGRPCServer(ctx context.Context, self *selfmetrics.Metrics) (*grpcServer
 	// Create logger
 	logger, err := zap.NewProduction()
 	if err != nil {
-		log.Printf("[gRPC] 创建 logger 失败: %v / Failed to create logger: %v\n", err, err)
+		log.Printf("Failed to create logger: %v\n", err)
 		logger, _ = zap.NewDevelopment()
 	}
 
@@ -1452,16 +1452,16 @@ func initGRPCServer(ctx context.Context, self *selfmetrics.Metrics) (*grpcServer
 	log.Println("[gRPC] Cluster node provider, monitor service and diagnostics service set for gRPC handlers")
 
 	if err := srv.Start(ctx); err != nil {
-		log.Printf("[gRPC] 启动 gRPC 服务器失败: %v / Failed to start gRPC server: %v\n", err, err)
+		log.Printf("Failed to start gRPC server: %v\n", err)
 		return nil, nil
 	}
 
-	log.Printf("[gRPC] gRPC 服务器启动于端口 %d / gRPC server started on port %d\n", grpcConfig.Port, grpcConfig.Port)
+	log.Printf("gRPC server started on port %d\n", grpcConfig.Port)
 
 	// 启动 Agent Manager 后台任务（心跳超时检测）
 	// Start Agent Manager background tasks (heartbeat timeout detection)
 	if err := agentManager.Start(ctx); err != nil {
-		log.Printf("[gRPC] 启动 Agent Manager 失败: %v / Failed to start Agent Manager: %v\n", err, err)
+		log.Printf("Failed to start Agent Manager: %v\n", err)
 	}
 
 	return srv, agentManager

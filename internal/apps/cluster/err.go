@@ -64,7 +64,7 @@ var (
 	ErrPrecheckFailed = errors.New("cluster: node precheck failed")
 	// ErrSeparatedClusterRequiresMasterAndWorker indicates separated mode cluster must have at least one master and one worker node.
 	// ErrSeparatedClusterRequiresMasterAndWorker 表示分离模式集群必须至少包含一个 master 节点和一个 worker 节点。
-	ErrSeparatedClusterRequiresMasterAndWorker = errors.New("cluster: separated deployment mode requires at least one master and one worker node / 分离模式集群必须至少包含一个 master 节点和一个 worker 节点")
+	ErrSeparatedClusterRequiresMasterAndWorker = errors.New("cluster: separated deployment mode requires at least one master and one worker node")
 
 	// ErrClusterScaleInProgress 集群已有进行中的伸缩操作（409 cluster_scale_in_progress）。
 	// ErrClusterScaleInProgress means the cluster already has a running scaling operation (409 cluster_scale_in_progress).

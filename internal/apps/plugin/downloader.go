@@ -636,7 +636,7 @@ func (d *Downloader) DownloadConnector(ctx context.Context, plugin *Plugin, mirr
 	// Mark as completed / 标记为完成
 	progress.Status = "completed"
 	progress.Progress = 100
-	progress.CurrentStep = "Completed / 完成"
+	progress.CurrentStep = locale.Pick(ctx, "完成", "Completed")
 	progress.CurrentArtifact = artifactID
 	progress.CurrentArtifactKind = "connector"
 	progress.ConnectorCompleted = 1

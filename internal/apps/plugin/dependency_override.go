@@ -98,7 +98,7 @@ func (s *Service) UploadDependency(ctx context.Context, req *UploadDependencyReq
 	artifactID := firstNonEmpty(req.ArtifactID, inferredArtifact)
 	depVersion := firstNonEmpty(req.Version, inferredVersion)
 	if strings.TrimSpace(artifactID) == "" {
-		return nil, fmt.Errorf("artifact_id is required / artifact_id 不能为空")
+		return nil, fmt.Errorf("artifact_id is required")
 	}
 	if strings.TrimSpace(depVersion) == "" {
 		return nil, fmt.Errorf("version is required")

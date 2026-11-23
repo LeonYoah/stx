@@ -215,15 +215,7 @@ func (s *Service) executePlanSteps(ctx context.Context, task *UpgradeTask, plan 
 			successMessage = locale.Pick(ctx, fmt.Sprintf("安装包 %s 通过 checksum 门禁", plan.TargetVersion), fmt.Sprintf("package %s passed checksum gate", plan.TargetVersion))
 		case StepCodePrecheckConnector:
 			stepErr = s.markPlanCheckStep(plan.ConnectorManifest.Version != "", locale.Pick(ctx, "connector 清单缺失", "connector manifest is missing"))
-			successMessage = fmt.Sprintf(
-				"plugin manifest ready with %d connectors, %d libs and %d isolated dependencies / 插件清单已就绪，包含 %d 个 connector、%d 个 lib、%d 个隔离依赖",
-				len(plan.ConnectorManifest.Connectors),
-				len(plan.ConnectorManifest.Libraries),
-				len(plan.ConnectorManifest.PluginDeps),
-				len(plan.ConnectorManifest.Connectors),
-				len(plan.ConnectorManifest.Libraries),
-				len(plan.ConnectorManifest.PluginDeps),
-			)
+			successMessage = locale.Pick(ctx, fmt.Sprintf("插件清单已就绪，包含 %d 个 connector、%d 个 lib、%d 个隔离依赖", len(plan.ConnectorManifest.Connectors), len(plan.ConnectorManifest.Libraries), len(plan.ConnectorManifest.PluginDeps)), fmt.Sprintf("plugin manifest ready with %d connectors, %d libs and %d isolated dependencies", len(plan.ConnectorManifest.Connectors), len(plan.ConnectorManifest.Libraries), len(plan.ConnectorManifest.PluginDeps)))
 		case StepCodeBackup:
 			stepErr = s.executeBackupStep(ctx, task, step, plan.NodeTargets, backupPaths, nodesByKey)
 			successMessage = locale.Pick(ctx, fmt.Sprintf("已完成 %d 个节点目标的备份", len(plan.NodeTargets)), fmt.Sprintf("backed up %d node targets", len(plan.NodeTargets)))
@@ -914,21 +906,9 @@ func (s *Service) executeRestartJavaProxyStep(
 		), nil
 	}
 	if status != nil && status.Running {
-		return fmt.Sprintf(
-			"stx-java-proxy restarted for target version %s (epoch %s) but health probe is not ready yet / 已按目标版本 %s（代际 %s）重启 stx-java-proxy，健康探测尚未就绪",
-			plan.TargetVersion,
-			epoch,
-			plan.TargetVersion,
-			epoch,
-		), nil
+		return locale.Pick(ctx, fmt.Sprintf("已按目标版本 %s（代际 %s）重启 stx-java-proxy，健康探测尚未就绪", plan.TargetVersion, epoch), fmt.Sprintf("stx-java-proxy restarted for target version %s (epoch %s) but health probe is not ready yet", plan.TargetVersion, epoch)), nil
 	}
-	return fmt.Sprintf(
-		"stx-java-proxy restart finished with warnings for target version %s (epoch %s) / 目标版本 %s（代际 %s）的 stx-java-proxy 重启已完成（含告警）",
-		plan.TargetVersion,
-		epoch,
-		plan.TargetVersion,
-		epoch,
-	), nil
+	return locale.Pick(ctx, fmt.Sprintf("目标版本 %s（代际 %s）的 stx-java-proxy 重启已完成（含告警）", plan.TargetVersion, epoch), fmt.Sprintf("stx-java-proxy restart finished with warnings for target version %s (epoch %s)", plan.TargetVersion, epoch)), nil
 }
 
 // stopJavaProxyForUpgrade 在停 SeaTunnel 前 best-effort 停止 proxy：
@@ -1044,27 +1024,13 @@ func (s *Service) restartJavaProxyBestEffort(
 		return status, nil
 	}
 	if status != nil && !status.Healthy {
-		message := fmt.Sprintf(
-			"stx-java-proxy restarted for version %s (epoch %s) but is not healthy yet: %s / 已按版本 %s（代际 %s）重启 stx-java-proxy，但尚未健康：%s",
-			seatunnelVersion,
-			epoch,
-			firstNonEmptyUpgradeMessage(status.Message, "health probe failed"),
-			seatunnelVersion,
-			epoch,
-			firstNonEmptyUpgradeMessage(status.Message, "health probe failed"),
-		)
+		message := locale.Pick(ctx, fmt.Sprintf("已按版本 %s（代际 %s）重启 stx-java-proxy，但尚未健康：%s", seatunnelVersion, epoch, firstNonEmptyUpgradeMessage(status.Message, "health probe failed")), fmt.Sprintf("stx-java-proxy restarted for version %s (epoch %s) but is not healthy yet: %s", seatunnelVersion, epoch, firstNonEmptyUpgradeMessage(status.Message, "health probe failed")))
 		if logErr := s.appendTaskLog(ctx, task.ID, uintPtr(step.ID), nil, step.Code, LogLevelWarn, LogEventTypeNote, message, commandSummary); logErr != nil {
 			return status, logErr
 		}
 		return status, nil
 	}
-	message := fmt.Sprintf(
-		"stx-java-proxy restarted for version %s (epoch %s) / 已按版本 %s（代际 %s）重启 stx-java-proxy",
-		seatunnelVersion,
-		epoch,
-		seatunnelVersion,
-		epoch,
-	)
+	message := locale.Pick(ctx, fmt.Sprintf("已按版本 %s（代际 %s）重启 stx-java-proxy", seatunnelVersion, epoch), fmt.Sprintf("stx-java-proxy restarted for version %s (epoch %s)", seatunnelVersion, epoch))
 	if logErr := s.appendTaskLog(ctx, task.ID, uintPtr(step.ID), nil, step.Code, LogLevelInfo, LogEventTypeSuccess, message, commandSummary); logErr != nil {
 		return status, logErr
 	}
@@ -1348,7 +1314,7 @@ func (s *Service) startStep(ctx context.Context, task *UpgradeTask, step *Upgrad
 	if err := s.UpdateTask(ctx, task); err != nil {
 		return err
 	}
-	return s.appendTaskLog(ctx, task.ID, uintPtr(step.ID), nil, step.Code, LogLevelInfo, LogEventTypeStarted, normalizeUserVisibleText(fmt.Sprintf("%s started / %s 开始执行", step.Code, step.Code)), "")
+	return s.appendTaskLog(ctx, task.ID, uintPtr(step.ID), nil, step.Code, LogLevelInfo, LogEventTypeStarted, normalizeUserVisibleText(locale.Pick(ctx, fmt.Sprintf("%s 开始执行", step.Code), fmt.Sprintf("%s started", step.Code))), "")
 }
 
 func (s *Service) finishStep(ctx context.Context, task *UpgradeTask, step *UpgradeTaskStep, message string) error {
@@ -1367,7 +1333,7 @@ func (s *Service) failStep(ctx context.Context, task *UpgradeTask, step *Upgrade
 	step.Status = ExecutionStatusFailed
 	step.CompletedAt = &now
 	step.Error = normalizeUserVisibleText(err.Error())
-	step.Message = normalizeUserVisibleText(fmt.Sprintf("%s failed / %s 执行失败", step.Code, step.Code))
+	step.Message = normalizeUserVisibleText(locale.Pick(ctx, fmt.Sprintf("%s 执行失败", step.Code), fmt.Sprintf("%s failed", step.Code)))
 	task.CurrentStep = step.Code
 	task.FailureStep = step.Code
 	if IsRollbackStep(step.Code) {

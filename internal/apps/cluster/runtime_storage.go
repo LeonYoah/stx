@@ -163,7 +163,7 @@ func (s *Service) CleanupIMAPStorage(ctx context.Context, clusterID uint) (*Runt
 		return nil, err
 	}
 	if details.IMAP == nil || !details.IMAP.Enabled || !strings.EqualFold(details.IMAP.StorageType, "LOCAL_FILE") {
-		return nil, fmt.Errorf("imap cleanup is only supported for LOCAL_FILE mode / 仅支持 LOCAL_FILE 模式的 IMAP 清理")
+		return nil, fmt.Errorf("imap cleanup is only supported for LOCAL_FILE mode")
 	}
 	nodes, err := s.GetNodes(ctx, clusterID)
 	if err != nil {

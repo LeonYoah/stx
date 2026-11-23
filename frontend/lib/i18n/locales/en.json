@@ -6091,7 +6091,8 @@
     "copyCellValue": "Copy {column} value",
     "previewResizeColumn": "Resize {column} column",
     "previewReorderColumn": "Drag to reorder {column} column",
-    "clickToInspect": "Click to inspect"
+    "clickToInspect": "Click to inspect",
+    "presetCustomConnector": "Custom"
   },
   "troubleshooting": {
     "title": "Playbooks",

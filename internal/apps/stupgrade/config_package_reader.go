@@ -53,7 +53,7 @@ func readTargetConfigContentsFromPackage(packagePath, targetVersion string, targ
 		return result, []BlockingIssue{blockingIssue(
 			CheckCategoryPackage,
 			"package_invalid_archive",
-			fmt.Sprintf("target package %s is not a valid tar.gz archive / 目标版本 %s 的安装包不是有效的 tar.gz 归档", targetVersion, targetVersion),
+			fmt.Sprintf("target package %s is not a valid tar.gz archive", targetVersion),
 			map[string]string{
 				"package_path": packagePath,
 				"version":      targetVersion,

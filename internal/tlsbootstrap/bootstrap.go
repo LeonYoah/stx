@@ -149,8 +149,7 @@ func EnsureGRPCTLS(opts Options) (Result, error) {
 		fileExists(grpcCfg.CertFile) && fileExists(grpcCfg.KeyFile) {
 		caForAgents := deriveCAPath(grpcCfg.CertFile, caCert)
 		applyGRPCConfig(true, grpcCfg.CertFile, grpcCfg.KeyFile, grpcCfg.CAFile)
-		log.Printf("[TLS] 已发现现有证书，启用 gRPC TLS（不会覆盖）。可用自有证书替换后重启生效 / Existing certs found; gRPC TLS enabled without overwrite. Replace files and restart to use your own certs. cert=%s key=%s ca=%s",
-			grpcCfg.CertFile, grpcCfg.KeyFile, caForAgents)
+		log.Printf("Existing certs found; gRPC TLS enabled without overwrite. Replace files and restart to use your own certs. cert=%s key=%s ca=%s", grpcCfg.CertFile, grpcCfg.KeyFile, caForAgents)
 		return Result{
 			TLSEnabled:    true,
 			CertFile:      grpcCfg.CertFile,
@@ -165,8 +164,7 @@ func EnsureGRPCTLS(opts Options) (Result, error) {
 	// 默认布局证书已齐全 → 启用且不覆盖。
 	if fileExists(caCert) && fileExists(serverCert) && fileExists(serverKey) {
 		applyGRPCConfig(true, serverCert, serverKey, "")
-		log.Printf("[TLS] 已发现自动证书目录，启用 gRPC TLS（不会覆盖）。可替换 %s 下证书后重启 / Auto cert dir found; enabling gRPC TLS without overwrite. Replace certs under %s and restart. dir=%s",
-			certDir, certDir, certDir)
+		log.Printf("Auto cert dir found; enabling gRPC TLS without overwrite. Replace certs under %s and restart. dir=%s", certDir, certDir)
 		return Result{
 			TLSEnabled:    true,
 			CertFile:      serverCert,

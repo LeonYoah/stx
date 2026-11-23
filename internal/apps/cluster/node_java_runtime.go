@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/LeonYoah/stx/internal/apps/javaruntime"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 )
 
 // NodeJavaRuntime 是节点实际生效的 JDK：配置值来自 cluster_nodes.java_home，路径与版本由 Agent 现场检查得出（AC7）。
@@ -90,10 +91,7 @@ func (s *Service) GetNodeJavaRuntime(ctx context.Context, clusterID, nodeID uint
 					result.Version, javaruntime.MaxSupportedMajor(clusterVersion))
 			} else {
 				result.Reason = "below_required_java"
-				result.Message = fmt.Sprintf(
-					"Java %d 低于集群 SeaTunnel %s 要求的 Java %d+ / Java %d is below the Java %d+ required by this cluster's SeaTunnel %s",
-					result.Version, clusterVersion, javaruntime.MinSupportedMajor(clusterVersion),
-					result.Version, javaruntime.MinSupportedMajor(clusterVersion), clusterVersion)
+				result.Message = locale.Pick(ctx, fmt.Sprintf("Java %d 低于集群 SeaTunnel %s 要求的 Java %d+", result.Version, clusterVersion, javaruntime.MinSupportedMajor(clusterVersion)), fmt.Sprintf("Java %d is below the Java %d+ required by this cluster's SeaTunnel %s", result.Version, javaruntime.MinSupportedMajor(clusterVersion), clusterVersion))
 			}
 		}
 	}

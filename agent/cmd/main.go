@@ -288,16 +288,16 @@ func (a *Agent) Run() error {
 
 	// Step 6: Connect to Control Plane
 	// 步骤 6：连接到 Control Plane
-	logger.InfoF(ctx, "[6/8] Connecting to Control Plane... / 连接到 Control Plane...")
+	logger.InfoF(ctx, "[6/8] Connecting to Control Plane...")
 	if err := a.connectToControlPlane(); err != nil {
-		return fmt.Errorf("failed to connect to Control Plane: %w / 连接 Control Plane 失败：%w", err, err)
+		return fmt.Errorf("failed to connect to Control Plane: %w", err)
 	}
 
 	// Step 7: Register with Control Plane
 	// 步骤 7：向 Control Plane 注册
-	logger.InfoF(ctx, "[7/8] Registering with Control Plane... / 向 Control Plane 注册...")
+	logger.InfoF(ctx, "[7/8] Registering with Control Plane...")
 	if err := a.registerWithControlPlane(); err != nil {
-		return fmt.Errorf("failed to register with Control Plane: %w / 向 Control Plane 注册失败：%w", err, err)
+		return fmt.Errorf("failed to register with Control Plane: %w", err)
 	}
 
 	// Step 8: Start background services
@@ -452,8 +452,7 @@ func (a *Agent) reportProcessEvent(event *monitor.ProcessEvent) {
 		return
 	}
 
-	logger.InfoF(ctx, "[Agent] Event reported to Control Plane: type=%s, name=%s, pid=%d / 事件已上报到 Control Plane：类型=%s，名称=%s，PID=%d",
-		event.Type, event.Name, event.PID, event.Type, event.Name, event.PID)
+	logger.InfoF(ctx, "[Agent] Event reported to Control Plane: type=%s, name=%s, pid=%d", event.Type, event.Name, event.PID)
 }
 
 func extractProcessEventReportFields(event *monitor.ProcessEvent) (installDir, role string, details map[string]string) {
@@ -505,7 +504,7 @@ func (a *Agent) connectToControlPlane() error {
 		return nil // Don't fail startup, let reconnection handle it
 	}
 
-	logger.InfoF(ctx, "Connected to Control Plane / 已连接到 Control Plane")
+	logger.InfoF(ctx, "Connected to Control Plane")
 	return nil
 }
 
@@ -598,7 +597,7 @@ func (a *Agent) resolveAgentIP() string {
 	// 1. 配置文件中手动指定的 IP
 	// 1. Manually specified IP in config
 	if configuredIP := strings.TrimSpace(a.config.Agent.IP); configuredIP != "" {
-		logger.InfoF(a.ctx, "Using manually configured Agent IP: %s / 使用手动配置的 Agent IP：%s", configuredIP, configuredIP)
+		logger.InfoF(a.ctx, "Using manually configured Agent IP: %s", configuredIP)
 		return configuredIP
 	}
 
@@ -609,7 +608,7 @@ func (a *Agent) resolveAgentIP() string {
 			// 如果出口 IP 不是回环地址，说明是真正的物理/局域网接口
 			// If outbound IP is not loopback, it is the real network interface
 			if outbound != "127.0.0.1" && outbound != "::1" {
-				logger.InfoF(a.ctx, "Detected outbound IP towards Control Plane (%s): %s / 探测到通往 Control Plane (%s) 的出口 IP：%s", addr, outbound, addr, outbound)
+				logger.InfoF(a.ctx, "Detected outbound IP towards Control Plane (%s): %s", addr, outbound)
 				return outbound
 			}
 		}
@@ -699,7 +698,7 @@ func (a *Agent) setupEventReporter() {
 // applyRemoteConfig 应用从 Control Plane 接收的配置
 func (a *Agent) applyRemoteConfig(cfg *pb.AgentConfig) {
 	ctx := a.ctx
-	logger.InfoF(ctx, "Received remote config from Control Plane: HeartbeatInterval=%d seconds / 收到来自 Control Plane 的远程配置：HeartbeatInterval=%d 秒", cfg.HeartbeatInterval, cfg.HeartbeatInterval)
+	logger.InfoF(ctx, "Received remote config from Control Plane: HeartbeatInterval=%d seconds", cfg.HeartbeatInterval)
 	logger.InfoF(ctx, "Current local heartbeat interval: %v", a.config.Heartbeat.Interval)
 
 	configChanged := false
@@ -713,7 +712,7 @@ func (a *Agent) applyRemoteConfig(cfg *pb.AgentConfig) {
 			// new interval on their next tick.
 			a.heartbeatIntervalNs.Store(int64(newInterval))
 			configChanged = true
-			logger.InfoF(ctx, "Applied heartbeat interval from Control Plane: %v / 已应用来自 Control Plane 的心跳间隔：%v", newInterval, newInterval)
+			logger.InfoF(ctx, "Applied heartbeat interval from Control Plane: %v", newInterval)
 		}
 	} else {
 		logger.WarnF(ctx, "Remote HeartbeatInterval is 0 or negative, keeping local config")
@@ -919,7 +918,7 @@ func (a *Agent) sendHeartbeat() {
 		// Check if agent needs to re-register (Control Plane restarted)
 		// 检查是否需要重新注册（Control Plane 重启了）
 		if isNotFoundError(err) {
-			logger.WarnF(ctx, "Agent not found on Control Plane, re-registering... / Agent 在 Control Plane 上未找到，重新注册...")
+			logger.WarnF(ctx, "Agent not found on Control Plane, re-registering...")
 			go func() {
 				ctx := context.Background()
 				if regErr := a.registerWithControlPlane(); regErr != nil {
@@ -1049,7 +1048,7 @@ func (a *Agent) runCommandStreamLoop() {
 			// Check if agent needs to re-register (Control Plane restarted)
 			// 检查是否需要重新注册（Control Plane 重启了）
 			if isNotFoundError(err) {
-				logger.WarnF(ctx, "Agent not found on Control Plane, re-registering... / Agent 在 Control Plane 上未找到，重新注册...")
+				logger.WarnF(ctx, "Agent not found on Control Plane, re-registering...")
 				if regErr := a.registerWithControlPlane(); regErr != nil {
 					logger.ErrorF(ctx, "Re-registration failed: %v", regErr)
 				}
@@ -1474,7 +1473,7 @@ func (a *Agent) handleUpgradeCommand(ctx context.Context, cmd *pb.CommandRequest
 func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
 	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
 		ctx = stxJavaProxyCommandContext(ctx, cmd.Parameters)
-		reporter.Report(10, "Starting managed stx-java-proxy service... / 启动托管 stx-java-proxy 服务...")
+		reporter.Report(10, "Starting managed stx-java-proxy service...")
 		status, err := installer.StartManagedSTXJavaProxyService(
 			ctx,
 			getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir),
@@ -1489,7 +1488,7 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
-		reporter.Report(100, "Managed stx-java-proxy service started / 托管 stx-java-proxy 服务已启动")
+		reporter.Report(100, "Managed stx-java-proxy service started")
 		return createSTXJavaProxyCommandResponse(cmd.CommandId, status), nil
 	}
 
@@ -1555,7 +1554,7 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
 	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
 		ctx = stxJavaProxyCommandContext(ctx, cmd.Parameters)
-		reporter.Report(10, "Stopping managed stx-java-proxy service... / 停止托管 stx-java-proxy 服务...")
+		reporter.Report(10, "Stopping managed stx-java-proxy service...")
 		status, err := installer.StopManagedSTXJavaProxyService(
 			ctx,
 			getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir),
@@ -1563,7 +1562,7 @@ func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, r
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
-		reporter.Report(100, "Managed stx-java-proxy service stopped / 托管 stx-java-proxy 服务已停止")
+		reporter.Report(100, "Managed stx-java-proxy service stopped")
 		return createSTXJavaProxyCommandResponse(cmd.CommandId, status), nil
 	}
 
@@ -1602,7 +1601,7 @@ func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, r
 func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
 	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
 		ctx = stxJavaProxyCommandContext(ctx, cmd.Parameters)
-		reporter.Report(10, "Restarting managed stx-java-proxy service... / 重启托管 stx-java-proxy 服务...")
+		reporter.Report(10, "Restarting managed stx-java-proxy service...")
 		installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
 		if _, err := installer.StopManagedSTXJavaProxyService(ctx, installDir); err != nil && !strings.Contains(strings.ToLower(err.Error()), "already stopped") {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
@@ -1619,7 +1618,7 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
-		reporter.Report(100, "Managed stx-java-proxy service restarted / 托管 stx-java-proxy 服务已重启")
+		reporter.Report(100, "Managed stx-java-proxy service restarted")
 		return createSTXJavaProxyCommandResponse(cmd.CommandId, status), nil
 	}
 
@@ -1754,7 +1753,7 @@ func (a *Agent) handleCollectLogsCommand(ctx context.Context, cmd *pb.CommandReq
 
 	logFile := getParamString(cmd.Parameters, "log_file", "")
 	if logFile == "" {
-		return executor.CreateErrorResponse(cmd.CommandId, "log_file parameter is required / 需要 log_file 参数"), nil
+		return executor.CreateErrorResponse(cmd.CommandId, "log_file parameter is required"), nil
 	}
 
 	// Parameters / 参数
@@ -1893,14 +1892,14 @@ func (a *Agent) handleCollectLogsCommand(ctx context.Context, cmd *pb.CommandReq
 			startTime, parseStartErr := parseAgentLogWindowTime(startTimeRaw)
 			endTime, parseEndErr := parseAgentLogWindowTime(endTimeRaw)
 			if parseStartErr != nil || parseEndErr != nil {
-				return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to parse time window: start=%v end=%v / 解析时间窗失败: start=%v end=%v", parseStartErr, parseEndErr, parseStartErr, parseEndErr)), nil
+				return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to parse time window: start=%v end=%v", parseStartErr, parseEndErr)), nil
 			}
 			filtered := filterAgentLogWindowContent(string(output), startTime, endTime)
 			output = []byte(filtered)
 		} else if err == nil && len(output) > 500*1024 {
 			// Limit to 500KB / 限制为 500KB
 			output = output[:500*1024]
-			output = append(output, []byte("\n... [truncated / 已截断] ...")...)
+			output = append(output, []byte("\n... [truncated")...)
 		}
 	default: // tail
 		// Read last N lines / 读取最后 N 行
@@ -2026,7 +2025,7 @@ func parseAgentLogTimestamp(line string) (time.Time, bool) {
 }
 
 func (a *Agent) handleJVMDumpCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
-	reporter.Report(10, "Preparing JVM dump... / 准备采集 JVM Dump...")
+	reporter.Report(10, "Preparing JVM dump...")
 
 	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
 	role := getParamString(cmd.Parameters, "role", "")
@@ -2035,17 +2034,17 @@ func (a *Agent) handleJVMDumpCommand(ctx context.Context, cmd *pb.CommandRequest
 
 	result, err := agentdiagnostics.CollectJVMDump(ctx, installDir, role, outputDir, int64(minFreeMB)*1024*1024, javaenv.NormalizeHome(getParamString(cmd.Parameters, javaenv.ParamJavaHome, "")))
 	if err != nil {
-		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to create JVM dump: %v / 生成 JVM Dump 失败：%v", err, err)), nil
+		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to create JVM dump: %v", err)), nil
 	}
 	payload, err := agentdiagnostics.MarshalJVMDumpResult(result)
 	if err != nil {
-		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to encode JVM dump result: %v / 编码 JVM Dump 结果失败：%v", err, err)), nil
+		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to encode JVM dump result: %v", err)), nil
 	}
 
 	if result.Status == agentdiagnostics.DumpStatusSkipped {
-		reporter.Report(100, "JVM dump skipped due to disk policy / JVM Dump 因磁盘策略被跳过")
+		reporter.Report(100, "JVM dump skipped due to disk policy")
 	} else {
-		reporter.Report(100, "JVM dump created / JVM Dump 采集完成")
+		reporter.Report(100, "JVM dump created")
 	}
 	return executor.CreateSuccessResponse(cmd.CommandId, payload), nil
 }
@@ -2308,7 +2307,7 @@ func init() {
 	// Add flags to root command
 	// 向根命令添加标志
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "config file path (default: /etc/stx-agent/config.yaml)")
-	rootCmd.PersistentFlags().Uint64Var(&hostIDFlag, "host-id", 0, "pre-assigned host ID from Control Plane / 来自 Control Plane 的预分配主机 ID")
+	rootCmd.PersistentFlags().Uint64Var(&hostIDFlag, "host-id", 0, "pre-assigned host ID from Control Plane")
 	rootCmd.PersistentFlags().StringVar(&ipFlag, "ip", "", "manually override outbound IP")
 
 	// Add subcommands
@@ -2571,7 +2570,7 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 			JavaHome string `json:"java_home"`
 		}
 		if err := json.Unmarshal([]byte(trackedProcessesJSON), &trackedProcesses); err != nil {
-			logger.ErrorF(ctx, "[Agent] Failed to parse tracked_processes: %v / 解析 tracked_processes 失败：%v", err, err)
+			logger.ErrorF(ctx, "[Agent] Failed to parse tracked_processes: %v", err)
 		} else {
 			logger.InfoF(ctx, "[Agent] Received %d processes to track (auto_monitor=%t, auto_restart=%t)", len(trackedProcesses), autoMonitorEnabled, autoRestartEnabled)
 
@@ -2670,7 +2669,7 @@ func (a *Agent) handleRemoveInstallDirCommand(ctx context.Context, cmd *pb.Comma
 
 	installDir := getParamString(cmd.Parameters, "install_dir", "")
 	if installDir == "" {
-		msg := "install_dir is required / install_dir 为必填"
+		msg := "install_dir is required"
 		return executor.CreateErrorResponse(cmd.CommandId, msg), fmt.Errorf("%s", msg)
 	}
 

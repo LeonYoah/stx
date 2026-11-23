@@ -99,7 +99,7 @@ func HandleTransferPluginCommand(ctx context.Context, cmd *pb.CommandRequest, re
 	// install_path is required for plugin installation
 	// install_path 是插件安装的必需参数
 	if installPath == "" {
-		return CreateErrorResponse(cmd.CommandId, "install_path is required for plugin transfer / 插件传输需要 install_path 参数"), nil
+		return CreateErrorResponse(cmd.CommandId, "install_path is required for plugin transfer"), nil
 	}
 
 	// Set install path / 设置安装路径
@@ -184,7 +184,7 @@ func HandleInstallPluginCommand(ctx context.Context, cmd *pb.CommandRequest, rep
 	// install_path is required for plugin installation
 	// install_path 是插件安装的必需参数
 	if installPath == "" {
-		return CreateErrorResponse(cmd.CommandId, "install_path is required for plugin installation / 插件安装需要 install_path 参数"), nil
+		return CreateErrorResponse(cmd.CommandId, "install_path is required for plugin installation"), nil
 	}
 
 	// Parse dependencies / 解析依赖

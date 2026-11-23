@@ -138,7 +138,7 @@ func Start(ctx context.Context, opts Options) error {
 		return listenFail
 	}
 	if host, _, splitErr := net.SplitHostPort(ln.Addr().String()); splitErr == nil && !isLoopbackHost(host) {
-		logger.WarnF(ctx, "[pprof] 监听 %s 不是 loopback，剖析端点会暴露给网卡可达的客户端 / listening on %s is not loopback; the profile endpoint is reachable beyond this host", ln.Addr().String(), ln.Addr().String())
+		logger.WarnF(ctx, "listening on %s is not loopback; the profile endpoint is reachable beyond this host", ln.Addr().String())
 	}
 	srv := &http.Server{Handler: NewMux(), ReadHeaderTimeout: 5 * time.Second}
 	actual := ln.Addr().String()

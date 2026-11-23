@@ -535,7 +535,7 @@ func (s *Service) rollbackProxyJarsOnNode(ctx context.Context, taskID string, st
 			return
 		}
 		n.ProxyStatus = ProxyRolledBack
-		n.ProxyMessage = "proxy jars restored from backup / proxy jar 已从备份恢复"
+		n.ProxyMessage = locale.Pick(ctx, "proxy jar 已从备份恢复", "proxy jars restored from backup")
 		n.ProxyRestart, n.ProxyRestartMessage = summarizeProxyRollbackRestarts(parseProxyRestarts(out))
 	})
 }
@@ -574,7 +574,7 @@ func parseProxyRestarts(out string) []proxyRestartEntry {
 // summarizeProxyRestarts folds several proxy restart results of a node into one status (worst wins).
 func summarizeProxyRestarts(list []proxyRestartEntry) (string, string) {
 	if len(list) == 0 {
-		return ProxyRestartNotRunning, "no running stx-java-proxy on this node / 该节点没有运行中的 stx-java-proxy"
+		return ProxyRestartNotRunning, "no running stx-java-proxy on this node"
 	}
 	rank := map[string]int{ProxyRestartFailed: 4, ProxyRestartRolledBack: 3, ProxyRestartRestarted: 2, ProxyRestartSkipped: 1, ProxyRestartNotRunning: 0}
 	worst := ""
@@ -616,7 +616,7 @@ func (s *Service) rolloutProxyJars(ctx context.Context, taskID, target string, f
 	if len(jars) == 0 {
 		for _, n := range nodes {
 			s.updateAgentNode(taskID, n.HostID, func(st *AgentNodeUpgrade) {
-				st.ProxyStatus, st.ProxyMessage = ProxySkipped, "no proxy jar in upgrade package / 升级包中没有 proxy jar"
+				st.ProxyStatus, st.ProxyMessage = ProxySkipped, locale.Pick(ctx, "升级包中没有 proxy jar", "no proxy jar in upgrade package")
 			})
 		}
 		return "no proxy jar in upgrade package", false
@@ -702,7 +702,7 @@ func (s *Service) pushProxyJars(ctx context.Context, n AgentNodeUpgrade, target 
 	if res.Skipped {
 		return proxyPushResult{status: ProxySkipped, msg: res.Reason, restart: restart, restartMsg: restartMsg}
 	}
-	msg := fmt.Sprintf("%d jar(s) updated in %s (backups kept as .bak) / 已更新 %d 个 jar（备份为 .bak）", len(res.Updated), res.TargetDir, len(res.Updated))
+	msg := locale.Pick(ctx, fmt.Sprintf("已更新 %d 个 jar（备份为 .bak）", len(res.Updated)), fmt.Sprintf("%d jar(s) updated in %s (backups kept as .bak)", len(res.Updated), res.TargetDir))
 	return proxyPushResult{status: ProxyUpdated, msg: msg, restart: restart, restartMsg: restartMsg}
 }
 

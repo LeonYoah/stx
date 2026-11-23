@@ -193,14 +193,12 @@ var fsTotalBytes = defaultFsTotalBytes
 // disk total) floored at 1GiB; an uncreatable dir or a statfs failure falls back to 30GiB with a WARN.
 func autoMaxBytes(ctx context.Context, dir string, statfs func(string) (int64, error)) (int64, string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		logger.WarnF(ctx, "[Observability] 无法创建 tsdb 目录 %s，容量上限退回 30GiB: %v / cannot create tsdb dir %s, size cap falls back to 30GiB: %v",
-			dir, err, dir, err)
+		logger.WarnF(ctx, "cannot create tsdb dir %s, size cap falls back to 30GiB: %v", dir, err)
 		return DefaultMaxBytesCap, MaxBytesSourceFallback
 	}
 	total, err := statfs(dir)
 	if err != nil || total <= 0 {
-		logger.WarnF(ctx, "[Observability] 读取 %s 磁盘容量失败或不支持，容量上限退回 30GiB: %v / statfs on %s failed or unsupported, size cap falls back to 30GiB: %v",
-			dir, err, dir, err)
+		logger.WarnF(ctx, "statfs on %s failed or unsupported, size cap falls back to 30GiB: %v", dir, err)
 		return DefaultMaxBytesCap, MaxBytesSourceFallback
 	}
 	auto := int64(float64(total) * maxSizeDiskFraction)

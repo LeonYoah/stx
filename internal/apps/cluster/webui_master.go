@@ -127,12 +127,14 @@ func (s *webUIMasterSelector) activeMasterNodeID(ctx context.Context, clusterID 
 			return node.ID, true
 		}
 	}
-	s.mu.Lock()
-	if s.entries == nil {
-		s.entries = map[uint]webUIMasterEntry{}
+	if ctx.Err() == nil {
+		s.mu.Lock()
+		if s.entries == nil {
+			s.entries = map[uint]webUIMasterEntry{}
+		}
+		s.entries[clusterID] = webUIMasterEntry{nodeID: online[0].ID, expiresAt: s.clock().Add(webUIMasterNegativeCacheTTL)}
+		s.mu.Unlock()
 	}
-	s.entries[clusterID] = webUIMasterEntry{nodeID: online[0].ID, expiresAt: s.clock().Add(webUIMasterNegativeCacheTTL)}
-	s.mu.Unlock()
 	return 0, false
 }
 

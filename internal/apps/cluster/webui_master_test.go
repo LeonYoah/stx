@@ -148,3 +148,23 @@ func TestWebUIMasterSelector_activeMasterNodeID(t *testing.T) {
 		t.Fatalf("pick still falls back to first online node, got %d", got.ID)
 	}
 }
+func TestWebUIMasterSelector_canceledProbeDoesNotCache(t *testing.T) {
+	var never atomic.Bool
+	var hits atomic.Int32
+	first := engineNode(t, 1, &never, &hits)
+	second := engineNode(t, 2, &never, &hits)
+	selector := &webUIMasterSelector{}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if id, ok := selector.activeMasterNodeID(canceled, 11, []*NodeInfo{first, second}); ok || id != 0 {
+		t.Fatalf("expected unconfirmed for canceled ctx, got id=%d ok=%v", id, ok)
+	}
+	before := hits.Load()
+	if id, ok := selector.activeMasterNodeID(context.Background(), 11, []*NodeInfo{first, second}); ok || id != 0 {
+		t.Fatalf("expected unconfirmed for live ctx, got id=%d ok=%v", id, ok)
+	}
+	if hits.Load() <= before {
+		t.Fatalf("canceled probe must not populate negative cache, hits before=%d after=%d", before, hits.Load())
+	}
+}

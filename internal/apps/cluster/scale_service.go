@@ -110,6 +110,10 @@ type ClusterMonitorPusher interface {
 	PushClusterMonitorConfigToHost(ctx context.Context, clusterID uint, hostID uint) error
 }
 
+type MemberListReconciler interface {
+	ReconcileClusterMemberList(ctx context.Context, clusterID uint) error
+}
+
 // scaleTiming 汇总编排中的轮询间隔与超时，测试可缩短。
 // scaleTiming collects the orchestrator's poll intervals and timeouts so tests can shorten them.
 type scaleTiming struct {

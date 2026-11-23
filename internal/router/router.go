@@ -1207,6 +1207,7 @@ func Serve() {
 			scaleService.SetRunningJobsProvider(&clusterRunningJobsAdapter{syncService: syncService})
 			scaleService.SetProcessDiscoverer(&clusterProcessDiscovererAdapter{discoveryService: discoveryService})
 			installerService.SetClusterMemberListReconciler(scaleService)
+			clusterService.SetMemberListReconciler(scaleService)
 			if grpcSrv != nil {
 				scaleService.SetMonitorPusher(grpcSrv)
 				clusterService.SetMonitorPusher(grpcSrv)
@@ -2232,6 +2233,10 @@ func (a *configNodeInfoProviderAdapter) GetNodeInstallDir(ctx context.Context, c
 
 func (a *configNodeInfoProviderAdapter) GetNodeInstallDirs(ctx context.Context, clusterID uint, hostID uint) ([]string, error) {
 	return a.clusterService.GetNodeInstallDirs(ctx, clusterID, hostID)
+}
+
+func (a *configNodeInfoProviderAdapter) GetNodePorts(ctx context.Context, clusterID uint, hostID uint) ([]appconfig.NodePortInfo, error) {
+	return a.clusterService.GetNodePorts(ctx, clusterID, hostID)
 }
 
 // configPortMetadataUpdaterAdapter adapts cluster.Repository to appconfig.PortMetadataUpdater interface.

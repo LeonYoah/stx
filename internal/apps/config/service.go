@@ -44,6 +44,13 @@ type HostProvider interface {
 type NodeInfoProvider interface {
 	GetNodeInstallDir(ctx context.Context, clusterID uint, hostID uint) (string, error)
 	GetNodeInstallDirs(ctx context.Context, clusterID uint, hostID uint) ([]string, error)
+	GetNodePorts(ctx context.Context, clusterID uint, hostID uint) ([]NodePortInfo, error)
+}
+
+type NodePortInfo struct {
+	Role          string
+	HazelcastPort int
+	WorkerPort    int
 }
 
 // HostInfo 主机信息

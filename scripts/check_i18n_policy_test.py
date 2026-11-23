@@ -98,6 +98,10 @@ class TestBilingualRule(unittest.TestCase):
     def test_path_tail_after_zh_label(self):
         self.assertPass("日志输出：标准输出 / ./logs/stx.log")
 
+    def test_ellipsis_not_path(self):
+        self.assertHit("加载中 / loading...")
+        self.assertHit("loading... / 加载中")
+
     def test_versioned_name_list_passes(self):
         self.assertPass("支持的运行时：OpenJDK 17 / Oracle JDK 21")
 

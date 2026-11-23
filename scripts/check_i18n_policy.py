@@ -215,7 +215,7 @@ def _is_path_token(segment: str) -> bool:
 
 def _looks_like_path(segment: str) -> bool:
     return _is_path_token(segment) and bool(
-        re.search(r"/|\.(?!$)", segment.split()[0])
+        re.search(r"/|(?<=[A-Za-z0-9])\.(?=[A-Za-z0-9])", segment.split()[0])
     )
 
 

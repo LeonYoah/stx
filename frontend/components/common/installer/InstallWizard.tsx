@@ -153,6 +153,9 @@ export function InstallWizard({
   );
   const [installationStarted, setInstallationStarted] = useState(false);
   const [hostMemoryBytes, setHostMemoryBytes] = useState<number | undefined>();
+  // 主机内存请求进行中；成功/失败都会结束，避免永远卡住 Next。
+  // Host-memory fetch in flight; cleared on success or failure so Next never sticks.
+  const [hostMemoryLoading, setHostMemoryLoading] = useState(false);
 
   // Wizard state management / 向导状态管理
   const {config, updateConfig, resetWizard, buildInstallRequest} =
@@ -167,13 +170,21 @@ export function InstallWizard({
     let cancelled = false;
     const id = Number(hostId);
     if (!Number.isFinite(id) || id <= 0) {
+      setHostMemoryBytes(undefined);
+      setHostMemoryLoading(false);
       return;
     }
+    setHostMemoryLoading(true);
     void services.host.getHostSafe(id).then((result) => {
-      if (cancelled || !result.success || !result.data?.total_memory) {
+      if (cancelled) {
         return;
       }
-      setHostMemoryBytes(result.data.total_memory);
+      if (result.success && result.data?.total_memory) {
+        setHostMemoryBytes(result.data.total_memory);
+      } else {
+        setHostMemoryBytes(undefined);
+      }
+      setHostMemoryLoading(false);
     });
     return () => {
       cancelled = true;
@@ -312,10 +323,14 @@ export function InstallWizard({
     t,
   ]);
 
-  const canProceed = useCallback(
-    () => proceedBlockReason() === null,
-    [proceedBlockReason],
-  );
+  // 处理中用原生 disabled；仅校验失败才 aria-disabled + 原因 Tooltip。
+  // Busy uses native disabled; validation failures alone use aria-disabled + reason Tooltip.
+  const nextBusy =
+    precheckLoading ||
+    installLoading ||
+    (currentStep.id === 'config' && hostMemoryLoading);
+  const nextValidationReason = nextBusy ? null : proceedBlockReason();
+  const nextValidationBlocked = nextValidationReason !== null;
 
   // Handle next step / 处理下一步
   const handleNext = useCallback(async () => {
@@ -616,28 +631,21 @@ export function InstallWizard({
             {currentStep.id === 'complete' ? (
               <Button onClick={handleClose}>{t('common.close')}</Button>
             ) : currentStep.id === 'install' ? null : ( // No next button during installation / 安装过程中没有下一步按钮
-              <DisabledReasonTooltip
-                reason={
-                  precheckLoading || installLoading
-                    ? t('common.loading')
-                    : proceedBlockReason()
-                }
-              >
+              <DisabledReasonTooltip reason={nextValidationReason}>
                 <Button
                   onClick={() => {
-                    if (!canProceed() || precheckLoading || installLoading) {
+                    if (nextBusy || nextValidationBlocked) {
                       return;
                     }
                     void handleNext();
                   }}
                   data-testid='install-wizard-next'
+                  disabled={nextBusy}
                   aria-disabled={
-                    !canProceed() || precheckLoading || installLoading
-                      ? 'true'
-                      : undefined
+                    !nextBusy && nextValidationBlocked ? 'true' : undefined
                   }
                   className={
-                    !canProceed() || precheckLoading || installLoading
+                    !nextBusy && nextValidationBlocked
                       ? 'opacity-60'
                       : undefined
                   }

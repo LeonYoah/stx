@@ -1355,7 +1355,7 @@
     "jvmNoClusterDefault": "集群暂未设置默认堆内存，可切换为自定义。",
     "jvmHeapSize": "堆内存 (MB)",
     "jvmHeapSizeHint": "仅作用于当前节点角色，其余角色仍跟随集群默认。单位为 MB，例如 512、2048。",
-    "jvmHeapSizeRequired": "自定义堆内存时，数值必须至少为 512 MB",
+    "jvmHeapSizeRequired": "堆内存必须至少为 512 MB",
     "jvmHeapSizeInvalid": "堆内存必须在 512–131072 MB 之间",
     "jvmHeapSizeExceedsHost": "堆内存必须小于主机总内存",
     "hostName": "主机名称",

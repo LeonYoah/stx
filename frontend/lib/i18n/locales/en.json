@@ -1355,7 +1355,7 @@
     "jvmNoClusterDefault": "No cluster default heap is configured yet. Switch to Custom to set one.",
     "jvmHeapSize": "Heap Memory (MB)",
     "jvmHeapSizeHint": "Applies only to this node's role. Other roles keep the cluster default. Unit is MB, e.g. 512 or 2048.",
-    "jvmHeapSizeRequired": "Heap memory must be at least 512 MB when Custom is selected",
+    "jvmHeapSizeRequired": "Heap memory must be at least 512 MB",
     "jvmHeapSizeInvalid": "Heap memory must be between 512 and 131072 MB",
     "jvmHeapSizeExceedsHost": "Heap memory must be less than the host total memory",
     "hostName": "Host Name",

@@ -16,6 +16,8 @@
  */
 
 import {describe, expect, it} from 'vitest';
+import en from '@/lib/i18n/locales/en.json';
+import zh from '@/lib/i18n/locales/zh.json';
 import {
   MAX_HEAP_MB,
   MIN_HEAP_MB,
@@ -75,5 +77,16 @@ describe('heap message keys', () => {
     expect(heapNextDisabledKey('exceeds_host_memory')).toBe(
       'cluster.wizard.nextDisabledHeapExceedsHost',
     );
+  });
+
+  it('keeps below_min field copy generic and aligned with Next tooltip', () => {
+    expect(zh.cluster.jvmHeapSizeRequired).toBe(
+      zh.cluster.wizard.nextDisabledHeapBelowMin,
+    );
+    expect(en.cluster.jvmHeapSizeRequired).toBe(
+      en.cluster.wizard.nextDisabledHeapBelowMin,
+    );
+    expect(zh.cluster.jvmHeapSizeRequired).not.toMatch(/自定义/);
+    expect(en.cluster.jvmHeapSizeRequired).not.toMatch(/Custom/i);
   });
 });

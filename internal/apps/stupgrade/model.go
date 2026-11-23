@@ -20,8 +20,10 @@ package stupgrade
 import (
 	"database/sql/driver"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/db"
 )
 
 // LogMetadata 表示步骤日志的结构化上下文。
@@ -40,13 +42,13 @@ func (m LogMetadata) Value() (driver.Value, error) {
 // Scan 实现 sql.Scanner，用于 JSON 读取。
 // Scan implements sql.Scanner for JSON retrieval.
 func (m *LogMetadata) Scan(value interface{}) error {
-	if value == nil {
+	bytes, err := db.JSONScanBytes(value)
+	if err != nil {
+		return fmt.Errorf("stupgrade: failed to scan LogMetadata: %w", err)
+	}
+	if len(bytes) == 0 {
 		*m = nil
 		return nil
-	}
-	bytes, ok := value.([]byte)
-	if !ok {
-		return errors.New("stupgrade: failed to scan LogMetadata - expected []byte")
 	}
 	return json.Unmarshal(bytes, m)
 }
@@ -60,13 +62,13 @@ func (p UpgradePlanSnapshot) Value() (driver.Value, error) {
 // Scan 实现 sql.Scanner，用于计划快照读取。
 // Scan implements sql.Scanner for plan snapshot retrieval.
 func (p *UpgradePlanSnapshot) Scan(value interface{}) error {
-	if value == nil {
+	bytes, err := db.JSONScanBytes(value)
+	if err != nil {
+		return fmt.Errorf("stupgrade: failed to scan UpgradePlanSnapshot: %w", err)
+	}
+	if len(bytes) == 0 {
 		*p = UpgradePlanSnapshot{}
 		return nil
-	}
-	bytes, ok := value.([]byte)
-	if !ok {
-		return errors.New("stupgrade: failed to scan UpgradePlanSnapshot - expected []byte")
 	}
 	return json.Unmarshal(bytes, p)
 }

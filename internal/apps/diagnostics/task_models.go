@@ -22,6 +22,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/db"
 )
 
 // DiagnosticTaskStatus represents the common status for diagnostics tasks,
@@ -479,15 +481,9 @@ type DiagnosticTaskLogListData struct {
 }
 
 func normalizeJSONScanBytes(value interface{}) ([]byte, error) {
-	if value == nil {
-		return nil, nil
-	}
-	switch typed := value.(type) {
-	case []byte:
-		return typed, nil
-	case string:
-		return []byte(typed), nil
-	default:
+	bytes, err := db.JSONScanBytes(value)
+	if err != nil {
 		return nil, errors.New("diagnostics: failed to scan JSON value")
 	}
+	return bytes, nil
 }

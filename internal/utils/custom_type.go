@@ -28,15 +28,21 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+
+	"github.com/LeonYoah/stx/internal/db"
 )
 
 // StringArray custom type for handling JSON arrays
 type StringArray []string
 
 func (sa *StringArray) Scan(value interface{}) error {
-	bytesValue, ok := value.([]byte)
-	if !ok {
-		return fmt.Errorf("invalid value: %v", value)
+	bytesValue, err := db.JSONScanBytes(value)
+	if err != nil {
+		return fmt.Errorf("invalid value: %w", err)
+	}
+	if len(bytesValue) == 0 {
+		*sa = nil
+		return nil
 	}
 	return json.Unmarshal(bytesValue, sa)
 }

@@ -19,9 +19,12 @@ package cluster
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/db"
 	"gorm.io/gorm"
 )
 
@@ -97,6 +100,17 @@ func (r *Repository) GetByName(ctx context.Context, name string) (*Cluster, erro
 // List retrieves clusters based on filter criteria with pagination.
 // Returns the list of clusters and total count.
 func (r *Repository) List(ctx context.Context, filter *ClusterFilter) ([]*Cluster, int64, error) {
+	clusters, total, _, err := r.ListWithWarnings(ctx, filter)
+	return clusters, total, err
+}
+
+// ListWithWarnings 分页列出集群；单行 config 损坏时降级保留该行并收集 warnings，不拖垮整页。
+// total 与返回行数对应同一筛选全集（坏 config 行仍计入），分页口径与展示一致。
+//
+// ListWithWarnings lists clusters with pagination. A bad config on one row is degraded in place
+// with warnings instead of failing the whole page. total matches the filtered set (including
+// degraded rows) so pagination stays consistent with what is shown.
+func (r *Repository) ListWithWarnings(ctx context.Context, filter *ClusterFilter) ([]*Cluster, int64, []string, error) {
 	query := r.db.WithContext(ctx).Model(&Cluster{})
 
 	// Apply filters
@@ -117,7 +131,7 @@ func (r *Repository) List(ctx context.Context, filter *ClusterFilter) ([]*Cluste
 	// Get total count
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	// Apply pagination
@@ -129,13 +143,53 @@ func (r *Repository) List(ctx context.Context, filter *ClusterFilter) ([]*Cluste
 		query = query.Offset(offset).Limit(filter.PageSize)
 	}
 
-	// Execute query with nodes preloaded
+	// Omit Config：避免单行 TEXT/非法 JSON 在 Find 扫描时让整页失败。
+	// Omit Config so one TEXT / invalid-JSON cell cannot fail the whole Find.
 	var clusters []*Cluster
-	if err := query.Preload("Nodes").Order("created_at DESC").Find(&clusters).Error; err != nil {
-		return nil, 0, err
+	if err := query.Omit("Config").Preload("Nodes").Order("created_at DESC").Find(&clusters).Error; err != nil {
+		return nil, 0, nil, err
 	}
 
-	return clusters, total, nil
+	warnings := r.hydrateClusterConfigs(ctx, clusters)
+	return clusters, total, warnings, nil
+}
+
+// hydrateClusterConfigs 逐行软加载 config：接受 []byte/string，非法 JSON 标记 ConfigScanError。
+// hydrateClusterConfigs soft-loads config per row; accepts []byte/string and sets ConfigScanError on bad JSON.
+func (r *Repository) hydrateClusterConfigs(ctx context.Context, clusters []*Cluster) []string {
+	warnings := make([]string, 0)
+	for _, cluster := range clusters {
+		if cluster == nil {
+			continue
+		}
+		var raw interface{}
+		if err := r.db.WithContext(ctx).Raw("SELECT config FROM clusters WHERE id = ?", cluster.ID).Row().Scan(&raw); err != nil {
+			cluster.Config = nil
+			cluster.ConfigScanError = err.Error()
+			warnings = append(warnings, fmt.Sprintf("cluster %q (id=%d): failed to read config: %v", cluster.Name, cluster.ID, err))
+			continue
+		}
+		bytes, err := db.JSONScanBytes(raw)
+		if err != nil {
+			cluster.Config = nil
+			cluster.ConfigScanError = err.Error()
+			warnings = append(warnings, fmt.Sprintf("cluster %q (id=%d): %v", cluster.Name, cluster.ID, err))
+			continue
+		}
+		if len(bytes) == 0 {
+			cluster.Config = nil
+			continue
+		}
+		var cfg ClusterConfig
+		if err := json.Unmarshal(bytes, &cfg); err != nil {
+			cluster.Config = nil
+			cluster.ConfigScanError = err.Error()
+			warnings = append(warnings, fmt.Sprintf("cluster %q (id=%d): invalid config JSON: %v", cluster.Name, cluster.ID, err))
+			continue
+		}
+		cluster.Config = cfg
+	}
+	return warnings
 }
 
 // Update updates an existing cluster record.

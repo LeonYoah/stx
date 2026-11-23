@@ -22,8 +22,10 @@ package audit
 import (
 	"database/sql/driver"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/db"
 )
 
 // CommandStatus represents the execution status of a command.
@@ -64,13 +66,13 @@ func (p CommandParameters) Value() (driver.Value, error) {
 // Scan implements the sql.Scanner interface for database retrieval.
 // Scan 实现 sql.Scanner 接口用于数据库读取。
 func (p *CommandParameters) Scan(value interface{}) error {
-	if value == nil {
+	bytes, err := db.JSONScanBytes(value)
+	if err != nil {
+		return fmt.Errorf("audit: failed to scan CommandParameters: %w", err)
+	}
+	if len(bytes) == 0 {
 		*p = nil
 		return nil
-	}
-	bytes, ok := value.([]byte)
-	if !ok {
-		return errors.New("audit: failed to scan CommandParameters - expected []byte")
 	}
 	return json.Unmarshal(bytes, p)
 }
@@ -91,13 +93,13 @@ func (d AuditDetails) Value() (driver.Value, error) {
 // Scan implements the sql.Scanner interface for database retrieval.
 // Scan 实现 sql.Scanner 接口用于数据库读取。
 func (d *AuditDetails) Scan(value interface{}) error {
-	if value == nil {
+	bytes, err := db.JSONScanBytes(value)
+	if err != nil {
+		return fmt.Errorf("audit: failed to scan AuditDetails: %w", err)
+	}
+	if len(bytes) == 0 {
 		*d = nil
 		return nil
-	}
-	bytes, ok := value.([]byte)
-	if !ok {
-		return errors.New("audit: failed to scan AuditDetails - expected []byte")
 	}
 	return json.Unmarshal(bytes, d)
 }

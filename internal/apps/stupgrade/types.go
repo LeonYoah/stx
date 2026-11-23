@@ -270,7 +270,9 @@ type NodeTarget struct {
 	SourceJavaHome *string `json:"source_java_home,omitempty"`
 	// JavaHome 是本次升级的目标 JDK（预检/启动/冒烟都用它）；未指定时回落到当前节点 java_home。
 	// JavaHome is the target JDK for this upgrade (precheck, start, smoke); falls back to the current node java_home when unset.
-	JavaHome string `json:"java_home,omitempty"`
+	JavaHome      string `json:"java_home,omitempty"`
+	HazelcastPort int    `json:"hazelcast_port,omitempty"`
+	WorkerPort    int    `json:"worker_port,omitempty"`
 }
 
 // PlanStep 描述升级计划中的有序步骤。

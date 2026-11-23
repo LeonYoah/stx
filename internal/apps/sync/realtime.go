@@ -405,7 +405,13 @@ func interpretRealtimeSeries(result *JobRealtimeResult, job *JobInstance, vertic
 		result.Vertices = append(result.Vertices, RealtimeVertex{VertexID: vertex.VertexID, Type: vertexType, Name: names[vertex.VertexID], Points: points})
 	}
 	for _, edge := range edges.Edges {
-		result.Edges = append(result.Edges, RealtimeEdge{QueueID: edge.QueueID, TargetVertexID: edge.TargetVertexID, Points: sortRealtimePoints(edge.Points)})
+		points := sortRealtimePoints(edge.Points)
+		for _, point := range points {
+			if _, ok := point["bpRatio"]; ok {
+				point["bpRatio"] = clampRatio01(realtimeFloat(point, "bpRatio"))
+			}
+		}
+		result.Edges = append(result.Edges, RealtimeEdge{QueueID: edge.QueueID, TargetVertexID: edge.TargetVertexID, Points: points})
 	}
 	if !hasRealtimePoints(result) {
 		result.Reason = RealtimeReasonCollecting
@@ -597,6 +603,16 @@ func sortRealtimePoints(points []map[string]any) []map[string]any {
 		return realtimeFloat(points[i], "ts") < realtimeFloat(points[j], "ts")
 	})
 	return points
+}
+
+func clampRatio01(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
 }
 
 func realtimeFloat(point map[string]any, key string) float64 {

@@ -89,12 +89,19 @@ func FormatAddress(host string, port int) string {
 	return fmt.Sprintf("%s:%d", host, port)
 }
 
-// FormatAddresses 按输入顺序把一组主机格式化为同一端口的地址，不去重、不排序（Agent 安装器使用，保持旧行为）。
+// FormatAddresses 按输入顺序格式化地址，不去重、不排序（Agent 安装器使用，保持旧行为）。已带端口
+// （host:port / [ipv6]:port）的条目原样保留，裸主机名/IP 追加 port。
 // FormatAddresses formats hosts with one port in input order, without dedup or sorting (used by the
-// Agent installer to keep its historical output).
+// Agent installer to keep its historical output). Entries that already carry a port are kept verbatim;
+// bare host names/IPs get the port appended.
 func FormatAddresses(hosts []string, port int) []string {
 	result := make([]string, 0, len(hosts))
 	for _, host := range hosts {
+		host = strings.TrimSpace(host)
+		if _, _, err := net.SplitHostPort(host); err == nil {
+			result = append(result, host)
+			continue
+		}
 		result = append(result, FormatAddress(host, port))
 	}
 	return result

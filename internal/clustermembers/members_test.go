@@ -176,6 +176,22 @@ func TestInstallerMemberList(t *testing.T) {
 			mode: ModeSeparated,
 			want: []string{},
 		},
+		{
+			name:       "addresses carrying their own port are kept verbatim",
+			mode:       ModeHybrid,
+			masters:    []string{"10.66.0.2:5803", "10.66.0.1"},
+			masterPort: 5801,
+			want:       []string{"10.66.0.2:5803", "10.66.0.1:5801"},
+		},
+		{
+			name:       "separated keeps per-node ports",
+			mode:       ModeSeparated,
+			masters:    []string{"m1:5811"},
+			workers:    []string{"w1:5822", "w2"},
+			masterPort: 5801,
+			workerPort: 5802,
+			want:       []string{"m1:5811", "w1:5822", "w2:5802"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

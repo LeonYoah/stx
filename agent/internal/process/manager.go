@@ -999,7 +999,17 @@ func isProcessAlive(pid int) bool {
 	// 在 Unix 上，FindProcess 总是成功，所以我们需要发送信号 0 来检查
 	if runtime.GOOS != "windows" {
 		err = process.Signal(syscall.Signal(0))
-		return err == nil
+		if err != nil {
+			return false
+		}
+		if runtime.GOOS == "linux" {
+			if stat, statErr := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid)); statErr == nil {
+				if closeParen := strings.LastIndexByte(string(stat), ')'); closeParen >= 0 && closeParen+2 < len(stat) {
+					return string(stat)[closeParen+2] != 'Z'
+				}
+			}
+		}
+		return true
 	}
 
 	// On Windows, we need a different approach

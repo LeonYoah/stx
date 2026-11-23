@@ -17,7 +17,7 @@
 
 'use client';
 
-import {useEffect, useMemo, useRef} from 'react';
+import {useCallback, useEffect, useMemo, useRef} from 'react';
 import {useFormatter, useTranslations} from 'next-intl';
 import {LineChart} from '@/components/arc/line-chart/line-chart';
 import {
@@ -147,14 +147,42 @@ export function ClusterTab({
       ),
     [data],
   );
+  const clusterNames = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const card of data?.clusters ?? []) {
+      map.set(card.id, card.name);
+    }
+    return map;
+  }, [data]);
+  const disambiguate = useCallback(
+    (items: HomeDashboardSeries[]) => {
+      const counts = new Map<string, number>();
+      for (const item of items) {
+        counts.set(item.label, (counts.get(item.label) ?? 0) + 1);
+      }
+      return items.map((item, index) => {
+        const clusterName =
+          item.cluster_id != null ? clusterNames.get(item.cluster_id) : undefined;
+        const dup = (counts.get(item.label) ?? 0) > 1;
+        const key =
+          item.cluster_id != null
+            ? `${item.label}#${item.cluster_id}`
+            : dup
+              ? `${item.label}#${index}`
+              : item.label;
+        return {
+          key,
+          name: dup && clusterName ? `${item.label} · ${clusterName}` : item.label,
+          points: item.points,
+          color: nodeColors.get(item.label),
+        };
+      });
+    },
+    [clusterNames, nodeColors],
+  );
   const lineFor = (key: string, reference?: {label: string; value: number}) => {
     const items = byKey.get(key) ?? [];
-    const named = items.map((item) => ({
-      key: item.label,
-      name: item.label,
-      points: item.points,
-      color: nodeColors.get(item.label),
-    }));
+    const named = disambiguate(items);
     const chart = toLineChartData(named, formatLabel, formatAxis);
     if (reference && chart.data.length > 0) {
       chart.series.push({
@@ -363,7 +391,7 @@ export function ClusterTab({
               </p>
             ) : (
               <div className='flex flex-col gap-2'>
-                {availability.map((item) => {
+                {disambiguate(availability).map((item) => {
                   const ok = item.points.filter(
                     (point) => point[1] >= 1,
                   ).length;
@@ -372,19 +400,19 @@ export function ClusterTab({
                     : 0;
                   return (
                     <div
-                      key={item.label}
+                      key={item.key}
                       className='grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)_3.5rem]'
                     >
                       <span
                         className='truncate font-mono text-xs text-muted-foreground'
-                        title={item.label}
+                        title={item.name}
                       >
-                        {item.label}
+                        {item.name}
                       </span>
                       <StatusBar
                         // 窄屏：节点名与可用率一行，状态条独占下一行。/ Narrow: name + ratio on one row, the bar below.
                         className='order-last col-span-2 sm:order-none sm:col-span-1'
-                        label={item.label}
+                        label={item.name}
                         statuses={[
                           {
                             id: 'up',

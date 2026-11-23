@@ -1420,6 +1420,10 @@
       "masterWorker": "Master/Worker",
       "undefined": "Unknown"
     },
+    "masterStates": {
+      "active": "Active",
+      "standby": "Standby"
+    },
     "nodeStatuses": {
       "pending": "Pending",
       "installing": "Installing",

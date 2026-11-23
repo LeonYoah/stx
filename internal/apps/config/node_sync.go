@@ -59,7 +59,15 @@ func (s *Service) applyNodeConfigContent(ctx context.Context, config *Config, co
 		return &nodeApplyOutcome{Applied: true}, nil
 	}
 
-	installDir, dirErr := s.nodeInfoProvider.GetNodeInstallDir(ctx, config.ClusterID, *config.HostID)
+	if IsMemberListConfigType(config.ConfigType) {
+		if derived, err := s.deriveHostEndpoint(ctx, config, content); err != nil {
+			return nil, err
+		} else {
+			content = derived
+		}
+	}
+
+	installDirs, dirErr := s.nodeInfoProvider.GetNodeInstallDirs(ctx, config.ClusterID, *config.HostID)
 	if dirErr != nil {
 		pushErr := locale.Pick(ctx, "获取节点安装目录失败", "failed to resolve node install dir: ") + dirErr.Error()
 		if err := s.markPendingPush(ctx, config, content, comment, userID, pushErr); err != nil {
@@ -67,25 +75,43 @@ func (s *Service) applyNodeConfigContent(ctx context.Context, config *Config, co
 		}
 		return &nodeApplyOutcome{Pending: true, PushError: pushErr}, nil
 	}
-	if installDir == "" {
+	if len(installDirs) == 0 {
 		if err := s.commitConfigVersion(ctx, config, content, comment, userID); err != nil {
 			return nil, err
 		}
 		return &nodeApplyOutcome{Applied: true}, nil
 	}
 
-	if err := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, content); err != nil {
-		pushErr := locale.Pick(ctx, "推送配置到节点失败", "failed to push config to node: ") + err.Error()
-		if markErr := s.markPendingPush(ctx, config, content, comment, userID, pushErr); markErr != nil {
-			return nil, markErr
+	for _, installDir := range installDirs {
+		if err := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, content); err != nil {
+			pushErr := locale.Pick(ctx, "推送配置到节点失败", "failed to push config to node: ") + err.Error()
+			if markErr := s.markPendingPush(ctx, config, content, comment, userID, pushErr); markErr != nil {
+				return nil, markErr
+			}
+			return &nodeApplyOutcome{Pending: true, PushError: pushErr}, nil
 		}
-		return &nodeApplyOutcome{Pending: true, PushError: pushErr}, nil
 	}
 	if err := s.commitConfigVersion(ctx, config, content, comment, userID); err != nil {
 		return nil, err
 	}
 	s.syncDerivedRuntimeMetadata(ctx, config.ClusterID, config.HostID, config.ConfigType, content)
 	return &nodeApplyOutcome{Applied: true}, nil
+}
+
+func (s *Service) deriveHostEndpoint(ctx context.Context, config *Config, content string) (string, error) {
+	hostIP := ""
+	if s.hostProvider != nil {
+		if host, err := s.hostProvider.GetHostByID(ctx, *config.HostID); err == nil && host != nil {
+			hostIP = host.IPAddress
+		}
+	}
+	mode := ""
+	ports := []NodePortInfo(nil)
+	if s.nodeInfoProvider != nil {
+		mode, _ = s.nodeInfoProvider.GetDeploymentMode(ctx, config.ClusterID)
+		ports, _ = s.nodeInfoProvider.GetNodePorts(ctx, config.ClusterID, *config.HostID)
+	}
+	return ApplyHazelcastEndpoint(content, config.ConfigType, mode, hostIP, ports)
 }
 
 // commitConfigVersion 提交新内容为新版本，并清除待推送标记。

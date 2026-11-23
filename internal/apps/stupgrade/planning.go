@@ -319,6 +319,8 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 			TargetInstallDir: resolveTargetInstallDir(node.InstallDir, sourceVersion, targetVersion, resolvedTargetInstallDir),
 			SourceJavaHome:   &sourceJavaHome,
 			JavaHome:         targetJavaHome,
+			HazelcastPort:    node.HazelcastPort,
+			WorkerPort:       node.WorkerPort,
 		}
 		targets = append(targets, target)
 		if javaHomeErr != nil {

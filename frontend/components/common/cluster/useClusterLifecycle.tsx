@@ -132,6 +132,13 @@ export function useClusterLifecycle(
             [OperationType.RESTART]: t('cluster.restartError'),
           }[operation];
           toast.error(result.error || fallbackError);
+          // 重启 HTTP 200 但 data.success=false（如 Operation completed with errors）时，
+          // 进程事件/新 PID 仍可能异步落库；仍要启动停留页轮询，否则 UI 冻到重新进入（#186 AC2）。
+          // Restart may return HTTP 200 with data.success=false while events/new PID still land async;
+          // still start stay-on-page poll or the UI freezes until remount (#186 AC2).
+          if (operation === OperationType.RESTART) {
+            onComplete?.(cluster, operation);
+          }
         }
       } finally {
         setOperatingClusterId(null);

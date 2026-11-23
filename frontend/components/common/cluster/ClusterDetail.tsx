@@ -1438,6 +1438,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         ]);
       } else {
         toast.error(result.error || t('cluster.nodeRestartError'));
+        // 与页头一致：data.success=false 不表示「无需刷新」；requested/新 PID 仍可能异步到达。
+        // Same as header: data.success=false does not mean skip refresh; requested/new PID may still arrive.
+        await refreshMainStatusAfterLifecycle(OperationType.RESTART, [
+          node.id,
+        ]);
       }
     } finally {
       setNodeOperating(null);

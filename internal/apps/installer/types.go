@@ -159,8 +159,8 @@ const (
 	JobLogModePerJob JobLogMode = "per_job"
 )
 
-// JVMConfig contains JVM memory configuration
-// JVMConfig 包含 JVM 内存配置
+// JVMConfig contains JVM memory configuration (MB; legacy 1–128 means GB, Agent converts).
+// JVMConfig 包含 JVM 内存配置（MB；历史 1–128 表示 GB，由 Agent 换算）。
 type JVMConfig struct {
 	HybridHeapSize int `json:"hybrid_heap_size"`
 	MasterHeapSize int `json:"master_heap_size"`

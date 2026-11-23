@@ -1526,6 +1526,18 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 	// registering PID=0 and waiting for the restarter to treat it as a crash inserts the default restart delay.
 	err := a.processManager.StartProcess(ctx, processName, params)
 	if err != nil {
+		// 已在运行视为启动成功（幂等），避免批量 start 把健康节点打成失败。
+		// Treat already-running as a successful start (idempotent) so batch start does not fail healthy nodes.
+		if errors.Is(err, process.ErrProcessAlreadyRunning) {
+			logger.InfoF(ctx, "[Agent] Process already running, treating start as success: %s / 进程已在运行，启动视为成功：%s", processName, processName)
+			if info, statusErr := a.processManager.GetStatus(ctx, processName); statusErr == nil && info.PID > 0 {
+				a.processMonitor.TrackProcessSilent(processName, info.PID, installDir, role, params)
+				a.processMonitor.SetProcessClusterID(processName, clusterID)
+				a.processMonitor.ClearManuallyStopped(processName)
+			}
+			reporter.Report(100, "Process already running / 进程已在运行")
+			return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("process is already running (role: %s) / 进程已在运行（角色：%s）", role, role)), nil
+		}
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 
@@ -1580,17 +1592,13 @@ func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, r
 		Role:       role,
 	}
 
-	// Check if auto-restart is enabled - mark manually stopped to prevent auto-restart
-	// 检查是否启用了自动重启 - 标记为手动停止以防止自动重启
-	if a.autoRestarter.IsEnabled() {
-		a.processMonitor.MarkManuallyStopped(processName)
-	}
+	// 无论是否开启自动拉起，都先标手动停止，避免监控把计划内 stop 报成 crash。
+	// Always mark manual stop (even when auto-restart is off) so monitors never report an intentional stop as a crash.
+	a.processMonitor.MarkManuallyStopped(processName)
 
 	err := a.processManager.StopProcess(ctx, processName, stopParams)
 	if err != nil {
-		if a.autoRestarter.IsEnabled() {
-			a.processMonitor.ClearManuallyStopped(processName)
-		}
+		a.processMonitor.ClearManuallyStopped(processName)
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 
@@ -1645,12 +1653,15 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 		Role:       role,
 	}
 
+	// 先标手动停止，避免计划内重启的 stop 窗口被监控报成 crash。
+	// Mark manual stop first so the intentional restart stop window is not reported as a crash.
+	a.processMonitor.MarkManuallyStopped(processName)
+
 	// Check if auto-restart is enabled to avoid conflict
 	// 检查是否启用了自动重启以避免冲突
 	if a.autoRestarter.IsEnabled() {
 		// Auto-restart enabled: stop process, then set PID=0 to let auto-restarter handle the start
 		// 自动重启已启用：停止进程，然后设置 PID=0 让自动重启器处理启动
-		a.processMonitor.MarkManuallyStopped(processName)
 		err := a.processManager.StopProcess(ctx, processName, stopParams)
 		if err != nil {
 			a.processMonitor.ClearManuallyStopped(processName)

@@ -168,6 +168,13 @@ func TestAutoTimeseriesStep(t *testing.T) {
 // timeseries API returns series via real PromQL.
 func TestGetJobTimeseries_readsEmbeddedTsdb(t *testing.T) {
 	originalEnabled := config.Config.Observability.Enabled
+	// t.TempDir 必须先建：它的删除清理在调用时就注册，而 t.Cleanup 后进先出——
+	// 若 Close 的清理先注册，结束时会先删 chunks_head 再关库，Head.Close 的
+	// mmapHeadChunks 就会写进已删目录直接 panic。
+	// t.TempDir must come first: its removal cleanup registers at call time and
+	// cleanups run LIFO — registering Close first would delete chunks_head before
+	// the db closes, and Head.Close's mmapHeadChunks then writes into a missing dir.
+	dir := t.TempDir()
 	t.Cleanup(func() {
 		config.Config.Observability.Enabled = originalEnabled
 		_ = embedts.Close()
@@ -175,7 +182,7 @@ func TestGetJobTimeseries_readsEmbeddedTsdb(t *testing.T) {
 	config.Config.Observability.Enabled = true
 	_ = embedts.Close()
 	ctx := context.Background()
-	if err := embedts.Start(ctx, embedts.Options{Dir: t.TempDir(), QueryTimeout: 5 * time.Second, MaxSamples: 100000}); err != nil {
+	if err := embedts.Start(ctx, embedts.Options{Dir: dir, QueryTimeout: 5 * time.Second, MaxSamples: 100000}); err != nil {
 		t.Fatalf("start tsdb: %v", err)
 	}
 	now := time.Now().UTC()

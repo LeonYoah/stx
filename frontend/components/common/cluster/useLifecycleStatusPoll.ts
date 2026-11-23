@@ -22,6 +22,7 @@ import {
   isLifecyclePollSatisfied,
   LIFECYCLE_POLL_INTERVAL_MS,
   LIFECYCLE_POLL_TIMEOUT_MS,
+  type LifecycleBaselinePids,
   type LifecyclePollSnapshot,
   type LifecyclePollTarget,
 } from './lifecycle-status-poll';
@@ -33,11 +34,18 @@ export interface UseLifecycleStatusPollOptions {
   timeoutMs?: number;
   /** 达标时回调（例如补拉一次 JDK runtime）。 / Called when the target is satisfied (e.g. one JDK runtime refresh). */
   onSatisfied?: (snapshot: LifecyclePollSnapshot) => void;
+  /** 超时未达标时回调（勿伪造成功）。 / Called when the poll times out without satisfaction (never fake success). */
+  onTimeout?: () => void;
 }
 
 export interface StartLifecyclePollOptions {
   /** 仅等待这些节点达标（单节点/批量）；省略表示全量节点。 / Wait only for these nodes; omit for all nodes. */
   scopeNodeIds?: number[];
+  /**
+   * 重启前各节点 PID 基准；有值时 running 达标还要求 PID 已变化。
+   * Pre-restart PID baselines; when set, running satisfaction also requires PID change.
+   */
+  baselinePids?: LifecycleBaselinePids;
 }
 
 export interface UseLifecycleStatusPollResult {
@@ -61,6 +69,7 @@ export function useLifecycleStatusPoll(
     intervalMs = LIFECYCLE_POLL_INTERVAL_MS,
     timeoutMs = LIFECYCLE_POLL_TIMEOUT_MS,
     onSatisfied,
+    onTimeout,
   } = options;
 
   const mountedRef = useRef(true);
@@ -70,6 +79,8 @@ export function useLifecycleStatusPoll(
   loadSnapshotRef.current = loadSnapshot;
   const onSatisfiedRef = useRef(onSatisfied);
   onSatisfiedRef.current = onSatisfied;
+  const onTimeoutRef = useRef(onTimeout);
+  onTimeoutRef.current = onTimeout;
   const intervalRef = useRef(intervalMs);
   intervalRef.current = intervalMs;
   const timeoutRef = useRef(timeoutMs);
@@ -109,6 +120,7 @@ export function useLifecycleStatusPoll(
       const session = sessionRef.current;
       const startedAt = Date.now();
       const scopeNodeIds = options?.scopeNodeIds;
+      const baselinePids = options?.baselinePids;
 
       const schedule = (delayMs: number) => {
         if (!mountedRef.current || session !== sessionRef.current) {
@@ -130,7 +142,12 @@ export function useLifecycleStatusPoll(
         }
         if (
           snapshot &&
-          isLifecyclePollSatisfied(snapshot, target, scopeNodeIds)
+          isLifecyclePollSatisfied(
+            snapshot,
+            target,
+            scopeNodeIds,
+            baselinePids,
+          )
         ) {
           clearTimer();
           onSatisfiedRef.current?.(snapshot);
@@ -138,6 +155,7 @@ export function useLifecycleStatusPoll(
         }
         if (Date.now() - startedAt >= timeoutRef.current) {
           clearTimer();
+          onTimeoutRef.current?.();
           return;
         }
         schedule(intervalRef.current);

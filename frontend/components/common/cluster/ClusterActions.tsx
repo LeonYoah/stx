@@ -33,18 +33,29 @@ import {
 interface ClusterActionsProps {
   cluster: ClusterInfo;
   onOperationComplete: (operation: OperationType) => void;
+  /**
+   * 重启确认后立刻回调（POST 前）；详情页用它开轮询，避免与 onOperationComplete 重采 baseline。
+   * Fires right after restart confirm (before POST); detail uses it to start poll without recapturing baseline.
+   */
+  onRestartConfirmed?: () => void;
   variant?: 'default' | 'compact';
 }
 
 export function ClusterActions({
   cluster,
   onOperationComplete,
+  onRestartConfirmed,
   variant = 'default',
 }: ClusterActionsProps) {
   const t = useTranslations();
   const {canStart, canStop, canRestart} = getClusterActionFlags(cluster);
   const {operatingClusterId, operatingAction, requestLifecycle, dialogs} =
     useClusterLifecycle({
+      onRestartConfirmed: onRestartConfirmed
+        ? () => {
+            onRestartConfirmed();
+          }
+        : undefined,
       onComplete: (_cluster, action) => {
         if (
           action === OperationType.START ||

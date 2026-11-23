@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 284)
+	require.Len(t, Registry(), 285)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -283,6 +283,10 @@ func TestRegistryContainsClusterWriteOperations(t *testing.T) {
 	require.Empty(t, byID["cluster.delete"].CommandPath)
 	require.False(t, byID["cluster.node.remove"].GeneratedCLI)
 	require.Empty(t, byID["cluster.node.remove"].CommandPath)
+	require.True(t, byID["host.delete"].ID == "host.delete")
+	require.Equal(t, RiskR2, byID["host.delete"].Risk)
+	require.False(t, byID["host.delete"].GeneratedCLI)
+	require.Empty(t, byID["host.delete"].CommandPath)
 	require.True(t, byID["cluster.restart"].GeneratedCLI)
 	require.False(t, byID["cluster.log-mode.update"].GeneratedCLI)
 }
@@ -362,7 +366,7 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	for _, exception := range RouteExceptions() {
 		exceptions[exception.Method+" "+exception.Route] = exception
 	}
-	require.Len(t, RouteExceptions(), 33)
+	require.Len(t, RouteExceptions(), 32)
 	require.Contains(t, exceptions, "GET /api/v1/version")
 	require.Contains(t, exceptions, "POST /api/v1/sync/engine-events/:cluster_id")
 	require.Contains(t, exceptions, "POST /api/v1/auth/login")
@@ -373,7 +377,6 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	for _, route := range []string{
 		"DELETE /api/v1/clusters/:id/plugins/:name",
 		"DELETE /api/v1/diagnostics/auto-policies/:id",
-		"DELETE /api/v1/hosts/:id",
 		"DELETE /api/v1/monitoring/alert-policies/:id",
 		"DELETE /api/v1/monitoring/cluster-rules/:key",
 		"DELETE /api/v1/monitoring/cluster-rules/:key/clusters/:clusterId",

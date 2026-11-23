@@ -299,6 +299,7 @@ func Serve() {
 				ControlPlaneAddr: config.GetExternalURL(),
 			})
 			hostHandler := host.NewHandler(hostService, auditRepo)
+			hostHandler.SetExecutionService(executionService)
 
 			hostRouter := apiV1Router.Group("/hosts")
 			hostRouter.Use(auth.LoginRequired())
@@ -350,6 +351,7 @@ func Serve() {
 			}
 
 			clusterHandler := cluster.NewHandler(clusterService, auditRepo)
+			clusterHandler.SetExecutionService(executionService)
 
 			// 集群扩缩容编排：只读计划 + 异步分步执行，接入公共执行（提交 R2、重试 R1）；其余依赖在对应服务创建后注入。
 			// Cluster scaling orchestrator: read-only plans plus async step execution on the shared execution contract
@@ -475,12 +477,25 @@ func Serve() {
 				case event.NodeID > 0 && event.Operation == cluster.OperationStop:
 					processEventType = monitor.EventTypeNodeStopRequested
 				case event.NodeID > 0 && event.Operation == cluster.OperationRestart:
-					processEventType = monitor.EventTypeNodeRestartRequested
+					// Success=false：后台异步重启失败 → restart_failed（沿用既有事件类型）。
+					// Success=false: async background restart failed → restart_failed (existing event type).
+					if event.Success {
+						processEventType = monitor.EventTypeNodeRestartRequested
+					} else {
+						processEventType = monitor.EventTypeRestartFailed
+					}
 				case event.Operation == cluster.OperationRestart:
-					processEventType = monitor.EventTypeClusterRestartRequested
+					if event.Success {
+						processEventType = monitor.EventTypeClusterRestartRequested
+					} else {
+						processEventType = monitor.EventTypeRestartFailed
+					}
 				default:
 					return nil
 				}
+				// 记录请求事件时脱离请求 ctx：RestartNode 内 sleep/detect 较长，客户端断开时勿丢 node_restart_requested。
+				// Persist requested events with a detached ctx: node restart sleeps/detects; client cancel must not drop them.
+				ctx = context.WithoutCancel(ctx)
 				details := map[string]string{
 					"trigger":   event.Trigger,
 					"operator":  event.Operator,
@@ -1050,6 +1065,10 @@ func Serve() {
 				// 将节点启动器注入安装服务，用于安装后启动节点
 				installerService.SetNodeStarter(clusterService)
 				log.Println("[API] Node starter injected into installer service / 节点启动器已注入安装服务")
+
+				// Inject node addresses resolver for member-list fallback during installation
+				// 注入集群节点地址解析器，安装时兜底组装 member-list
+				installerService.SetClusterNodeAddressesResolver(clusterService)
 			}
 
 			pluginHandler := plugin.NewHandler(pluginService, auditRepo)
@@ -1535,6 +1554,10 @@ func (a *agentCommandSenderAdapter) SendCommand(ctx context.Context, agentID str
 		timeout = 10 * time.Minute
 	case "pull_config":
 		timeout = 1 * time.Minute
+	case "start", "stop", "restart":
+		// SeaTunnel 优雅停止本身可到 30s；同步等 Agent 必须大于该值，否则已下发的重启被误报 500（#186）。
+		// SeaTunnel graceful stop alone can take 30s; sync wait must exceed that or a dispatched restart is reported as HTTP 500 (#186).
+		timeout = 90 * time.Second
 	}
 
 	// Send command with command-specific timeout
@@ -1956,6 +1979,7 @@ func (a *hostProviderAdapter) GetHostByID(ctx context.Context, hostID uint) (*in
 		Name:        h.Name,
 		AgentID:     h.AgentID,
 		AgentStatus: string(h.AgentStatus),
+		IPAddress:   h.IPAddress,
 		LastSeen:    h.LastHeartbeat,
 	}, nil
 }

@@ -22,7 +22,9 @@ import {
   OperationType,
 } from '@/lib/services/cluster/types';
 import {
+  baselinePidsFromNodes,
   isLifecyclePollSatisfied,
+  isRestartLifecycleOperation,
   lifecycleTargetForOperation,
 } from '../lifecycle-status-poll';
 
@@ -121,5 +123,86 @@ describe('lifecycle-status-poll', () => {
         'running',
       ),
     ).toBe(false);
+  });
+
+  it('restart baselines reject stale RUNNING+old PID (AC5 root cause)', () => {
+    expect(isRestartLifecycleOperation(OperationType.RESTART)).toBe(true);
+    expect(isRestartLifecycleOperation('restart')).toBe(true);
+    expect(isRestartLifecycleOperation(OperationType.START)).toBe(false);
+
+    const baselines = baselinePidsFromNodes(
+      [
+        {id: 4, process_pid: 1876},
+        {id: 5, process_pid: 99},
+      ],
+      [4],
+    );
+    expect(baselines).toEqual({4: 1876});
+
+    expect(
+      isLifecyclePollSatisfied(
+        {
+          clusterStatus: ClusterStatus.RUNNING,
+          nodes: [
+            {id: 4, status: NodeStatus.RUNNING, process_pid: 1876},
+            {id: 5, status: NodeStatus.RUNNING, process_pid: 99},
+          ],
+        },
+        'running',
+        [4],
+        baselines,
+      ),
+    ).toBe(false);
+
+    expect(
+      isLifecyclePollSatisfied(
+        {
+          clusterStatus: ClusterStatus.RUNNING,
+          nodes: [
+            {id: 4, status: NodeStatus.RUNNING, process_pid: 2810},
+            {id: 5, status: NodeStatus.RUNNING, process_pid: 99},
+          ],
+        },
+        'running',
+        [4],
+        baselines,
+      ),
+    ).toBe(true);
+  });
+
+  it('header full-scope restart requires every scoped node to change PID', () => {
+    const baselines = baselinePidsFromNodes([
+      {id: 1, process_pid: 2810},
+      {id: 2, process_pid: 100},
+    ]);
+    expect(
+      isLifecyclePollSatisfied(
+        {
+          clusterStatus: ClusterStatus.RUNNING,
+          nodes: [
+            {id: 1, status: NodeStatus.RUNNING, process_pid: 2810},
+            {id: 2, status: NodeStatus.RUNNING, process_pid: 3196},
+          ],
+        },
+        'running',
+        undefined,
+        baselines,
+      ),
+    ).toBe(false);
+
+    expect(
+      isLifecyclePollSatisfied(
+        {
+          clusterStatus: ClusterStatus.RUNNING,
+          nodes: [
+            {id: 1, status: NodeStatus.RUNNING, process_pid: 3196},
+            {id: 2, status: NodeStatus.RUNNING, process_pid: 3200},
+          ],
+        },
+        'running',
+        undefined,
+        baselines,
+      ),
+    ).toBe(true);
   });
 });

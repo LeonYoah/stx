@@ -42,6 +42,7 @@ import (
 
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/apps/javaruntime"
+	"github.com/LeonYoah/stx/internal/clustermembers"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -166,6 +167,23 @@ type NodeJVMResolver interface {
 	ResolveNodeJVMByClusterAndHostAndRole(ctx context.Context, clusterID uint, hostID uint, role string) (*JVMConfig, error)
 }
 
+// ClusterNodeAddress carries one cluster node's host IP for member-list assembly.
+// ClusterNodeAddress 携带一个集群节点的主机 IP，用于组装 member-list。
+type ClusterNodeAddress struct {
+	HostIP        string
+	Role          string
+	HazelcastPort int
+	WorkerPort    int
+}
+
+// ClusterNodeAddressesResolver lists a cluster's node addresses for install-time fallback.
+// ClusterNodeAddressesResolver 查询集群节点地址，用于安装时的 member-list 兜底。
+type ClusterNodeAddressesResolver interface {
+	// ResolveClusterNodeAddresses returns host IPs of every node registered on the cluster.
+	// ResolveClusterNodeAddresses 返回集群上已登记节点的主机 IP。
+	ResolveClusterNodeAddresses(ctx context.Context, clusterID uint) ([]ClusterNodeAddress, error)
+}
+
 // EventChannelEnabler 在一键安装登记 seatunnel.yaml 之后、节点启动之前写入事件通道。
 // EventChannelEnabler writes the event channel after one-click install registers seatunnel.yaml and before the node starts.
 type EventChannelEnabler interface {
@@ -194,6 +212,7 @@ type HostInfo struct {
 	Name        string     `json:"name,omitempty"`
 	AgentID     string     `json:"agent_id"`
 	AgentStatus string     `json:"agent_status"`
+	IPAddress   string     `json:"ip_address,omitempty"`
 	LastSeen    *time.Time `json:"last_seen"`
 }
 
@@ -276,6 +295,10 @@ type Service struct {
 	// nodeJVMResolver is used to resolve node-level JVM overrides during installation
 	// nodeJVMResolver 用于在安装时解析节点级 JVM 覆盖
 	nodeJVMResolver NodeJVMResolver
+
+	// nodeAddressesResolver is used to fill member-list addresses when callers omit them
+	// nodeAddressesResolver 用于在调用方未传 member-list 地址时按集群兜底组装
+	nodeAddressesResolver ClusterNodeAddressesResolver
 
 	// configInitializer is used to initialize cluster configs after installation
 	// configInitializer 用于安装完成后初始化集群配置
@@ -437,6 +460,12 @@ func (s *Service) SetNodeStarter(starter NodeStarter) {
 // SetNodeJVMResolver 设置节点级 JVM 配置解析器。
 func (s *Service) SetNodeJVMResolver(resolver NodeJVMResolver) {
 	s.nodeJVMResolver = resolver
+}
+
+// SetClusterNodeAddressesResolver sets the resolver for member-list fallback.
+// SetClusterNodeAddressesResolver 设置 member-list 兜底用的集群节点地址解析器。
+func (s *Service) SetClusterNodeAddressesResolver(resolver ClusterNodeAddressesResolver) {
+	s.nodeAddressesResolver = resolver
 }
 
 // SetConfigInitializer sets the config initializer for initializing cluster configs.
@@ -2518,6 +2547,7 @@ func (s *Service) StartInstallation(ctx context.Context, req *InstallationReques
 	req.JavaHome = javaHome
 
 	s.resolveInstallationJVM(ctx, req)
+	s.resolveMemberAddresses(ctx, req)
 
 	s.installMu.Lock()
 	defer s.installMu.Unlock()
@@ -2578,6 +2608,69 @@ func (s *Service) resolveInstallationJVM(ctx context.Context, req *InstallationR
 
 	req.JVM = resolved
 	logger.InfoF(ctx, "[Installer] resolved node JVM config for installation: cluster=%d, host=%d, role=%s", clusterID, hostID, req.NodeRole)
+}
+
+// resolveMemberAddresses fills master/worker addresses the caller left empty from the
+// cluster's registered nodes (plus the target host). Without this, the agent falls back to
+// 127.0.0.1 in hazelcast member-list and every node forms a single-node cluster (split brain).
+// resolveMemberAddresses 在调用方未传 master/worker 地址时，按集群已登记节点（含目标主机）
+// 兜底组装；否则 agent 端 member-list 回退为 127.0.0.1，多节点各自成单点集群（脑裂）。
+func (s *Service) resolveMemberAddresses(ctx context.Context, req *InstallationRequest) {
+	if s == nil || req == nil || s.nodeAddressesResolver == nil {
+		return
+	}
+	if len(req.MasterAddresses) > 0 && len(req.WorkerAddresses) > 0 {
+		return
+	}
+	clusterID, err := strconv.ParseUint(strings.TrimSpace(req.ClusterID), 10, 64)
+	if err != nil || clusterID == 0 {
+		return
+	}
+	nodes, err := s.nodeAddressesResolver.ResolveClusterNodeAddresses(ctx, uint(clusterID))
+	if err != nil {
+		logger.WarnF(ctx, "[Installer] failed to resolve cluster node addresses: cluster=%d, err=%v", clusterID, err)
+		return
+	}
+
+	separated := req.DeploymentMode == DeploymentModeSeparated
+	masters, workers := []string{}, []string{}
+	seenMasters, seenWorkers := map[string]struct{}{}, map[string]struct{}{}
+	add := func(role string, ip string) {
+		ip = strings.TrimSpace(ip)
+		if ip == "" {
+			return
+		}
+		if separated && role == string(NodeRoleWorker) {
+			if _, ok := seenWorkers[ip]; !ok {
+				seenWorkers[ip] = struct{}{}
+				workers = append(workers, ip)
+			}
+			return
+		}
+		if _, ok := seenMasters[ip]; !ok {
+			seenMasters[ip] = struct{}{}
+			masters = append(masters, ip)
+		}
+	}
+
+	// 目标节点可能尚未登记为集群节点，先取主机表 IP 补入。
+	// The target node may not be registered as a cluster node yet; seed its host IP first.
+	if hostID, err := strconv.ParseUint(strings.TrimSpace(req.HostID), 10, 64); err == nil && s.hostProvider != nil {
+		if host, herr := s.hostProvider.GetHostByID(ctx, uint(hostID)); herr == nil && host != nil {
+			add(string(req.NodeRole), host.IPAddress)
+		}
+	}
+	for _, node := range nodes {
+		add(node.Role, node.HostIP)
+	}
+	if len(req.MasterAddresses) == 0 {
+		clustermembers.SortAddresses(masters)
+		req.MasterAddresses = masters
+	}
+	if len(req.WorkerAddresses) == 0 {
+		clustermembers.SortAddresses(workers)
+		req.WorkerAddresses = workers
+	}
 }
 
 // GetInstallationStatus returns the current installation status.

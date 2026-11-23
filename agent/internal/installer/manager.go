@@ -383,16 +383,16 @@ type IMAPConfig struct {
 // JVMConfig contains JVM memory configuration
 // JVMConfig 包含 JVM 内存配置
 type JVMConfig struct {
-	// HybridHeapSize is the heap size for hybrid mode (in GB)
-	// HybridHeapSize 是混合模式的堆内存大小（GB）
+	// HybridHeapSize 是混合模式堆大小（MB）；历史 1–128 按 GB 兼容换算。
+	// HybridHeapSize is the hybrid-mode heap size in MB; legacy values 1–128 mean GB and are converted.
 	HybridHeapSize int `json:"hybrid_heap_size"`
 
-	// MasterHeapSize is the heap size for master nodes (in GB)
-	// MasterHeapSize 是 master 节点的堆内存大小（GB）
+	// MasterHeapSize 是 master 节点堆大小（MB）；历史 1–128 按 GB 兼容换算。
+	// MasterHeapSize is the master heap size in MB; legacy values 1–128 mean GB and are converted.
 	MasterHeapSize int `json:"master_heap_size"`
 
-	// WorkerHeapSize is the heap size for worker nodes (in GB)
-	// WorkerHeapSize 是 worker 节点的堆内存大小（GB）
+	// WorkerHeapSize 是 worker 节点堆大小（MB）；历史 1–128 按 GB 兼容换算。
+	// WorkerHeapSize is the worker heap size in MB; legacy values 1–128 mean GB and are converted.
 	WorkerHeapSize int `json:"worker_heap_size"`
 }
 
@@ -1029,9 +1029,9 @@ func DefaultInstallParams() *InstallParams {
 		ScheduledDeletionEnable: &scheduledDeletionEnable,
 		JobLogMode:              JobLogModePerJob,
 		JVM: &JVMConfig{
-			HybridHeapSize: 3, // 3GB for hybrid mode / 混合模式 3GB
-			MasterHeapSize: 2, // 2GB for master / master 2GB
-			WorkerHeapSize: 2, // 2GB for worker / worker 2GB
+			HybridHeapSize: 3072, // 3GB hybrid default as MB / 混合模式默认 3GB（以 MB 计）
+			MasterHeapSize: 2048, // 2GB master default as MB / master 默认 2GB（以 MB 计）
+			WorkerHeapSize: 2048, // 2GB worker default as MB / worker 默认 2GB（以 MB 计）
 		},
 		Checkpoint: &CheckpointConfig{
 			StorageType: CheckpointStorageLocalFile,
@@ -1053,9 +1053,9 @@ func DefaultInstallParams() *InstallParams {
 // DefaultJVMConfig 返回默认 JVM 配置
 func DefaultJVMConfig() *JVMConfig {
 	return &JVMConfig{
-		HybridHeapSize: 3,
-		MasterHeapSize: 2,
-		WorkerHeapSize: 2,
+		HybridHeapSize: 3072,
+		MasterHeapSize: 2048,
+		WorkerHeapSize: 2048,
 	}
 }
 
@@ -1211,14 +1211,14 @@ func validateHDFSStorageConfig(
 // Validate validates the JVM configuration
 // Validate 验证 JVM 配置
 func (j *JVMConfig) Validate() error {
-	if j.HybridHeapSize < 1 {
-		return errors.New("hybrid_heap_size must be at least 1 GB")
+	if err := ValidateHeapSizeMB(NormalizeHeapSizeMB(j.HybridHeapSize)); err != nil {
+		return fmt.Errorf("hybrid_heap_size: %w", err)
 	}
-	if j.MasterHeapSize < 1 {
-		return errors.New("master_heap_size must be at least 1 GB")
+	if err := ValidateHeapSizeMB(NormalizeHeapSizeMB(j.MasterHeapSize)); err != nil {
+		return fmt.Errorf("master_heap_size: %w", err)
 	}
-	if j.WorkerHeapSize < 1 {
-		return errors.New("worker_heap_size must be at least 1 GB")
+	if err := ValidateHeapSizeMB(NormalizeHeapSizeMB(j.WorkerHeapSize)); err != nil {
+		return fmt.Errorf("worker_heap_size: %w", err)
 	}
 	return nil
 }
@@ -2355,8 +2355,9 @@ func (m *InstallerManager) configureJVM(params *InstallParams) error {
 	if params.DeploymentMode == DeploymentModeHybrid {
 		// Hybrid mode: configure jvm_options / 混合模式：配置 jvm_options
 		jvmOptionsPath := filepath.Join(configDir, "jvm_options")
-		logger.InfoF(ctx, "[configureJVM] Hybrid mode: modifying %s with heap=%dGB", jvmOptionsPath, params.JVM.HybridHeapSize)
-		if err := m.modifyJVMOptions(jvmOptionsPath, params.JVM.HybridHeapSize); err != nil {
+		heapMB := NormalizeHeapSizeMB(params.JVM.HybridHeapSize)
+		logger.InfoF(ctx, "[configureJVM] Hybrid mode: modifying %s with heap=%dMB", jvmOptionsPath, heapMB)
+		if err := m.modifyJVMOptions(jvmOptionsPath, heapMB); err != nil {
 			logger.ErrorF(ctx, "[configureJVM] Error modifying %s: %v", jvmOptionsPath, err)
 			return err
 		}
@@ -2365,15 +2366,17 @@ func (m *InstallerManager) configureJVM(params *InstallParams) error {
 		// Separated mode: configure jvm_master_options and jvm_worker_options
 		// 分离模式：配置 jvm_master_options 和 jvm_worker_options
 		masterOptionsPath := filepath.Join(configDir, "jvm_master_options")
-		logger.InfoF(ctx, "[configureJVM] Separated mode: modifying %s with heap=%dGB", masterOptionsPath, params.JVM.MasterHeapSize)
-		if err := m.modifyJVMOptions(masterOptionsPath, params.JVM.MasterHeapSize); err != nil {
+		masterMB := NormalizeHeapSizeMB(params.JVM.MasterHeapSize)
+		logger.InfoF(ctx, "[configureJVM] Separated mode: modifying %s with heap=%dMB", masterOptionsPath, masterMB)
+		if err := m.modifyJVMOptions(masterOptionsPath, masterMB); err != nil {
 			logger.ErrorF(ctx, "[configureJVM] Error modifying %s: %v", masterOptionsPath, err)
 			return err
 		}
 
 		workerOptionsPath := filepath.Join(configDir, "jvm_worker_options")
-		logger.InfoF(ctx, "[configureJVM] Separated mode: modifying %s with heap=%dGB", workerOptionsPath, params.JVM.WorkerHeapSize)
-		if err := m.modifyJVMOptions(workerOptionsPath, params.JVM.WorkerHeapSize); err != nil {
+		workerMB := NormalizeHeapSizeMB(params.JVM.WorkerHeapSize)
+		logger.InfoF(ctx, "[configureJVM] Separated mode: modifying %s with heap=%dMB", workerOptionsPath, workerMB)
+		if err := m.modifyJVMOptions(workerOptionsPath, workerMB); err != nil {
 			logger.ErrorF(ctx, "[configureJVM] Error modifying %s: %v", workerOptionsPath, err)
 			return err
 		}
@@ -2401,9 +2404,9 @@ func (m *InstallerManager) configureJVM(params *InstallParams) error {
 //
 // This function handles both formats - uncomments if needed and sets the correct heap size
 // 此函数处理两种格式 - 如果需要则取消注释并设置正确的堆大小
-func (m *InstallerManager) modifyJVMOptions(filePath string, heapSizeGB int) error {
+func (m *InstallerManager) modifyJVMOptions(filePath string, heapSizeMB int) error {
 	ctx := context.Background()
-	logger.InfoF(ctx, "[modifyJVMOptions] Starting: file=%s, heapSize=%dGB", filePath, heapSizeGB)
+	logger.InfoF(ctx, "[modifyJVMOptions] Starting: file=%s, heapSize=%dMB", filePath, heapSizeMB)
 
 	// Backup original file / 备份原始文件
 	if err := backupFile(filePath); err != nil {
@@ -2424,26 +2427,24 @@ func (m *InstallerManager) modifyJVMOptions(filePath string, heapSizeGB int) err
 	xmsModified := false
 	xmxModified := false
 
-	// Regex patterns for matching JVM heap options (commented or not)
-	// 匹配 JVM 堆选项的正则表达式（注释或非注释）
-	// Matches: "# -Xms2g", "#  -Xms2g", "-Xms2g", "# -Xms4g", etc.
-	xmsPattern := regexp.MustCompile(`^#?\s*-Xms\d+g\s*$`)
-	xmxPattern := regexp.MustCompile(`^#?\s*-Xmx\d+g\s*$`)
+	// 匹配注释或未注释的 -Xms/-Xmx（g 或 m），统一改写为 MB。
+	// Match commented or plain -Xms/-Xmx (g or m) and rewrite them all as MB.
+	// Matches: "# -Xms2g", "-Xms512m", "# -Xmx4g", etc.
+	xmsPattern := regexp.MustCompile(`^#?\s*-Xms\d+[gGmM]\s*$`)
+	xmxPattern := regexp.MustCompile(`^#?\s*-Xmx\d+[gGmM]\s*$`)
+	xmsLine := FormatHeapXms(heapSizeMB)
+	xmxLine := FormatHeapXmx(heapSizeMB)
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
 		if xmsPattern.MatchString(trimmed) {
-			// Replace with uncommented and correct heap size
-			// 替换为取消注释并设置正确的堆大小
-			logger.InfoF(ctx, "[modifyJVMOptions] Found Xms line: '%s' -> '-Xms%dg'", trimmed, heapSizeGB)
-			result = append(result, fmt.Sprintf("-Xms%dg", heapSizeGB))
+			logger.InfoF(ctx, "[modifyJVMOptions] Found Xms line: '%s' -> '%s'", trimmed, xmsLine)
+			result = append(result, xmsLine)
 			xmsModified = true
 		} else if xmxPattern.MatchString(trimmed) {
-			// Replace with uncommented and correct heap size
-			// 替换为取消注释并设置正确的堆大小
-			logger.InfoF(ctx, "[modifyJVMOptions] Found Xmx line: '%s' -> '-Xmx%dg'", trimmed, heapSizeGB)
-			result = append(result, fmt.Sprintf("-Xmx%dg", heapSizeGB))
+			logger.InfoF(ctx, "[modifyJVMOptions] Found Xmx line: '%s' -> '%s'", trimmed, xmxLine)
+			result = append(result, xmxLine)
 			xmxModified = true
 		} else {
 			// Keep other lines unchanged / 保持其他行不变

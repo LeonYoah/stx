@@ -89,6 +89,8 @@ export interface ClusterNodesTabProps {
   onEditNode: (node: NodeInfo) => void;
   onRemoveNode: (node: NodeInfo) => void;
   onMainStatusRefresh?: () => void;
+  /** 启停/重启后递增，驱动进程事件区有界静默轮询。 / Bumped after lifecycle ops to drive bounded silent event poll. */
+  lifecyclePollEpoch?: number;
 }
 
 function getRoleKey(role: string): string {
@@ -115,6 +117,7 @@ export function ClusterNodesTab({
   onEditNode,
   onRemoveNode,
   onMainStatusRefresh,
+  lifecyclePollEpoch = 0,
 }: ClusterNodesTabProps) {
   const t = useTranslations();
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -511,6 +514,7 @@ export function ClusterNodesTab({
       <ProcessEventList
         clusterId={clusterId}
         onMainStatusRefresh={onMainStatusRefresh}
+        lifecyclePollEpoch={lifecyclePollEpoch}
       />
     </div>
   );

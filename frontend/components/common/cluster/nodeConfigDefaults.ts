@@ -18,7 +18,7 @@
 import {ConfigInfo, ConfigType} from '@/lib/services/config';
 import {ClusterConfig, DeploymentMode, getClusterJVMConfig} from '@/lib/services/cluster/types';
 
-function normalizeHeapSizeToGB(rawValue: string, unit: string): number | undefined {
+function normalizeHeapSizeToMB(rawValue: string, unit: string): number | undefined {
   const parsed = Number(rawValue);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return undefined;
@@ -26,11 +26,11 @@ function normalizeHeapSizeToGB(rawValue: string, unit: string): number | undefin
 
   switch (unit.toLowerCase()) {
     case 'g':
-      return parsed;
+      return Math.ceil(parsed * 1024);
     case 'm':
-      return Math.max(1, Math.ceil(parsed / 1024));
+      return Math.ceil(parsed);
     case 'k':
-      return Math.max(1, Math.ceil(parsed / (1024 * 1024)));
+      return Math.max(1, Math.ceil(parsed / 1024));
     default:
       return undefined;
   }
@@ -53,7 +53,7 @@ function parseHeapSizeFromJVMContent(content?: string): number | undefined {
       continue;
     }
 
-    return normalizeHeapSizeToGB(match[1], match[2]);
+    return normalizeHeapSizeToMB(match[1], match[2]);
   }
 
   return undefined;

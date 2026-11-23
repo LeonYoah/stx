@@ -106,7 +106,7 @@ test.describe.serial('install wizard real installer', () => {
 
     await chooseSelectOption(page, 'install-config-mirror', /Apache/i);
     await page.getByTestId('install-config-install-dir').fill(installDir);
-    await page.getByTestId('install-jvm-hybrid-heap').fill('1');
+    await page.getByTestId('install-jvm-hybrid-heap').fill('1024');
     await page.getByTestId('install-runtime-http-port').fill(String(httpPort));
     await chooseSelectOption(
       page,
@@ -138,9 +138,11 @@ test.describe.serial('install wizard real installer', () => {
       'fs.defaultFS: file:///',
     ]);
     await assertFileContains(files.hazelcast, ['enabled: false']);
+    // 向导未显式传 master_addresses 时，服务端按 cluster_id/主机记录兜底写入注册 IP。
+    // When the wizard omits master_addresses, the server falls back to the registered host IP.
     await assertFileContains(files.hazelcastClient, [
       'cluster-members:',
-      `- 127.0.0.1:${clusterPort}`,
+      `- ${host.ipAddress}:${clusterPort}`,
     ]);
     await assertFileContains(files.log4j2, [
       'rootLogger.appenderRef.file.ref = routingAppender',
@@ -191,7 +193,7 @@ test.describe.serial('install wizard real installer', () => {
 
     await chooseSelectOption(page, 'install-config-mirror', /Apache/i);
     await page.getByTestId('install-config-install-dir').fill(installDir);
-    await page.getByTestId('install-jvm-hybrid-heap').fill('1');
+    await page.getByTestId('install-jvm-hybrid-heap').fill('1024');
 
     await chooseSelectOption(
       page,

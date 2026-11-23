@@ -25,6 +25,7 @@
 
 import {BaseService} from '../core/base.service';
 import apiClient from '../core/api-client';
+import {createWebExecutionHeaders} from '../core/execution-headers';
 import {
   HostInfo,
   HostListData,
@@ -35,7 +36,6 @@ import {
   CreateHostResponse,
   GetHostResponse,
   UpdateHostResponse,
-  DeleteHostResponse,
   GetInstallCommandResponse,
   InstallCommandData,
 } from './types';
@@ -149,13 +149,38 @@ export class HostService extends BaseService {
    *
    * @param hostId - Host ID / 主机 ID
    */
-  static async deleteHost(hostId: number): Promise<void> {
-    const response = await apiClient.delete<DeleteHostResponse>(
-      `${this.basePath}/${hostId}`,
-    );
-
-    if (response.data.error_msg) {
-      throw new Error(response.data.error_msg);
+  static async deleteHost(
+    hostId: number,
+    idempotencyKey?: string,
+    confirmationId?: string,
+  ): Promise<void> {
+    const executionHeaders = createWebExecutionHeaders('host-delete', {
+      idempotencyKey,
+      confirmationId,
+    });
+    try {
+      await this.deleteWithConfig<null>(`/${hostId}`, {
+        headers: executionHeaders.headers,
+      });
+    } catch (error) {
+      const data = (
+        error as Error & {
+          data?: {confirmation_required?: boolean; confirmation_id?: string};
+        }
+      ).data;
+      if (
+        !confirmationId &&
+        data?.confirmation_required &&
+        data.confirmation_id
+      ) {
+        await this.deleteHost(
+          hostId,
+          executionHeaders.idempotencyKey,
+          data.confirmation_id,
+        );
+        return;
+      }
+      throw error;
     }
   }
 

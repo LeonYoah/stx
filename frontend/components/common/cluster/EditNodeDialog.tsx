@@ -43,6 +43,13 @@ import {
   getClusterJVMValueForRole,
   getNodeJVMOverrideValue,
 } from '@/lib/services/cluster/types';
+import {
+  MAX_HEAP_MB,
+  MIN_HEAP_MB,
+  coerceHeapSizeToMB,
+  heapFieldErrorKey,
+  validateHeapSizeMB,
+} from '@/lib/services/installer/heap';
 import {buildResolvedClusterConfigFromConfigs} from './nodeConfigDefaults';
 
 interface EditNodeDialogProps {
@@ -124,6 +131,7 @@ export function EditNodeDialog({
   const [apiPort, setApiPort] = useState(0);
   const [jvmOverrideEnabled, setJvmOverrideEnabled] = useState(false);
   const [jvmHeapSize, setJvmHeapSize] = useState(0);
+  const [hostMemoryBytes, setHostMemoryBytes] = useState<number | undefined>();
 
   useEffect(() => {
     if (!node || !open) {
@@ -144,6 +152,13 @@ export function EditNodeDialog({
             configsResult.data,
           );
         }
+      }
+
+      const hostResult = await services.host.getHostSafe(node.host_id);
+      if (!cancelled && hostResult.success && hostResult.data?.total_memory) {
+        setHostMemoryBytes(hostResult.data.total_memory);
+      } else if (!cancelled) {
+        setHostMemoryBytes(undefined);
       }
 
       if (cancelled) {
@@ -180,8 +195,13 @@ export function EditNodeDialog({
         node.role,
         effectiveClusterConfig,
       );
+      // 历史集群配置可能仍是 GB（1–128），展示前规范为 MB。
+      // Legacy cluster configs may still store GB (1–128); coerce to MB before display.
+      const rawHeap = currentOverride ?? inheritedValue;
       setJvmOverrideEnabled(currentOverride !== undefined);
-      setJvmHeapSize(currentOverride ?? inheritedValue ?? 0);
+      setJvmHeapSize(
+        rawHeap !== undefined ? coerceHeapSizeToMB(rawHeap) : 0,
+      );
       setPrecheckResult(null);
     };
 
@@ -241,9 +261,12 @@ export function EditNodeDialog({
       toast.error(t(getPrimaryPortRequiredMessageKey(node.role)));
       return;
     }
-    if (jvmOverrideEnabled && (!jvmHeapSize || jvmHeapSize <= 0)) {
-      toast.error(t('cluster.jvmHeapSizeRequired'));
-      return;
+    if (jvmOverrideEnabled) {
+      const heapError = validateHeapSizeMB(jvmHeapSize, hostMemoryBytes);
+      if (heapError) {
+        toast.error(t(heapFieldErrorKey(heapError)));
+        return;
+      }
     }
 
     setLoading(true);
@@ -301,10 +324,21 @@ export function EditNodeDialog({
     return null;
   }
 
-  const clusterDefaultHeap = getClusterJVMValueForRole(
+  const clusterDefaultHeapRaw = getClusterJVMValueForRole(
     node.role,
     resolvedClusterConfig,
   );
+  const clusterDefaultHeap =
+    clusterDefaultHeapRaw !== undefined
+      ? coerceHeapSizeToMB(clusterDefaultHeapRaw)
+      : undefined;
+
+  const jvmHeapCode = jvmOverrideEnabled
+    ? validateHeapSizeMB(jvmHeapSize, hostMemoryBytes)
+    : null;
+  const jvmHeapFieldError = jvmHeapCode
+    ? t(heapFieldErrorKey(jvmHeapCode))
+    : undefined;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -442,7 +476,9 @@ export function EditNodeDialog({
               <div className='max-w-xs space-y-1.5'>
                 <Input
                   type='number'
-                  min={1}
+                  min={MIN_HEAP_MB}
+                  max={MAX_HEAP_MB}
+                  step={64}
                   label={t('cluster.jvmHeapSize')}
                   description={t('cluster.jvmHeapSizeHint')}
                   required
@@ -450,6 +486,7 @@ export function EditNodeDialog({
                   onChange={(e) =>
                     setJvmHeapSize(parseInt(e.target.value, 10) || 0)
                   }
+                  error={jvmHeapFieldError}
                   className='font-mono tabular-nums'
                 />
               </div>

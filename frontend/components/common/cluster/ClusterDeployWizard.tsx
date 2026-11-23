@@ -53,6 +53,7 @@ import {mapCheckpointNamespaceToImap} from '@/lib/runtime-storage-namespace';
 import {isValidClusterCode} from '@/lib/cluster-code';
 import {HostType, HostStatus} from '@/lib/services/host/types';
 import {DeploymentMode, NodeRole} from '@/lib/services/cluster/types';
+import {validateHeapSizeMB} from '@/lib/services/installer/heap';
 
 import {
   WIZARD_STEPS,
@@ -512,12 +513,34 @@ export function ClusterDeployWizard({
             : t('cluster.wizard.nextDisabledRoles');
         }
         return null;
-      case 'config':
-        return config.version.length > 0 &&
-          config.installDir.trim().length > 0 &&
-          Boolean(config.checkpoint.namespace?.trim())
-          ? null
-          : t('cluster.wizard.nextDisabledConfig');
+      case 'config': {
+        if (
+          !(
+            config.version.length > 0 &&
+            config.installDir.trim().length > 0 &&
+            Boolean(config.checkpoint.namespace?.trim())
+          )
+        ) {
+          return t('cluster.wizard.nextDisabledConfig');
+        }
+        const heapValues =
+          config.deploymentMode === DeploymentMode.HYBRID
+            ? [config.jvm.hybrid_heap_size]
+            : [config.jvm.master_heap_size, config.jvm.worker_heap_size];
+        const hostMemoryBytes = selectedHosts
+          .map((h) => h.host.total_memory)
+          .filter((v): v is number => typeof v === 'number' && v > 0);
+        const minHostMemory =
+          hostMemoryBytes.length > 0 ? Math.min(...hostMemoryBytes) : undefined;
+        if (
+          heapValues.some(
+            (value) => validateHeapSizeMB(value, minHostMemory) !== null,
+          )
+        ) {
+          return t('cluster.wizard.nextDisabledHeap');
+        }
+        return null;
+      }
       case 'precheck':
         return allPrechecksPassed
           ? null

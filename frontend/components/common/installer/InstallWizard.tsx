@@ -46,6 +46,7 @@ import {
   X,
   Loader2,
 } from 'lucide-react';
+import {validateHeapSizeMB} from '@/lib/services/installer/heap';
 import {
   useInstallWizard,
   usePrecheck,
@@ -242,7 +243,7 @@ export function InstallWizard({
           precheckResult?.overall_status === 'passed' ||
           precheckResult?.overall_status === 'warning'
         );
-      case 'config':
+      case 'config': {
         // Must have version selected / 必须选择版本
         if (!config.version) {
           return false;
@@ -251,7 +252,15 @@ export function InstallWizard({
         if (config.installMode === 'offline' && !config.packagePath) {
           return false;
         }
+        const heapValues =
+          config.deploymentMode === 'hybrid'
+            ? [config.jvm.hybrid_heap_size]
+            : [config.jvm.master_heap_size, config.jvm.worker_heap_size];
+        if (heapValues.some((value) => validateHeapSizeMB(value) !== null)) {
+          return false;
+        }
         return true;
+      }
       case 'plugins':
         // Plugin selection is optional, but selected JDBC profiles must be explicit / 插件选择可选，但已选择的 JDBC 必须显式选择场景
         return !hasProfileSelectionIssue;

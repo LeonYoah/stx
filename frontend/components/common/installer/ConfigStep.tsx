@@ -673,7 +673,7 @@ export function ConfigStep({
             <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
               {config.deploymentMode === 'hybrid' ? (
                 <div className='space-y-2'>
-                  <Label>{t('installer.hybridHeapSize')} (GB)</Label>
+                  <Label>{t('installer.hybridHeapSize')}</Label>
                   <Input
                     data-testid='install-jvm-hybrid-heap'
                     type='number'
@@ -684,15 +684,15 @@ export function ConfigStep({
                         parseInt(e.target.value) || 0,
                       )
                     }
-                    min={1}
-                    max={64}
-                    step={1}
+                    min={512}
+                    max={131072}
+                    step={64}
                   />
                 </div>
               ) : (
                 <>
                   <div className='space-y-2'>
-                    <Label>{t('installer.masterHeapSize')} (GB)</Label>
+                    <Label>{t('installer.masterHeapSize')}</Label>
                     <Input
                       data-testid='install-jvm-master-heap'
                       type='number'
@@ -703,13 +703,13 @@ export function ConfigStep({
                           parseInt(e.target.value) || 0,
                         )
                       }
-                      min={1}
-                      max={64}
-                      step={1}
+                      min={512}
+                      max={131072}
+                      step={64}
                     />
                   </div>
                   <div className='space-y-2'>
-                    <Label>{t('installer.workerHeapSize')} (GB)</Label>
+                    <Label>{t('installer.workerHeapSize')}</Label>
                     <Input
                       data-testid='install-jvm-worker-heap'
                       type='number'
@@ -720,9 +720,9 @@ export function ConfigStep({
                           parseInt(e.target.value) || 0,
                         )
                       }
-                      min={1}
-                      max={64}
-                      step={1}
+                      min={512}
+                      max={131072}
+                      step={64}
                     />
                   </div>
                 </>

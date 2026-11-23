@@ -210,9 +210,9 @@ export const defaultClusterDeployConfig: ClusterDeployConfig = {
     job_log_mode: 'per_job',
   },
   jvm: {
-    hybrid_heap_size: 2,
-    master_heap_size: 2,
-    worker_heap_size: 2,
+    hybrid_heap_size: 2048,
+    master_heap_size: 2048,
+    worker_heap_size: 2048,
   },
   checkpoint: {
     storage_type: 'LOCAL_FILE',

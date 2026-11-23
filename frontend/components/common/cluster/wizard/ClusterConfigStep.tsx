@@ -625,61 +625,64 @@ export function ClusterConfigStep({
               </div>
             </div>
 
-            {/* JVM Heap / JVM 堆内存（单位 GB 写进 label） */}
+            {/* JVM Heap / JVM 堆内存（单位 MB 写进 label） */}
             <div className='space-y-2.5'>
               <h3 className='text-xs font-semibold flex items-center gap-1.5 text-foreground'>
                 <HardDrive className='h-3.5 w-3.5 text-muted-foreground' />
-                {t('cluster.wizard.jvmHeapConfigGb')}
+                {t('cluster.wizard.jvmHeapConfigMb')}
               </h3>
               {config.deploymentMode === DeploymentMode.HYBRID ? (
                 <Input
-                  label={`${t('cluster.wizard.hybridNodeHeap')} (GB)`}
+                  label={`${t('cluster.wizard.hybridNodeHeap')} (MB)`}
                   type='number'
                   value={config.jvm.hybrid_heap_size}
                   onChange={(e) =>
                     updateConfig({
                       jvm: {
                         ...config.jvm,
-                        hybrid_heap_size: parseInt(e.target.value) || 2,
+                        hybrid_heap_size: parseInt(e.target.value) || 2048,
                       },
                     })
                   }
-                  min={1}
-                  max={128}
+                  min={512}
+                  max={131072}
+                  step={64}
                   className='font-mono text-xs tabular-nums'
                 />
               ) : (
                 <div className='grid grid-cols-2 gap-2.5'>
                   <Input
-                    label={`${t('cluster.wizard.masterHeap')} (GB)`}
+                    label={`${t('cluster.wizard.masterHeap')} (MB)`}
                     type='number'
                     value={config.jvm.master_heap_size}
                     onChange={(e) =>
                       updateConfig({
                         jvm: {
                           ...config.jvm,
-                          master_heap_size: parseInt(e.target.value) || 2,
+                          master_heap_size: parseInt(e.target.value) || 2048,
                         },
                       })
                     }
-                    min={1}
-                    max={128}
+                    min={512}
+                    max={131072}
+                    step={64}
                     className='font-mono text-xs tabular-nums'
                   />
                   <Input
-                    label={`${t('cluster.wizard.workerHeap')} (GB)`}
+                    label={`${t('cluster.wizard.workerHeap')} (MB)`}
                     type='number'
                     value={config.jvm.worker_heap_size}
                     onChange={(e) =>
                       updateConfig({
                         jvm: {
                           ...config.jvm,
-                          worker_heap_size: parseInt(e.target.value) || 2,
+                          worker_heap_size: parseInt(e.target.value) || 2048,
                         },
                       })
                     }
-                    min={1}
-                    max={128}
+                    min={512}
+                    max={131072}
+                    step={64}
                     className='font-mono text-xs tabular-nums'
                   />
                 </div>

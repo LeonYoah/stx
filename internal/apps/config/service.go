@@ -444,16 +444,19 @@ func (s *Service) PushConfigToNode(ctx context.Context, id uint, installDir stri
 	installDirs := []string{installDir}
 	if s.nodeInfoProvider != nil {
 		if dirs, dirErr := s.nodeInfoProvider.GetNodeInstallDirs(ctx, config.ClusterID, *config.HostID); dirErr == nil {
-			seen := map[string]struct{}{strings.TrimSpace(installDir): {}}
+			norm := func(dir string) string {
+				return strings.TrimRight(strings.TrimSpace(dir), "/")
+			}
+			seen := map[string]struct{}{norm(installDir): {}}
 			for _, dir := range dirs {
 				dir = strings.TrimSpace(dir)
 				if dir == "" {
 					continue
 				}
-				if _, ok := seen[dir]; ok {
+				if _, ok := seen[norm(dir)]; ok {
 					continue
 				}
-				seen[dir] = struct{}{}
+				seen[norm(dir)] = struct{}{}
 				installDirs = append(installDirs, dir)
 			}
 		}

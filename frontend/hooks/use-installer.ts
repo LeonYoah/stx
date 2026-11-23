@@ -504,9 +504,9 @@ const defaultConfig: InstallWizardConfig = {
     job_log_mode: 'per_job',
   },
   jvm: {
-    hybrid_heap_size: 3, // GB
-    master_heap_size: 2, // GB
-    worker_heap_size: 2, // GB
+    hybrid_heap_size: 3072, // MB (3 GiB)
+    master_heap_size: 2048, // MB (2 GiB)
+    worker_heap_size: 2048, // MB (2 GiB)
   },
   checkpoint: {
     storage_type: 'LOCAL_FILE',

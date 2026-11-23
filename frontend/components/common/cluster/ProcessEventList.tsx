@@ -55,12 +55,21 @@ import {
   type ProcessEventType,
 } from '@/lib/services/monitor';
 import {formatDateTimeMinuteTz} from '@/lib/timezone';
+import {
+  LIFECYCLE_POLL_INTERVAL_MS,
+  LIFECYCLE_POLL_TIMEOUT_MS,
+} from './lifecycle-status-poll';
 
 interface ProcessEventListProps {
   clusterId: number;
   nodeId?: number;
   /** 事件列表成功刷新后联动主状态（节点/头部），避免「事件已重启、主状态仍停」。 / After events reload, refresh main status so events and header/nodes stay aligned. */
   onMainStatusRefresh?: () => void;
+  /**
+   * 启停/重启后由详情页递增；>0 时有界静默轮询事件列表（卸载即停）。
+   * Bumped by detail after lifecycle ops; when >0, bounded silent event poll (stops on unmount).
+   */
+  lifecyclePollEpoch?: number;
 }
 
 const EVENT_TYPE_META: Record<
@@ -122,6 +131,36 @@ const EVENT_TYPE_META: Record<
     icon: <Activity className='size-3' aria-hidden />,
     labelKey: 'monitor.events.nodeRecovered',
   },
+  agent_offline: {
+    tone: 'rose',
+    icon: <AlertTriangle className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.agentOffline',
+  },
+  agent_recovered: {
+    tone: 'emerald',
+    icon: <Activity className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.agentRecovered',
+  },
+  master_unavailable: {
+    tone: 'rose',
+    icon: <AlertTriangle className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.masterUnavailable',
+  },
+  master_recovered: {
+    tone: 'emerald',
+    icon: <Activity className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.masterRecovered',
+  },
+  worker_insufficient: {
+    tone: 'amber',
+    icon: <AlertTriangle className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.workerInsufficient',
+  },
+  worker_recovered: {
+    tone: 'emerald',
+    icon: <Activity className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.workerRecovered',
+  },
 };
 
 const PAGE_SIZE = 20;
@@ -130,6 +169,7 @@ export function ProcessEventList({
   clusterId,
   nodeId,
   onMainStatusRefresh,
+  lifecyclePollEpoch = 0,
 }: ProcessEventListProps) {
   const t = useTranslations();
   const [events, setEvents] = useState<ProcessEvent[]>([]);
@@ -141,55 +181,187 @@ export function ProcessEventList({
     ProcessEventType | 'all'
   >('all');
   const reqSeqRef = useRef(0);
+  /** 当前持有可见 loading 的请求序号；静默轮询不得写入。 / Seq that owns visible loading; silent polls must not claim it. */
+  const loadingOwnerSeqRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
+  const pollSessionRef = useRef(0);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onMainStatusRefreshRef = useRef(onMainStatusRefresh);
   onMainStatusRefreshRef.current = onMainStatusRefresh;
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  const eventTypeFilterRef = useRef(eventTypeFilter);
+  eventTypeFilterRef.current = eventTypeFilter;
+  const nodeIdRef = useRef(nodeId);
+  nodeIdRef.current = nodeId;
+  const clusterIdRef = useRef(clusterId);
+  clusterIdRef.current = clusterId;
 
-  const loadEvents = useCallback(async () => {
-    const seq = ++reqSeqRef.current;
-    setLoading(true);
-    setError(null);
-    try {
-      const filter: ProcessEventFilter = {
-        page,
-        page_size: PAGE_SIZE,
-      };
-      if (nodeId) {
-        filter.node_id = nodeId;
-      }
-      if (eventTypeFilter !== 'all') {
-        filter.event_type = eventTypeFilter;
-      }
+  const clearPollTimer = useCallback(() => {
+    if (pollTimerRef.current !== null) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
 
-      const response = await listProcessEvents(clusterId, filter);
-      if (seq !== reqSeqRef.current) {
-        return;
-      }
-      setEvents(response.events ?? []);
-      setTotal(response.total ?? 0);
-      onMainStatusRefreshRef.current?.();
-    } catch (err) {
-      if (seq !== reqSeqRef.current) {
-        return;
-      }
-      setError(
-        err instanceof Error ? err.message : t('monitor.loadEventsError'),
-      );
-    } finally {
-      if (seq === reqSeqRef.current) {
+  const stopLifecycleEventPoll = useCallback(() => {
+    pollSessionRef.current += 1;
+    clearPollTimer();
+  }, [clearPollTimer]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      stopLifecycleEventPoll();
+    };
+  }, [stopLifecycleEventPoll]);
+
+  type LoadEventsOptions = {
+    /** 静默刷新：不亮 loading，避免事件区闪烁与滚回顶部。 / Silent: no loading bar, no flicker or scroll jump. */
+    silent?: boolean;
+    /** 生命周期轮询中跳过主状态联动（详情页已有状态轮询）。 / Skip main-status linkage during lifecycle poll (detail already polls status). */
+    skipMainStatusRefresh?: boolean;
+  };
+
+  const loadEvents = useCallback(
+    async (options?: LoadEventsOptions) => {
+      const silent = options?.silent === true;
+      const skipMainStatusRefresh = options?.skipMainStatusRefresh === true;
+      const seq = ++reqSeqRef.current;
+      if (!silent) {
+        setLoading(true);
+        loadingOwnerSeqRef.current = seq;
+        setError(null);
+      } else if (
+        // 静默抢占序号后立刻丢掉过期可见 loading，避免被挂起的非静默请求拖住转圈。
+        // Silent seq bump drops stale visible loading so a hung non-silent cannot keep spinning.
+        loadingOwnerSeqRef.current !== null &&
+        loadingOwnerSeqRef.current < seq
+      ) {
+        loadingOwnerSeqRef.current = null;
         setLoading(false);
       }
-    }
-  }, [clusterId, eventTypeFilter, nodeId, page, t]);
+      // 成功/失败/被序号丢弃/卸载时：若本请求持有可见 loading，必须释放，避免刷新图标一直转。
+      // On success/fail/stale-discard/unmount: release visible loading if this request owns it.
+      const releaseLoadingIfOwned = () => {
+        if (loadingOwnerSeqRef.current !== seq) {
+          return;
+        }
+        loadingOwnerSeqRef.current = null;
+        if (mountedRef.current) {
+          setLoading(false);
+        }
+      };
+      try {
+        const filter: ProcessEventFilter = {
+          page: pageRef.current,
+          page_size: PAGE_SIZE,
+        };
+        const currentNodeId = nodeIdRef.current;
+        if (currentNodeId) {
+          filter.node_id = currentNodeId;
+        }
+        if (eventTypeFilterRef.current !== 'all') {
+          filter.event_type = eventTypeFilterRef.current;
+        }
+
+        const response = await listProcessEvents(
+          clusterIdRef.current,
+          filter,
+        );
+        if (!mountedRef.current || seq !== reqSeqRef.current) {
+          releaseLoadingIfOwned();
+          return;
+        }
+        setEvents(response.events ?? []);
+        setTotal(response.total ?? 0);
+        // 静默成功也要清掉错误卡，否则旧 error 会一直挡着新数据。
+        // Silent success must clear a prior error card so it does not cover fresh rows.
+        setError(null);
+        if (!skipMainStatusRefresh) {
+          onMainStatusRefreshRef.current?.();
+        }
+      } catch (err) {
+        if (!mountedRef.current || seq !== reqSeqRef.current) {
+          releaseLoadingIfOwned();
+          return;
+        }
+        if (!silent) {
+          setError(
+            err instanceof Error ? err.message : t('monitor.loadEventsError'),
+          );
+        }
+      } finally {
+        releaseLoadingIfOwned();
+      }
+    },
+    [t],
+  );
 
   useEffect(() => {
     void loadEvents();
-  }, [loadEvents]);
+  }, [loadEvents, clusterId, eventTypeFilter, nodeId, page]);
+
+  const loadEventsRef = useRef(loadEvents);
+  loadEventsRef.current = loadEvents;
+
+  // 启停/重启后有界静默轮询事件：epoch>0 即开；cleanup 只用 cancelled，避免 Strict remount
+  // 把 prevEpoch 吃掉后永远不再轮询（实机停留 90s+ 事件不刷新的根因之一）。
+  // Bounded silent event poll when epoch>0; cleanup uses cancelled only so Strict remount
+  // cannot consume the epoch and permanently skip polling (a root cause of 90s+ stale events).
+  useEffect(() => {
+    if (!lifecyclePollEpoch || lifecyclePollEpoch < 1) {
+      return;
+    }
+    let cancelled = false;
+    const session = ++pollSessionRef.current;
+    const startedAt = Date.now();
+
+    const schedule = (delayMs: number) => {
+      if (cancelled || session !== pollSessionRef.current) {
+        return;
+      }
+      clearPollTimer();
+      pollTimerRef.current = setTimeout(() => {
+        void tick();
+      }, delayMs);
+    };
+
+    const tick = async () => {
+      if (cancelled || !mountedRef.current || session !== pollSessionRef.current) {
+        return;
+      }
+      await loadEventsRef.current({
+        silent: true,
+        skipMainStatusRefresh: true,
+      });
+      if (cancelled || !mountedRef.current || session !== pollSessionRef.current) {
+        return;
+      }
+      if (Date.now() - startedAt >= LIFECYCLE_POLL_TIMEOUT_MS) {
+        clearPollTimer();
+        return;
+      }
+      schedule(LIFECYCLE_POLL_INTERVAL_MS);
+    };
+
+    void tick();
+    return () => {
+      cancelled = true;
+      if (session === pollSessionRef.current) {
+        clearPollTimer();
+      }
+    };
+  }, [lifecyclePollEpoch, clearPollTimer]);
 
   const filterOptions = [
     {value: 'all', label: t('monitor.allEvents')},
     ...(Object.keys(EVENT_TYPE_META) as ProcessEventType[]).map((key) => ({
       value: key,
-      label: t(EVENT_TYPE_META[key].labelKey),
+      label: t.has(EVENT_TYPE_META[key].labelKey)
+        ? t(EVENT_TYPE_META[key].labelKey)
+        : key,
     })),
   ];
 
@@ -284,7 +456,9 @@ export function ProcessEventList({
                         <SoftChip tone={meta.tone} className='font-medium'>
                           {meta.icon}
                           <span className='whitespace-nowrap'>
-                            {t(meta.labelKey)}
+                            {t.has(meta.labelKey)
+                              ? t(meta.labelKey)
+                              : event.event_type}
                           </span>
                         </SoftChip>
                       ) : (

@@ -2582,7 +2582,6 @@ var routeExceptions = []RouteException{
 	{Method: "DELETE", Route: "/api/v1/clusters/:id/plugins/:name", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "POST", Route: "/api/v1/clusters/:id/runtime-storage/imap/cleanup", Mode: ModeServerOnly, Reason: "运行时存储清理可能影响集群，首版 CLI 不提供"},
 	{Method: "DELETE", Route: "/api/v1/diagnostics/auto-policies/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
-	{Method: "DELETE", Route: "/api/v1/hosts/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/monitoring/alert-policies/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/monitoring/notification-channels/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/monitoring/cluster-rules/:key", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},

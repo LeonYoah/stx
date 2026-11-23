@@ -173,10 +173,14 @@ func (r *Repository) ListEventsWithHost(ctx context.Context, filter *ProcessEven
 	}
 
 	// Build query with join / 构建带 JOIN 的查询
+	// 集群级事件（host_id=0）无主机关联，hostname 回落为集群名，避免前端整行显示 '-'。
+	// Cluster-scope events (host_id=0) have no host row; fall hostname back to the cluster
+	// name so the UI shows the cluster instead of '-' on every identity column.
 	query := r.db.WithContext(ctx).
 		Table("process_events").
-		Select("process_events.*, hosts.name as hostname, hosts.ip_address as ip").
-		Joins("LEFT JOIN hosts ON process_events.host_id = hosts.id")
+		Select("process_events.*, COALESCE(hosts.name, clusters.name) as hostname, hosts.ip_address as ip").
+		Joins("LEFT JOIN hosts ON process_events.host_id = hosts.id").
+		Joins("LEFT JOIN clusters ON process_events.cluster_id = clusters.id")
 
 	// Apply filters / 应用过滤条件
 	if filter.ClusterID > 0 {

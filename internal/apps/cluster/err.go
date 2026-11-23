@@ -29,6 +29,10 @@ var (
 	ErrClusterNameEmpty = errors.New("cluster: cluster name cannot be empty")
 	// ErrClusterHasRunningTask indicates the cluster has running tasks and cannot be deleted.
 	ErrClusterHasRunningTask = errors.New("cluster: cluster has running tasks and cannot be deleted")
+	// ErrNodeStillRunning 节点进程仍在运行（或安装中），移除/删除前必须先停止，避免留下孤儿 SeaTunnel 进程。
+	// ErrNodeStillRunning means the node process is still running (or installing); stop it before
+	// remove/delete so an orphan SeaTunnel process is not left behind.
+	ErrNodeStillRunning = errors.New("cluster: node is still running; stop it before remove or delete / 节点仍在运行，请先停止后再移除或删除")
 	// ErrNodeNotFound indicates the requested cluster node does not exist.
 	ErrNodeNotFound = errors.New("cluster: node not found")
 	// ErrNodeAlreadyExists indicates the host already has a node with the same role in the cluster.

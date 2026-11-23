@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
@@ -207,6 +208,9 @@ type Service struct {
 	monitorPusher ClusterMonitorPusher
 	memberProbes  memberProbeCache
 	engineProbes  engineProbeCache
+	// memberGraceUntil 记录每个集群最近一次启动/重启受理后的成员一致性宽限截止（clusterID -> time.Time）。
+	// memberGraceUntil stores each cluster's member-agreement grace deadline after an accepted start/restart (clusterID -> time.Time).
+	memberGraceUntil sync.Map
 }
 
 // ServiceConfig holds configuration for the Cluster Service.
@@ -709,7 +713,17 @@ func (s *Service) Delete(ctx context.Context, id uint, forceRemoveInstallDir boo
 	// Get cluster with nodes to send stop to each node's agent (best effort)
 	// 获取带节点的集群，向各节点 Agent 发送停止命令（尽力而为）
 	clusterWithNodes, err := s.repo.GetByID(ctx, id, true)
-	if err == nil && len(clusterWithNodes.Nodes) > 0 {
+	if err != nil {
+		return err
+	}
+	// 集群状态非 running 时仍可能有节点进程在跑（如 degraded/error）；必须先停再删。
+	// Cluster status may be non-running while node processes still live (e.g. degraded/error); stop first.
+	for i := range clusterWithNodes.Nodes {
+		if NodeHasActiveProcess(&clusterWithNodes.Nodes[i]) {
+			return ErrClusterHasRunningTask
+		}
+	}
+	if len(clusterWithNodes.Nodes) > 0 {
 		s.stopProcessesForDeletion(ctx, clusterWithNodes)
 		if forceRemoveInstallDir {
 			s.removeInstallDirOnAgents(ctx, clusterWithNodes)
@@ -1398,6 +1412,19 @@ func (s *Service) AddNodes(ctx context.Context, clusterID uint, req *AddNodesReq
 	return createdNodes, nil
 }
 
+// NodeHasActiveProcess 判断节点是否仍有受管进程（运行中/安装中或仍登记 PID）。
+// NodeHasActiveProcess reports whether the node still has a managed process (running/installing or a recorded PID).
+func NodeHasActiveProcess(node *ClusterNode) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Status {
+	case NodeStatusRunning, NodeStatusInstalling:
+		return true
+	}
+	return node.ProcessPID > 0
+}
+
 // RemoveNode removes a node from a cluster.
 // RemoveNode 从集群中移除节点。
 // Requirements: 7.4 - Removes node from cluster.
@@ -1411,6 +1438,11 @@ func (s *Service) RemoveNode(ctx context.Context, clusterID uint, nodeID uint) e
 
 	if node.ClusterID != clusterID {
 		return ErrNodeNotFound
+	}
+	// 运行中移除只删记录会留下孤儿 SeaTunnel 进程；必须先停止。
+	// Removing a running node only deletes the record and leaves an orphan SeaTunnel process; stop first.
+	if NodeHasActiveProcess(node) {
+		return ErrNodeStillRunning
 	}
 
 	if err := s.repo.RemoveNode(ctx, nodeID); err != nil {
@@ -1429,6 +1461,16 @@ func (s *Service) RemoveNode(ctx context.Context, clusterID uint, nodeID uint) e
 // RemoveNodeByHostID removes a node from a cluster by host ID.
 // RemoveNodeByHostID 根据主机 ID 从集群中移除节点。
 func (s *Service) RemoveNodeByHostID(ctx context.Context, clusterID uint, hostID uint) error {
+	node, err := s.repo.GetNodeByClusterAndHost(ctx, clusterID, hostID)
+	if err != nil {
+		return err
+	}
+	if node == nil {
+		return ErrNodeNotFound
+	}
+	if NodeHasActiveProcess(node) {
+		return ErrNodeStillRunning
+	}
 	if err := s.repo.RemoveNodeByClusterAndHost(ctx, clusterID, hostID); err != nil {
 		return err
 	}
@@ -1491,6 +1533,28 @@ func (s *Service) GetNodes(ctx context.Context, clusterID uint) ([]*NodeInfo, er
 	}
 
 	return nodeInfos, nil
+}
+
+// ResolveClusterNodeAddresses returns host IPs and ports of all cluster nodes.
+// ResolveClusterNodeAddresses 返回集群全部节点的主机 IP 与端口（供 installer 兜底 member-list）。
+func (s *Service) ResolveClusterNodeAddresses(ctx context.Context, clusterID uint) ([]installerapp.ClusterNodeAddress, error) {
+	nodes, err := s.GetNodes(ctx, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	addresses := make([]installerapp.ClusterNodeAddress, 0, len(nodes))
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		addresses = append(addresses, installerapp.ClusterNodeAddress{
+			HostIP:        node.HostIP,
+			Role:          string(node.Role),
+			HazelcastPort: node.HazelcastPort,
+			WorkerPort:    node.WorkerPort,
+		})
+	}
+	return addresses, nil
 }
 
 // GetNode retrieves a specific node by ID.
@@ -2026,6 +2090,7 @@ func (s *Service) executeOperation(ctx context.Context, clusterID uint, operatio
 		if err := s.repo.UpdateStatus(ctx, clusterID, ClusterStatusDeploying); err != nil {
 			return nil, err
 		}
+		s.beginMemberGrace(clusterID)
 	}
 
 	// Execute operation on each node
@@ -2078,14 +2143,24 @@ func (s *Service) executeOperation(ctx context.Context, clusterID uint, operatio
 
 					success, message, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, string(operation), params)
 					if err != nil {
-						nodeResult.Success = false
-						nodeResult.Message = "Failed to send command: " + err.Error()
-						result.Success = false
+						// 页头集群重启同一超时陷阱：单节点等待超时会把整次标成 Operation completed with errors（#186）。
+						// Same wait-timeout trap on header cluster restart marks the whole op as errors (#186).
+						if operation == OperationRestart && isAgentCommandTimeout(err) {
+							nodeResult.Success = true
+							nodeResult.Message = "restart accepted; agent response timed out / 已受理，Agent 响应超时"
+						} else {
+							nodeResult.Success = false
+							nodeResult.Message = "Failed to send command: " + err.Error()
+							// 成败由 finalizeLifecycleOperationResult 按节点结果汇总，此处不改 result.Success。
+							// Success/failure is aggregated later from node results; do not flip result.Success here.
+						}
 					} else {
 						nodeResult.Success = success
 						nodeResult.Message = message
-						if !success {
-							result.Success = false
+						if !success && isIdempotentLifecycleOutcome(operation, message) {
+							// 已运行/已停止视为该节点成功，不改 error。
+							// Already running/stopped counts as success for this node; do not mark error.
+							nodeResult.Success = true
 						}
 					}
 				} else {
@@ -2109,39 +2184,15 @@ func (s *Service) executeOperation(ctx context.Context, clusterID uint, operatio
 
 		// Update node status based on operation
 		// 根据操作更新节点状态
-		if nodeResult.Success {
-			switch operation {
-			case OperationStart:
-				_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusRunning)
-				s.detectAndUpdateNodeProcess(ctx, &node, node.HostID)
-			case OperationStop:
-				_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusStopped)
-				_ = s.repo.UpdateNodeProcess(ctx, node.ID, 0, "stopped")
-			case OperationRestart:
-				_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusRunning)
-				s.detectAndUpdateNodeProcess(ctx, &node, node.HostID)
-			}
-		} else {
-			_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusError)
-		}
+		applyNodeLifecycleStatus(ctx, s, &node, operation, nodeResult.Success)
 
 		result.NodeResults = append(result.NodeResults, nodeResult)
 	}
 
-	// Update cluster status based on overall result
-	// 根据整体结果更新集群状态
-	if result.Success {
-		switch operation {
-		case OperationStart, OperationRestart:
-			_ = s.repo.UpdateStatus(ctx, clusterID, ClusterStatusRunning)
-		case OperationStop:
-			_ = s.repo.UpdateStatus(ctx, clusterID, ClusterStatusStopped)
-		}
-		result.Message = "Operation completed successfully"
-	} else {
-		_ = s.repo.UpdateStatus(ctx, clusterID, ClusterStatusError)
-		result.Message = "Operation completed with errors"
-	}
+	finalizeLifecycleOperationResult(result)
+	// 按各节点真实状态汇总集群，避免部分失败时把健康节点连带打成 error。
+	// Aggregate cluster status from real node states so a partial failure does not paint healthy nodes as error.
+	s.updateClusterStatusFromNodes(ctx, clusterID)
 
 	return result, nil
 }
@@ -2355,6 +2406,43 @@ func (s *Service) PrecheckNode(ctx context.Context, clusterID uint, req *Prechec
 	}
 
 	return result, nil
+}
+
+// isAgentCommandTimeout 识别 Agent 命令等待超时（命令往往已下发）。
+// isAgentCommandTimeout detects Agent command wait timeouts (command usually already dispatched).
+func isAgentCommandTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "command execution timeout") ||
+		strings.Contains(msg, "context deadline exceeded")
+}
+
+// ClearNodeProcessForRestart 受理重启时立刻清旧 PID/标停止，供 handler 在异步执行前返回。
+// ClearNodeProcessForRestart clears the old PID/marks stopped on accept so handlers can return before async work.
+func (s *Service) ClearNodeProcessForRestart(ctx context.Context, nodeID uint) error {
+	if err := s.repo.UpdateNodeProcess(ctx, nodeID, 0, "stopped"); err != nil {
+		return err
+	}
+	return s.repo.UpdateNodeStatus(ctx, nodeID, NodeStatusStopped)
+}
+
+// ClearClusterProcessesForRestart 页头重启受理时清集群内节点旧 PID。
+// ClearClusterProcessesForRestart clears old PIDs for all nodes when a header restart is accepted.
+func (s *Service) ClearClusterProcessesForRestart(ctx context.Context, clusterID uint) error {
+	nodes, err := s.repo.GetNodesByClusterID(ctx, clusterID)
+	if err != nil {
+		return err
+	}
+	for _, node := range nodes {
+		_ = s.repo.UpdateNodeProcess(ctx, node.ID, 0, "stopped")
+		_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusStopped)
+	}
+	return nil
 }
 
 // detectAndUpdateNodeProcess detects SeaTunnel process status via Agent and updates node.
@@ -2674,13 +2762,25 @@ func (s *Service) executeNodeOperationWithResolvedNode(ctx context.Context, clus
 
 		success, message, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, string(operation), params)
 		if err != nil {
-			return nil, fmt.Errorf("failed to send command to agent: %w / 向 Agent 发送命令失败: %w", err, err)
-		}
-
-		nodeResult.Success = success
-		nodeResult.Message = message
-		if !success {
-			result.Success = false
+			// 命令已下发后 Agent 等待超时：进程侧重启常仍会完成（t4：30s 后 HTTP 500，但随后有 restarted）。
+			// 重启不得把「等待超时」升级成硬失败 500；改为已受理，进度交给事件/轮询（#186）。
+			// After dispatch, Agent wait timeout often still finishes the restart (t4: HTTP 500 at 30s, then restarted).
+			// Do not elevate restart wait-timeout to a hard 500; accept and let events/poll converge (#186).
+			if operation == OperationRestart && isAgentCommandTimeout(err) {
+				nodeResult.Success = true
+				nodeResult.Message = "restart accepted; agent response timed out / 已受理，Agent 响应超时"
+			} else {
+				return nil, fmt.Errorf("failed to send command to agent: %w / 向 Agent 发送命令失败: %w", err, err)
+			}
+		} else {
+			nodeResult.Success = success
+			nodeResult.Message = message
+			if !success && isIdempotentLifecycleOutcome(operation, message) {
+				nodeResult.Success = true
+			}
+			if !nodeResult.Success {
+				result.Success = false
+			}
 		}
 	} else {
 		return nil, fmt.Errorf("host provider not configured / 主机提供者未配置")
@@ -2688,40 +2788,90 @@ func (s *Service) executeNodeOperationWithResolvedNode(ctx context.Context, clus
 
 	// Update node status based on operation
 	// 根据操作更新节点状态
-	if nodeResult.Success {
-		switch operation {
-		case OperationStart:
-			_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusRunning)
-		case OperationStop:
-			_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusStopped)
-			_ = s.repo.UpdateNodeProcess(ctx, node.ID, 0, "stopped")
-		case OperationRestart:
-			_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusRunning)
-		}
-		// Detect process after start/restart with a short delay
-		// 启动/重启后延迟检测进程（等待进程完全启动）
-		if operation == OperationStart || operation == OperationRestart {
-			// Wait 2 seconds for process to fully start
-			// 等待 2 秒让进程完全启动
-			time.Sleep(2 * time.Second)
-			s.detectAndUpdateNodeProcess(ctx, node, node.HostID)
-		}
-	} else {
-		_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusError)
+	if nodeResult.Success && (operation == OperationStart || operation == OperationRestart) {
+		// 单节点启/重启：稍等再探测 PID，避免进程尚未起来。
+		// Single-node start/restart: wait briefly before PID detection so the process can come up.
+		s.beginMemberGrace(cluster.ID)
+		time.Sleep(2 * time.Second)
 	}
+	applyNodeLifecycleStatus(ctx, s, node, operation, nodeResult.Success)
 
 	result.NodeResults = append(result.NodeResults, nodeResult)
-	if result.Success {
-		result.Message = "Operation completed successfully / 操作成功完成"
-	} else {
-		result.Message = nodeResult.Message
-	}
+	finalizeLifecycleOperationResult(result)
 
 	// Update cluster status based on all nodes' status
 	// 根据所有节点的状态更新集群状态
 	s.updateClusterStatusFromNodes(ctx, cluster.ID)
 
 	return result, nil
+}
+
+// isIdempotentLifecycleOutcome 判断 Agent 返回的失败是否其实是幂等成功（已运行 / 已停止）。
+// isIdempotentLifecycleOutcome reports whether an Agent failure is actually an idempotent success
+// (already running / already stopped).
+func isIdempotentLifecycleOutcome(operation OperationType, message string) bool {
+	msg := strings.ToLower(message)
+	switch operation {
+	case OperationStart:
+		return strings.Contains(msg, "already running")
+	case OperationStop:
+		return strings.Contains(msg, "already stopped") || strings.Contains(msg, "process not found")
+	default:
+		return false
+	}
+}
+
+// applyNodeLifecycleStatus 按启停结果更新节点状态：成功写 running/stopped，失败才写 error。
+// applyNodeLifecycleStatus updates node status from a lifecycle outcome: success → running/stopped,
+// failure → error only.
+func applyNodeLifecycleStatus(ctx context.Context, s *Service, node *ClusterNode, operation OperationType, success bool) {
+	if node == nil || s == nil {
+		return
+	}
+	if !success {
+		_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusError)
+		return
+	}
+	switch operation {
+	case OperationStart:
+		_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusRunning)
+		s.detectAndUpdateNodeProcess(ctx, node, node.HostID)
+	case OperationRestart:
+		// 重启受理后先清旧 PID，避免前端轮询把「旧 RUNNING+旧 PID」判成达标后停刷（#186）。
+		// Clear the old PID on restart accept so the UI poll cannot treat stale RUNNING+PID as success (#186).
+		_ = s.repo.UpdateNodeProcess(ctx, node.ID, 0, "stopped")
+		_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusStopped)
+		s.detectAndUpdateNodeProcess(ctx, node, node.HostID)
+	case OperationStop:
+		_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusStopped)
+		_ = s.repo.UpdateNodeProcess(ctx, node.ID, 0, "stopped")
+	}
+}
+
+// finalizeLifecycleOperationResult 汇总节点结果：全成功 / 全失败 / 部分失败（如 2/3 成功）。
+// finalizeLifecycleOperationResult aggregates node results: all success / all failed / partial (e.g. 2/3).
+func finalizeLifecycleOperationResult(result *OperationResult) {
+	if result == nil {
+		return
+	}
+	total := len(result.NodeResults)
+	succeeded := 0
+	for _, nodeResult := range result.NodeResults {
+		if nodeResult != nil && nodeResult.Success {
+			succeeded++
+		}
+	}
+	result.Success = total > 0 && succeeded == total
+	switch {
+	case total == 0:
+		result.Message = "No nodes to operate / 没有可操作的节点"
+	case succeeded == total:
+		result.Message = "Operation completed successfully / 操作成功完成"
+	case succeeded == 0:
+		result.Message = fmt.Sprintf("Operation failed on all %d nodes / 全部 %d 个节点失败", total, total)
+	default:
+		result.Message = fmt.Sprintf("Partial failure: %d/%d nodes succeeded / 部分失败：%d/%d 个节点成功", succeeded, total, succeeded, total)
+	}
 }
 
 // updateClusterStatusFromNodes updates cluster status based on all nodes' status

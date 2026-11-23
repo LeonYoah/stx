@@ -186,15 +186,15 @@ export interface RuntimeEngineConfig {
 // ==================== Configuration Types 配置类型 ====================
 
 /**
- * JVM memory configuration (all sizes in GB)
- * JVM 内存配置（所有大小单位为 GB）
+ * JVM memory configuration (sizes in MB; legacy 1–128 means GB and is coerced server-side)
+ * JVM 内存配置（单位 MB；历史 1–128 表示 GB，服务端会换算）
  */
 export interface JVMConfig {
-  /** Heap size for hybrid mode in GB / 混合模式堆大小（GB） */
+  /** Heap size for hybrid mode in MB / 混合模式堆大小（MB） */
   hybrid_heap_size: number;
-  /** Heap size for master nodes in GB / Master 节点堆大小（GB） */
+  /** Heap size for master nodes in MB / Master 节点堆大小（MB） */
   master_heap_size: number;
-  /** Heap size for worker nodes in GB / Worker 节点堆大小（GB） */
+  /** Heap size for worker nodes in MB / Worker 节点堆大小（MB） */
   worker_heap_size: number;
 }
 

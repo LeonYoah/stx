@@ -46,6 +46,12 @@ import {
   X,
   Loader2,
 } from 'lucide-react';
+import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
+import services from '@/lib/services';
+import {
+  heapNextDisabledKey,
+  validateHeapSizeMB,
+} from '@/lib/services/installer/heap';
 import {
   useInstallWizard,
   usePrecheck,
@@ -146,10 +152,44 @@ export function InstallWizard({
     null,
   );
   const [installationStarted, setInstallationStarted] = useState(false);
+  const [hostMemoryBytes, setHostMemoryBytes] = useState<number | undefined>();
+  // 主机内存请求进行中；成功/失败都会结束，避免永远卡住 Next。
+  // Host-memory fetch in flight; cleared on success or failure so Next never sticks.
+  const [hostMemoryLoading, setHostMemoryLoading] = useState(false);
 
   // Wizard state management / 向导状态管理
   const {config, updateConfig, resetWizard, buildInstallRequest} =
     useInstallWizard();
+
+  // 拉取主机总内存，供堆校验使用（拿不到则只做范围校验）。
+  // Load host total memory for heap checks; range-only when unavailable.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    let cancelled = false;
+    const id = Number(hostId);
+    if (!Number.isFinite(id) || id <= 0) {
+      setHostMemoryBytes(undefined);
+      setHostMemoryLoading(false);
+      return;
+    }
+    setHostMemoryLoading(true);
+    void services.host.getHostSafe(id).then((result) => {
+      if (cancelled) {
+        return;
+      }
+      if (result.success && result.data?.total_memory) {
+        setHostMemoryBytes(result.data.total_memory);
+      } else {
+        setHostMemoryBytes(undefined);
+      }
+      setHostMemoryLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, hostId]);
 
   // Precheck hook / 预检查 hook
   const {
@@ -224,8 +264,11 @@ export function InstallWizard({
   // Calculate progress / 计算进度
   const progress = ((currentStepIndex + 1) / WIZARD_STEPS.length) * 100;
 
-  // Check if can proceed to next step / 检查是否可以进入下一步
-  const canProceed = useCallback(() => {
+  /**
+   * 「下一步」被禁用的原因；null 表示可继续。与 DisabledReasonTooltip 共用。
+   * Why Next is blocked; null means proceed. Shared with DisabledReasonTooltip.
+   */
+  const proceedBlockReason = useCallback((): string | null => {
     const hasProfileSelectionIssue = (
       config.connector.selected_plugins || []
     ).some(
@@ -237,33 +280,57 @@ export function InstallWizard({
 
     switch (currentStep.id) {
       case 'precheck':
-        // Can proceed if precheck passed or has only warnings / 如果预检查通过或只有警告则可以继续
-        return (
-          precheckResult?.overall_status === 'passed' ||
+        return precheckResult?.overall_status === 'passed' ||
           precheckResult?.overall_status === 'warning'
-        );
-      case 'config':
-        // Must have version selected / 必须选择版本
+          ? null
+          : t('installer.precheckFailed');
+      case 'config': {
         if (!config.version) {
-          return false;
+          return t('installer.selectVersion');
         }
-        // If offline mode, must have package path / 如果是离线模式，必须有安装包路径
         if (config.installMode === 'offline' && !config.packagePath) {
-          return false;
+          return t('installer.selectPackage');
         }
-        return true;
+        const heapValues =
+          config.deploymentMode === 'hybrid'
+            ? [config.jvm.hybrid_heap_size]
+            : [config.jvm.master_heap_size, config.jvm.worker_heap_size];
+        for (const value of heapValues) {
+          const heapCode = validateHeapSizeMB(value, hostMemoryBytes);
+          if (heapCode) {
+            return t(heapNextDisabledKey(heapCode));
+          }
+        }
+        return null;
+      }
       case 'plugins':
-        // Plugin selection is optional, but selected JDBC profiles must be explicit / 插件选择可选，但已选择的 JDBC 必须显式选择场景
-        return !hasProfileSelectionIssue;
+        return hasProfileSelectionIssue
+          ? t('cluster.wizard.nextDisabledJdbc')
+          : null;
       case 'install':
-        // Cannot proceed during installation / 安装过程中不能继续
-        return installStatus?.status === 'success';
+        return installStatus?.status === 'success' ? null : '';
       case 'complete':
-        return true;
+        return null;
       default:
-        return false;
+        return '';
     }
-  }, [currentStep.id, precheckResult, config, installStatus]);
+  }, [
+    currentStep.id,
+    precheckResult,
+    config,
+    installStatus,
+    hostMemoryBytes,
+    t,
+  ]);
+
+  // 处理中用原生 disabled；仅校验失败才 aria-disabled + 原因 Tooltip。
+  // Busy uses native disabled; validation failures alone use aria-disabled + reason Tooltip.
+  const nextBusy =
+    precheckLoading ||
+    installLoading ||
+    (currentStep.id === 'config' && hostMemoryLoading);
+  const nextValidationReason = nextBusy ? null : proceedBlockReason();
+  const nextValidationBlocked = nextValidationReason !== null;
 
   // Handle next step / 处理下一步
   const handleNext = useCallback(async () => {
@@ -374,6 +441,7 @@ export function InstallWizard({
             config={config}
             onConfigChange={updateConfig}
             hostIds={[hostId]}
+            hostMemoryBytes={hostMemoryBytes}
           />
         );
       case 'plugins':
@@ -563,23 +631,38 @@ export function InstallWizard({
             {currentStep.id === 'complete' ? (
               <Button onClick={handleClose}>{t('common.close')}</Button>
             ) : currentStep.id === 'install' ? null : ( // No next button during installation / 安装过程中没有下一步按钮
-              <Button
-                onClick={handleNext}
-                data-testid='install-wizard-next'
-                disabled={!canProceed() || precheckLoading || installLoading}
-              >
-                {currentStep.id === 'plugins' ? (
-                  <>
-                    {t('installer.startInstallation')}
-                    <ChevronRight className='h-4 w-4 ml-1' />
-                  </>
-                ) : (
-                  <>
-                    {t('common.next')}
-                    <ChevronRight className='h-4 w-4 ml-1' />
-                  </>
-                )}
-              </Button>
+              <DisabledReasonTooltip reason={nextValidationReason}>
+                <Button
+                  onClick={() => {
+                    if (nextBusy || nextValidationBlocked) {
+                      return;
+                    }
+                    void handleNext();
+                  }}
+                  data-testid='install-wizard-next'
+                  disabled={nextBusy}
+                  aria-disabled={
+                    !nextBusy && nextValidationBlocked ? 'true' : undefined
+                  }
+                  className={
+                    !nextBusy && nextValidationBlocked
+                      ? 'opacity-60'
+                      : undefined
+                  }
+                >
+                  {currentStep.id === 'plugins' ? (
+                    <>
+                      {t('installer.startInstallation')}
+                      <ChevronRight className='h-4 w-4 ml-1' />
+                    </>
+                  ) : (
+                    <>
+                      {t('common.next')}
+                      <ChevronRight className='h-4 w-4 ml-1' />
+                    </>
+                  )}
+                </Button>
+              </DisabledReasonTooltip>
             )}
           </div>
         </div>

@@ -48,6 +48,11 @@ func TestRemoveNodeRecordOnlyCleansUp(t *testing.T) {
 		t.Fatalf("load target: %v", err)
 	}
 
+	target.Status = NodeStatusStopped
+	target.ProcessPID = 0
+	if err := env.svc.repo.UpdateNode(ctx, target); err != nil {
+		t.Fatalf("stop target before remove: %v", err)
+	}
 	if err := env.svc.RemoveNode(ctx, env.cluster.ID, target.ID); err != nil {
 		t.Fatalf("RemoveNode: %v", err)
 	}
@@ -92,6 +97,11 @@ func TestRemoveNodeRecordOnlySkipsMembersForSharedProcess(t *testing.T) {
 		t.Fatalf("add shared node: %v", err)
 	}
 
+	target.Status = NodeStatusStopped
+	target.ProcessPID = 0
+	if err := env.svc.repo.UpdateNode(ctx, target); err != nil {
+		t.Fatalf("stop target before remove: %v", err)
+	}
 	if err := env.svc.RemoveNode(ctx, env.cluster.ID, target.ID); err != nil {
 		t.Fatalf("RemoveNode: %v", err)
 	}
@@ -114,7 +124,7 @@ func TestRemoveNodeRecordOnlyKeepsConfigsWhenHostStillUsed(t *testing.T) {
 	ctx := context.Background()
 	env := newScaleTestEnv(t, DeploymentModeSeparated, map[uint]NodeRole{1: NodeRoleMaster, 2: NodeRoleWorker})
 	last := wireRecordRemovalCleanup(env)
-	extra := &ClusterNode{ClusterID: env.cluster.ID, HostID: 1, Role: NodeRoleWorker, InstallDir: scaleTestInstallDir, HazelcastPort: 5802, APIPort: 8081, Status: NodeStatusRunning}
+	extra := &ClusterNode{ClusterID: env.cluster.ID, HostID: 1, Role: NodeRoleWorker, InstallDir: scaleTestInstallDir, HazelcastPort: 5802, APIPort: 8081, Status: NodeStatusStopped}
 	if err := env.svc.repo.AddNode(ctx, extra); err != nil {
 		t.Fatalf("add extra worker: %v", err)
 	}

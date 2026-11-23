@@ -717,6 +717,15 @@ func (m *ProcessManager) StopProcess(ctx context.Context, name string, params *S
 		return nil
 	}
 
+	// 先标 stopping，避免健康检查在杀进程窗口把计划内停止误报为 crash。
+	// Mark stopping first so the health check does not treat the intentional kill window as a crash.
+	if value, ok := m.processes.Load(name); ok {
+		proc := value.(*ManagedProcess)
+		proc.mu.Lock()
+		proc.Status = StatusStopping
+		proc.mu.Unlock()
+	}
+
 	// Send SIGTERM to all found processes / 向所有找到的进程发送 SIGTERM
 	for _, pid := range pids {
 		if err := sendSignal(pid, syscall.SIGTERM); err == nil {

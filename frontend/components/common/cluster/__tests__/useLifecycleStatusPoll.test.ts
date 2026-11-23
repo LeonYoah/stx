@@ -36,8 +36,10 @@ describe('useLifecycleStatusPoll', () => {
     const loadSnapshot = vi
       .fn()
       .mockResolvedValueOnce({
-        clusterStatus: ClusterStatus.STOPPED,
-        nodes: [{id: 2, status: NodeStatus.STOPPED, process_pid: 0}],
+        // 旧 PID 仍 running：有 baseline 时不得达标（实机 AC5）。
+        // Still running with the old PID: must not satisfy when baselines are set (real AC5).
+        clusterStatus: ClusterStatus.RUNNING,
+        nodes: [{id: 2, status: NodeStatus.RUNNING, process_pid: 1876}],
       })
       .mockResolvedValueOnce({
         clusterStatus: ClusterStatus.RUNNING,
@@ -53,7 +55,10 @@ describe('useLifecycleStatusPoll', () => {
     );
 
     act(() => {
-      result.current.startLifecyclePoll('running');
+      result.current.startLifecyclePoll('running', {
+        scopeNodeIds: [2],
+        baselinePids: {2: 1876},
+      });
     });
     expect(loadSnapshot).not.toHaveBeenCalled();
 
@@ -261,5 +266,39 @@ describe('useLifecycleStatusPoll', () => {
       await vi.advanceTimersByTimeAsync(2500);
     });
     expect(onSatisfied).toHaveBeenCalledTimes(1);
+  });
+
+  it('invokes onTimeout when the window elapses without satisfaction', async () => {
+    const onTimeout = vi.fn();
+    const onSatisfied = vi.fn();
+    const loadSnapshot = vi.fn().mockResolvedValue({
+      clusterStatus: ClusterStatus.STOPPED,
+      nodes: [{id: 2, status: NodeStatus.STOPPED, process_pid: 0}],
+    });
+
+    const {result} = renderHook(() =>
+      useLifecycleStatusPoll({
+        loadSnapshot,
+        intervalMs: 1000,
+        timeoutMs: 2500,
+        onSatisfied,
+        onTimeout,
+      }),
+    );
+
+    act(() => {
+      result.current.startLifecyclePoll('running');
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(onSatisfied).not.toHaveBeenCalled();
+    expect(onTimeout).toHaveBeenCalledTimes(1);
   });
 });

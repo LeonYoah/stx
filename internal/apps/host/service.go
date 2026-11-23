@@ -373,6 +373,15 @@ func (s *Service) Delete(ctx context.Context, id uint) error {
 	// Check if host is associated with any clusters
 	// 检查主机是否关联任何集群
 	if s.clusterRepo != nil {
+		nodes, err := s.clusterRepo.GetNodesByHostID(ctx, id)
+		if err != nil {
+			return err
+		}
+		for _, node := range nodes {
+			if cluster.NodeHasActiveProcess(node) {
+				return ErrHostHasRunningNode
+			}
+		}
 		clusters, err := s.clusterRepo.GetClustersWithHostID(ctx, id)
 		if err != nil {
 			return err

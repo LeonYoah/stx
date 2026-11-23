@@ -30,6 +30,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	cliClient "github.com/LeonYoah/stx/internal/cli/client"
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
@@ -37,6 +38,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
+
+// lifecycleCLITimeout 覆盖集群/节点启停重启：单节点 stop 可至 30s，多节点串行远超默认 30s。
+// lifecycleCLITimeout covers cluster/node start/stop/restart: one stop alone may take 30s, and
+// multi-node serial work far exceeds the default 30s client timeout.
+const lifecycleCLITimeout = 10 * time.Minute
 
 var routeParameterPattern = regexp.MustCompile(`:([A-Za-z][A-Za-z0-9_-]*)`)
 
@@ -182,6 +188,7 @@ func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientF
 		if err != nil {
 			return err
 		}
+		client = withLifecycleTimeout(client, spec)
 		if err := checkCapability(command.Context(), client, spec); err != nil {
 			return err
 		}
@@ -207,7 +214,12 @@ func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientF
 		}
 		result := clioutput.NewResult(spec.ID, requestID, data)
 		renderer := clioutput.NewRenderer(command.OutOrStdout(), clioutput.NewEventWriter(command.ErrOrStderr()))
-		return renderer.Render(result, options)
+		if renderErr := renderer.Render(result, options); renderErr != nil {
+			return renderErr
+		}
+		// 启停重启业务失败（含部分失败）须非 0 退出，并在错误里带上失败节点摘要。
+		// Lifecycle business failures (including partial ones) must exit non-zero with a failed-node summary.
+		return lifecycleBusinessFailure(spec, data, requestID)
 	}
 }
 
@@ -439,6 +451,81 @@ func nonEmptyValues(values *[]string) []string {
 		}
 	}
 	return result
+}
+
+// isLifecycleOperation 判断是否为集群/节点启停重启（需加长超时并检查业务 success）。
+// isLifecycleOperation reports cluster/node start/stop/restart ops (longer timeout + business success check).
+func isLifecycleOperation(spec operation.OperationSpec) bool {
+	switch spec.ID {
+	case "cluster.start", "cluster.stop", "cluster.restart",
+		"cluster.node.start", "cluster.node.stop", "cluster.node.restart":
+		return true
+	default:
+		return false
+	}
+}
+
+// withLifecycleTimeout 为启停重启命令拉长 HTTP 超时；无法调整的客户端原样返回。
+// withLifecycleTimeout lengthens the HTTP timeout for lifecycle commands; unchanged clients are returned as-is.
+func withLifecycleTimeout(client Client, spec operation.OperationSpec) Client {
+	if !isLifecycleOperation(spec) || client == nil {
+		return client
+	}
+	if concrete, ok := client.(*cliClient.Client); ok {
+		return concrete.WithTimeout(lifecycleCLITimeout)
+	}
+	return client
+}
+
+// lifecycleBusinessFailure 在 data.success=false 时返回执行失败，摘要列出失败节点。
+// lifecycleBusinessFailure returns an execution error when data.success is false, summarizing failed nodes.
+func lifecycleBusinessFailure(spec operation.OperationSpec, data any, requestID string) error {
+	if !isLifecycleOperation(spec) || data == nil {
+		return nil
+	}
+	payload, ok := data.(map[string]any)
+	if !ok {
+		return nil
+	}
+	success, hasSuccess := payload["success"].(bool)
+	if !hasSuccess || success {
+		return nil
+	}
+	message, _ := payload["message"].(string)
+	if strings.TrimSpace(message) == "" {
+		message = "lifecycle operation failed / 生命周期操作失败"
+	}
+	failed := make([]string, 0)
+	if rawNodes, ok := payload["node_results"].([]any); ok {
+		for _, raw := range rawNodes {
+			node, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			nodeSuccess, _ := node["success"].(bool)
+			if nodeSuccess {
+				continue
+			}
+			label := fmt.Sprintf("node_id=%v", node["node_id"])
+			if host, _ := node["host_name"].(string); strings.TrimSpace(host) != "" {
+				label = host
+			}
+			detail, _ := node["message"].(string)
+			if strings.TrimSpace(detail) == "" {
+				detail = "failed"
+			}
+			failed = append(failed, label+": "+detail)
+		}
+	}
+	if len(failed) > 0 {
+		message = message + "; " + strings.Join(failed, "; ")
+	}
+	return &clioutput.CLIError{
+		Code:      clioutput.CodeExecution,
+		Message:   message,
+		ExitCode:  clioutput.ExitExecution,
+		RequestID: requestID,
+	}
 }
 
 func checkCapability(ctx context.Context, client Client, spec operation.OperationSpec) error {

@@ -1065,6 +1065,10 @@ func Serve() {
 				// 将节点启动器注入安装服务，用于安装后启动节点
 				installerService.SetNodeStarter(clusterService)
 				log.Println("[API] Node starter injected into installer service / 节点启动器已注入安装服务")
+
+				// Inject node addresses resolver for member-list fallback during installation
+				// 注入集群节点地址解析器，安装时兜底组装 member-list
+				installerService.SetClusterNodeAddressesResolver(clusterService)
 			}
 
 			pluginHandler := plugin.NewHandler(pluginService, auditRepo)
@@ -1975,6 +1979,7 @@ func (a *hostProviderAdapter) GetHostByID(ctx context.Context, hostID uint) (*in
 		Name:        h.Name,
 		AgentID:     h.AgentID,
 		AgentStatus: string(h.AgentStatus),
+		IPAddress:   h.IPAddress,
 		LastSeen:    h.LastHeartbeat,
 	}, nil
 }

@@ -1531,6 +1531,28 @@ func (s *Service) GetNodes(ctx context.Context, clusterID uint) ([]*NodeInfo, er
 	return nodeInfos, nil
 }
 
+// ResolveClusterNodeAddresses returns host IPs and ports of all cluster nodes.
+// ResolveClusterNodeAddresses 返回集群全部节点的主机 IP 与端口（供 installer 兜底 member-list）。
+func (s *Service) ResolveClusterNodeAddresses(ctx context.Context, clusterID uint) ([]installerapp.ClusterNodeAddress, error) {
+	nodes, err := s.GetNodes(ctx, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	addresses := make([]installerapp.ClusterNodeAddress, 0, len(nodes))
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		addresses = append(addresses, installerapp.ClusterNodeAddress{
+			HostIP:        node.HostIP,
+			Role:          string(node.Role),
+			HazelcastPort: node.HazelcastPort,
+			WorkerPort:    node.WorkerPort,
+		})
+	}
+	return addresses, nil
+}
+
 // GetNode retrieves a specific node by ID.
 // GetNode 根据 ID 获取特定节点。
 func (s *Service) GetNode(ctx context.Context, nodeID uint) (*ClusterNode, error) {

@@ -247,7 +247,10 @@ export function LineChart({ data, series, label, unit = "", height = 220, format
   };
   const toggle = (key: string) => applyHidden(hidden.includes(key) ? hidden.filter(item => item !== key) : [...hidden, key]);
   const visible = series.filter(item => !hidden.includes(item.key));
-  const showLegend = legend ?? series.length > 1;
+  // 当前序列里只要还有被隐藏的项就保留图例——单序列被藏掉后图例消失就没有恢复入口了。
+  // Keep the legend while any live series is hidden: once the only remaining series is
+  // hidden, a disappeared legend would leave no way to bring it back.
+  const showLegend = legend ?? (series.length > 1 || visible.length < series.length);
 
   // Each series becomes a dense curve in data units; the scale fits only the series on show.
   const signature = `${curve}|${series.map(item => item.key).join(",")}|${data.map(item => `${item.key}:${series.map(line => item.values[line.key] ?? 0).join(",")}`).join(";")}`;

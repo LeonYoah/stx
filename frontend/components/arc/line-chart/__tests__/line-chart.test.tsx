@@ -115,6 +115,33 @@ describe('LineChart multi-series legend', () => {
     expect(onHiddenSeriesChange).toHaveBeenCalledWith(['s7']);
   });
 
+  it('keeps the legend as a restore control when the only remaining series is hidden', () => {
+    const series = makeSeries(1);
+    const onHiddenSeriesChange = vi.fn();
+    render(
+      <LineChart
+        label='Classes'
+        data={makeData(series)}
+        series={series}
+        defaultHiddenSeries={['s1']}
+        emptySelectionLabel='请至少选择一条曲线'
+        onHiddenSeriesChange={onHiddenSeriesChange}
+      />,
+    );
+
+    // 唯一序列被隐藏时图例仍保留，否则没有任何恢复入口。
+    // The legend must survive a hidden single series or nothing can bring it back.
+    const legendGroup = screen.getByRole('group', {name: 'Classes series'});
+    const toggle = within(legendGroup).getByRole('button', {
+      name: "mapped - 'non-volatile memory'",
+    });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText('请至少选择一条曲线')).toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(onHiddenSeriesChange).toHaveBeenCalledWith([]);
+  });
+
   it('shows emptySelectionLabel when all series are hidden and restores on reset', async () => {
     const series = makeSeries(3);
     render(

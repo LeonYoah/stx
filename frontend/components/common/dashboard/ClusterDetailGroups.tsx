@@ -19,6 +19,7 @@
 
 import {useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
+import {ChevronDown} from 'lucide-react';
 import {LineChart} from '@/components/arc/line-chart/line-chart';
 import {DonutChart} from '@/components/arc/donut-chart/donut-chart';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
@@ -29,7 +30,12 @@ import {
   StatusBarPlot,
   StatusBarTooltip,
 } from '@/components/charts/status-bar';
-import {SoftChip} from '@/components/common/layout';
+import {SoftChip, TruncatedText} from '@/components/common/layout';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {Progress} from '@/components/ui/progress';
 import {cn} from '@/lib/utils';
 import {
@@ -97,6 +103,15 @@ const isAllZero = (points: [number, number][]) =>
 /** fd 使用率分档色：≥80% warning。/ fd usage tier: ≥80% warns. */
 const fdTone = (percent: number) =>
   percent >= 80 ? 'bg-[var(--warning)]' : undefined;
+
+/** 变更事件类型配色：节点重启偏告警用 amber，成员变更用 blue，其余中性。
+ * Event kind tint: node restarts warn in amber, membership shifts use blue, others stay muted. */
+const eventKindTone = (kind: string) =>
+  kind === 'node_restart'
+    ? 'amber'
+    : kind === 'members_change'
+      ? 'blue'
+      : 'muted';
 
 /**
  * 恒零信号序列降采样为 ≤maxBuckets 桶：桶内取峰值（尖刺不能被平均抹掉）；
@@ -434,6 +449,32 @@ export function ClusterDetailGroups({
     }).sort((a, b) => b.percent - a.percent);
   }, [panelsByKey]);
 
+  // 时间窗事件按时间倒序排列并按类型汇总计数，避免在图表上方平铺多行胶囊挤占视图。
+  // Sort window events newest-first and aggregate per-kind counts so they never sprawl across rows above the charts.
+  const eventSummary = useMemo(() => {
+    const raw = data?.events ?? [];
+    if (raw.length === 0) {
+      return null;
+    }
+    const sorted = [...raw].sort((a, b) => b.ts_ms - a.ts_ms);
+    const counts = new Map<string, number>();
+    for (const event of sorted) {
+      counts.set(event.kind, (counts.get(event.kind) ?? 0) + 1);
+    }
+    const preferredOrder = ['node_restart', 'members_change'];
+    const orderedKinds = [
+      ...preferredOrder.filter((kind) => counts.has(kind)),
+      ...Array.from(counts.keys()).filter(
+        (kind) => !preferredOrder.includes(kind),
+      ),
+    ];
+    return {
+      sorted,
+      latest: sorted[0]!,
+      counts: orderedKinds.map((kind) => ({kind, count: counts.get(kind)!})),
+    };
+  }, [data?.events]);
+
   // 渲染顺序跟面板定义走；合并面板在首个成员的槽位出：
   // store_backup / class_load_rate 不再单独渲染。
   // Render order follows the panel list; merged panels take their first member's slot:
@@ -520,25 +561,98 @@ export function ClusterDetailGroups({
         </p>
       ) : null}
 
-      {data && data.events.length > 0 ? (
-        <ul
+      {eventSummary ? (
+        <div
           key='detail-events'
-          className='mb-3 flex flex-wrap gap-1.5'
+          className='mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 rounded-[calc(var(--radius-panel)-4px)] bg-muted/40 px-3 py-1.5 text-xs'
           data-testid='detail-events'
         >
-          {data.events.map((event, index) => (
-            <li
-              key={`${event.ts_ms}-${index}`}
-              className='rounded-md border border-border/60 bg-muted/30 px-2 py-0.5 font-mono text-[11px] text-muted-foreground'
+          <div className='flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1'>
+            <span className='shrink-0 font-medium text-foreground/85'>
+              {t('eventsSummary.title')}
+            </span>
+            {eventSummary.counts.map(({kind, count}) => (
+              <SoftChip
+                key={kind}
+                tone={eventKindTone(kind)}
+                className='shrink-0 px-1.5 py-0 text-[11px] font-medium tabular-nums'
+              >
+                {t.has(`events.${kind}`) ? t(`events.${kind}`) : kind} {count}
+              </SoftChip>
+            ))}
+            <TruncatedText
+              text={t('eventsSummary.latest', {
+                time: formatDateTimeMinuteTz(eventSummary.latest.ts_ms).slice(
+                  -5,
+                ),
+                label: eventSummary.latest.label,
+              })}
+              mono
+              className='min-w-0 max-w-full flex-1 text-[11px] text-muted-foreground'
+            />
+          </div>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type='button'
+                data-testid='detail-events-trigger'
+                className='group inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+              >
+                <span>
+                  {t('eventsSummary.viewAll', {
+                    count: eventSummary.sorted.length,
+                  })}
+                </span>
+                <ChevronDown className='size-3.5 transition-transform duration-150 group-data-[state=open]:rotate-180' />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align='end'
+              sideOffset={6}
+              className='arc-compact w-[min(460px,calc(100vw-2rem))] rounded-[var(--radius-popover)] p-0'
+              data-testid='detail-events-popover'
             >
-              {formatDateTimeMinuteTz(event.ts_ms)} ·{' '}
-              {t.has(`events.${event.kind}`)
-                ? t(`events.${event.kind}`)
-                : event.kind}{' '}
-              · {event.label}
-            </li>
-          ))}
-        </ul>
+              <div className='flex items-center justify-between gap-2 border-b-[0.5px] border-border/80 px-3 py-2 text-xs'>
+                <span className='font-medium text-foreground'>
+                  {t('eventsSummary.title')}
+                </span>
+                <span className='font-mono text-[11px] tabular-nums text-muted-foreground'>
+                  {t('eventsSummary.total', {
+                    count: eventSummary.sorted.length,
+                  })}
+                </span>
+              </div>
+              <ul className='max-h-[280px] divide-y-[0.5px] divide-border/70 overflow-y-auto px-3'>
+                {eventSummary.sorted.map((event, index) => {
+                  const kindText = t.has(`events.${event.kind}`)
+                    ? t(`events.${event.kind}`)
+                    : event.kind;
+                  return (
+                    <li
+                      key={`${event.ts_ms}-${event.kind}-${index}`}
+                      className='flex items-center gap-2 py-2 text-xs'
+                    >
+                      <span className='shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground'>
+                        {formatDateTimeMinuteTz(event.ts_ms)}
+                      </span>
+                      <SoftChip
+                        tone={eventKindTone(event.kind)}
+                        className='shrink-0 px-1.5 py-0 text-[10px] font-medium'
+                      >
+                        {kindText}
+                      </SoftChip>
+                      <TruncatedText
+                        text={event.label}
+                        mono
+                        className='min-w-0 flex-1 text-[11px] text-foreground'
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
+            </PopoverContent>
+          </Popover>
+        </div>
       ) : null}
 
       {resource.loading && !data ? (

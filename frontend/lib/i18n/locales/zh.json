@@ -546,6 +546,12 @@
             "node_restart": "节点重启",
             "members_change": "成员数变化"
           },
+          "eventsSummary": {
+            "title": "时间窗变动",
+            "latest": "最近 {time} · {label}",
+            "viewAll": "查看全部 ({count})",
+            "total": "共 {count} 条"
+          },
           "panels": {
             "heap_pools": "堆内存池",
             "nonheap": "非堆内存",

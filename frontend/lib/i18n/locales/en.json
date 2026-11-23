@@ -546,6 +546,12 @@
             "node_restart": "node restart",
             "members_change": "membership change"
           },
+          "eventsSummary": {
+            "title": "Window changes",
+            "latest": "Latest {time} · {label}",
+            "viewAll": "View all ({count})",
+            "total": "{count} total"
+          },
           "panels": {
             "heap_pools": "Heap pools",
             "nonheap": "Non-heap memory",

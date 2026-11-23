@@ -311,9 +311,20 @@ describe('ClusterTab', () => {
     });
     expect(await within(section).findByText('堆内存池')).toBeTruthy();
     const events = within(section).getByTestId('detail-events');
-    expect(events.textContent).toContain('节点重启');
-    expect(events.textContent).toContain('成员数变化');
+    expect(events.textContent).toContain('时间窗变动');
+    expect(events.textContent).toContain('节点重启 1');
+    expect(events.textContent).toContain('成员数变化 1');
     expect(events.textContent).toContain('2 → 3');
+
+    // 点开明细弹层，按时间倒序展示全部事件（最新在最前）。
+    // Opening the details popover lists every event newest-first.
+    fireEvent.click(within(events).getByTestId('detail-events-trigger'));
+    const popover = await screen.findByTestId('detail-events-popover');
+    expect(popover.textContent).toContain('共 2 条');
+    const items = within(popover).getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(items[0]?.textContent).toContain('2 → 3');
+    expect(items[1]?.textContent).toContain('10.0.0.1:5801');
 
     // 切换到未上报的组 → 组级空态。/ Switching to an unreported group shows the group empty state.
     fireEvent.click(

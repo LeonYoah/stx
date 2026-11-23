@@ -114,9 +114,10 @@ type ClusterSignals struct {
 // DashboardSeries 是一条趋势；Points 为 [毫秒时间戳, 值]。
 // DashboardSeries is one trend; Points are [epoch ms, value].
 type DashboardSeries struct {
-	Key    string       `json:"key"`
-	Label  string       `json:"label"`
-	Points [][2]float64 `json:"points"`
+	Key       string       `json:"key"`
+	Label     string       `json:"label"`
+	ClusterID uint         `json:"cluster_id,omitempty"`
+	Points    [][2]float64 `json:"points"`
 }
 
 // ClusterDashboard 是 GET /api/v1/dashboard/home/clusters 的返回。
@@ -296,8 +297,8 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 	cpuExpr := fmt.Sprintf(`sum by (cluster_id, instance) (rate(process_cpu_seconds_total{%s}[%s]))`, sel, promquery.RangeWindow(step, 5*time.Minute))
 	cpuExprNow := fmt.Sprintf(`sum by (cluster_id, instance) (rate(process_cpu_seconds_total{%s}[5m]))`, sel)
 	tasks := []*promTask{
-		{key: "up_range", step: cell, query: fmt.Sprintf(`min by (instance) (min_over_time(up{%s}[%ds]))`, sel, cell)},
-		{key: "state_range", step: cell, query: fmt.Sprintf(`min by (instance) (min_over_time(node_state{%s}[%ds]))`, sel, cell)},
+		{key: "up_range", step: cell, query: fmt.Sprintf(`min by (cluster_id, instance) (min_over_time(up{%s}[%ds]))`, sel, cell)},
+		{key: "state_range", step: cell, query: fmt.Sprintf(`min by (cluster_id, instance) (min_over_time(node_state{%s}[%ds]))`, sel, cell)},
 		{key: "heap", step: step, query: heapExpr},
 		{key: "cpu", step: step, query: cpuExpr},
 		{key: "gc", step: step, query: fmt.Sprintf(`100 * sum by (cluster_id, instance) (rate(jvm_gc_collection_seconds_sum{%s}[%s]))`, sel, promquery.RangeWindow(step, 5*time.Minute))},
@@ -340,7 +341,8 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 	out.Series = append(out.Series, mergeAvailability(byKey["up_range"].series, byKey["state_range"].series)...)
 	for _, key := range []string{"heap", "cpu", "gc"} {
 		for _, item := range byKey[key].series {
-			out.Series = append(out.Series, DashboardSeries{Key: key, Label: item.Metric["instance"], Points: item.Points})
+			id, _ := strconv.ParseUint(item.Metric["cluster_id"], 10, 64)
+			out.Series = append(out.Series, DashboardSeries{Key: key, Label: item.Metric["instance"], ClusterID: uint(id), Points: item.Points})
 		}
 	}
 	for _, item := range byKey["job_state"].series {
@@ -522,13 +524,16 @@ func isLoopbackHost(host string) bool {
 // mergeAvailability derives node availability: 1 when the scrape is up (up≥1) and the node is not down (node_state
 // missing or 1), otherwise 0.
 func mergeAvailability(upSeries, stateSeries []promquery.Series) []DashboardSeries {
+	keyOf := func(item promquery.Series) string {
+		return item.Metric["cluster_id"] + "|" + item.Metric["instance"]
+	}
 	states := map[string]map[float64]float64{}
 	for _, item := range stateSeries {
 		byTs := map[float64]float64{}
 		for _, point := range item.Points {
 			byTs[point[0]] = point[1]
 		}
-		states[item.Metric["instance"]] = byTs
+		states[keyOf(item)] = byTs
 	}
 	out := make([]DashboardSeries, 0, len(upSeries))
 	for _, item := range upSeries {
@@ -538,15 +543,21 @@ func mergeAvailability(upSeries, stateSeries []promquery.Series) []DashboardSeri
 			value := 0.0
 			if point[1] >= 1 {
 				value = 1
-				if ns, ok := states[instance][point[0]]; ok && ns != 1 {
+				if ns, ok := states[keyOf(item)][point[0]]; ok && ns != 1 {
 					value = 0
 				}
 			}
 			points = append(points, [2]float64{point[0], value})
 		}
-		out = append(out, DashboardSeries{Key: "availability", Label: instance, Points: points})
+		id, _ := strconv.ParseUint(item.Metric["cluster_id"], 10, 64)
+		out = append(out, DashboardSeries{Key: "availability", Label: instance, ClusterID: uint(id), Points: points})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ClusterID != out[j].ClusterID {
+			return out[i].ClusterID < out[j].ClusterID
+		}
+		return out[i].Label < out[j].Label
+	})
 	return out
 }
 

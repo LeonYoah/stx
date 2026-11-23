@@ -210,6 +210,17 @@ describe('buildRealtimeOverlay', () => {
     expect(overlay.backpressured.has(2)).toBe(false);
   });
 
+  it('clamps engine bpRatio values above 1 to 1', () => {
+    const graph = normalizeJobDag(runtimeJob26);
+    const raw = {
+      ...realtime,
+      edges: [{queue_id: -5, target_vertex_id: 2, points: [{ts: 1, bpRatio: 1.81}]}],
+    } as unknown as SyncJobRealtime;
+    const overlay = buildRealtimeOverlay(raw, graph.edges);
+    expect(overlay.edgeBackpressure.get('1->2')).toBe(1);
+    expect(overlay.backpressured.get(1)).toBe(1);
+  });
+
   it('is empty when realtime is unavailable', () => {
     const overlay = buildRealtimeOverlay({...realtime, available: false}, []);
     expect(overlay.busy.size + overlay.edgeBackpressure.size + overlay.backpressured.size).toBe(0);

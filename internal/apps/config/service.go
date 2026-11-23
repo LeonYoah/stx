@@ -43,6 +43,15 @@ type HostProvider interface {
 // NodeInfoProvider 节点信息提供者接口
 type NodeInfoProvider interface {
 	GetNodeInstallDir(ctx context.Context, clusterID uint, hostID uint) (string, error)
+	GetNodeInstallDirs(ctx context.Context, clusterID uint, hostID uint) ([]string, error)
+	GetNodePorts(ctx context.Context, clusterID uint, hostID uint) ([]NodePortInfo, error)
+	GetDeploymentMode(ctx context.Context, clusterID uint) (string, error)
+}
+
+type NodePortInfo struct {
+	Role          string
+	HazelcastPort int
+	WorkerPort    int
 }
 
 // HostInfo 主机信息
@@ -440,12 +449,38 @@ func (s *Service) PushConfigToNode(ctx context.Context, id uint, installDir stri
 		return err
 	}
 
-	if err := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, content); err != nil {
-		if config.HasPendingPush() {
-			config.SyncError = truncateSyncError("推送配置到节点失败 / failed to push config to node: " + err.Error())
-			_ = s.repo.Update(ctx, config)
+	installDirs := []string{installDir}
+	if s.nodeInfoProvider != nil {
+		if dirs, dirErr := s.nodeInfoProvider.GetNodeInstallDirs(ctx, config.ClusterID, *config.HostID); dirErr == nil {
+			norm := func(dir string) string {
+				return strings.TrimRight(strings.TrimSpace(dir), "/")
+			}
+			installDirs = []string{}
+			seen := map[string]struct{}{}
+			for _, dir := range append([]string{installDir}, dirs...) {
+				dir = norm(dir)
+				if dir == "" {
+					continue
+				}
+				if _, ok := seen[dir]; ok {
+					continue
+				}
+				seen[dir] = struct{}{}
+				installDirs = append(installDirs, dir)
+			}
+			if len(installDirs) == 0 {
+				installDirs = []string{installDir}
+			}
 		}
-		return err
+	}
+	for _, dir := range installDirs {
+		if err := s.agentClient.PushConfig(ctx, *config.HostID, dir, config.ConfigType, content); err != nil {
+			if config.HasPendingPush() {
+				config.SyncError = truncateSyncError("推送配置到节点失败 / failed to push config to node: " + err.Error())
+				_ = s.repo.Update(ctx, config)
+			}
+			return err
+		}
 	}
 	if config.HasPendingPush() {
 		comment := config.PendingComment

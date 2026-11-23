@@ -193,46 +193,25 @@ export interface ClusterInfo {
   updated_at: string;
 }
 
-/**
- * Node information returned from API
- * API 返回的节点信息
- */
 export interface NodeInfo {
-  /** Node ID / 节点 ID */
   id: number;
-  /** Cluster ID / 集群 ID */
   cluster_id: number;
-  /** Host ID / 主机 ID */
   host_id: number;
-  /** Host name / 主机名称 */
   host_name: string;
-  /** Host IP address / 主机 IP 地址 */
   host_ip: string;
-  /** Node role / 节点角色 */
   role: NodeRole;
-  /** SeaTunnel installation directory / SeaTunnel 安装目录 */
   install_dir: string;
-  /** Configured node JDK; empty means auto detection / 节点配置的 JDK，空表示自动探测 */
   java_home?: string;
-  /** Hazelcast cluster port / Hazelcast 集群端口 */
   hazelcast_port: number;
-  /** REST API port (Master only) / REST API 端口（仅 Master） */
   api_port: number;
-  /** Worker hazelcast port (Hybrid only) / Worker Hazelcast 端口（仅混合模式） */
   worker_port: number;
-  /** Node-level JSON overrides / 节点级 JSON 覆盖配置 */
   overrides?: NodeOverrides;
-  /** Node status / 节点状态 (may be 'offline' when host is offline) */
   status: NodeStatus;
-  /** Whether host is online / 主机是否在线 */
   is_online?: boolean;
-  /** Process PID / 进程 PID */
   process_pid: number;
-  /** Process status / 进程状态 */
   process_status: string;
-  /** Creation time / 创建时间 */
+  master_state?: 'active' | 'standby';
   created_at: string;
-  /** Update time / 更新时间 */
   updated_at: string;
 }
 

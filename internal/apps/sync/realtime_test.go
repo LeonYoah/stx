@@ -162,6 +162,33 @@ func TestGetJobRealtime_findsMasterAndComputesHints(t *testing.T) {
 	}
 }
 
+func TestGetJobRealtime_clampsEdgeBackpressureRatio(t *testing.T) {
+	engine := &fakeRealtimeEngine{
+		masterURL: "http://master",
+		vertices: &EngineRealtimeSeries{Known: true, BucketMs: 5000, Vertices: []EngineRealtimeVertex{
+			{VertexID: 2, Points: repeatPoint(3, map[string]any{"sinkBusyRatio": 0.95})},
+		}},
+		edges: &EngineRealtimeSeries{Known: true, BucketMs: 5000, Edges: []EngineRealtimeEdge{
+			{QueueID: -5, TargetVertexID: 2, Points: repeatPoint(3, map[string]any{"bpRatio": 1.8110874344, "queueFillRatio": 0.95})},
+		}},
+	}
+	result, err := newRealtimeService(engine, "3.0.0").getJobRealtime(context.Background(), newRealtimeJob(), realtimeDefaultWindowMs)
+	if err != nil {
+		t.Fatalf("getJobRealtime: %v", err)
+	}
+	if !result.Available {
+		t.Fatalf("expected available result, got %+v", result)
+	}
+	for _, point := range result.Edges[0].Points {
+		if got := realtimeFloat(point, "bpRatio"); got != 1 {
+			t.Fatalf("bpRatio must be clamped to 1, got %v", got)
+		}
+	}
+	if len(result.Hints) != 1 || result.Hints[0].Code != RealtimeHintSinkSlow || result.Hints[0].Severity != "critical" {
+		t.Fatalf("clamping must not change hint verdicts, got %+v", result.Hints)
+	}
+}
+
 func TestGetJobRealtime_reasons(t *testing.T) {
 	disabled := false
 	cases := []struct {

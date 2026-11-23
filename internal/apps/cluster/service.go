@@ -239,9 +239,10 @@ type Service struct {
 	onNodeRecordRemoved func(context.Context, uint, *ClusterNode)
 	// monitorPusher 向主机 Agent 下发该集群的监控跟踪配置；可选，未注入时静默跳过。
 	// monitorPusher pushes this cluster's monitor tracking config to host Agents; optional and skipped when unset.
-	monitorPusher ClusterMonitorPusher
-	memberProbes  memberProbeCache
-	engineProbes  engineProbeCache
+	monitorPusher        ClusterMonitorPusher
+	memberListReconciler MemberListReconciler
+	memberProbes         memberProbeCache
+	engineProbes         engineProbeCache
 	// memberGraceUntil 记录每个集群最近一次启动/重启受理后的成员一致性宽限截止（clusterID -> time.Time）。
 	// memberGraceUntil stores each cluster's member-agreement grace deadline after an accepted start/restart (clusterID -> time.Time).
 	memberGraceUntil sync.Map
@@ -312,6 +313,21 @@ func (s *Service) SetOnClusterTopologyChanged(fn func(context.Context, uint)) {
 // SetMonitorPusher injects the optional cluster-scoped monitor config pusher (best effort).
 func (s *Service) SetMonitorPusher(pusher ClusterMonitorPusher) {
 	s.monitorPusher = pusher
+}
+
+func (s *Service) SetMemberListReconciler(reconciler MemberListReconciler) {
+	s.memberListReconciler = reconciler
+}
+
+func (s *Service) reconcileMemberList(ctx context.Context, clusterID uint) {
+	if s.memberListReconciler == nil || clusterID == 0 {
+		return
+	}
+	reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
+	defer cancel()
+	if err := s.memberListReconciler.ReconcileClusterMemberList(reconcileCtx, clusterID); err != nil {
+		logger.WarnF(ctx, "[Cluster] 节点变更后对账 member-list 失败 / Member-list reconcile after node change failed: cluster=%d, error=%v", clusterID, err)
+	}
 }
 
 // pushMonitorConfigToHost 尽力而为地向主机 Agent 推送该集群最新的监控跟踪配置：节点登记或
@@ -1373,6 +1389,7 @@ func (s *Service) AddNode(ctx context.Context, clusterID uint, req *AddNodeReque
 	// 根据所有节点状态更新集群状态
 	s.updateClusterStatusFromNodes(ctx, clusterID)
 
+	s.reconcileMemberList(ctx, clusterID)
 	s.pushMonitorConfigToHost(ctx, clusterID, req.HostID)
 	s.notifyClusterTopologyChanged(ctx, clusterID)
 
@@ -1440,6 +1457,7 @@ func (s *Service) AddNodes(ctx context.Context, clusterID uint, req *AddNodesReq
 		s.detectAndUpdateNodeProcess(ctx, node, req.HostID)
 	}
 	s.updateClusterStatusFromNodes(ctx, clusterID)
+	s.reconcileMemberList(ctx, clusterID)
 	s.pushMonitorConfigToHost(ctx, clusterID, req.HostID)
 	s.notifyClusterTopologyChanged(ctx, clusterID)
 
@@ -1644,6 +1662,60 @@ func (s *Service) GetNodeInstallDir(ctx context.Context, clusterID uint, hostID 
 		return "", fmt.Errorf("node not found for cluster %d and host %d / 未找到集群 %d 主机 %d 对应的节点", clusterID, hostID, clusterID, hostID)
 	}
 	return node.InstallDir, nil
+}
+
+func (s *Service) GetNodeInstallDirs(ctx context.Context, clusterID uint, hostID uint) ([]string, error) {
+	nodes, err := s.repo.GetNodesByClusterID(ctx, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	dirs := make([]string, 0, len(nodes))
+	seen := make(map[string]struct{}, len(nodes))
+	for _, node := range nodes {
+		if node == nil || node.HostID != hostID {
+			continue
+		}
+		dir := strings.TrimSpace(node.InstallDir)
+		if dir == "" {
+			continue
+		}
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		dirs = append(dirs, dir)
+	}
+	if len(dirs) == 0 {
+		return nil, fmt.Errorf("node not found for cluster %d and host %d / 未找到集群 %d 主机 %d 对应的节点", clusterID, hostID, clusterID, hostID)
+	}
+	return dirs, nil
+}
+
+func (s *Service) GetNodePorts(ctx context.Context, clusterID uint, hostID uint) ([]appconfig.NodePortInfo, error) {
+	nodes, err := s.repo.GetNodesByClusterID(ctx, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	ports := make([]appconfig.NodePortInfo, 0, len(nodes))
+	for _, node := range nodes {
+		if node == nil || node.HostID != hostID {
+			continue
+		}
+		ports = append(ports, appconfig.NodePortInfo{
+			Role:          string(node.Role),
+			HazelcastPort: node.HazelcastPort,
+			WorkerPort:    node.WorkerPort,
+		})
+	}
+	return ports, nil
+}
+
+func (s *Service) GetDeploymentMode(ctx context.Context, clusterID uint) (string, error) {
+	cluster, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return "", err
+	}
+	return string(cluster.DeploymentMode), nil
 }
 
 // ResolveNodeJVMByClusterAndHostAndRole resolves effective JVM config for one logical node.

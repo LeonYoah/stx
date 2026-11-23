@@ -119,6 +119,7 @@ export interface HomeClusterSignals {
 export interface HomeDashboardSeries {
   key: 'availability' | 'heap' | 'cpu' | 'gc' | 'job_state' | string;
   label: string;
+  cluster_id?: number;
   points: [number, number][];
 }
 

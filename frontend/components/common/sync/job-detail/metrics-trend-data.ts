@@ -291,7 +291,7 @@ export function toPipelineShare(
  * Scale 0–1 busy/backpressure to percent so Arc's zero-based axis does not flatten the line.
  */
 export function scalePoints(points: TrendPoint[], factor: number): TrendPoint[] {
-  return points.map(([ts, value]) => [ts, value * factor]);
+  return points.map(([ts, value]) => [ts, Math.min(1, Math.max(0, value)) * factor]);
 }
 
 /** 与后端一致的自定义时间窗上限（366 天）；统一定义在 lib/time-window。

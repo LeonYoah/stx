@@ -1206,6 +1206,8 @@ func Serve() {
 			scaleService.SetPluginReplayer(pluginService)
 			scaleService.SetRunningJobsProvider(&clusterRunningJobsAdapter{syncService: syncService})
 			scaleService.SetProcessDiscoverer(&clusterProcessDiscovererAdapter{discoveryService: discoveryService})
+			installerService.SetClusterMemberListReconciler(scaleService)
+			clusterService.SetMemberListReconciler(scaleService)
 			if grpcSrv != nil {
 				scaleService.SetMonitorPusher(grpcSrv)
 				clusterService.SetMonitorPusher(grpcSrv)
@@ -2229,6 +2231,18 @@ func (a *configNodeInfoProviderAdapter) GetNodeInstallDir(ctx context.Context, c
 	return a.clusterService.GetNodeInstallDir(ctx, clusterID, hostID)
 }
 
+func (a *configNodeInfoProviderAdapter) GetNodeInstallDirs(ctx context.Context, clusterID uint, hostID uint) ([]string, error) {
+	return a.clusterService.GetNodeInstallDirs(ctx, clusterID, hostID)
+}
+
+func (a *configNodeInfoProviderAdapter) GetNodePorts(ctx context.Context, clusterID uint, hostID uint) ([]appconfig.NodePortInfo, error) {
+	return a.clusterService.GetNodePorts(ctx, clusterID, hostID)
+}
+
+func (a *configNodeInfoProviderAdapter) GetDeploymentMode(ctx context.Context, clusterID uint) (string, error) {
+	return a.clusterService.GetDeploymentMode(ctx, clusterID)
+}
+
 // configPortMetadataUpdaterAdapter adapts cluster.Repository to appconfig.PortMetadataUpdater interface.
 // configPortMetadataUpdaterAdapter 将 cluster.Repository 适配到 appconfig.PortMetadataUpdater 接口。
 type configPortMetadataUpdaterAdapter struct {
@@ -2271,6 +2285,12 @@ func (a *configPortMetadataUpdaterAdapter) UpdateHazelcastPortByHost(ctx context
 		return err
 	}
 	var clusterObj *cluster.Cluster
+	if configType == appconfig.ConfigTypeHazelcast {
+		if clusterObj, _ = a.clusterRepo.GetByID(ctx, clusterID, false); clusterObj != nil &&
+			clusterObj.DeploymentMode == cluster.DeploymentModeSeparated {
+			return nil
+		}
+	}
 	for _, node := range nodes {
 		if node == nil || node.ClusterID != clusterID {
 			continue
@@ -2299,11 +2319,16 @@ func (a *configPortMetadataUpdaterAdapter) UpdateHazelcastPortByHost(ctx context
 		if clusterObj.Config == nil {
 			clusterObj.Config = cluster.ClusterConfig{}
 		}
+		portsMap := ensureClusterConfigPath(clusterObj.Config, "ports")
 		switch configType {
 		case appconfig.ConfigTypeHazelcast, appconfig.ConfigTypeHazelcastMaster:
-			ensureClusterConfigPath(clusterObj.Config, "ports")["master_hazelcast_port"] = port
+			if !validPort(portsMap["master_hazelcast_port"]) {
+				portsMap["master_hazelcast_port"] = port
+			}
 		case appconfig.ConfigTypeHazelcastWorker:
-			ensureClusterConfigPath(clusterObj.Config, "ports")["worker_port"] = port
+			if !validPort(portsMap["worker_port"]) {
+				portsMap["worker_port"] = port
+			}
 		}
 		if err := a.clusterRepo.Update(ctx, clusterObj); err != nil {
 			return err
@@ -2327,6 +2352,21 @@ func (a *configPortMetadataUpdaterAdapter) UpdateClusterJobLogMode(ctx context.C
 	}
 	ensureClusterConfigPath(clusterObj.Config, "runtime")["job_log_mode"] = mode
 	return a.clusterRepo.Update(ctx, clusterObj)
+}
+
+func validPort(v interface{}) bool {
+	var n float64
+	switch t := v.(type) {
+	case float64:
+		n = t
+	case int:
+		n = float64(t)
+	case int64:
+		n = float64(t)
+	default:
+		return false
+	}
+	return n >= 1 && n <= 65535
 }
 
 func ensureClusterConfigPath(cfg cluster.ClusterConfig, key string) map[string]interface{} {

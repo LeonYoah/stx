@@ -758,8 +758,6 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 	c.JSON(http.StatusOK, AddNodeResponse{Data: buildNodeInfo(node)})
 }
 
-// GetNodes handles GET /api/v1/clusters/:id/nodes - gets all nodes for a cluster.
-// GetNodes 处理 GET /api/v1/clusters/:id/nodes - 获取集群的所有节点。
 // @Tags clusters
 // @Produce json
 // @Param id path int true "集群ID"
@@ -779,7 +777,28 @@ func (h *Handler) GetNodes(c *gin.Context) {
 		return
 	}
 
+	h.annotateMasterStates(c.Request.Context(), uint(clusterID), nodes)
 	c.JSON(http.StatusOK, GetNodesResponse{Data: nodes})
+}
+
+func (h *Handler) annotateMasterStates(ctx context.Context, clusterID uint, nodes []*NodeInfo) {
+	activeID, ok := h.webUIMaster.activeMasterNodeID(ctx, clusterID, nodes)
+	if !ok {
+		return
+	}
+	for _, node := range nodes {
+		if node == nil || !node.IsOnline || node.Status != NodeStatusRunning {
+			continue
+		}
+		if node.Role != NodeRoleMaster && node.Role != NodeRoleMasterWorker {
+			continue
+		}
+		if node.ID == activeID {
+			node.MasterState = NodeMasterStateActive
+		} else {
+			node.MasterState = NodeMasterStateStandby
+		}
+	}
 }
 
 // ==================== Cluster Operation Handlers 集群操作处理器 ====================

@@ -184,6 +184,10 @@ type ClusterNodeAddressesResolver interface {
 	ResolveClusterNodeAddresses(ctx context.Context, clusterID uint) ([]ClusterNodeAddress, error)
 }
 
+type ClusterMemberListReconciler interface {
+	ReconcileClusterMemberList(ctx context.Context, clusterID uint) error
+}
+
 // EventChannelEnabler 在一键安装登记 seatunnel.yaml 之后、节点启动之前写入事件通道。
 // EventChannelEnabler writes the event channel after one-click install registers seatunnel.yaml and before the node starts.
 type EventChannelEnabler interface {
@@ -299,6 +303,7 @@ type Service struct {
 	// nodeAddressesResolver is used to fill member-list addresses when callers omit them
 	// nodeAddressesResolver 用于在调用方未传 member-list 地址时按集群兜底组装
 	nodeAddressesResolver ClusterNodeAddressesResolver
+	memberListReconciler  ClusterMemberListReconciler
 
 	// configInitializer is used to initialize cluster configs after installation
 	// configInitializer 用于安装完成后初始化集群配置
@@ -466,6 +471,10 @@ func (s *Service) SetNodeJVMResolver(resolver NodeJVMResolver) {
 // SetClusterNodeAddressesResolver 设置 member-list 兜底用的集群节点地址解析器。
 func (s *Service) SetClusterNodeAddressesResolver(resolver ClusterNodeAddressesResolver) {
 	s.nodeAddressesResolver = resolver
+}
+
+func (s *Service) SetClusterMemberListReconciler(reconciler ClusterMemberListReconciler) {
+	s.memberListReconciler = reconciler
 }
 
 // SetConfigInitializer sets the config initializer for initializing cluster configs.
@@ -2633,23 +2642,28 @@ func (s *Service) resolveMemberAddresses(ctx context.Context, req *InstallationR
 	}
 
 	separated := req.DeploymentMode == DeploymentModeSeparated
+	mode := string(req.DeploymentMode)
 	masters, workers := []string{}, []string{}
 	seenMasters, seenWorkers := map[string]struct{}{}, map[string]struct{}{}
-	add := func(role string, ip string) {
+	add := func(role string, ip string, port int) {
 		ip = strings.TrimSpace(ip)
 		if ip == "" {
 			return
 		}
+		if port <= 0 {
+			port = clustermembers.DefaultPort(mode, role)
+		}
+		address := clustermembers.FormatAddress(ip, port)
 		if separated && role == string(NodeRoleWorker) {
-			if _, ok := seenWorkers[ip]; !ok {
-				seenWorkers[ip] = struct{}{}
-				workers = append(workers, ip)
+			if _, ok := seenWorkers[address]; !ok {
+				seenWorkers[address] = struct{}{}
+				workers = append(workers, address)
 			}
 			return
 		}
-		if _, ok := seenMasters[ip]; !ok {
-			seenMasters[ip] = struct{}{}
-			masters = append(masters, ip)
+		if _, ok := seenMasters[address]; !ok {
+			seenMasters[address] = struct{}{}
+			masters = append(masters, address)
 		}
 	}
 
@@ -2657,11 +2671,15 @@ func (s *Service) resolveMemberAddresses(ctx context.Context, req *InstallationR
 	// The target node may not be registered as a cluster node yet; seed its host IP first.
 	if hostID, err := strconv.ParseUint(strings.TrimSpace(req.HostID), 10, 64); err == nil && s.hostProvider != nil {
 		if host, herr := s.hostProvider.GetHostByID(ctx, uint(hostID)); herr == nil && host != nil {
-			add(string(req.NodeRole), host.IPAddress)
+			port := req.ClusterPort
+			if separated && string(req.NodeRole) == string(NodeRoleWorker) {
+				port = req.WorkerPort
+			}
+			add(string(req.NodeRole), host.IPAddress, port)
 		}
 	}
 	for _, node := range nodes {
-		add(node.Role, node.HostIP)
+		add(node.Role, node.HostIP, node.HazelcastPort)
 	}
 	if len(req.MasterAddresses) == 0 {
 		clustermembers.SortAddresses(masters)
@@ -3234,7 +3252,11 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 
 	// Agent 安装完成后，先登记或刷新控制面的节点元数据，再使用统一的集群启动逻辑。
 	// After the Agent installation completes, register or refresh control-plane node metadata before using the shared startup logic.
-	if err := s.nodeStarter.EnsureNodeForInstallation(ctx, clusterID, hostID, nodeRole, req.InstallDir, req.ClusterPort, req.HTTPPort, req.WorkerPort, req.JavaHome); err != nil {
+	nodeHazelcastPort := req.ClusterPort
+	if req.DeploymentMode == DeploymentModeSeparated && nodeRole == string(NodeRoleWorker) {
+		nodeHazelcastPort = req.WorkerPort
+	}
+	if err := s.nodeStarter.EnsureNodeForInstallation(ctx, clusterID, hostID, nodeRole, req.InstallDir, nodeHazelcastPort, req.HTTPPort, req.WorkerPort, req.JavaHome); err != nil {
 		logger.ErrorF(ctx, "[Installer] 登记安装节点失败 / Failed to register installed node: cluster=%d, host=%d, role=%s, error=%v",
 			clusterID, hostID, nodeRole, err)
 		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to register node (%s): %v / 安装完成但登记节点 (%s) 失败: %v", nodeRole, err, nodeRole, err))
@@ -3284,6 +3306,13 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	// Push cluster monitor config only after startup succeeds so AutoRestarter never races with first-time launch
 	// and the Agent receives the cluster's monitor policy with the real PID; deferred-start scale-out pushes in scale_executor after starting the node.
 	s.pushMonitorConfigToHost(ctx, clusterID, hostID)
+
+	if s.memberListReconciler != nil {
+		if err := s.memberListReconciler.ReconcileClusterMemberList(ctx, clusterID); err != nil {
+			logger.WarnF(ctx, "[Installer] member-list 对账失败 / member-list reconcile failed: cluster=%d, err=%v", clusterID, err)
+			appendInstallationWarning(status, fmt.Sprintf("Warning: member-list reconcile failed (%v); run config sync to refresh node member lists / 警告：member-list 对账失败（%v），可用配置同步刷新节点成员列表", err, err))
+		}
+	}
 
 	// Note: Plugin recording is handled at cluster level, not per-node
 	// 注意：插件记录在集群级别处理，不是每个节点

@@ -239,15 +239,17 @@ type stubInstallationNodeStarter struct {
 	startCalls  int
 	ensureErr   error
 	// ensureJavaHome 记录登记节点时下发的 JDK。/ ensureJavaHome records the JDK passed when registering the node.
-	ensureJavaHome string
-	startOK        bool
-	startMsg       string
-	startErr       error
+	ensureJavaHome      string
+	ensureHazelcastPort int
+	startOK             bool
+	startMsg            string
+	startErr            error
 }
 
 func (s *stubInstallationNodeStarter) EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int, javaHome string) error {
 	s.ensureCalls++
 	s.ensureJavaHome = javaHome
+	s.ensureHazelcastPort = hazelcastPort
 	return s.ensureErr
 }
 
@@ -293,6 +295,30 @@ func TestStartClusterAfterInstallRegistersNodeBeforeStarting(t *testing.T) {
 	}
 	if status.EndTime == nil {
 		t.Fatal("expected successful installation to record an end time")
+	}
+}
+
+func TestStartClusterAfterInstallSeparatedWorkerRegistersWorkerPort(t *testing.T) {
+	service := NewService(t.TempDir(), nil)
+	starter := &stubInstallationNodeStarter{startOK: true, startMsg: "started"}
+	service.SetNodeStarter(starter)
+	status := &InstallationStatus{Status: StepStatusRunning}
+
+	service.startClusterAfterInstall(context.Background(), "agent-test", &InstallationRequest{
+		HostID:         "10",
+		ClusterID:      "9",
+		NodeRole:       NodeRoleWorker,
+		DeploymentMode: DeploymentModeSeparated,
+		InstallDir:     "/tmp/seatunnel-worker",
+		ClusterPort:    15822,
+		WorkerPort:     15823,
+	}, status)
+
+	if starter.ensureCalls != 1 {
+		t.Fatalf("expected one node registration call, got %d", starter.ensureCalls)
+	}
+	if starter.ensureHazelcastPort != 15823 {
+		t.Fatalf("expected separated worker registered with worker port 15823, got %d", starter.ensureHazelcastPort)
 	}
 }
 

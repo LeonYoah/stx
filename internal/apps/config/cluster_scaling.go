@@ -353,6 +353,13 @@ func (s *Service) ApplyTemplatesToHost(ctx context.Context, clusterID uint, host
 	for _, configType := range MemberListConfigTypes(deploymentMode) {
 		memberTypes[configType] = struct{}{}
 	}
+	hostIP := ""
+	if s.hostProvider != nil {
+		if host, hostErr := s.hostProvider.GetHostByID(ctx, hostID); hostErr == nil && host != nil {
+			hostIP = host.IPAddress
+		}
+	}
+	nodePorts, _ := s.nodeInfoProvider.GetNodePorts(ctx, clusterID, hostID)
 	comment := scalingComment("Applied cluster template / 应用集群模板", opRef)
 	for _, template := range templates {
 		hostRef := hostID
@@ -361,6 +368,16 @@ func (s *Service) ApplyTemplatesToHost(ctx context.Context, clusterID uint, host
 		target := template.Content.String()
 		if _, isMemberType := memberTypes[template.ConfigType]; isMemberType && len(normalizeMembers(members)) > 0 {
 			patched, _, patchErr := PatchMemberListContent(target, members)
+			if patchErr != nil {
+				item.Status = ConfigChangeFailed
+				item.Message = patchErr.Error()
+				result.add(item)
+				continue
+			}
+			target = patched
+		}
+		if _, isMemberType := memberTypes[template.ConfigType]; isMemberType {
+			patched, patchErr := ApplyHazelcastEndpoint(target, template.ConfigType, deploymentMode, hostIP, nodePorts)
 			if patchErr != nil {
 				item.Status = ConfigChangeFailed
 				item.Message = patchErr.Error()
@@ -451,6 +468,7 @@ func (s *Service) PatchMemberList(ctx context.Context, clusterID uint, deploymen
 	}
 	sortConfigsForScaling(targets)
 
+	endpointCache := make(map[uint]*endpointContextEntry)
 	comment := scalingComment("Patched member-list / 修补成员列表", opRef)
 	for _, config := range targets {
 		item := &ConfigChangeItem{ConfigID: config.ID, ConfigType: config.ConfigType, HostID: config.HostID, IsTemplate: config.IsTemplate(), Version: config.Version}
@@ -483,12 +501,46 @@ func (s *Service) PatchMemberList(ctx context.Context, clusterID uint, deploymen
 			continue
 		}
 
+		if config.HostID != nil {
+			hostIP, nodePorts := s.endpointContext(ctx, clusterID, *config.HostID, endpointCache)
+			var endpointErr error
+			patched, endpointErr = ApplyHazelcastEndpoint(patched, config.ConfigType, deploymentMode, hostIP, nodePorts)
+			if endpointErr != nil {
+				item.Status = ConfigChangeFailed
+				item.Message = endpointErr.Error()
+				result.add(item)
+				continue
+			}
+		}
+
 		if err := s.applyScalingContent(ctx, config, patched, comment, userID, item); err != nil {
 			return result, err
 		}
 		result.add(item)
 	}
 	return result, nil
+}
+
+type endpointContextEntry struct {
+	hostIP    string
+	nodePorts []NodePortInfo
+}
+
+func (s *Service) endpointContext(ctx context.Context, clusterID uint, hostID uint, cache map[uint]*endpointContextEntry) (string, []NodePortInfo) {
+	if entry, ok := cache[hostID]; ok {
+		return entry.hostIP, entry.nodePorts
+	}
+	entry := &endpointContextEntry{}
+	if s.hostProvider != nil {
+		if host, err := s.hostProvider.GetHostByID(ctx, hostID); err == nil && host != nil {
+			entry.hostIP = host.IPAddress
+		}
+	}
+	if s.nodeInfoProvider != nil {
+		entry.nodePorts, _ = s.nodeInfoProvider.GetNodePorts(ctx, clusterID, hostID)
+	}
+	cache[hostID] = entry
+	return entry.hostIP, entry.nodePorts
 }
 
 // applyScalingContent 把主机配置同步到目标内容（先推送后提交），并把结果写入 item。

@@ -1402,6 +1402,10 @@
       "masterWorker": "Master/Worker",
       "undefined": "未知"
     },
+    "masterStates": {
+      "active": "活跃",
+      "standby": "备用"
+    },
     "nodeStatuses": {
       "pending": "待部署",
       "installing": "安装中",

@@ -27,6 +27,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/gin-gonic/gin"
 )
 
@@ -111,7 +112,7 @@ func (h *ScaleHandler) PlanScaleOut(c *gin.Context) {
 		writeScaleError(c, errors.Join(ErrScaleInvalidRequest, err))
 		return
 	}
-	plan, err := h.service.PlanScaleOut(c.Request.Context(), clusterID, &req, c.Query("lang"))
+	plan, err := h.service.PlanScaleOut(c.Request.Context(), clusterID, &req, string(locale.FromContext(c.Request.Context())))
 	if err != nil {
 		writeScaleError(c, err)
 		return
@@ -178,7 +179,7 @@ func (h *ScaleHandler) PlanScaleIn(c *gin.Context) {
 	if !ok {
 		return
 	}
-	plan, err := h.service.PlanScaleIn(c.Request.Context(), clusterID, nodeID, c.Query("lang"))
+	plan, err := h.service.PlanScaleIn(c.Request.Context(), clusterID, nodeID, string(locale.FromContext(c.Request.Context())))
 	if err != nil {
 		writeScaleError(c, err)
 		return
@@ -364,7 +365,7 @@ func scaleExecutionMeta(c *gin.Context, request any) (ScaleExecutionRequest, err
 		Confirmed:      metadata.Confirmed,
 		ConfirmationID: metadata.ConfirmationID,
 		ClientType:     metadata.ClientType,
-		Lang:           c.Query("lang"),
+		Lang:           string(locale.FromContext(c.Request.Context())),
 		Username:       auth.GetUsernameFromContext(c),
 	}, nil
 }

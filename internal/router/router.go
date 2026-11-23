@@ -208,7 +208,7 @@ func Serve() {
 	// self.GinMiddleware records stx_server_http_requests_total / the latency histogram:
 	// route labels use gin route templates to bound cardinality, while SSE / long-poll /
 	// health probes only count and skip the histogram.
-	r.Use(otelgin.Middleware(config.Config.App.AppName), loggerMiddleware(), self.GinMiddleware())
+	r.Use(otelgin.Middleware(config.Config.App.AppName), loggerMiddleware(), localeMiddleware(), self.GinMiddleware())
 
 	apiGroup := r.Group(config.Config.App.APIPrefix)
 	{

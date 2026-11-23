@@ -28,6 +28,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/gin-gonic/gin"
 )
 
@@ -40,16 +41,7 @@ const (
 // ListTroubleshootingMemories handles GET /api/v1/diagnostics/troubleshooting-memories
 // ListTroubleshootingMemories 处理 GET /api/v1/diagnostics/troubleshooting-memories
 func (h *Handler) ListTroubleshootingMemories(c *gin.Context) {
-	lang := strings.TrimSpace(c.Query("language"))
-	if lang == "" {
-		lang = strings.TrimSpace(c.Query("locale"))
-	}
-	if lang == "" {
-		acceptLang := c.GetHeader("Accept-Language")
-		if strings.HasPrefix(strings.ToLower(acceptLang), "en") {
-			lang = "en"
-		}
-	}
+	lang := string(locale.FromContext(c.Request.Context()))
 
 	query := &TroubleshootingMemoryQuery{
 		TargetType:  strings.TrimSpace(c.Query("target_type")),

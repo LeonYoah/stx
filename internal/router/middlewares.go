@@ -30,6 +30,7 @@ import (
 
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/otel_trace"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -78,4 +79,24 @@ func loggerMiddleware() gin.HandlerFunc {
 			span.SetStatus(codes.Error, strconv.Itoa(c.Writer.Status()))
 		}
 	}
+}
+
+func localeMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		loc, ok := resolveRequestLocale(c)
+		if !ok {
+			loc = locale.Default
+		}
+		c.Request = c.Request.WithContext(locale.WithLocale(c.Request.Context(), loc))
+		c.Next()
+	}
+}
+
+func resolveRequestLocale(c *gin.Context) (locale.Locale, bool) {
+	for _, key := range []string{"lang", "language", "locale"} {
+		if loc, ok := locale.Normalize(c.Query(key)); ok {
+			return loc, true
+		}
+	}
+	return locale.ParseAcceptLanguage(c.GetHeader("Accept-Language"))
 }

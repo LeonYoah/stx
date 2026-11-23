@@ -441,12 +441,31 @@ func (s *Service) PushConfigToNode(ctx context.Context, id uint, installDir stri
 		return err
 	}
 
-	if err := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, content); err != nil {
-		if config.HasPendingPush() {
-			config.SyncError = truncateSyncError("推送配置到节点失败 / failed to push config to node: " + err.Error())
-			_ = s.repo.Update(ctx, config)
+	installDirs := []string{installDir}
+	if s.nodeInfoProvider != nil {
+		if dirs, dirErr := s.nodeInfoProvider.GetNodeInstallDirs(ctx, config.ClusterID, *config.HostID); dirErr == nil {
+			seen := map[string]struct{}{strings.TrimSpace(installDir): {}}
+			for _, dir := range dirs {
+				dir = strings.TrimSpace(dir)
+				if dir == "" {
+					continue
+				}
+				if _, ok := seen[dir]; ok {
+					continue
+				}
+				seen[dir] = struct{}{}
+				installDirs = append(installDirs, dir)
+			}
 		}
-		return err
+	}
+	for _, dir := range installDirs {
+		if err := s.agentClient.PushConfig(ctx, *config.HostID, dir, config.ConfigType, content); err != nil {
+			if config.HasPendingPush() {
+				config.SyncError = truncateSyncError("推送配置到节点失败 / failed to push config to node: " + err.Error())
+				_ = s.repo.Update(ctx, config)
+			}
+			return err
+		}
 	}
 	if config.HasPendingPush() {
 		comment := config.PendingComment

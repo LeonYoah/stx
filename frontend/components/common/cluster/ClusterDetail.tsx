@@ -96,6 +96,7 @@ import {
   ClusterStatus,
   ClusterStatusInfo,
   NodeInfo,
+  OperationType,
   RuntimeStorageDetails,
   RuntimeStorageSpec,
   RuntimeStorageValidationResult,
@@ -125,6 +126,15 @@ import {RuntimeStorageFileExplorer} from './RuntimeStorageFileExplorer';
 import {ClusterActions} from './ClusterActions';
 import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
 import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
+import {lifecycleTargetForOperation} from './lifecycle-status-poll';
+import {
+  normalizeLoadClusterDataOptions,
+  refreshNodeJavaRuntimes,
+  shouldClearClusterLoading,
+  shouldCommitClusterLoadResult,
+  type LoadClusterDataOptions,
+} from './node-java-runtime-refresh';
+import {useLifecycleStatusPoll} from './useLifecycleStatusPoll';
 import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
 import {useOnboardingOptional} from '@/components/common/onboarding/OnboardingContext';
 
@@ -460,47 +470,34 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [logModeSwitching, setLogModeSwitching] = useState(false);
 
 
+  const nodesRef = useRef<NodeInfo[]>([]);
+  const nodeJavaRuntimesRef = useRef<Record<number, NodeJavaRuntimeView>>({});
+  // 上次成功拉 JDK runtime 时对应的进程 PID；增量比较必须用它，不能用已被轮询更新的 nodesRef。
+  // PID recorded when JDK runtime was last fetched; incremental compare must use this, not nodesRef (updated every poll).
+  const runtimePidRef = useRef<Record<number, number>>({});
+  const clusterLoadSeqRef = useRef(0);
+
   /**
-   * Fetch effective JDK version for each node once detail opens (AC7). Failures only mark version unavailable.
-   * 详情打开时为每个节点拉一次生效 JDK 版本（AC7）；失败只标记版本未取到。
+   * Fetch effective JDK version for nodes (AC7). Failures only mark version unavailable.
+   * mode=full 全量；incremental 用 runtimePidRef 判断 PID 是否变化，变化时先保留旧 ok。
+   * mode=full refreshes all; incremental uses runtimePidRef and keeps old ok while PID changes.
    */
   const loadNodeJavaRuntimes = useCallback(
-    async (nodeList: NodeInfo[]) => {
-      if (nodeList.length === 0) {
-        setNodeJavaRuntimes({});
-        return;
-      }
-      setNodeJavaRuntimes((prev) => {
-        const next: Record<number, NodeJavaRuntimeView> = {...prev};
-        for (const n of nodeList) {
-          next[n.id] = {status: 'loading'};
-        }
-        return next;
+    async (
+      nodeList: NodeInfo[],
+      mode: 'full' | 'incremental' = 'full',
+    ) => {
+      const result = await refreshNodeJavaRuntimes({
+        nodeList,
+        mode,
+        previousRuntimes: nodeJavaRuntimesRef.current,
+        runtimePidByNodeId: runtimePidRef.current,
+        fetchRuntime: (nodeId) =>
+          services.cluster.getNodeJavaRuntime(clusterId, nodeId),
       });
-      await Promise.all(
-        nodeList.map(async (n) => {
-          try {
-            const rt = await services.cluster.getNodeJavaRuntime(
-              clusterId,
-              n.id,
-            );
-            setNodeJavaRuntimes((prev) => ({
-              ...prev,
-              [n.id]: {
-                status: 'ok',
-                version: rt.version,
-                version_string: rt.version_string,
-                java_home: rt.java_home,
-              },
-            }));
-          } catch {
-            setNodeJavaRuntimes((prev) => ({
-              ...prev,
-              [n.id]: {status: 'error'},
-            }));
-          }
-        }),
-      );
+      nodeJavaRuntimesRef.current = result.views;
+      runtimePidRef.current = result.runtimePidByNodeId;
+      setNodeJavaRuntimes(result.views);
     },
     [clusterId],
   );
@@ -508,10 +505,15 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   /**
    * Load cluster data
    * 加载集群数据
+   * @returns 成功时返回主状态快照，供启停/重启后有界轮询判断是否达标。
+   *          On success returns a main-status snapshot for bounded post-lifecycle polling.
    */
   const loadClusterData = useCallback(
-    async (isSilent = false) => {
-      if (!isSilent) {
+    async (options?: LoadClusterDataOptions) => {
+      const {silent, notifyError, javaRuntimeMode} =
+        normalizeLoadClusterDataOptions(options);
+      const seq = ++clusterLoadSeqRef.current;
+      if (!silent) {
         setLoading(true);
       }
       try {
@@ -520,33 +522,107 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           services.cluster.getNodesSafe(clusterId),
           services.cluster.getClusterStatusSafe(clusterId),
         ]);
+        if (!shouldCommitClusterLoadResult(seq, clusterLoadSeqRef.current)) {
+          return null;
+        }
+
+        let nextCluster: ClusterInfo | null = null;
+        let nextNodes: NodeInfo[] | null = null;
 
         if (clusterResult.success && clusterResult.data) {
+          nextCluster = clusterResult.data;
           setCluster(clusterResult.data);
-        } else {
+        } else if (notifyError) {
           toast.error(clusterResult.error || t('cluster.loadError'));
         }
 
         if (nodesResult.success && nodesResult.data) {
+          nextNodes = nodesResult.data;
           setNodes(nodesResult.data);
-          void loadNodeJavaRuntimes(nodesResult.data);
+          nodesRef.current = nodesResult.data;
+          if (javaRuntimeMode !== 'skip') {
+            void loadNodeJavaRuntimes(nodesResult.data, javaRuntimeMode);
+          }
         }
 
         if (statusResult.success && statusResult.data) {
           setClusterStatus(statusResult.data);
         }
+
+        if (nextCluster && nextNodes) {
+          return {
+            clusterStatus: nextCluster.status,
+            nodes: nextNodes,
+          };
+        }
+        return null;
       } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : t('cluster.loadError'),
-        );
+        if (!shouldCommitClusterLoadResult(seq, clusterLoadSeqRef.current)) {
+          return null;
+        }
+        if (notifyError) {
+          toast.error(
+            error instanceof Error ? error.message : t('cluster.loadError'),
+          );
+        }
+        return null;
       } finally {
-        if (!isSilent) {
+        // 序号只挡数据写入；非静默加载必须复位 loading，否则深链 rewrite 一直等 clusterDataReady。
+        // Seq only gates writes; non-silent loads must clear loading or deep-link rewrite stalls.
+        if (shouldClearClusterLoading(silent)) {
           setLoading(false);
         }
       }
     },
     [clusterId, t, loadNodeJavaRuntimes],
   );
+
+  const {startLifecyclePoll, stopLifecyclePoll} = useLifecycleStatusPoll({
+    loadSnapshot: () =>
+      loadClusterData({
+        silent: true,
+        notifyError: false,
+        // 轮询跳过 JDK，避免每 2.5s 整列 loading 闪烁；达标后再补一次。
+        // Skip JDK during poll to avoid 2.5s column flicker; refresh once when satisfied.
+        javaRuntimeMode: 'skip',
+      }),
+    onSatisfied: () => {
+      void loadNodeJavaRuntimes(nodesRef.current, 'incremental');
+    },
+  });
+
+  // 切换集群时停止上一集群的轮询，避免串扰。
+  // Stop the previous cluster's poll when switching clusters.
+  useEffect(() => {
+    stopLifecyclePoll();
+  }, [clusterId, stopLifecyclePoll]);
+
+  const refreshMainStatusAfterLifecycle = useCallback(
+    async (
+      operation: OperationType | 'start' | 'stop' | 'restart',
+      scopeNodeIds?: number[],
+    ) => {
+      await loadClusterData({
+        silent: true,
+        notifyError: false,
+        javaRuntimeMode: 'skip',
+      });
+      startLifecyclePoll(lifecycleTargetForOperation(operation), {
+        scopeNodeIds,
+      });
+    },
+    [loadClusterData, startLifecyclePoll],
+  );
+
+  const refreshMainStatusFromEvents = useCallback(() => {
+    void loadClusterData({
+      silent: true,
+      notifyError: false,
+      // 事件联动用增量：保留 ok，仅新节点/PID 变化才拉，避免 spinner 闪。
+      // Event linkage uses incremental refresh: keep ok rows, refetch only new/PID-changed nodes.
+      javaRuntimeMode: 'incremental',
+    });
+  }, [loadClusterData]);
 
   // 进行中的伸缩操作（页面刷新后恢复）/ Scaling operation in progress (restored after a page refresh)
   const [runningScaleOperation, setRunningScaleOperation] =
@@ -579,7 +655,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
    * The banner's operation finished: refresh cluster data and hide the banner.
    */
   const handleRunningScaleFinished = (operation: ScaleOperationInfo) => {
-    loadClusterData(true);
+    void loadClusterData({
+      silent: true,
+      notifyError: true,
+      javaRuntimeMode: 'incremental',
+    });
     if (operation.status !== 'running') {
       setRunningScaleOperation(operation.status === 'failed' ? operation : null);
     }
@@ -1046,7 +1126,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     setRefreshing(true);
     try {
       await Promise.all([
-        loadClusterData(true),
+        loadClusterData({
+          silent: true,
+          notifyError: true,
+          javaRuntimeMode: 'full',
+        }),
         loadDiagnosticsSummary(),
         loadMonitoringOverview(),
         loadRuntimeStorage(),
@@ -1201,7 +1285,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           ? t('config.switchToPerJobSuccess')
           : t('config.switchToMixedSuccess'),
       );
-      await loadClusterData(true);
+      await loadClusterData({
+        silent: true,
+        notifyError: true,
+        javaRuntimeMode: 'full',
+      });
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t('config.switchLogModeError'),
@@ -1276,7 +1364,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             ? t('cluster.nodeStartSuccessAutoRestart')
             : t('cluster.nodeStartSuccess'),
         );
-        loadClusterData();
+        await refreshMainStatusAfterLifecycle(OperationType.START, [node.id]);
       } else {
         toast.error(result.error || t('cluster.nodeStartError'));
       }
@@ -1295,7 +1383,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       const result = await services.cluster.stopNodeSafe(clusterId, node.id);
       if (result.success) {
         toast.success(t('cluster.nodeStopSuccess'));
-        loadClusterData();
+        await refreshMainStatusAfterLifecycle(OperationType.STOP, [node.id]);
       } else {
         toast.error(result.error || t('cluster.nodeStopError'));
       }
@@ -1328,7 +1416,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             ? t('cluster.nodeRestartSuccessAutoRestart')
             : t('cluster.nodeRestartSuccess'),
         );
-        loadClusterData();
+        await refreshMainStatusAfterLifecycle(OperationType.RESTART, [
+          node.id,
+        ]);
       } else {
         toast.error(result.error || t('cluster.nodeRestartError'));
       }
@@ -1378,7 +1468,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           ? t('cluster.batchStartSuccessAutoRestart')
           : t('cluster.batchStartSuccess'),
       );
-      loadClusterData();
+      await refreshMainStatusAfterLifecycle(
+        OperationType.START,
+        Array.from(selectedNodeIds),
+      );
     } finally {
       setIsOperating(false);
     }
@@ -1395,11 +1488,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     }
     setIsOperating(true);
     try {
-      for (const nodeId of selectedNodeIds) {
+      const scopeNodeIds = Array.from(selectedNodeIds);
+      for (const nodeId of scopeNodeIds) {
         await services.cluster.stopNodeSafe(clusterId, nodeId);
       }
       toast.success(t('cluster.batchStopSuccess'));
-      loadClusterData();
+      await refreshMainStatusAfterLifecycle(OperationType.STOP, scopeNodeIds);
     } finally {
       setIsOperating(false);
     }
@@ -1440,7 +1534,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           ? t('cluster.batchRestartSuccessAutoRestart')
           : t('cluster.batchRestartSuccess'),
       );
-      loadClusterData();
+      await refreshMainStatusAfterLifecycle(
+        OperationType.RESTART,
+        Array.from(selectedNodeIds),
+      );
     } finally {
       setIsOperating(false);
     }
@@ -1775,7 +1872,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           <div className='flex flex-wrap items-center gap-1.5'>
             <ClusterActions
               cluster={cluster}
-              onOperationComplete={() => void loadClusterData(true)}
+              onOperationComplete={(operation) => {
+                void refreshMainStatusAfterLifecycle(operation);
+              }}
             />
             <ArcButton
               type='button'
@@ -1920,6 +2019,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               onViewLogs={handleViewLogs}
               onEditNode={openEditNodeDialog}
               onRemoveNode={(node) => setNodeToRemove(node)}
+              onMainStatusRefresh={refreshMainStatusFromEvents}
             />
           ) : null}
         </ArcTabsContent>

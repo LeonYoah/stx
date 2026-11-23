@@ -44,7 +44,6 @@ type webUIMasterSelector struct {
 
 type webUIMasterEntry struct {
 	nodeID    uint
-	confirmed bool
 	expiresAt time.Time
 }
 
@@ -102,31 +101,27 @@ func (s *webUIMasterSelector) activeMasterNodeID(ctx context.Context, clusterID 
 
 	s.mu.Lock()
 	if entry, ok := s.entries[clusterID]; ok && s.clock().Before(entry.expiresAt) {
-		nodeID, confirmed := entry.nodeID, entry.confirmed
-		s.mu.Unlock()
-		return nodeID, confirmed
+		for _, node := range online {
+			if node.ID == entry.nodeID {
+				s.mu.Unlock()
+				return entry.nodeID, true
+			}
+		}
 	}
 	s.mu.Unlock()
 
-	chosen := online[0]
-	confirmed := false
 	for _, node := range online {
 		if s.probe(ctx, node) {
-			chosen = node
-			confirmed = true
-			break
+			s.mu.Lock()
+			if s.entries == nil {
+				s.entries = map[uint]webUIMasterEntry{}
+			}
+			s.entries[clusterID] = webUIMasterEntry{nodeID: node.ID, expiresAt: s.clock().Add(webUIMasterCacheTTL)}
+			s.mu.Unlock()
+			return node.ID, true
 		}
 	}
-	s.mu.Lock()
-	if s.entries == nil {
-		s.entries = map[uint]webUIMasterEntry{}
-	}
-	s.entries[clusterID] = webUIMasterEntry{nodeID: chosen.ID, confirmed: confirmed, expiresAt: s.clock().Add(webUIMasterCacheTTL)}
-	s.mu.Unlock()
-	if !confirmed {
-		return 0, false
-	}
-	return chosen.ID, true
+	return 0, false
 }
 
 func (s *webUIMasterSelector) pick(ctx context.Context, clusterID uint, nodes []*NodeInfo) *NodeInfo {

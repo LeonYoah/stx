@@ -77,6 +77,26 @@ func TestWebUIMasterSelector_picksActiveMasterAndCaches(t *testing.T) {
 	}
 }
 
+func TestWebUIMasterSelector_reprobesWhenCachedNodeRemoved(t *testing.T) {
+	var firstMaster, secondMaster, thirdMaster atomic.Bool
+	var firstHits, secondHits, thirdHits atomic.Int32
+	secondMaster.Store(true)
+	first := engineNode(t, 1, &firstMaster, &firstHits)
+	second := engineNode(t, 2, &secondMaster, &secondHits)
+	third := engineNode(t, 3, &thirdMaster, &thirdHits)
+	selector := &webUIMasterSelector{}
+	ctx := context.Background()
+
+	if got := selector.pick(ctx, 8, []*NodeInfo{first, second, third}); got.ID != 2 {
+		t.Fatalf("expected active master node 2, got %d", got.ID)
+	}
+	secondMaster.Store(false)
+	firstMaster.Store(true)
+	if got := selector.pick(ctx, 8, []*NodeInfo{first, third}); got.ID != 1 {
+		t.Fatalf("expected re-probed master node 1 after removal, got %d", got.ID)
+	}
+}
+
 func TestWebUIMasterSelector_fallbacks(t *testing.T) {
 	var never atomic.Bool
 	var hits atomic.Int32

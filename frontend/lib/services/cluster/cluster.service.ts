@@ -25,6 +25,7 @@
 
 import {BaseService} from '../core/base.service';
 import apiClient from '../core/api-client';
+import {createWebExecutionHeaders} from '../core/execution-headers';
 import {localizeBackendText} from '@/lib/i18n/localize-text';
 import {
   ClusterInfo,
@@ -44,11 +45,9 @@ import {
   CreateClusterResponse,
   GetClusterResponse,
   UpdateClusterResponse,
-  DeleteClusterResponse,
   GetNodesResponse,
   AddNodeResponse,
   AddNodesResponse,
-  RemoveNodeResponse,
   ClusterOperationResponse,
   GetClusterStatusResponse,
   GetRuntimeStorageResponse,
@@ -189,16 +188,40 @@ export class ClusterService extends BaseService {
   static async deleteCluster(
     clusterId: number,
     options?: {forceDelete?: boolean},
+    idempotencyKey?: string,
+    confirmationId?: string,
   ): Promise<void> {
     const params =
       options?.forceDelete === true ? {force_delete: '1'} : undefined;
-    const response = await apiClient.delete<DeleteClusterResponse>(
-      `${this.basePath}/${clusterId}`,
-      {params},
-    );
-
-    if (response.data.error_msg) {
-      throw new Error(response.data.error_msg);
+    const executionHeaders = createWebExecutionHeaders('cluster-delete', {
+      idempotencyKey,
+      confirmationId,
+    });
+    try {
+      await this.deleteWithConfig<null>(`/${clusterId}`, {
+        params,
+        headers: executionHeaders.headers,
+      });
+    } catch (error) {
+      const data = (
+        error as Error & {
+          data?: {confirmation_required?: boolean; confirmation_id?: string};
+        }
+      ).data;
+      if (
+        !confirmationId &&
+        data?.confirmation_required &&
+        data.confirmation_id
+      ) {
+        await this.deleteCluster(
+          clusterId,
+          options,
+          executionHeaders.idempotencyKey,
+          data.confirmation_id,
+        );
+        return;
+      }
+      throw error;
     }
   }
 
@@ -300,13 +323,40 @@ export class ClusterService extends BaseService {
    * @param clusterId - Cluster ID / 集群 ID
    * @param nodeId - Node ID / 节点 ID
    */
-  static async removeNode(clusterId: number, nodeId: number): Promise<void> {
-    const response = await apiClient.delete<RemoveNodeResponse>(
-      `${this.basePath}/${clusterId}/nodes/${nodeId}`,
-    );
-
-    if (response.data.error_msg) {
-      throw new Error(response.data.error_msg);
+  static async removeNode(
+    clusterId: number,
+    nodeId: number,
+    idempotencyKey?: string,
+    confirmationId?: string,
+  ): Promise<void> {
+    const executionHeaders = createWebExecutionHeaders('cluster-node-remove', {
+      idempotencyKey,
+      confirmationId,
+    });
+    try {
+      await this.deleteWithConfig<null>(`/${clusterId}/nodes/${nodeId}`, {
+        headers: executionHeaders.headers,
+      });
+    } catch (error) {
+      const data = (
+        error as Error & {
+          data?: {confirmation_required?: boolean; confirmation_id?: string};
+        }
+      ).data;
+      if (
+        !confirmationId &&
+        data?.confirmation_required &&
+        data.confirmation_id
+      ) {
+        await this.removeNode(
+          clusterId,
+          nodeId,
+          executionHeaders.idempotencyKey,
+          data.confirmation_id,
+        );
+        return;
+      }
+      throw error;
     }
   }
 

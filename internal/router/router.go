@@ -299,6 +299,7 @@ func Serve() {
 				ControlPlaneAddr: config.GetExternalURL(),
 			})
 			hostHandler := host.NewHandler(hostService, auditRepo)
+			hostHandler.SetExecutionService(executionService)
 
 			hostRouter := apiV1Router.Group("/hosts")
 			hostRouter.Use(auth.LoginRequired())
@@ -350,6 +351,7 @@ func Serve() {
 			}
 
 			clusterHandler := cluster.NewHandler(clusterService, auditRepo)
+			clusterHandler.SetExecutionService(executionService)
 
 			// 集群扩缩容编排：只读计划 + 异步分步执行，接入公共执行（提交 R2、重试 R1）；其余依赖在对应服务创建后注入。
 			// Cluster scaling orchestrator: read-only plans plus async step execution on the shared execution contract

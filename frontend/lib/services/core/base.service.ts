@@ -178,4 +178,19 @@ export abstract class BaseService {
     );
     return response.data.data;
   }
+
+  /**
+   * 使用完整 Axios 配置发送 DELETE 请求（含执行确认头）。
+   * Send a DELETE request with a complete Axios configuration (including execution headers).
+   */
+  protected static async deleteWithConfig<T>(
+    path: string,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
+    const response = await apiClient.delete<ApiResponse<T>>(
+      this.getFullPath(path),
+      config,
+    );
+    return response.data.data;
+  }
 }

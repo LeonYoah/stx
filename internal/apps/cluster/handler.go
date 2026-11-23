@@ -32,6 +32,7 @@ import (
 
 	"github.com/LeonYoah/stx/internal/apps/audit"
 	"github.com/LeonYoah/stx/internal/apps/auth"
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	"github.com/LeonYoah/stx/internal/apps/javaruntime"
 	"github.com/LeonYoah/stx/internal/logger"
@@ -43,6 +44,7 @@ import (
 type Handler struct {
 	service             *Service
 	auditRepo           *audit.Repository
+	executionService    *executionapp.Service
 	onOperationExecuted func(context.Context, *OperationEvent) error
 	// webUIMaster 为 Web UI 代理挑选 active master，零值可用。
 	// webUIMaster picks the active master for the Web UI proxy; its zero value is ready to use.
@@ -536,22 +538,41 @@ func (h *Handler) DeleteCluster(c *gin.Context) {
 		return
 	}
 
+	forceDelete := c.Query("force_delete") == "1" || c.Query("force_delete") == "true"
+	requestHash, err := clusterDeleteRequestHash(clusterID, forceDelete)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, DeleteClusterResponse{ErrorMsg: err.Error()})
+		return
+	}
+	item, existing, beginErr := h.beginDeleteWrite(c, clusterDeleteOperationID, moduleRefUint(clusterID), clusterDeleteImpact, requestHash)
+	if beginErr != nil {
+		executionapp.WriteError(c, beginErr)
+		return
+	}
+	if existing {
+		h.writeExistingDelete(c, item, func() { c.JSON(http.StatusOK, DeleteClusterResponse{}) })
+		return
+	}
+
 	// Get cluster name for logging before deletion
 	// 在删除前获取集群名用于日志记录
 	cluster, err := h.service.Get(c.Request.Context(), uint(clusterID))
 	if err != nil {
+		h.finishDeleteWrite(c, item, "", err)
 		statusCode := h.getStatusCodeForError(err)
 		c.JSON(statusCode, DeleteClusterResponse{ErrorMsg: err.Error()})
 		return
 	}
 
-	forceDelete := c.Query("force_delete") == "1" || c.Query("force_delete") == "true"
 	if err := h.service.Delete(c.Request.Context(), uint(clusterID), forceDelete); err != nil {
+		h.finishDeleteWrite(c, item, "", err)
 		statusCode := h.getStatusCodeForError(err)
 		c.JSON(statusCode, DeleteClusterResponse{ErrorMsg: err.Error()})
 		return
 	}
 
+	resultRef := moduleRefUint(clusterID)
+	h.finishDeleteWrite(c, item, resultRef, nil)
 	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
 		"delete", "cluster", audit.UintID(uint(clusterID)), cluster.Name, audit.AuditDetails{"trigger": "manual"})
 	logger.InfoF(c.Request.Context(), "[Cluster] 删除集群成功: %s", cluster.Name)
@@ -661,14 +682,31 @@ func (h *Handler) RemoveNode(c *gin.Context) {
 		return
 	}
 
-	resourceName := h.getClusterNodeResourceName(c, uint(clusterID), uint(nodeID))
+	requestHash, err := clusterNodeRemoveRequestHash(clusterID, nodeID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, RemoveNodeResponse{ErrorMsg: err.Error()})
+		return
+	}
+	item, existing, beginErr := h.beginDeleteWrite(c, clusterNodeRemoveOperationID, moduleRefClusterNode(clusterID, nodeID), clusterNodeRemoveImpact, requestHash)
+	if beginErr != nil {
+		executionapp.WriteError(c, beginErr)
+		return
+	}
+	if existing {
+		h.writeExistingDelete(c, item, func() { c.JSON(http.StatusOK, RemoveNodeResponse{}) })
+		return
+	}
 
+	resourceName := h.getClusterNodeResourceName(c, uint(clusterID), uint(nodeID))
 	if err := h.service.RemoveNode(c.Request.Context(), uint(clusterID), uint(nodeID)); err != nil {
+		h.finishDeleteWrite(c, item, "", err)
 		statusCode := h.getStatusCodeForError(err)
 		c.JSON(statusCode, RemoveNodeResponse{ErrorMsg: err.Error()})
 		return
 	}
 
+	resultRef := moduleRefClusterNode(clusterID, nodeID)
+	h.finishDeleteWrite(c, item, resultRef, nil)
 	resID := audit.UintID(uint(clusterID)) + "/" + audit.UintID(uint(nodeID))
 	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
 		"remove_node", "cluster_node", resID, resourceName, audit.AuditDetails{"trigger": "manual"})

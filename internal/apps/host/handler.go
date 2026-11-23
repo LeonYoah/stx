@@ -26,6 +26,7 @@ import (
 
 	"github.com/LeonYoah/stx/internal/apps/audit"
 	"github.com/LeonYoah/stx/internal/apps/auth"
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/gin-gonic/gin"
 )
@@ -33,8 +34,9 @@ import (
 // Handler provides HTTP handlers for host management operations.
 // Handler 提供主机管理操作的 HTTP 处理器。
 type Handler struct {
-	service   *Service
-	auditRepo *audit.Repository
+	service          *Service
+	auditRepo        *audit.Repository
+	executionService *executionapp.Service
 }
 
 // NewHandler creates a new Handler instance.
@@ -262,16 +264,33 @@ func (h *Handler) DeleteHost(c *gin.Context) {
 		return
 	}
 
+	requestHash, err := hostDeleteRequestHash(hostID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, DeleteHostResponse{ErrorMsg: err.Error()})
+		return
+	}
+	item, existing, beginErr := h.beginDeleteWrite(c, hostModuleRef(hostID), requestHash)
+	if beginErr != nil {
+		executionapp.WriteError(c, beginErr)
+		return
+	}
+	if existing {
+		h.writeExistingDelete(c, item, func() { c.JSON(http.StatusOK, DeleteHostResponse{}) })
+		return
+	}
+
 	// Get host name for logging before deletion
 	// 在删除前获取主机名用于日志记录
 	host, err := h.service.Get(c.Request.Context(), uint(hostID))
 	if err != nil {
+		h.finishDeleteWrite(c, item, "", err)
 		statusCode := h.getStatusCodeForError(err)
 		c.JSON(statusCode, DeleteHostResponse{ErrorMsg: err.Error()})
 		return
 	}
 
 	if err := h.service.Delete(c.Request.Context(), uint(hostID)); err != nil {
+		h.finishDeleteWrite(c, item, "", err)
 		statusCode := h.getStatusCodeForError(err)
 		// 关联了集群或仍有运行中节点时，一并返回关联集群列表便于前端提示。
 		// When clusters are linked or nodes are still running, also return associated clusters for UI tips.
@@ -287,6 +306,8 @@ func (h *Handler) DeleteHost(c *gin.Context) {
 		return
 	}
 
+	resultRef := hostModuleRef(hostID)
+	h.finishDeleteWrite(c, item, resultRef, nil)
 	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
 		"delete", "host", audit.UintID(uint(hostID)), host.Name, audit.AuditDetails{"trigger": "manual"})
 	logger.InfoF(c.Request.Context(), "[Host] 删除主机成功: %s", host.Name)

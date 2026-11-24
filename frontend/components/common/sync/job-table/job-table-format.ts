@@ -18,7 +18,7 @@
 import {buildWorkbenchDeepLinkQuery} from '@/components/common/sync/task-alert-utils';
 import {formatCompactNumber} from '@/components/common/dashboard/dashboard-format';
 import type {NotificationRecipientUser} from '@/lib/services/monitoring';
-import type {SyncJobInstance} from '@/lib/services/sync';
+import type {SyncJobInstance, SyncJobSummary} from '@/lib/services/sync';
 
 /**
  * 作业显示名：提交时的作业名优先，其次任务名，最后用实例 ID（与后端 jobDisplayName 一致）。
@@ -26,7 +26,7 @@ import type {SyncJobInstance} from '@/lib/services/sync';
  * jobDisplayName).
  */
 export function jobDisplayName(
-  job: Pick<SyncJobInstance, 'id' | 'submit_spec' | 'task_name'>,
+  job: Pick<SyncJobSummary, 'id' | 'submit_spec' | 'task_name'>,
 ): string {
   const submitted = job.submit_spec?.job_name;
   if (typeof submitted === 'string' && submitted.trim()) {
@@ -65,7 +65,7 @@ export function isRunningStatus(status: string): boolean {
  */
 export function jobTimeBounds(
   job: Pick<
-    SyncJobInstance,
+    SyncJobSummary,
     'started_at' | 'created_at' | 'finished_at' | 'updated_at' | 'status'
   >,
 ): {startMs: number | null; endMs: number | null} {
@@ -91,7 +91,7 @@ export function jobTimeBounds(
  */
 export function jobDurationSeconds(
   job: Pick<
-    SyncJobInstance,
+    SyncJobSummary,
     'started_at' | 'created_at' | 'finished_at' | 'updated_at' | 'status'
   >,
   nowMs: number | null,
@@ -168,7 +168,7 @@ export function jobListRates(
  * finally "#uid".
  */
 export function resolveJobInitiatorName(
-  job: Pick<SyncJobInstance, 'created_by'>,
+  job: Pick<SyncJobSummary, 'created_by'>,
   currentUserId?: number,
   currentUsername?: string,
   workspaceUsers: NotificationRecipientUser[] = [],

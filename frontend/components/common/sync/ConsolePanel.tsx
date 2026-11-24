@@ -28,7 +28,7 @@ import SegmentedControl from '@/components/arc/segmented-control/segmented-contr
 import {Badge} from '@/components/ui/badge';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
-import type {SyncJobInstance, SyncJobLogsResult} from '@/lib/services/sync';
+import type {SyncJobLogsResult, SyncJobSummary} from '@/lib/services/sync';
 import {cn} from '@/lib/utils';
 import {TableLoadingBar} from '@/components/common/layout';
 import {JobOutcomeHints} from './JobOutcomeHints';
@@ -150,7 +150,7 @@ export function ConsolePanel({
   onFilterChange,
   onExpand,
 }: {
-  job: SyncJobInstance | null;
+  job: SyncJobSummary | null;
   logsResult: SyncJobLogsResult | null;
   loading: boolean;
   filterMode: LogFilterMode;

@@ -19,7 +19,7 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import services from '@/lib/services';
-import type {SyncJobInstance, SyncJobSparklines} from '@/lib/services/sync';
+import type {SyncJobSparklines, SyncJobSummary} from '@/lib/services/sync';
 import {isRunningStatus} from './job-table-format';
 
 /**
@@ -29,7 +29,7 @@ import {isRunningStatus} from './job-table-format';
  * Returns null when the data source is unavailable so callers hide the sparkline.
  */
 export function useJobSparklines(
-  items: SyncJobInstance[],
+  items: SyncJobSummary[],
   updatedAt: number | null,
 ): SyncJobSparklines | null {
   const [sparklines, setSparklines] = useState<SyncJobSparklines | null>(null);

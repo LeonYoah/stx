@@ -105,8 +105,10 @@ export interface ApiError {
 
 ### 2. Signatures
 ```ts
-// 入口：DataSyncStudio 持有 detailJobId / detailTab；作业对象从 jobs 取，随轮询刷新
-openJobDetail(job: SyncJobInstance, tab?: JobDetailTab): void      // 同时 setSelectedJobId(job.id)
+// 入口：DataSyncStudio 持有 detailJobId / detailTab；作业对象从 knownJobs（摘要）解析，随轮询刷新
+openJobDetail(job: SyncJobSummary, tab?: JobDetailTab): void       // 同时 setSelectedJobId(job.id)
+useJobDetail({job: SyncJobSummary | null, enabled, activePollMs?}) // → SyncJobInstance | null：详情自持
+                                                                   // 全量（getJob），摘要只字段级合并
 type JobDetailTab = 'topology' | 'metrics' | 'checkpoint' | 'logs' | 'events' | 'config' | 'script';
 getJobActionState(job, {isAdmin, isOwner, canRun, currentUserId, disableRecover})
   // → {showRecover, canRecover, showStop, canStop}，作业行与详情头部唯一的判断来源
@@ -119,6 +121,12 @@ services.sync.getJobPlanDag(jobId)                                   // GET /syn
   告警深链 `/sync?task=&job=` 选中作业后直接打开详情。行内按钮必须 `stopPropagation`。
 - **页签**：拓扑｜指标｜Checkpoint｜日志｜事件｜配置｜脚本，只渲染当前页签。日志与 Checkpoint 由工作台以插槽传入，加载条件为
   `bottomConsoleTab === X || (detailJob && detailTab === X)`，与底部面板共用同一份数据，不重复请求。
+- **列表行是摘要契约**：`/sync/jobs` 每行 `result_preview` 只留白名单键（`job_status` / `cancel_outcome`
+  / `cancel_timeout_seconds`），`submit_spec` 无 `submitted_content`；`listJobs` 返回 `SyncJobSummary`，
+  `metrics` / `job_dag` / `datasets` / `preview_content` / `submitted_content` 只能读 `getJob` 的
+  `SyncJobInstance`（多来源合并用 `mergeKnownJobs` / `useJobDetail`，**禁止用摘要行整行替换完整记录**——
+  轻字段取较新一侧、重字段始终保留，摘要 `updated_at` 变新才重取；**最新 ≠ 最完整**）。Checkpoint 文件
+  「检查」要用提交脚本，handler 必须先 `getJob(selectedJob.id)` 再 `buildCheckpointInspectJobConfig`。
 - **数据合并**（`dag-model.ts`）：拓扑以运行时 `result_preview.job_dag` 为准；计划 DAG（`webui_job.jobDag`）按 `vertexId + type`
   → `type + tablePaths 集合` → `type + 指标前缀` 依次匹配补表结构，匹配不上标 `planMatched=false`。指标按 `Source[0].<表>` 前缀一次索引。
 - **实时叠加**：节点忙碌度取 `latestVertexBusy`；连线背压按 `target_vertex_id` 取最新 `bpRatio`；节点“被反压” = 出边背压最大值。

@@ -66,6 +66,8 @@ export type {
 } from './types';
 // —— 子任务 C（job-detail-host）产物：作业详情宿主与日志 / Checkpoint 数据 hooks ——
 // —— Subtask C (job-detail-host): the detail host plus the logs / checkpoint data hooks ——
+export {useJobDetail} from './use-job-detail';
+export type {UseJobDetailOptions} from './use-job-detail';
 export {useJobLogs} from './use-job-logs';
 export type {UseJobLogsOptions, UseJobLogsResult} from './use-job-logs';
 export {useJobCheckpoint} from './use-job-checkpoint';

@@ -22,7 +22,7 @@ import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {TruncatedText, mergeIdsIntoSelection} from '@/components/common/layout';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {Sparkline} from '@/components/charts/sparkline';
-import type {SyncJobInstance, SyncJobListSort} from '@/lib/services/sync';
+import type {SyncJobListSort, SyncJobSummary} from '@/lib/services/sync';
 import {
   formatDateTimeMinuteTz,
   formatDateTimeTz,
@@ -53,7 +53,7 @@ import {
 } from './job-table-format';
 import type {JobColumnDef, JobTableContext} from './types';
 
-type CellProps = {job: SyncJobInstance; ctx: JobTableContext};
+type CellProps = {job: SyncJobSummary; ctx: JobTableContext};
 
 /** 时间列承载的排序维度；工具栏「排序」菜单复用同一份清单。/ Sort dimensions hosted by the time column; the toolbar sort menu reuses this list. */
 export const TIME_SORT_KEYS = [
@@ -216,7 +216,7 @@ function RunModeCell({job, ctx}: CellProps) {
 }
 
 /** 状态徽章 + 结果提示（提交确认中 / 超时等）。/ Status badge plus outcome hints (confirming submit, timeouts). */
-function StatusCell({job}: {job: SyncJobInstance}) {
+function StatusCell({job}: {job: SyncJobSummary}) {
   const displayStatus = getDisplayJobLifecycleStatus(job);
   return (
     <div className='flex items-center whitespace-nowrap'>

@@ -25,6 +25,8 @@ import type {
   SyncFormat,
   SyncGlobalVariable,
   SyncJobInstance,
+  SyncJobListSubmitSpec,
+  SyncJobSummary,
   SyncJobListParams,
   SyncJSON,
   SyncPluginFactoryInfo,
@@ -1299,7 +1301,7 @@ export function ensureSyncHoconLanguage(monaco: any) {
 // General and Comparison Utilities
 // ==========================================
 
-export function getSyncJobClusterId(job: SyncJobInstance | null): number | null {
+export function getSyncJobClusterId(job: SyncJobSummary | null): number | null {
   const raw = job?.submit_spec?.cluster_id;
   if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
     return raw;
@@ -2411,7 +2413,7 @@ const REALTIME_ENGINE_RUNNING_STATUSES = new Set([
  * Realtime insight entry info for a job. `supported` is decided by the backend from the cluster version and stored
  * in submit_spec.observability; the frontend never compares versions itself.
  */
-export function getRealtimeEntry(job?: SyncJobInstance | null): {
+export function getRealtimeEntry(job?: SyncJobSummary | null): {
   supported: boolean;
   injected: boolean;
   running: boolean;
@@ -2533,7 +2535,7 @@ export function formatCellValue(value: unknown): string {
   return String(value);
 }
 
-export function getEngineAPIMode(job: SyncJobInstance | null): string {
+export function getEngineAPIMode(job: SyncJobSummary | null): string {
   const mode = job?.submit_spec?.engine_api_mode;
   if (typeof mode === 'string' && mode.trim()) {
     return mode.trim().toLowerCase();
@@ -2541,14 +2543,16 @@ export function getEngineAPIMode(job: SyncJobInstance | null): string {
   return 'v2';
 }
 
-export function submitSpecExecutionMode(spec: SyncJSON | undefined): ExecutionMode {
+export function submitSpecExecutionMode(
+  spec: SyncJSON | SyncJobListSubmitSpec | undefined,
+): ExecutionMode {
   if (spec?.execution_mode === 'local') {
     return 'local';
   }
   return 'cluster';
 }
 
-export function getEngineEndpointLabel(job: SyncJobInstance | null): string {
+export function getEngineEndpointLabel(job: SyncJobSummary | null): string {
   if (job && submitSpecExecutionMode(job.submit_spec) === 'local') {
     const installDir = job.submit_spec?.install_dir;
     return typeof installDir === 'string' && installDir.trim()
@@ -2604,7 +2608,7 @@ export function parseTaskTimeoutInput(raw: string): number | null | undefined {
  * 提交请求没拿到回复、仍在等引擎确认的作业。
  * A job whose submit got no reply and is still waiting for the engine to confirm it.
  */
-export function isSubmitOutcomeUnknown(job?: SyncJobInstance | null): boolean {
+export function isSubmitOutcomeUnknown(job?: SyncJobSummary | null): boolean {
   return (
     String(job?.status || '').toLowerCase() === 'pending' &&
     String(job?.submit_spec?.submit_outcome || '') === 'unknown'
@@ -2615,18 +2619,18 @@ export function isSubmitOutcomeUnknown(job?: SyncJobInstance | null): boolean {
  * 提交确认超时、已被判为失败的作业。
  * A job whose submit confirmation expired and was marked failed.
  */
-export function isSubmitOutcomeExpired(job?: SyncJobInstance | null): boolean {
+export function isSubmitOutcomeExpired(job?: SyncJobSummary | null): boolean {
   return String(job?.submit_spec?.submit_outcome || '') === 'expired';
 }
 
 /** 提交确认截止时间（RFC3339）/ The submit confirmation deadline (RFC3339). */
-export function getSubmitOutcomeDeadline(job?: SyncJobInstance | null): string | undefined {
+export function getSubmitOutcomeDeadline(job?: SyncJobSummary | null): string | undefined {
   const value = String(job?.submit_spec?.submit_deadline || '').trim();
   return value || undefined;
 }
 
 /** 提交超时时长（分钟），用于提示文案 / The submit timeout in minutes, for hint text. */
-export function getSubmitTimeoutMinutes(job?: SyncJobInstance | null): number {
+export function getSubmitTimeoutMinutes(job?: SyncJobSummary | null): number {
   const seconds = Number(job?.submit_spec?.submit_timeout_seconds || 0);
   return seconds > 0 ? Math.max(1, Math.round(seconds / 60)) : 5;
 }
@@ -2635,12 +2639,12 @@ export function getSubmitTimeoutMinutes(job?: SyncJobInstance | null): number {
  * 停止请求没拿到回复、仍在等引擎确认的作业。
  * A job whose stop request got no reply and is still waiting for the engine to confirm it.
  */
-export function isCancelOutcomeUnknown(job?: SyncJobInstance | null): boolean {
+export function isCancelOutcomeUnknown(job?: SyncJobSummary | null): boolean {
   return String(job?.result_preview?.cancel_outcome || '') === 'unknown';
 }
 
 /** 停止已超时仍未停下（后端派生）/ The stop is overdue and the job has not stopped (derived by the backend). */
-export function isCancelOverdue(job?: SyncJobInstance | null): boolean {
+export function isCancelOverdue(job?: SyncJobSummary | null): boolean {
   return job?.cancel_overdue === true;
 }
 
@@ -2651,7 +2655,7 @@ export function isCancelOverdue(job?: SyncJobInstance | null): boolean {
  * the job to running with cancel_outcome=reverted, meaning the stop can be issued again. Only shown
  * while the job is active — a terminal job or a fresh stop (which clears cancel_outcome) ends the hint.
  */
-export function isCancelReverted(job?: SyncJobInstance | null): boolean {
+export function isCancelReverted(job?: SyncJobSummary | null): boolean {
   return (
     String(job?.result_preview?.cancel_outcome || '') === 'reverted' &&
     isJobLifecycleActive(getDisplayJobLifecycleStatus(job ?? null))
@@ -2659,7 +2663,7 @@ export function isCancelReverted(job?: SyncJobInstance | null): boolean {
 }
 
 /** 停止超时时长（分钟），用于提示文案 / The stop timeout in minutes, for hint text. */
-export function getCancelTimeoutMinutes(job?: SyncJobInstance | null): number {
+export function getCancelTimeoutMinutes(job?: SyncJobSummary | null): number {
   const seconds = Number(job?.result_preview?.cancel_timeout_seconds || 0);
   return seconds > 0 ? Math.max(1, Math.round(seconds / 60)) : 5;
 }
@@ -2777,7 +2781,7 @@ export function getJobStatusLabel(status: string): string {
   }
 }
 
-export function getDisplayJobLifecycleStatus(job: SyncJobInstance | null): string {
+export function getDisplayJobLifecycleStatus(job: SyncJobSummary | null): string {
   if (!job) {
     return '-';
   }
@@ -2832,7 +2836,7 @@ export function formatJobDuration(
 }
 
 export function getRunModeLabel(
-  job: SyncJobInstance,
+  job: SyncJobSummary,
   t: ReturnType<typeof useTranslations<'workbenchStudio'>>,
 ): string {
   const runType = String(job.run_type || '')
@@ -2929,7 +2933,7 @@ export function isJobLifecycleTerminal(status: string | null | undefined): boole
   }
 }
 
-export function canRecoverFromJob(job: SyncJobInstance | null): boolean {
+export function canRecoverFromJob(job: SyncJobSummary | null): boolean {
   if (!job || job.run_type === 'preview') {
     return false;
   }
@@ -2950,7 +2954,7 @@ export function canRecoverFromJob(job: SyncJobInstance | null): boolean {
  * initiator). Both places must agree, so the rules live only here.
  */
 export function getJobActionState(
-  job: SyncJobInstance,
+  job: SyncJobSummary,
   ctx: {isAdmin: boolean; isOwner: boolean; canRun: boolean; currentUserId?: number; disableRecover: boolean},
 ): {showRecover: boolean; canRecover: boolean; showStop: boolean; canStop: boolean} {
   const showStop = isJobLifecycleActive(getDisplayJobLifecycleStatus(job));
@@ -2967,6 +2971,76 @@ export function getJobActionState(
     showStop,
     canStop: permittedStop,
   };
+}
+
+// /sync/jobs 摘要行 result_preview 保留的白名单键（与后端 slimJobListRow 一致）。
+// The allow-listed result_preview keys a /sync/jobs summary row keeps (mirrors the backend slimJobListRow).
+const JOB_RESULT_PREVIEW_LIST_KEYS = new Set([
+  'job_status',
+  'cancel_outcome',
+  'cancel_timeout_seconds',
+]);
+
+/**
+ * 该行是否带完整记录的重字段：摘要行 result_preview 只留白名单键、submit_spec 无 submitted_content；
+ * 任一重字段出现就说明来源是 getJob 全量（或等效记录），可直接采纳，不必再请求。
+ * Whether the row carries full-record heavy fields: a summary row keeps only allow-listed result_preview
+ * keys and no submit_spec.submitted_content; any heavy key present means the source is a getJob full
+ * record (or equivalent) that can be adopted as-is without refetching.
+ */
+export function isFullJobRecord(job: SyncJobSummary | null | undefined): boolean {
+  if (!job) {
+    return false;
+  }
+  if ('submitted_content' in toObject(job.submit_spec)) {
+    return true;
+  }
+  return Object.keys(toObject(job.result_preview)).some(
+    (key) => !JOB_RESULT_PREVIEW_LIST_KEYS.has(key),
+  );
+}
+
+/**
+ * 把摘要行与已持有的完整记录做字段级合并（不整行替换）：行级字段（status / live / task_name /
+ * updated_at 等）取较新一侧的值，result_preview / submit_spec 做键级合并——较新一侧的白名单 /
+ * 元数据键覆盖旧值，全量独有的重字段（job_dag / metrics / submitted_content 等）始终保留。
+ * Field-level merge of a summary row onto a held full record (never a wholesale replace): row-level
+ * fields (status / live / task_name / updated_at ...) come from whichever side is newer, while
+ * result_preview / submit_spec merge per-key — the newer side's allow-listed / metadata keys overwrite
+ * stale values and the full record's heavy fields (job_dag / metrics / submitted_content ...) always
+ * survive.
+ */
+export function mergeJobSummaryWithFull(
+  row: SyncJobSummary,
+  full: SyncJobInstance | null,
+): SyncJobInstance {
+  const rowPreview = toObject(row.result_preview);
+  const rowSpec = toObject(row.submit_spec);
+  if (!full) {
+    return {
+      ...row,
+      result_preview: {...rowPreview},
+      submit_spec: {...rowSpec},
+    } as SyncJobInstance;
+  }
+  const rowTs = Date.parse(row.updated_at || '');
+  const fullTs = Date.parse(full.updated_at || '');
+  // 行不比全量旧（含同时刻：行带着 live / task_name 这类全量没有的展示字段）→ 轻字段取行的，
+  // 否则全量整体较新、轻字段也取全量的；两侧的重字段始终由全量保留。
+  // A row not older than the record (equal counts — rows carry live / task_name display fields the
+  // record lacks) supplies light fields; otherwise the record is the newer whole and supplies them too.
+  // Heavy fields always survive from the full record.
+  const rowNewer =
+    Number.isFinite(rowTs) && (!Number.isFinite(fullTs) || rowTs >= fullTs);
+  return {
+    ...(rowNewer ? {...full, ...row} : {...row, ...full}),
+    result_preview: rowNewer
+      ? {...toObject(full.result_preview), ...rowPreview}
+      : {...rowPreview, ...toObject(full.result_preview)},
+    submit_spec: rowNewer
+      ? {...toObject(full.submit_spec), ...rowSpec}
+      : {...rowSpec, ...toObject(full.submit_spec)},
+  } as SyncJobInstance;
 }
 
 export function getJobSubmittedScript(job: SyncJobInstance | null): {
@@ -4460,15 +4534,15 @@ function findMatchingBraceOffset(content: string, openIdx: number): number {
 export async function findSyncJobsByIdInput(
   listJobs: (
     params: SyncJobListParams,
-  ) => Promise<{items?: SyncJobInstance[] | null}>,
+  ) => Promise<{items?: SyncJobSummary[] | null}>,
   input: string,
   options?: {firstOnly?: boolean},
-): Promise<SyncJobInstance[]> {
+): Promise<SyncJobSummary[]> {
   const raw = input.trim().replace(/^#+/, '');
   if (!/^\d+$/.test(raw)) {
     return [];
   }
-  const found: SyncJobInstance[] = [];
+  const found: SyncJobSummary[] = [];
   const seen = new Set<number>();
   const push = async (params: SyncJobListParams) => {
     if (options?.firstOnly && found.length) {

@@ -24,9 +24,9 @@ import {TableLoadingBar} from '@/components/common/layout';
 import {Pagination} from '@/components/ui/pagination';
 import type {NotificationRecipientUser} from '@/lib/services/monitoring';
 import type {
-  SyncJobInstance,
   SyncJobListSort,
   SyncJobSparklines,
+  SyncJobSummary,
 } from '@/lib/services/sync';
 import {cn} from '@/lib/utils';
 import {
@@ -69,7 +69,7 @@ export interface JobTableProps {
   sparklines?: SyncJobSparklines | null;
   clusterNames?: Map<number, string>;
   /** 大盘逐行构造，工作台固定一份 / Per-row factory on the dashboard, a fixed value in the workbench. */
-  actor: JobActorContext | ((job: SyncJobInstance) => JobActorContext);
+  actor: JobActorContext | ((job: SyncJobSummary) => JobActorContext);
   initiatorUsers?: NotificationRecipientUser[];
   currentUserId?: number;
   currentUsername?: string;
@@ -82,9 +82,9 @@ export interface JobTableProps {
   bulkBar?: React.ReactNode;
   /** 工作台当前选中作业（行高亮）/ Currently selected workbench job (row highlight). */
   activeJobId?: number | null;
-  onRowActivate: (job: SyncJobInstance) => void;
-  onOpenDetail: (job: SyncJobInstance, tab?: JobDetailTab) => void;
-  onAction: (action: JobRowAction, job: SyncJobInstance) => void;
+  onRowActivate: (job: SyncJobSummary) => void;
+  onOpenDetail: (job: SyncJobSummary, tab?: JobDetailTab) => void;
+  onAction: (action: JobRowAction, job: SyncJobSummary) => void;
   /** 'home-job' | 'studio-job' / testid prefix per host. */
   testIdPrefix: string;
   className?: string;

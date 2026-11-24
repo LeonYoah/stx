@@ -272,3 +272,207 @@ func TestListJobsSourceFilterAndExternalVisibility(t *testing.T) {
 		t.Fatalf("stranger must not see internal job")
 	}
 }
+
+type staticStopEngineClient struct {
+	*discoveryEngineClient
+	stoppedEndpoint *EngineEndpoint
+	stoppedJobID    string
+}
+
+func (c *staticStopEngineClient) StopJob(_ context.Context, endpoint *EngineEndpoint, jobID string, _ bool) error {
+	c.stoppedEndpoint = endpoint
+	c.stoppedJobID = jobID
+	return nil
+}
+
+type mapRuntimeResolver struct {
+	endpoints map[uint]*EngineEndpoint
+	err       error
+}
+
+func (r mapRuntimeResolver) ResolveEngineEndpoint(_ context.Context, clusterID uint, taskDefinition JSONMap) (*EngineEndpoint, error) {
+	if endpoint := endpointFromTaskDefinition(taskDefinition); endpoint != nil {
+		return endpoint, nil
+	}
+	if r.err != nil {
+		return nil, r.err
+	}
+	if ep, ok := r.endpoints[clusterID]; ok {
+		return ep, nil
+	}
+	return nil, ErrExecutionTargetUnavailable
+}
+
+func TestResolveJobEngineEndpoint_PrefersLiveClusterAndPreservesProtocolHints(t *testing.T) {
+	service, base := newDiscoveryTestService(t)
+	stopClient := &staticStopEngineClient{discoveryEngineClient: base}
+	service.engineClient = stopClient
+	ctx := context.Background()
+
+	live := &EngineEndpoint{
+		BaseURL:   "http://172.18.196.113:28080",
+		LegacyURL: "http://172.18.196.113:15801",
+	}
+	service.runtimeResolver = mapRuntimeResolver{endpoints: map[uint]*EngineEndpoint{11: live}}
+
+	job := &JobInstance{
+		TaskID:        0,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		Status:        JobStatusRunning,
+		PlatformJobID: "179535836727100000",
+		EngineJobID:   "179535836727100000",
+		ClusterID:     11,
+		SubmitSpec: JSONMap{
+			"cluster_id":          11,
+			"engine_base_url":     "http://192.168.0.105:28080",
+			"engine_api_mode":     "v1",
+			"engine_context_path": "/st",
+		},
+		CreatedBy: 1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	resolved := service.resolveJobEngineEndpoint(ctx, job)
+	if resolved == nil || resolved.BaseURL != live.BaseURL || resolved.LegacyURL != live.LegacyURL {
+		t.Fatalf("expected live cluster endpoint %+v, got %+v", live, resolved)
+	}
+	if resolved.APIMode != "v1" || resolved.ContextPath != "/st" {
+		t.Fatalf("expected snapshot protocol hints preserved, got %+v", resolved)
+	}
+
+	if _, err := service.CancelJob(ctx, job.ID, false); err != nil {
+		t.Fatalf("cancel job: %v", err)
+	}
+	if stopClient.stoppedEndpoint == nil || stopClient.stoppedEndpoint.BaseURL != live.BaseURL || stopClient.stoppedEndpoint.APIMode != "v1" {
+		t.Fatalf("CancelJob must call live cluster endpoint, got %+v", stopClient.stoppedEndpoint)
+	}
+
+	// 动态解析不可用时回退到提交快照地址。
+	// Fall back to the submit snapshot when dynamic resolution fails.
+	service.runtimeResolver = mapRuntimeResolver{err: ErrExecutionTargetUnavailable}
+	fallback := service.resolveJobEngineEndpoint(ctx, job)
+	if fallback == nil || fallback.BaseURL != "http://192.168.0.105:28080" || fallback.APIMode != "v1" {
+		t.Fatalf("expected snapshot fallback when resolver fails, got %+v", fallback)
+	}
+
+	// 无集群关联的直连作业直接走快照地址。
+	// Direct jobs without a cluster use the snapshot endpoint directly.
+	direct := &JobInstance{
+		SubmitSpec: JSONMap{"engine_base_url": "http://direct-engine:8080", "engine_api_mode": "v2"},
+	}
+	directEndpoint := service.resolveJobEngineEndpoint(ctx, direct)
+	if directEndpoint == nil || directEndpoint.BaseURL != "http://direct-engine:8080" {
+		t.Fatalf("expected direct snapshot endpoint, got %+v", directEndpoint)
+	}
+}
+
+type countingRuntimeResolver struct {
+	endpoints map[uint]*EngineEndpoint
+	calls     int
+}
+
+func (r *countingRuntimeResolver) ResolveEngineEndpoint(_ context.Context, clusterID uint, taskDefinition JSONMap) (*EngineEndpoint, error) {
+	r.calls++
+	if endpoint := endpointFromTaskDefinition(taskDefinition); endpoint != nil {
+		return endpoint, nil
+	}
+	if ep, ok := r.endpoints[clusterID]; ok {
+		return ep, nil
+	}
+	return nil, ErrExecutionTargetUnavailable
+}
+
+type captureInfoEngineClient struct {
+	*discoveryEngineClient
+	infoEndpoints []*EngineEndpoint
+}
+
+func (c *captureInfoEngineClient) GetJobInfo(_ context.Context, endpoint *EngineEndpoint, jobID string) (*EngineJobInfo, error) {
+	c.infoEndpoints = append(c.infoEndpoints, endpoint)
+	return &EngineJobInfo{
+		JobID:     jobID,
+		JobStatus: "RUNNING",
+		Metrics:   map[string]interface{}{"SourceReceivedCount": "1"},
+	}, nil
+}
+
+func TestReconcileAndBackfill_MergeProtocolHintsAndCachePerPass(t *testing.T) {
+	service, base := newDiscoveryTestService(t)
+	capture := &captureInfoEngineClient{discoveryEngineClient: base}
+	service.engineClient = capture
+	ctx := context.Background()
+
+	live := &EngineEndpoint{BaseURL: "http://172.18.196.113:28080", LegacyURL: "http://172.18.196.113:15801"}
+	resolver := &countingRuntimeResolver{endpoints: map[uint]*EngineEndpoint{11: live}}
+	service.runtimeResolver = resolver
+
+	task := &Task{Name: "v1-task", NodeType: TaskNodeTypeFile, ClusterID: 11, CreatedBy: 1}
+	if err := service.repo.CreateTask(ctx, task); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	// 1. 终态补拉循环内复用集群端点缓存，且把 v1 / ContextPath 合并到最新集群地址上。
+	// 1. Terminal backfill caches cluster resolution within one pass and merges v1 / ContextPath onto live host.
+	now := time.Now().UTC()
+	for _, eid := range []string{"term-1", "term-2"} {
+		job := &JobInstance{
+			TaskID: task.ID, TaskVersion: 1, RunType: RunTypeRun, Status: JobStatusSuccess,
+			PlatformJobID: eid, EngineJobID: eid, ClusterID: 11, FinishedAt: &now,
+			SubmitSpec: JSONMap{
+				"cluster_id": 11, "engine_base_url": "http://192.168.0.105:28080",
+				"engine_api_mode": "v1", "engine_context_path": "/st",
+			},
+			CreatedBy: 1,
+		}
+		if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+			t.Fatalf("create terminal job %s: %v", eid, err)
+		}
+	}
+	service.backfillTerminalJobFinalMetrics(ctx)
+	if resolver.calls != 1 {
+		t.Fatalf("backfill pass must resolve cluster endpoint once, got %d calls", resolver.calls)
+	}
+	if len(capture.infoEndpoints) != 2 {
+		t.Fatalf("expected 2 backfill GetJobInfo calls, got %d", len(capture.infoEndpoints))
+	}
+	for _, ep := range capture.infoEndpoints {
+		if ep.BaseURL != live.BaseURL || ep.LegacyURL != live.LegacyURL || ep.APIMode != "v1" || ep.ContextPath != "/st" {
+			t.Fatalf("backfill endpoint lost live host or protocol hints: %+v", ep)
+		}
+	}
+
+	// 2. 完整对账与轻量对账的 GetJobInfo 同样保留 v1 / ContextPath。
+	// 2. Full and light reconcile GetJobInfo calls preserve v1 / ContextPath too.
+	capture.infoEndpoints = nil
+	runningJob := &JobInstance{
+		TaskID: task.ID, TaskVersion: 1, RunType: RunTypeRun, Status: JobStatusRunning,
+		PlatformJobID: "run-v1", EngineJobID: "run-v1", ClusterID: 11,
+		SubmitSpec: JSONMap{
+			"cluster_id": 11, "engine_base_url": "http://192.168.0.105:28080",
+			"engine_api_mode": "v1", "engine_context_path": "/st",
+		},
+		CreatedBy: 1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, runningJob); err != nil {
+		t.Fatalf("create running job: %v", err)
+	}
+	capture.runningItems = []*EngineJobListItem{{JobID: "run-v1", JobStatus: "RUNNING"}}
+	if err := service.reconcileClusterPass(ctx, 11, []*JobInstance{runningJob}, false); err != nil {
+		t.Fatalf("reconcileClusterPass: %v", err)
+	}
+	service.markJobWatched(runningJob.ID)
+	if err := service.reconcileClusterJobsLight(ctx, 11, []*JobInstance{runningJob}); err != nil {
+		t.Fatalf("reconcileClusterJobsLight: %v", err)
+	}
+	if len(capture.infoEndpoints) != 2 {
+		t.Fatalf("expected 2 reconcile GetJobInfo calls, got %d", len(capture.infoEndpoints))
+	}
+	for _, ep := range capture.infoEndpoints {
+		if ep.BaseURL != live.BaseURL || ep.APIMode != "v1" || ep.ContextPath != "/st" {
+			t.Fatalf("reconcile GetJobInfo endpoint lost protocol hints: %+v", ep)
+		}
+	}
+}

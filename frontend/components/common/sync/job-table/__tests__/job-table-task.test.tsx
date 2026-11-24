@@ -353,6 +353,14 @@ describe('JobTableToolbar task preset', () => {
     const bar = container.firstElementChild as HTMLElement;
     expect(bar.className).toContain('flex-nowrap');
     expect(bar.className).toContain('overflow-hidden');
+    // 左侧状态胶囊带独立横向滚动壳，右侧搜索/排序操作槽不换行不收缩，避免窄宽下折成两行被裁切。
+    // Status pills own a horizontal scroll wrapper while the right actions stay nowrap + shrink-0,
+    // preventing search and sort controls from stacking and clipping at narrow widths.
+    const pillsScroll = bar.children[0] as HTMLElement;
+    const actionsSlot = bar.children[1] as HTMLElement;
+    expect(pillsScroll.className).toContain('overflow-x-auto');
+    expect(actionsSlot.className).toContain('flex-nowrap');
+    expect(actionsSlot.className).toContain('shrink-0');
   });
 
   it('patches statusGroup and resets the page when a pill is clicked', () => {

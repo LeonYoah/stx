@@ -44,17 +44,26 @@ import {
   formatValueConstraintHints,
   isCursorAtFinishedEnumValue,
   readStudioLayoutPrefs,
+  resolveEffectiveStudioLayout,
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveOptionAssignmentContext,
+  resolveStudioTopbarTier,
+  resolveStudioViewportMode,
   resolveTaskAccessLevel,
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
   studioSaveSegment,
   formatSyncUserFacingError,
   findSyncJobsByIdInput,
+  STUDIO_CENTER_MIN_WIDTH,
+  STUDIO_CONSOLE_HEIGHT_MAX,
+  STUDIO_EDITOR_MIN_HEIGHT,
   STUDIO_LAYOUT_STORAGE_KEY,
+  STUDIO_LEFT_WIDTH_MAX,
+  STUDIO_RIGHT_WIDTH_MAX,
   writeStudioLayoutPrefs,
+  type StudioEffectiveLayoutInput,
 } from '../sync-studio-utils';
 
 describe('studio save segment', () => {
@@ -1362,5 +1371,221 @@ describe('buildTaskPayloadFromEditor access_level', () => {
     );
     expect(payload.definition?.access_level).toBe('private');
     expect(payload.definition?.is_public).toBe(false);
+  });
+});
+
+describe('studio responsive layout engine', () => {
+  const baseInput: StudioEffectiveLayoutInput = {
+    containerWidth: 1440,
+    containerHeight: 800,
+    leftCollapsed: false,
+    rightCollapsed: false,
+    leftWidth: 240,
+    rightWidth: 360,
+    consoleHeight: 260,
+    consoleMaximized: false,
+  };
+
+  it('falls back to wide on SSR / unmeasured first frame (width <= 0)', () => {
+    expect(resolveStudioViewportMode(0)).toBe('wide');
+    expect(resolveStudioViewportMode(-10)).toBe('wide');
+    expect(resolveStudioTopbarTier(0)).toBe('wide');
+    const layout = resolveEffectiveStudioLayout({
+      ...baseInput,
+      containerWidth: 0,
+      containerHeight: 0,
+    });
+    expect(layout.viewportMode).toBe('wide');
+    expect(layout.topbarTier).toBe('wide');
+    expect(layout.overlaySidebars).toBe(false);
+    expect(layout.effectiveLeftWidth).toBe(240);
+    expect(layout.effectiveRightWidth).toBe(360);
+    expect(layout.maxLeftWidth).toBe(STUDIO_LEFT_WIDTH_MAX);
+    expect(layout.maxRightWidth).toBe(STUDIO_RIGHT_WIDTH_MAX);
+    expect(layout.gridTemplateColumns).toBe('240px minmax(0,1fr) 360px');
+    expect(layout.gridTemplateRows).toBe('minmax(0,1fr) 260px');
+  });
+
+  it('resolves viewport mode and topbar tier at every breakpoint', () => {
+    const cases: Array<{
+      width: number;
+      mode: 'wide' | 'medium' | 'compact';
+      tier: 'wide' | 'medium' | 'compact';
+    }> = [
+      {width: 1440, mode: 'wide', tier: 'wide'},
+      {width: 1280, mode: 'wide', tier: 'wide'},
+      {width: 1279, mode: 'medium', tier: 'wide'},
+      {width: 1100, mode: 'medium', tier: 'medium'},
+      {width: 960, mode: 'medium', tier: 'medium'},
+      {width: 959, mode: 'compact', tier: 'medium'},
+      {width: 899, mode: 'compact', tier: 'compact'},
+      {width: 800, mode: 'compact', tier: 'compact'},
+      {width: 480, mode: 'compact', tier: 'compact'},
+    ];
+    for (const {width, mode, tier} of cases) {
+      expect(resolveStudioViewportMode(width), `mode @${width}`).toBe(mode);
+      expect(resolveStudioTopbarTier(width), `tier @${width}`).toBe(tier);
+    }
+    expect(resolveStudioTopbarTier(1199)).toBe('medium');
+    expect(resolveStudioTopbarTier(1200)).toBe('wide');
+  });
+
+  it('keeps both sidebars docked in wide and leaves the center above 420px', () => {
+    const layout = resolveEffectiveStudioLayout({
+      ...baseInput,
+      containerWidth: 1440,
+    });
+    expect(layout.viewportMode).toBe('wide');
+    expect(layout.dockedLeftCollapsed).toBe(false);
+    expect(layout.dockedRightCollapsed).toBe(false);
+    expect(layout.gridTemplateColumns).toBe('240px minmax(0,1fr) 360px');
+    expect(layout.maxLeftWidth).toBe(STUDIO_LEFT_WIDTH_MAX);
+    expect(layout.maxRightWidth).toBe(STUDIO_RIGHT_WIDTH_MAX);
+  });
+
+  it('compresses dual sidebars proportionally when they exceed the center budget', () => {
+    // 预算 1280-420=860 < 420+560：两侧按下限之上的超出占比分摊 400px 余量。
+    // Budget 1280-420=860 < 420+560: the 400px slack over the floors is split by
+    // overshoot share.
+    const layout = resolveEffectiveStudioLayout({
+      ...baseInput,
+      containerWidth: 1280,
+      leftWidth: 420,
+      rightWidth: 560,
+    });
+    expect(layout.effectiveLeftWidth).toBe(365);
+    expect(layout.effectiveRightWidth).toBe(495);
+    expect(layout.effectiveLeftWidth + layout.effectiveRightWidth).toBe(860);
+    expect(
+      1280 - layout.effectiveLeftWidth - layout.effectiveRightWidth,
+    ).toBeGreaterThanOrEqual(STUDIO_CENTER_MIN_WIDTH);
+    // 拖拽上限联动：左栏最多再吃到 budget-右栏宽。 / Drag ceilings interlock.
+    expect(layout.maxLeftWidth).toBe(365);
+    expect(layout.maxRightWidth).toBe(495);
+    expect(layout.gridTemplateColumns).toBe('365px minmax(0,1fr) 495px');
+  });
+
+  it('clamps a single docked sidebar to the budget before touching the center', () => {
+    const layout = resolveEffectiveStudioLayout({
+      ...baseInput,
+      containerWidth: 960,
+      rightCollapsed: true,
+      leftWidth: 420,
+    });
+    expect(layout.viewportMode).toBe('medium');
+    expect(layout.maxLeftWidth).toBe(420);
+    expect(layout.effectiveLeftWidth).toBe(420);
+    // 中栏仍保 420px / Center still keeps 420px
+    expect(960 - layout.effectiveLeftWidth).toBeGreaterThanOrEqual(
+      STUDIO_CENTER_MIN_WIDTH,
+    );
+  });
+
+  it('docks only the left sidebar when both are open in medium', () => {
+    const layout = resolveEffectiveStudioLayout({
+      ...baseInput,
+      containerWidth: 1100,
+    });
+    expect(layout.viewportMode).toBe('medium');
+    expect(layout.dockedLeftCollapsed).toBe(false);
+    expect(layout.dockedRightCollapsed).toBe(true);
+    expect(layout.gridTemplateColumns).toBe('240px minmax(0,1fr) 0px');
+  });
+
+  it('docks only the right sidebar when the left is collapsed in medium', () => {
+    const layout = resolveEffectiveStudioLayout({
+      ...baseInput,
+      containerWidth: 1100,
+      leftCollapsed: true,
+    });
+    expect(layout.dockedLeftCollapsed).toBe(true);
+    expect(layout.dockedRightCollapsed).toBe(false);
+    // 预算 1100-420=680 > 右栏上限 560，保留用户偏好宽。
+    // Budget 1100-420=680 > right max 560, so the preferred width stands.
+    expect(layout.effectiveRightWidth).toBe(360);
+    expect(layout.maxRightWidth).toBe(560);
+  });
+
+  it('switches to overlay drawers and a full-width center in compact', () => {
+    for (const width of [800, 480]) {
+      const layout = resolveEffectiveStudioLayout({
+        ...baseInput,
+        containerWidth: width,
+      });
+      expect(layout.viewportMode).toBe('compact');
+      expect(layout.overlaySidebars).toBe(true);
+      expect(layout.dockedLeftCollapsed).toBe(true);
+      expect(layout.dockedRightCollapsed).toBe(true);
+      expect(layout.gridTemplateColumns).toBe('0px minmax(0,1fr) 0px');
+    }
+  });
+
+  it('clamps the console to leave at least 180px for the editor on short containers', () => {
+    const layout = resolveEffectiveStudioLayout({
+      ...baseInput,
+      containerHeight: 600,
+      consoleHeight: 560,
+    });
+    expect(layout.maxConsoleHeight).toBe(420);
+    expect(layout.effectiveConsoleHeight).toBe(420);
+    expect(layout.gridTemplateRows).toBe('minmax(0,1fr) 420px');
+    // 偏好在限内时不被改写。 / A preference inside the limit is kept verbatim.
+    const kept = resolveEffectiveStudioLayout({
+      ...baseInput,
+      containerHeight: 600,
+      consoleHeight: 260,
+    });
+    expect(kept.effectiveConsoleHeight).toBe(260);
+    expect(kept.maxConsoleHeight).toBe(420);
+  });
+
+  it('still leaves the editor 180px when the console just fits', () => {
+    const layout = resolveEffectiveStudioLayout({
+      ...baseInput,
+      containerHeight: 500,
+      consoleHeight: 390,
+    });
+    expect(layout.maxConsoleHeight).toBe(320);
+    expect(layout.effectiveConsoleHeight).toBe(320);
+    expect(500 - layout.effectiveConsoleHeight).toBeGreaterThanOrEqual(
+      STUDIO_EDITOR_MIN_HEIGHT,
+    );
+  });
+
+  it('shares an extremely short container proportionally instead of starving the console', () => {
+    const layout = resolveEffectiveStudioLayout({
+      ...baseInput,
+      containerHeight: 300,
+      consoleHeight: 260,
+    });
+    expect(layout.maxConsoleHeight).toBe(135);
+    expect(layout.effectiveConsoleHeight).toBe(135);
+    expect(layout.gridTemplateRows).toBe('minmax(0,1fr) 135px');
+    const floor = resolveEffectiveStudioLayout({
+      ...baseInput,
+      containerHeight: 200,
+      consoleHeight: 260,
+    });
+    expect(floor.maxConsoleHeight).toBe(110);
+    expect(floor.effectiveConsoleHeight).toBe(110);
+  });
+
+  it('keeps the console default max and full clamp when height is unmeasured', () => {
+    const layout = resolveEffectiveStudioLayout({
+      ...baseInput,
+      containerHeight: 0,
+      consoleHeight: 900,
+    });
+    expect(layout.maxConsoleHeight).toBe(STUDIO_CONSOLE_HEIGHT_MAX);
+    expect(layout.effectiveConsoleHeight).toBe(560);
+  });
+
+  it('lets the console take the grid when maximized regardless of height', () => {
+    const layout = resolveEffectiveStudioLayout({
+      ...baseInput,
+      containerHeight: 300,
+      consoleMaximized: true,
+    });
+    expect(layout.gridTemplateRows).toBe('0px minmax(0,1fr)');
   });
 });

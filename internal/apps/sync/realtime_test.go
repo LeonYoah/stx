@@ -398,3 +398,71 @@ func TestNormalizeRealtimeWindow(t *testing.T) {
 		t.Fatalf("valid window must be kept")
 	}
 }
+
+type taskAwareEndpointLister struct {
+	endpoints []*EngineEndpoint
+}
+
+func (l *taskAwareEndpointLister) ResolveEngineEndpoint(_ context.Context, _ uint, taskDefinition JSONMap) (*EngineEndpoint, error) {
+	if ep := endpointFromTaskDefinition(taskDefinition); ep != nil {
+		return ep, nil
+	}
+	return l.endpoints[0], nil
+}
+
+func (l *taskAwareEndpointLister) ListEngineEndpoints(_ context.Context, _ uint, taskDefinition JSONMap) ([]*EngineEndpoint, error) {
+	if ep := endpointFromTaskDefinition(taskDefinition); ep != nil {
+		return []*EngineEndpoint{ep}, nil
+	}
+	return l.endpoints, nil
+}
+
+func TestRealtimeCandidates_MergesProtocolHintsAndHonorsTaskPin(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+	service.runtimeResolver = &taskAwareEndpointLister{
+		endpoints: []*EngineEndpoint{
+			{BaseURL: "http://node-1:28080", LegacyURL: "http://node-1:15801"},
+			{BaseURL: "http://node-2:28080", LegacyURL: "http://node-2:15801"},
+		},
+	}
+
+	// 1. 多节点候选全部继承快照里的 APIMode / ContextPath，并保留最新集群节点地址。
+	// 1. Every listed candidate keeps the live node address while inheriting APIMode / ContextPath from snapshot.
+	job := &JobInstance{
+		ClusterID: 11,
+		SubmitSpec: JSONMap{
+			"cluster_id":          11,
+			"engine_base_url":     "http://stale:28080",
+			"engine_api_mode":     "v1",
+			"engine_context_path": "/st",
+		},
+	}
+	candidates := service.realtimeCandidates(ctx, job, 11)
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d", len(candidates))
+	}
+	for i, wantBase := range []string{"http://node-1:28080", "http://node-2:28080"} {
+		if candidates[i].BaseURL != wantBase || candidates[i].APIMode != "v1" || candidates[i].ContextPath != "/st" {
+			t.Fatalf("candidate[%d] = %+v, want base=%s v1 /st", i, candidates[i], wantBase)
+		}
+	}
+
+	// 2. 任务定义显式指定 engine_base_url 时实时路径同样生效。
+	// 2. A task-definition pinned engine_base_url is honored on the realtime path too.
+	pinnedTask := &Task{
+		Name: "pinned-rt", NodeType: TaskNodeTypeFile, ClusterID: 11, CreatedBy: 1,
+		Definition: JSONMap{"engine_base_url": "http://pinned-proxy:28080"},
+	}
+	if err := service.repo.CreateTask(ctx, pinnedTask); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	pinnedJob := &JobInstance{
+		TaskID: pinnedTask.ID, ClusterID: 11,
+		SubmitSpec: JSONMap{"cluster_id": 11, "engine_base_url": "http://stale:28080", "engine_context_path": "/st"},
+	}
+	pinnedCandidates := service.realtimeCandidates(ctx, pinnedJob, 11)
+	if len(pinnedCandidates) != 1 || pinnedCandidates[0].BaseURL != "http://pinned-proxy:28080" || pinnedCandidates[0].ContextPath != "/st" {
+		t.Fatalf("expected pinned task endpoint with context path, got %+v", pinnedCandidates)
+	}
+}

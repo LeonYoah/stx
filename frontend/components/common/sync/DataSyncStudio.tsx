@@ -91,7 +91,10 @@ import {
 } from 'lucide-react';
 import './studio-chrome.css';
 import {Button as ArcButton} from '@/components/arc/button/button';
-import {ButtonGroup} from '@/components/arc/button-group/button-group';
+import {
+  ButtonGroup,
+  type ButtonGroupMenuItem,
+} from '@/components/arc/button-group/button-group';
 import {
   Dialog as ArcDialog,
   DialogContent as ArcDialogContent,
@@ -284,18 +287,16 @@ import {
   DEFAULT_STUDIO_LAYOUT_PREFS,
   STUDIO_CONSOLE_HEIGHT_COMPACT,
   STUDIO_CONSOLE_HEIGHT_EXPANDED,
-  STUDIO_CONSOLE_HEIGHT_MAX,
   STUDIO_CONSOLE_HEIGHT_MIN,
-  STUDIO_LEFT_WIDTH_MAX,
   STUDIO_LEFT_WIDTH_MIN,
-  STUDIO_RIGHT_WIDTH_MAX,
   STUDIO_RIGHT_WIDTH_MIN,
-  buildStudioGridTemplateColumns,
-  buildStudioGridTemplateRows,
   clampStudioConsoleHeight,
   clampStudioLeftWidth,
   clampStudioRightWidth,
   readStudioLayoutPrefs,
+  resolveEffectiveStudioLayout,
+  resolveStudioTopbarTier,
+  type StudioViewportMode,
   writeStudioLayoutPrefs,
   buildCheckpointActionViewModels,
   buildCheckpointInspectJobConfig,
@@ -723,12 +724,36 @@ export function DataSyncStudio() {
   const isConsoleExpanded =
     consoleHeight >= STUDIO_CONSOLE_HEIGHT_EXPANDED;
 
+  // 用户显式开合偏好（写 localStorage）与渲染开合态分离：窗口缩放导致的自动收起只改
+  // 渲染态，绝不回写存储，避免缩一次窗口就弄丢桌面端布局偏好。
+  // Explicit user collapse prefs (persisted to localStorage) stay separate from rendered
+  // collapse: viewport-shrink auto-collapse only changes rendered state and never writes
+  // storage, so shrinking the window once cannot lose the desktop layout prefs.
+  const persistedCollapsedRef = useRef({
+    left: DEFAULT_STUDIO_LAYOUT_PREFS.leftCollapsed,
+    right: DEFAULT_STUDIO_LAYOUT_PREFS.rightCollapsed,
+  });
+  const studioRootRef = useRef<HTMLDivElement>(null);
+  const studioWorkspaceRef = useRef<HTMLDivElement>(null);
+  // 首帧与 SSR 一致：0 表示尚未测量，布局引擎按 'wide' 回落，杜绝水合差异。
+  // First frame matches SSR: 0 means unmeasured; the engine falls back to 'wide',
+  // keeping hydration identical.
+  const [studioRootWidth, setStudioRootWidth] = useState(0);
+  const [studioWorkspaceSize, setStudioWorkspaceSize] = useState({
+    width: 0,
+    height: 0,
+  });
+
   useEffect(() => {
     // 挂载后再套用上次开合与尺寸，并跳过这次写入，避免把默认值盖掉已记住的偏好。
     // Apply the remembered layout after mount, and skip that write so defaults do not clobber it.
     if (!studioLayoutHydratedRef.current) {
       studioLayoutHydratedRef.current = true;
       const prefs = readStudioLayoutPrefs();
+      persistedCollapsedRef.current = {
+        left: prefs.leftCollapsed,
+        right: prefs.rightCollapsed,
+      };
       setIsLeftSidebarCollapsed(prefs.leftCollapsed);
       setIsRightSidebarCollapsed(prefs.rightCollapsed);
       setLeftSidebarWidth(prefs.leftWidth);
@@ -739,9 +764,12 @@ export function DataSyncStudio() {
     if (isStudioLayoutResizing) {
       return;
     }
+    // 只写显式偏好：渲染态被视口暂收时，这里仍写用户上次显式选择的值。
+    // Only explicit prefs are written: while a rail is viewport-tucked this still
+    // persists the user's last explicit choice.
     writeStudioLayoutPrefs({
-      leftCollapsed: isLeftSidebarCollapsed,
-      rightCollapsed: isRightSidebarCollapsed,
+      leftCollapsed: persistedCollapsedRef.current.left,
+      rightCollapsed: persistedCollapsedRef.current.right,
       leftWidth: leftSidebarWidth,
       rightWidth: rightSidebarWidth,
       consoleHeight,
@@ -755,15 +783,149 @@ export function DataSyncStudio() {
     rightSidebarWidth,
   ]);
 
+  // 实测根宽与主工作区宽高：根宽驱动顶栏档位，工作区宽高驱动侧栏夹紧与控制台高。
+  // Measure root width and workspace size: root width drives the topbar tier, while
+  // workspace width/height drive sidebar clamps and the console ceiling.
+  useEffect(() => {
+    const root = studioRootRef.current;
+    const workspace = studioWorkspaceRef.current;
+    if (!root || !workspace || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const {width, height} = entry.contentRect;
+        if (entry.target === root) {
+          setStudioRootWidth((prev) =>
+            Math.abs(prev - width) < 0.5 ? prev : width,
+          );
+        } else {
+          setStudioWorkspaceSize((prev) =>
+            Math.abs(prev.width - width) < 0.5 &&
+            Math.abs(prev.height - height) < 0.5
+              ? prev
+              : {width, height},
+          );
+        }
+      }
+    });
+    observer.observe(root);
+    observer.observe(workspace);
+    return () => observer.disconnect();
+  }, []);
+
+  // 本次渲染的安全布局：宽屏保护中栏、中屏单侧停靠、窄屏浮层抽屉、矮容器夹紧控制台。
+  // Safe render layout: the wide tier guards the center, medium docks one sidebar,
+  // compact overlays drawers, and short containers clamp the console.
+  const effectiveLayout = useMemo(
+    () =>
+      resolveEffectiveStudioLayout({
+        containerWidth: studioWorkspaceSize.width,
+        containerHeight: studioWorkspaceSize.height,
+        leftCollapsed: isLeftSidebarCollapsed,
+        rightCollapsed: isRightSidebarCollapsed,
+        leftWidth: leftSidebarWidth,
+        rightWidth: rightSidebarWidth,
+        consoleHeight,
+        consoleMaximized: isConsoleMaximized,
+      }),
+    [
+      consoleHeight,
+      isConsoleMaximized,
+      isLeftSidebarCollapsed,
+      isRightSidebarCollapsed,
+      leftSidebarWidth,
+      rightSidebarWidth,
+      studioWorkspaceSize,
+    ],
+  );
+  const studioViewportMode = effectiveLayout.viewportMode;
+  const overlaySidebars = effectiveLayout.overlaySidebars;
+  const studioTopbarTier = resolveStudioTopbarTier(studioRootWidth);
+
+  // 断点跨越的自动收放只改渲染态；持久化偏好交给显式开关单独维护。
+  // Breakpoint transitions auto-tuck rendered state only; persisted prefs belong to
+  // explicit toggles.
+  const prevViewportModeRef = useRef<StudioViewportMode>(studioViewportMode);
+  useEffect(() => {
+    const prev = prevViewportModeRef.current;
+    prevViewportModeRef.current = studioViewportMode;
+    if (prev === studioViewportMode) {
+      return;
+    }
+    if (studioViewportMode === 'compact') {
+      // 进入窄屏：抽屉先收拢，避免一缩窗就盖住编辑区。
+      // Entering compact: drawers start tucked so a shrink never covers the editor.
+      setIsLeftSidebarCollapsed(true);
+      setIsRightSidebarCollapsed(true);
+      return;
+    }
+    // 回到中/宽屏：恢复显式偏好；中屏若恢复为双开，则按互斥暂收右栏，保留左资源树。
+    // Back to medium/wide: restore explicit prefs; a both-open restore in medium tucks
+    // the right to keep single-dock, preserving the explorer.
+    const persisted = persistedCollapsedRef.current;
+    setIsLeftSidebarCollapsed(persisted.left);
+    setIsRightSidebarCollapsed(
+      studioViewportMode === 'medium' && !persisted.left
+        ? true
+        : persisted.right,
+    );
+  }, [studioViewportMode]);
+
+  // 窄屏抽屉的 Esc 关闭：已被搜索、菜单或对话框消费的 Esc 不重复处理；无任何对话框
+  // 时才关抽屉，避免把 Radix 高层浮层的 Esc 抢过来。
+  // Esc closes overlay drawers: an Escape already consumed by search, menus or dialogs
+  // is left alone, and any open dialog keeps its own Esc.
+  useEffect(() => {
+    if (!overlaySidebars) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) {
+        return;
+      }
+      if (
+        document.querySelector(
+          '[role="dialog"], [role="menu"], [role="listbox"], [aria-modal="true"]',
+        )
+      ) {
+        return;
+      }
+      setIsLeftSidebarCollapsed(true);
+      setIsRightSidebarCollapsed(true);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [overlaySidebars]);
+
   // 顶栏两端开关始终挂载：点击收起后焦点自然留在该按钮上（#110 AC11 / Codex P2）
   // Topbar-end toggles stay mounted so focus remains on the control after collapse (#110 AC11 / Codex P2)
   const handleToggleLeftSidebar = useCallback(() => {
-    setIsLeftSidebarCollapsed((prev) => !prev);
-  }, []);
+    const next = !isLeftSidebarCollapsed;
+    // 窄屏临时抽屉开合仅作用于渲染态，不改写桌面端已保存偏好。
+    // Compact overlay drawer toggles affect render state only and do not clobber saved desktop prefs.
+    if (studioViewportMode !== 'compact') {
+      persistedCollapsedRef.current.left = next;
+    }
+    setIsLeftSidebarCollapsed(next);
+    // 中/窄屏互斥：打开左栏即暂收右栏（右栏的显式偏好保留，回宽屏自动恢复）。
+    // Medium/compact are exclusive: opening the left tucks the right (its explicit
+    // pref survives and returns in wide).
+    if (!next && studioViewportMode !== 'wide') {
+      setIsRightSidebarCollapsed(true);
+    }
+  }, [isLeftSidebarCollapsed, studioViewportMode]);
 
   const handleToggleRightSidebar = useCallback(() => {
-    setIsRightSidebarCollapsed((prev) => !prev);
-  }, []);
+    const next = !isRightSidebarCollapsed;
+    if (studioViewportMode !== 'compact') {
+      persistedCollapsedRef.current.right = next;
+    }
+    setIsRightSidebarCollapsed(next);
+    if (!next && studioViewportMode !== 'wide') {
+      setIsLeftSidebarCollapsed(true);
+    }
+  }, [isRightSidebarCollapsed, studioViewportMode]);
 
   const handleToggleConsoleHeight = useCallback(() => {
     setConsoleHeight((prev) =>
@@ -3510,6 +3672,12 @@ export function DataSyncStudio() {
     }
     setSelectedNodeId(node.id);
     setSelectedFolderId(node.parent_id || null);
+    // 窄屏浮层抽屉下选中文件立即收左抽屉，让代码立即可见（仅渲染态，不写存储）。
+    // With overlay drawers, selecting a file tucks the left drawer so the code is
+    // visible at once (render-only, no storage write).
+    if (overlaySidebars) {
+      setIsLeftSidebarCollapsed(true);
+    }
     applyDraftOrLoadedState(
       node.id,
       extractEditorStateFromTreeNode(node),
@@ -4610,12 +4778,15 @@ export function DataSyncStudio() {
     preferredRecoverSourceId === null;
 
   return (
-    <div className='arc-compact -mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
-      <Card className='relative z-20 gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
-        <CardContent className='studio-topbar grid h-12 min-w-0 grid-cols-[minmax(0,max-content)_280px_minmax(max-content,1fr)] items-center gap-3 overflow-visible px-3'>
-          {/* 左侧：顶栏最左端左栏开关（#110 AC11）+ 面包屑 / 状态 */}
-          {/* Left: leftmost left-sidebar toggle (#110 AC11) + breadcrumb / status */}
-          <div className='flex min-w-0 items-center gap-2 text-xs'>
+    <div
+      ref={studioRootRef}
+      className='arc-compact flex h-full min-h-0 w-full flex-1 flex-col gap-2 overflow-hidden bg-background/10'
+    >
+      <Card className='relative z-20 shrink-0 gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
+        <CardContent className='studio-topbar relative flex min-h-12 min-w-0 items-center justify-between gap-2 overflow-visible px-2.5 sm:px-3'>
+          {/* 左侧：顶栏最左端左栏开关（#110 AC11）+ 当前文件名 / 状态 */}
+          {/* Left: leftmost left-sidebar toggle (#110 AC11) + file name / status */}
+          <div className='flex min-w-0 flex-1 items-center gap-1.5 text-xs sm:gap-2'>
             <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
               <TooltipTrigger asChild>
                 <Button
@@ -4651,22 +4822,12 @@ export function DataSyncStudio() {
             </Tooltip>
             {activeTaskBreadcrumbs.length > 0 ? (
               <div className='flex min-w-0 items-center gap-1.5'>
-                {activeTaskBreadcrumbs.slice(0, -1).map((seg, idx) => (
-                  <span
-                    key={idx}
-                    className='flex items-center gap-1.5 text-muted-foreground'
-                  >
-                    <span className='max-w-[120px] truncate' title={seg}>
-                      {seg}
-                    </span>
-                    <span className='text-muted-foreground/40'>/</span>
-                  </span>
-                ))}
+                {/* 顶栏只留当前文件名：完整路径进 title，父目录面包屑编辑器标签栏下方已有。 */}
+                {/* Only the file name stays on the topbar: the full path moves to title,
+                    and the editor tab strip already shows the folder breadcrumb. */}
                 <span
-                  className='max-w-[180px] truncate font-semibold text-foreground'
-                  title={
-                    activeTaskBreadcrumbs[activeTaskBreadcrumbs.length - 1]
-                  }
+                  className='min-w-0 truncate font-semibold text-foreground'
+                  title={activeTaskBreadcrumbs.join(' / ')}
                 >
                   {activeTaskBreadcrumbs[activeTaskBreadcrumbs.length - 1]}
                 </span>
@@ -4679,33 +4840,38 @@ export function DataSyncStudio() {
 
                 {editor.id ? (
                   <div className='flex items-center gap-1.5 shrink-0'>
-                    {/* 版本 + 发布状态合并微胶囊 / Merged version + publish status micro-pill */}
-                    <span
-                      className={cn(
-                        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-normal leading-none',
-                        editor.status === 'published'
-                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                          : 'bg-muted/60 text-muted-foreground',
-                      )}
-                    >
+                    {/* 版本 + 发布状态合并微胶囊；窄屏让位给文件名（编辑区横幅仍保留完整信息）。 */}
+                    {/* Merged version + publish micro-pill; tucked away on compact since
+                        the editor banner keeps the full state. */}
+                    {studioTopbarTier !== 'compact' ? (
                       <span
                         className={cn(
-                          'size-1.5 rounded-full',
+                          'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-normal leading-none',
                           editor.status === 'published'
-                            ? 'bg-emerald-500'
-                            : 'bg-muted-foreground/50',
+                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                            : 'bg-muted/60 text-muted-foreground',
                         )}
-                      />
-                      <span className='font-mono'>
-                        v{editor.currentVersion || 1}
+                      >
+                        <span
+                          className={cn(
+                            'size-1.5 rounded-full',
+                            editor.status === 'published'
+                              ? 'bg-emerald-500'
+                              : 'bg-muted-foreground/50',
+                          )}
+                        />
+                        <span className='font-mono'>
+                          v{editor.currentVersion || 1}
+                        </span>
+                        ·
+                        {editor.status === 'published' ? t('published') : t('draft')}
                       </span>
-                      ·
-                      {editor.status === 'published' ? t('published') : t('draft')}
-                    </span>
+                    ) : null}
 
-                    {/* 只读是可查看的正常状态，中性 Eye 徽章区别于私有任务的琥珀 Lock。 */}
-                    {/* Read-only is a viewable state: a neutral Eye badge, distinct from the amber Lock of private tasks. */}
-                    {!editor.canEdit ? (
+                    {/* 只读是可查看的正常状态，中性 Eye 徽章区别于私有任务的琥珀 Lock；仅宽屏展示。 */}
+                    {/* Read-only is a viewable state: a neutral Eye badge, distinct from the
+                        amber Lock of private tasks; wide tier only. */}
+                    {!editor.canEdit && studioTopbarTier === 'wide' ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className='inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-normal text-muted-foreground'>
@@ -4748,75 +4914,48 @@ export function DataSyncStudio() {
             )}
           </div>
 
-          {/* 搜索槽固定 280px 并靠左：壳从左往右在槽内展开，不会盖住保存/运行。 */}
-          {/* Fixed 280px slot, left of the actions. The shell grows right inside the slot, never over Save/Run. */}
-          <div className='relative z-20 w-[280px] shrink-0 justify-self-start'>
-            <ExpandingSearch
-              label={t('quickOpen')}
-              placeholder={t('searchFileOrJobId')}
-              items={quickOpenItems}
-              suggestions={quickOpenItems
-                .filter((item) => item.id.startsWith('job-'))
-                .slice(0, 6)}
-              suggestionsLabel={t('recentSuggestions')}
-              emptyHint={t('noMatchingFileOrJob')}
-              anchor='start'
-              expandedWidth={280}
-              maxResults={8}
-              onSelect={(item) => {
-                if (item.id.startsWith('job-')) {
-                  void handleLocateJobId(item.id.slice(4));
-                  return;
+          {/* 右侧按大厂工具栏分组：状态无描边，探查一组，提交/运行一组，搜索与侧栏开关收尾。 */}
+          {/* Right cluster like Figma/Cursor: status has no chrome, inspect is one group, persist/run is one group, search and sidebar toggle anchor at the end. */}
+          <div className='flex shrink-0 items-center gap-1.5 sm:gap-2'>
+            {/* 集群是状态，不是按钮，不再套胶囊边框；中/窄屏藏起，右侧设置面板仍可见可切。 */}
+            {/* Cluster is status, not a control, so it gets no pill border; medium/compact
+                hides it — the settings rail still shows and switches the cluster. */}
+            {studioTopbarTier === 'wide' ? (
+              <div
+                className='flex h-9 min-w-0 max-w-[10rem] items-center gap-1.5 px-1 text-xs text-muted-foreground'
+                title={
+                  executionMode === 'local'
+                    ? t('localMode')
+                    : currentCluster?.name || t('unassignedCluster')
                 }
-                const node = findTreeNode(tree, Number(item.id.slice(5)));
-                if (node) {
-                  void handleQuickOpenFile(node);
-                }
-              }}
-              onSubmit={(query) => {
-                // 候補に載らない入力（未読み込みの Job ID 等）も Enter で定位に回す。
-                // Route input with no matching suggestion (e.g. an unloaded Job ID) to locate on Enter.
-                void handleLocateJobId(query);
-              }}
-              onQueryChange={setQuickOpenQuery}
-            />
-          </div>
+              >
+                {executionMode === 'local' ? (
+                  <>
+                    <Cpu className='size-3 shrink-0' />
+                    <span className='truncate font-medium'>{t('localMode')}</span>
+                  </>
+                ) : (
+                  <>
+                    <Globe2 className='size-3 shrink-0' />
+                    <span className='truncate font-medium'>
+                      {currentCluster?.name || t('unassignedCluster')}
+                    </span>
+                  </>
+                )}
+              </div>
+            ) : null}
 
-          {/* 右侧按大厂工具栏分组：状态无描边，探查一组，提交/运行一组，侧栏开关 ghost。 */}
-          {/* Right cluster like Figma/Cursor: status has no chrome, inspect is one group, persist/run is one group, sidebar is ghost. */}
-          <div className='flex min-w-max flex-nowrap items-center justify-end gap-3'>
-            {/* 集群是状态，不是按钮，不再套胶囊边框。 */}
-            {/* Cluster is status, not a control, so it does not get a pill border. */}
-            <div
-              className='flex h-9 min-w-0 max-w-[11rem] shrink items-center gap-1.5 px-1 text-xs text-muted-foreground'
-              title={
-                executionMode === 'local'
-                  ? t('localMode')
-                  : currentCluster?.name || t('unassignedCluster')
-              }
-            >
-              {executionMode === 'local' ? (
-                <>
-                  <Cpu className='size-3 shrink-0' />
-                  <span className='truncate font-medium'>{t('localMode')}</span>
-                </>
-              ) : (
-                <>
-                  <Globe2 className='size-3 shrink-0' />
-                  <span className='truncate font-medium'>
-                    {currentCluster?.name || t('unassignedCluster')}
-                  </span>
-                </>
-              )}
-            </div>
-
-            {/* 探查动作：Arc 展开按钮组。打开结果的动作不写 doneLabel，避免误显示已完成。 */}
-            {/* Inspect actions: Arc expanding group. Actions that open a result omit doneLabel so they do not flash as finished. */}
-            <ExpandingButtonGroup
-              size='sm'
-              label={t('inspectActions')}
-              defaultExpanded='test'
-              items={[
+            {/* 探查动作：Arc 展开按钮组。打开结果的动作不写 doneLabel，避免误显示已完成。
+                窄屏（<900px）并入主操作组末尾菜单，顶栏不再渲染该组。 */}
+            {/* Inspect actions: Arc expanding group. Actions that open a result omit doneLabel
+                so they do not flash as finished. Under 900px they fold into the main
+                group's trailing menu instead. */}
+            {studioTopbarTier !== 'compact' ? (
+              <ExpandingButtonGroup
+                size='sm'
+                label={t('inspectActions')}
+                defaultExpanded='test'
+                items={[
                 {
                   id: 'test',
                   label: t('inspectTest'),
@@ -4849,7 +4988,8 @@ export function DataSyncStudio() {
                   onSelect: () => handlePreview(),
                 },
               ]}
-            />
+              />
+            ) : null}
 
             {/* 仅在失败时展示可重试徽章；保存中/已保存由 Arc 保存段承担，避免双指示。 */}
             {/* Show a retryable badge only on failure; Arc save segment covers saving/saved. */}
@@ -4884,6 +5024,10 @@ export function DataSyncStudio() {
                               : t('save'),
                         reserve: [t('save'), t('savePending'), t('saveDone')],
                         icon: saveSegment === 'saved' ? <Check /> : <Save />,
+                        // 非宽屏只留图标（aria-label 保底）；E2E 1280 仍是宽屏全文案。
+                        // Icon-only below the wide tier (aria-label intact); the 1280px
+                        // E2E still sees full labels.
+                        iconOnly: studioTopbarTier !== 'wide',
                         disabled:
                           saving ||
                           saveAck === 'pending' ||
@@ -4898,6 +5042,7 @@ export function DataSyncStudio() {
                         id: 'publish',
                         label: t('publish'),
                         icon: <Upload />,
+                        iconOnly: studioTopbarTier !== 'wide',
                         disabled:
                           saving ||
                           publishing ||
@@ -4911,6 +5056,7 @@ export function DataSyncStudio() {
                         id: 'run',
                         label: t('run'),
                         icon: <Play />,
+                        iconOnly: studioTopbarTier !== 'wide',
                         disabled:
                           saving ||
                           hasActiveRun ||
@@ -4924,6 +5070,7 @@ export function DataSyncStudio() {
                         id: 'stop',
                         label: t('stop'),
                         icon: <Square />,
+                        iconOnly: studioTopbarTier !== 'wide',
                         disabled: activeJobs.length === 0,
                         onSelect: () => {
                           void handleStopActiveJob('normal');
@@ -4933,6 +5080,48 @@ export function DataSyncStudio() {
                     menu={{
                       label: t('moreActions'),
                       items: [
+                        // 窄屏把探查动作并入末尾菜单：与宽屏 ExpandingButtonGroup 同一
+                        // 来源的禁用判定，行为只搬位置不改语义。
+                        // Compact folds the inspect actions into this trailing menu with
+                        // the same disabled rules as the wide-tier ExpandingButtonGroup —
+                        // a positional move, not a semantic change.
+                        ...(studioTopbarTier === 'compact'
+                          ? ([
+                              {
+                                id: 'inspect-test',
+                                label: t('inspectTest'),
+                                icon: <PlugZap />,
+                                disabled:
+                                  saving ||
+                                  !editor.name.trim() ||
+                                  actionPending !== null ||
+                                  !editor.canEdit,
+                                onSelect: () => handleTestConnections(),
+                              },
+                              {
+                                id: 'inspect-dag',
+                                label: 'DAG',
+                                icon: <GitBranch />,
+                                disabled:
+                                  saving ||
+                                  !editor.name.trim() ||
+                                  actionPending !== null,
+                                onSelect: () => handleBuildDag(),
+                              },
+                              {
+                                id: 'inspect-preview',
+                                label: t('preview'),
+                                icon: <Eye />,
+                                disabled:
+                                  saving ||
+                                  hasActiveRun ||
+                                  hasActivePreview ||
+                                  actionPending !== null ||
+                                  !editor.canRun,
+                                onSelect: () => handlePreview(),
+                              },
+                            ] satisfies ButtonGroupMenuItem[])
+                          : []),
                         {
                           id: 'recover',
                           label: t('savepointRecover'),
@@ -4962,6 +5151,43 @@ export function DataSyncStudio() {
                 <TooltipContent>{t('readOnlyRunTooltip')}</TooltipContent>
               ) : null}
             </Tooltip>
+
+            {/* 搜索常态只占 36px 锚点并紧邻右栏开关，向左展开（anchor='end'）在极窄屏也不出左边界。 */}
+            {/* Search rests as a 36px anchor next to the right toggle, so expanding leftward
+                (anchor='end') never clips past the left viewport edge even on narrow screens. */}
+            <div className='relative z-30 h-9 w-9 shrink-0'>
+              <div className='pointer-events-none absolute right-0 top-0 w-[min(280px,calc(100vw-4.5rem))]'>
+                <ExpandingSearch
+                  label={t('quickOpen')}
+                  placeholder={t('searchFileOrJobId')}
+                  items={quickOpenItems}
+                  suggestions={quickOpenItems
+                    .filter((item) => item.id.startsWith('job-'))
+                    .slice(0, 6)}
+                  suggestionsLabel={t('recentSuggestions')}
+                  emptyHint={t('noMatchingFileOrJob')}
+                  anchor='end'
+                  expandedWidth={280}
+                  maxResults={8}
+                  onSelect={(item) => {
+                    if (item.id.startsWith('job-')) {
+                      void handleLocateJobId(item.id.slice(4));
+                      return;
+                    }
+                    const node = findTreeNode(tree, Number(item.id.slice(5)));
+                    if (node) {
+                      void handleQuickOpenFile(node);
+                    }
+                  }}
+                  onSubmit={(query) => {
+                    // 未命中候选项的输入（如未加载的 Job ID）也按回车直接定位。
+                    // Route input with no matching suggestion (e.g. an unloaded Job ID) to locate on Enter.
+                    void handleLocateJobId(query);
+                  }}
+                  onQueryChange={setQuickOpenQuery}
+                />
+              </div>
+            </div>
 
             {/* 顶栏最右端：右侧高级配置开合（始终可见，#110 AC11） */}
             {/* Rightmost topbar: right advanced sidebar toggle (always visible, #110 AC11) */}
@@ -5001,44 +5227,60 @@ export function DataSyncStudio() {
       </Card>
 
       {actionPending ? (
-        <div className='flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-primary shadow-sm'>
-          <Loader2 className='size-4 animate-spin' />
-          <span>{getPendingActionLabel(t, actionPending)}</span>
-          <span className='text-muted-foreground'>
+        <div className='flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-primary shadow-sm'>
+          <Loader2 className='size-4 shrink-0 animate-spin' />
+          <span className='min-w-0'>{getPendingActionLabel(t, actionPending)}</span>
+          <span className='min-w-0 text-muted-foreground'>
             {t('actionPendingHint')}
           </span>
         </div>
       ) : null}
 
       <div
+        ref={studioWorkspaceRef}
         className={cn(
-          // 三列两行；分隔条叠在卡片接缝上，不另占 6px 轨道。
+          // 三列两行；分隔条叠在卡片接缝上，不另占 6px 轨道。窄屏退化为单列 + 浮层抽屉。
           // Three columns, two rows; dividers overlay card seams instead of a 6px track.
+          // Compact collapses to one column plus overlay drawers.
           'relative grid min-h-0 min-w-0 flex-1',
           !isStudioLayoutResizing &&
             'transition-[grid-template-columns,grid-template-rows] duration-200',
         )}
         style={{
-          gridTemplateColumns: buildStudioGridTemplateColumns(
-            isLeftSidebarCollapsed,
-            isRightSidebarCollapsed,
-            leftSidebarWidth,
-            rightSidebarWidth,
-          ),
-          gridTemplateRows: buildStudioGridTemplateRows(
-            isConsoleMaximized,
-            consoleHeight,
-          ),
+          gridTemplateColumns: effectiveLayout.gridTemplateColumns,
+          gridTemplateRows: effectiveLayout.gridTemplateRows,
           columnGap: 0,
           rowGap: 0,
         }}
       >
+        {/* 窄屏抽屉遮罩：点击收拢两个浮层，层级低于抽屉高于工作区。 */}
+        {/* Compact drawer backdrop: a click tucks both overlays; it sits below the
+            drawers and above the workspace. */}
+        {overlaySidebars &&
+        !(isLeftSidebarCollapsed && isRightSidebarCollapsed) ? (
+          <div
+            aria-hidden='true'
+            data-testid='studio-drawer-backdrop'
+            className='absolute inset-0 z-20 bg-background/50 backdrop-blur-[1px]'
+            onClick={() => {
+              setIsLeftSidebarCollapsed(true);
+              setIsRightSidebarCollapsed(true);
+            }}
+          />
+        ) : null}
         <Card
           data-studio-left-sidebar=''
           className={cn(
-            'col-start-1 row-start-1 row-span-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs',
+            'min-w-0 gap-0 overflow-hidden border-border/60 py-0',
+            overlaySidebars
+              ? // 窄屏：浮层抽屉贴左边且不参与网格轨道，底色不透明防代码透底。
+                // Compact: overlay drawer pinned left out of grid flow, opaque so code does not bleed through.
+                'absolute inset-y-0 left-0 z-30 w-[min(320px,85vw)] bg-background/95 shadow-xl backdrop-blur-md transition-transform duration-200'
+              : 'col-start-1 row-start-1 row-span-2 bg-background/85 shadow-xs',
             isLeftSidebarCollapsed
-              ? 'pointer-events-none border-transparent opacity-0'
+              ? overlaySidebars
+                ? 'pointer-events-none -translate-x-full border-transparent opacity-0'
+                : 'pointer-events-none border-transparent opacity-0'
               : null,
           )}
           aria-hidden={isLeftSidebarCollapsed || undefined}
@@ -5217,17 +5459,19 @@ export function DataSyncStudio() {
           </CardContent>
         </Card>
 
-        {!isLeftSidebarCollapsed ? (
+        {/* 停靠态才有拖拽把手；以 dockedLeftCollapsed 为唯一真相，避免中屏瞬态悬浮。 */}
+        {/* A drag handle only exists while docked; keyed off dockedLeftCollapsed to avoid transient drift. */}
+        {!effectiveLayout.dockedLeftCollapsed ? (
           <StudioSplitHandle
             orientation='vertical'
             label={t('resizeExplorer')}
-            value={leftSidebarWidth}
-            min={STUDIO_LEFT_WIDTH_MIN}
-            max={STUDIO_LEFT_WIDTH_MAX}
+            value={effectiveLayout.effectiveLeftWidth}
+            min={Math.min(STUDIO_LEFT_WIDTH_MIN, effectiveLayout.maxLeftWidth)}
+            max={effectiveLayout.maxLeftWidth}
             onChange={(next) => setLeftSidebarWidth(clampStudioLeftWidth(next))}
             onDragStart={handleStudioLayoutDragStart}
             onDragEnd={handleStudioLayoutDragEnd}
-            style={{left: leftSidebarWidth}}
+            style={{left: effectiveLayout.effectiveLeftWidth}}
           />
         ) : null}
 
@@ -5283,14 +5527,14 @@ export function DataSyncStudio() {
             {/* Read-only banner: a neutral notice instead of an amber warning, sharing the same
                 semantics as the popover's public-read-only level. */}
             {editor.id && !editor.canEdit ? (
-              <div className='flex items-center justify-between border-b border-border/60 bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground shrink-0'>
-                <div className='flex items-center gap-2'>
+              <div className='flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground'>
+                <div className='flex min-w-0 items-center gap-2'>
                   <Eye className='size-3.5 shrink-0' />
-                  <span>{t('readOnlyBannerText')}</span>
+                  <span className='min-w-0'>{t('readOnlyBannerText')}</span>
                 </div>
                 <Badge
                   variant='outline'
-                  className='border-border/60 bg-muted/50 text-[10px] text-muted-foreground'
+                  className='shrink-0 border-border/60 bg-muted/50 text-[10px] text-muted-foreground'
                 >
                   {t('readOnly')}
                 </Badge>
@@ -5301,7 +5545,7 @@ export function DataSyncStudio() {
             {/* Monaco Editor or Empty Workspace Guide Canvas */}
             <div className='min-h-0 flex-1 bg-background'>
               {openTabs.length === 0 ? (
-                <div className='flex h-full min-h-[380px] select-none flex-col items-center justify-center gap-3 p-8 text-center'>
+                <div className='flex h-full min-h-0 select-none flex-col items-center justify-center gap-3 overflow-auto p-8 text-center'>
                   <div className='flex size-14 items-center justify-center rounded-2xl border border-dashed border-border/80 bg-muted/20 text-muted-foreground/70'>
                     <FileCode2 className='size-7' />
                   </div>
@@ -5381,29 +5625,36 @@ export function DataSyncStudio() {
           </CardContent>
         </Card>
 
-        {!isRightSidebarCollapsed ? (
+        {!effectiveLayout.dockedRightCollapsed ? (
           <StudioSplitHandle
             orientation='vertical'
             invert
             label={t('resizeAdvanced')}
-            value={rightSidebarWidth}
-            min={STUDIO_RIGHT_WIDTH_MIN}
-            max={STUDIO_RIGHT_WIDTH_MAX}
+            value={effectiveLayout.effectiveRightWidth}
+            min={Math.min(STUDIO_RIGHT_WIDTH_MIN, effectiveLayout.maxRightWidth)}
+            max={effectiveLayout.maxRightWidth}
             onChange={(next) =>
               setRightSidebarWidth(clampStudioRightWidth(next))
             }
             onDragStart={handleStudioLayoutDragStart}
             onDragEnd={handleStudioLayoutDragEnd}
-            style={{right: rightSidebarWidth}}
+            style={{right: effectiveLayout.effectiveRightWidth}}
           />
         ) : null}
 
         <StudioSidebarShell
           data-studio-right-sidebar=''
           className={cn(
-            'col-start-3 row-start-1 row-span-2 min-w-0',
+            'min-w-0',
+            overlaySidebars
+              ? // 窄屏：浮层抽屉贴右边且不参与网格轨道，底色不透明并跨全高。
+                // Compact: overlay drawer pinned right out of grid flow, opaque across the full height.
+                'absolute inset-y-0 right-0 z-30 w-[min(380px,90vw)] bg-background/95 shadow-xl backdrop-blur-md transition-transform duration-200'
+              : 'col-start-3 row-start-1 row-span-2',
             isRightSidebarCollapsed
-              ? 'pointer-events-none border-transparent opacity-0'
+              ? overlaySidebars
+                ? 'pointer-events-none translate-x-full border-transparent opacity-0'
+                : 'pointer-events-none border-transparent opacity-0'
               : null,
           )}
           ariaHidden={isRightSidebarCollapsed}
@@ -5575,18 +5826,28 @@ export function DataSyncStudio() {
             orientation='horizontal'
             invert
             label={t('resizeConsole')}
-            value={consoleHeight}
-            min={STUDIO_CONSOLE_HEIGHT_MIN}
-            max={STUDIO_CONSOLE_HEIGHT_MAX}
+            // 把手只显示/拖动夹紧后的安全值；矮容器里用户存的偏好不被覆写。
+            // The handle shows and drags the clamped safe value; the stored pref
+            // is never overwritten by short containers.
+            value={effectiveLayout.effectiveConsoleHeight}
+            min={Math.min(
+              STUDIO_CONSOLE_HEIGHT_MIN,
+              effectiveLayout.maxConsoleHeight,
+            )}
+            max={effectiveLayout.maxConsoleHeight}
             onChange={(next) =>
               setConsoleHeight(clampStudioConsoleHeight(next))
             }
             onDragStart={handleStudioLayoutDragStart}
             onDragEnd={handleStudioLayoutDragEnd}
             style={{
-              left: isLeftSidebarCollapsed ? 0 : leftSidebarWidth,
-              right: isRightSidebarCollapsed ? 0 : rightSidebarWidth,
-              bottom: consoleHeight,
+              left: effectiveLayout.dockedLeftCollapsed
+                ? 0
+                : effectiveLayout.effectiveLeftWidth,
+              right: effectiveLayout.dockedRightCollapsed
+                ? 0
+                : effectiveLayout.effectiveRightWidth,
+              bottom: effectiveLayout.effectiveConsoleHeight,
             }}
           />
         ) : null}
@@ -5600,11 +5861,14 @@ export function DataSyncStudio() {
           <CardContent className='flex h-full min-h-0 min-w-0 flex-col p-0'>
             {/* 控制台顶部横向选项卡与操作区 */}
             {/* Console top horizontal tab switcher and action area */}
-            <div className='studio-sidebar-chrome flex min-h-9 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-2 py-1'>
-              {/* 底部四个视图用同一套分段控件，不再手写一套胶囊 Tab。 */}
-              {/* The four console views share the same SegmentedControl instead of a handmade pill row. */}
-              <SegmentedControl
-                className='min-w-0'
+            <div className='studio-sidebar-chrome flex min-h-9 min-w-0 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-2 py-1'>
+              {/* 底部四个视图用同一套分段控件，不再手写一套胶囊 Tab；中栏过窄时允许横向滚动而不是挤压溢出。 */}
+              {/* The four console views share the same SegmentedControl instead of a
+                  handmade pill row; a too-narrow center scrolls horizontally instead of
+                  squishing the tabs out. */}
+              <div className='min-w-0 flex-1 overflow-x-auto scrollbar-none'>
+                <SegmentedControl
+                  className='w-max min-w-0'
                 label={t('jobs')}
                 value={bottomConsoleTab}
                 onValueChange={(value) =>
@@ -5623,11 +5887,12 @@ export function DataSyncStudio() {
                   {value: 'preview', label: t('preview')},
                   {value: 'checkpoint', label: t('checkpoint')},
                 ]}
-              />
+                />
+              </div>
 
               {/* 右侧：全屏与还原切换 */}
               {/* Right: Full-screen and restore toggle */}
-              <div className='flex items-center gap-1.5'>
+              <div className='flex shrink-0 items-center gap-1.5'>
                 {!isConsoleMaximized ? (
                   <Tooltip>
                     <TooltipTrigger asChild>

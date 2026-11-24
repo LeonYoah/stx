@@ -238,3 +238,68 @@ func TestStopJob_TimeoutIsUnknownAndRefusedIsDefinite(t *testing.T) {
 		t.Fatalf("expected v1 unknown stop error, got %v", err)
 	}
 }
+
+func TestEngineDialTimeoutBounds(t *testing.T) {
+	if got := engineDialTimeout(15 * time.Second); got != 5*time.Second {
+		t.Fatalf("engineDialTimeout(15s) = %v, want 5s", got)
+	}
+	if got := engineDialTimeout(40 * time.Second); got != 5*time.Second {
+		t.Fatalf("engineDialTimeout(40s) = %v, want 5s", got)
+	}
+	if got := engineDialTimeout(6 * time.Second); got != 3*time.Second {
+		t.Fatalf("engineDialTimeout(6s) = %v, want 3s", got)
+	}
+	if got := engineDialTimeout(0); got != 5*time.Second {
+		t.Fatalf("engineDialTimeout(0) = %v, want 5s", got)
+	}
+	client := NewSeaTunnelEngineClient()
+	tr, ok := client.httpClient.Transport.(*http.Transport)
+	if !ok || tr == nil || tr.DialContext == nil {
+		t.Fatalf("NewSeaTunnelEngineClient must configure a dedicated *http.Transport with DialContext")
+	}
+}
+
+func TestDialTimeoutBeforeClientTimeoutIsDefiniteFailure(t *testing.T) {
+	// 模拟访问黑洞 IP：TCP 建连超时先于 http.Client.Timeout 触发，应归类为确定失败，
+	// 停止不误入 unknown，提交仍可回退 v1；已建连后的响应超时仍判为 unknown。
+	// Simulate an unreachable IP: dial timeout fires before http.Client.Timeout so StopJob is a definite
+	// failure and Submit still falls back to v1, while a post-connect response timeout remains unknown.
+	client := newSeaTunnelEngineClientWithTimeout(200 * time.Millisecond)
+	dialTimeout := engineDialTimeout(client.httpClient.Timeout)
+	tr := client.httpClient.Transport.(*http.Transport)
+	baseDial := tr.DialContext
+
+	var legacyCalls int32
+	legacy := legacySubmitServer(t, &legacyCalls)
+	hanging := httptest.NewServer(http.HandlerFunc(hangingHandler))
+	t.Cleanup(hanging.Close)
+
+	blackholeHost := "192.0.2.1:28080"
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if addr == blackholeHost {
+			dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+			defer cancel()
+			<-dialCtx.Done()
+			return nil, &net.OpError{Op: "dial", Net: network, Err: dialCtx.Err()}
+		}
+		return baseDial(ctx, network, addr)
+	}
+
+	stopErr := client.StopJob(context.Background(), &EngineEndpoint{BaseURL: "http://" + blackholeHost}, "901", false)
+	if stopErr == nil || errors.Is(stopErr, ErrEngineCallOutcomeUnknown) {
+		t.Fatalf("dial timeout on StopJob must be a definite failure, got %v", stopErr)
+	}
+
+	resp, submitErr := client.Submit(context.Background(), submitRequest(&EngineEndpoint{
+		BaseURL:   "http://" + blackholeHost,
+		LegacyURL: legacy.URL,
+	}))
+	if submitErr != nil || resp == nil || resp.APIMode != "v1" || atomic.LoadInt32(&legacyCalls) != 1 {
+		t.Fatalf("dial timeout on Submit v2 must fall back to v1, got resp=%+v err=%v calls=%d", resp, submitErr, legacyCalls)
+	}
+
+	hangErr := client.StopJob(context.Background(), &EngineEndpoint{BaseURL: hanging.URL}, "901", false)
+	if !errors.Is(hangErr, ErrEngineCallOutcomeUnknown) {
+		t.Fatalf("post-connect response timeout must stay unknown, got %v", hangErr)
+	}
+}

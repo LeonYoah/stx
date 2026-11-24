@@ -66,6 +66,10 @@ export interface StatPillsBarProps {
   // 分组无障碍名（透传给底层 SegmentedControl 的 aria-label）
   // Accessible group label forwarded to the underlying SegmentedControl
   label?: string;
+  // 单行模式：左侧胶囊区横向滚动，右侧操作区不换行不收缩（避免窄屏把操作按钮折成两行并裁切）。
+  // Single-row mode: pills scroll horizontally on the left while the actions slot stays
+  // non-wrapping and non-shrinking, preventing narrow widths from stacking and clipping controls.
+  singleRow?: boolean;
 }
 
 // 计数微标的语义配色：仅在数值非 0 时上色变体，0 保持灰色降噪。
@@ -121,41 +125,59 @@ export function StatPillsBar({
   actions,
   className,
   label,
+  singleRow = false,
 }: StatPillsBarProps) {
   return (
     <div
       className={cn(
-        'flex flex-wrap items-center justify-between gap-2.5',
+        'flex min-w-0 items-center justify-between gap-2.5',
+        singleRow ? 'flex-nowrap overflow-hidden' : 'flex-wrap',
         className,
       )}
     >
-      <SegmentedControl
-        label={label}
-        value={activeKey}
-        onValueChange={onChange}
-        className='min-w-0'
-        options={items.map((item) => ({
-          value: item.key,
-          label: item.icon ? (
-            <span className='inline-flex items-center gap-1'>
-              {item.icon}
-              {item.label}
-            </span>
-          ) : (
-            item.label
-          ),
-          accessory:
-            item.count !== undefined || item.pulse ? (
-              <CountAccessory item={item} />
-            ) : undefined,
-          testId: item.dataTestId,
-        }))}
-      />
+      {/* 胶囊轨道外包横向滚动容器：窄屏平滑横滚而不裁切右侧计数徽标。 */}
+      {/* Scroll wrapper around the segmented track: narrow widths scroll cleanly instead of clipping pills. */}
+      <div
+        className={cn(
+          'min-w-0 overflow-x-auto scrollbar-none',
+          singleRow ? 'flex-1' : 'max-w-full',
+        )}
+      >
+        <SegmentedControl
+          label={label}
+          value={activeKey}
+          onValueChange={onChange}
+          className='w-max min-w-0'
+          options={items.map((item) => ({
+            value: item.key,
+            label: item.icon ? (
+              <span className='inline-flex items-center gap-1'>
+                {item.icon}
+                {item.label}
+              </span>
+            ) : (
+              item.label
+            ),
+            accessory:
+              item.count !== undefined || item.pulse ? (
+                <CountAccessory item={item} />
+              ) : undefined,
+            testId: item.dataTestId,
+          }))}
+        />
+      </div>
 
-      {/* 右侧扩展操作区 */}
-      {/* Right optional action buttons slot */}
+      {/* 右侧扩展操作区：单行模式禁止换行与收缩，防止高度超出行高被裁切。 */}
+      {/* Right optional action buttons slot: single-row mode stays nowrap + shrink-0 so controls never stack and clip. */}
       {actions && (
-        <div className='flex items-center gap-1.5 flex-wrap'>{actions}</div>
+        <div
+          className={cn(
+            'flex shrink-0 items-center gap-1.5',
+            singleRow ? 'flex-nowrap' : 'flex-wrap',
+          )}
+        >
+          {actions}
+        </div>
       )}
     </div>
   );

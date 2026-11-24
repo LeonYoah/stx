@@ -3032,14 +3032,34 @@ export function mergeJobSummaryWithFull(
   // Heavy fields always survive from the full record.
   const rowNewer =
     Number.isFinite(rowTs) && (!Number.isFinite(fullTs) || rowTs >= fullTs);
+  if (!rowNewer) {
+    return {
+      ...row,
+      ...full,
+      result_preview: {...rowPreview, ...toObject(full.result_preview)},
+      submit_spec: {...rowSpec, ...toObject(full.submit_spec)},
+    } as SyncJobInstance;
+  }
+  // 行较新时，摘要携带的键集合是权威的：白名单键 / submit_spec 元数据键在行里缺失即表示已被后端清除
+  // （如重试停止时 cancel_outcome 被清空），不能让全量里的旧值残留；只保留摘要按契约不带的重字段。
+  // When the row is newer its key set is authoritative: an allow-listed result_preview key or submit_spec
+  // metadata key missing from the row means the backend cleared it (e.g. cancel_outcome reset on a stop
+  // retry), so stale full-record values must not linger; only the heavy fields summaries never carry survive.
+  const fullPreview = toObject(full.result_preview);
+  const heavyPreview = Object.fromEntries(
+    Object.entries(fullPreview).filter(
+      ([key]) => !JOB_RESULT_PREVIEW_LIST_KEYS.has(key),
+    ),
+  );
+  const fullSpec = toObject(full.submit_spec);
   return {
-    ...(rowNewer ? {...full, ...row} : {...row, ...full}),
-    result_preview: rowNewer
-      ? {...toObject(full.result_preview), ...rowPreview}
-      : {...rowPreview, ...toObject(full.result_preview)},
-    submit_spec: rowNewer
-      ? {...toObject(full.submit_spec), ...rowSpec}
-      : {...rowSpec, ...toObject(full.submit_spec)},
+    ...full,
+    ...row,
+    result_preview: {...heavyPreview, ...rowPreview},
+    submit_spec:
+      'submitted_content' in fullSpec
+        ? {...rowSpec, submitted_content: fullSpec.submitted_content}
+        : {...rowSpec},
   } as SyncJobInstance;
 }
 

@@ -136,6 +136,36 @@ describe('mergeJobSummaryWithFull', () => {
     );
   });
 
+  it('摘要较新时其白名单键集合权威：缺失的键视为已清除，不残留全量旧值', () => {
+    // 重试停止时后端清空 cancel_outcome，新摘要不再带该键；详情不能继续显示旧的 reverted 标记。
+    // A stop retry clears cancel_outcome server-side so the newer summary omits it; the detail must not
+    // keep showing the stale reverted badge.
+    const merged = mergeJobSummaryWithFull(
+      summary({
+        updated_at: T2,
+        submit_spec: {job_name: 'job-1'},
+        result_preview: {job_status: 'RUNNING'},
+      }),
+      full({
+        updated_at: T1,
+        submit_spec: {
+          job_name: 'job-1',
+          submit_outcome: 'confirming',
+          submitted_content: 'env { parallel = 1 }',
+        },
+        result_preview: {
+          job_status: 'RUNNING',
+          cancel_outcome: 'reverted',
+          job_dag: {vertices: [{id: 'v1'}]},
+        },
+      }),
+    );
+    expect(merged.result_preview).not.toHaveProperty('cancel_outcome');
+    expect(merged.submit_spec).not.toHaveProperty('submit_outcome');
+    expect(merged.result_preview?.job_dag).toEqual({vertices: [{id: 'v1'}]});
+    expect(merged.submit_spec?.submitted_content).toBe('env { parallel = 1 }');
+  });
+
   it('摘要比全量旧时全量整体胜出，重字段仍在', () => {
     const merged = mergeJobSummaryWithFull(
       summary({status: 'canceled', updated_at: T0}),

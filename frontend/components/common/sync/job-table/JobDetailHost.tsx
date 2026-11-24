@@ -44,27 +44,23 @@
  * "inspect in workbench" link.
  */
 
-import {useEffect, useState} from 'react';
-import services from '@/lib/services';
-import type {SyncJobInstance} from '@/lib/services/sync';
+import {useState} from 'react';
+import type {SyncJobSummary} from '@/lib/services/sync';
 import {JobDetailDialog} from '../job-detail/JobDetailDialog';
 import type {JobDetailTab} from '../job-detail/types';
 import {ConsolePanel} from '../ConsolePanel';
 import {CheckpointWorkspacePanel} from '../CheckpointPanels';
-import {
-  getDisplayJobLifecycleStatus,
-  isJobLifecycleActive,
-  type LogFilterMode,
-} from '../sync-studio-utils';
+import type {LogFilterMode} from '../sync-studio-utils';
 import type {JobActorContext, JobRowAction} from './types';
 import {useJobLogs} from './use-job-logs';
 import {useJobCheckpoint} from './use-job-checkpoint';
+import {useJobDetail} from './use-job-detail';
 
 // 活动作业的刷新间隔（详情弹窗内作业状态 5s 内更新）。/ Refresh interval for active jobs (detail state updates within 5s).
 const JOB_DETAIL_POLL_MS = 5000;
 
 export interface JobDetailHostProps {
-  job: SyncJobInstance | null;
+  job: SyncJobSummary | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   tab: JobDetailTab;
@@ -72,68 +68,8 @@ export interface JobDetailHostProps {
   /** 操作权限上下文（大盘逐行构造；与 JobDetailDialog 的 actionContext 同构）。/ Action permission context (the dashboard builds it per row; same shape as JobDetailDialog's actionContext). */
   actor: JobActorContext;
   /** 行操作透传给宿主：大盘负责确认弹窗与结果 toast。/ Row actions forwarded to the host: the dashboard owns confirmation + result toasts. */
-  onAction: (action: JobRowAction, job: SyncJobInstance) => void;
+  onAction: (action: JobRowAction, job: SyncJobSummary) => void;
   monacoTheme: string;
-}
-
-/**
- * 弹窗打开期间跟踪作业最新状态：作业活动时每 5s 调 getJob 刷新；其余时间直接用宿主传入的 job。
- * Track the job while the dialog is open: poll getJob every 5s while the job is active; otherwise the
- * job passed by the host is used as-is.
- */
-function useJob(
-  job: SyncJobInstance | null,
-  enabled: boolean,
-): SyncJobInstance | null {
-  const [liveJob, setLiveJob] = useState<SyncJobInstance | null>(job);
-  const jobId = job?.id ?? null;
-
-  // 宿主传入的作业更新（如列表轮询拿到更新副本）时同步到本地。
-  // Sync when the host passes an updated job (e.g. the list poll returns a fresher copy).
-  useEffect(() => {
-    setLiveJob(job);
-  }, [job]);
-
-  const active = liveJob
-    ? isJobLifecycleActive(getDisplayJobLifecycleStatus(liveJob))
-    : false;
-
-  useEffect(() => {
-    if (!enabled || !jobId) {
-      return;
-    }
-    let disposed = false;
-    const load = async () => {
-      try {
-        const next = await services.sync.getJob(jobId);
-        if (!disposed) {
-          setLiveJob(next);
-        }
-      } catch {
-        // 瞬时轮询失败保留上一份数据。/ Transient poll failures keep the previous copy.
-      }
-    };
-    // 打开即取一次全量：列表行的 result_preview 已被后端瘦身（只留展示键），拓扑 / 指标 / 日志页签
-    // 需要完整字段；终态作业不再轮询，活动作业继续 5s 刷新。
-    // Fetch once on open: the list row's result_preview is pruned by the backend (display keys only)
-    // while the topology / metrics / logs tabs need the full record. Terminal jobs stop here;
-    // active jobs keep polling every 5s.
-    void load();
-    if (!active) {
-      return () => {
-        disposed = true;
-      };
-    }
-    const timer = window.setInterval(() => {
-      void load();
-    }, JOB_DETAIL_POLL_MS);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, [enabled, jobId, active]);
-
-  return liveJob;
 }
 
 export function JobDetailHost({
@@ -146,7 +82,7 @@ export function JobDetailHost({
   onAction,
   monacoTheme,
 }: JobDetailHostProps) {
-  const liveJob = useJob(job, open);
+  const liveJob = useJobDetail({job, enabled: open, activePollMs: JOB_DETAIL_POLL_MS});
   const jobId = liveJob?.id ?? null;
 
   // 日志级别筛选由 Host 自持；关键字输入只存在于（本期未复用的）展开弹窗，固定传空串。

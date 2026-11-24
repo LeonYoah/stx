@@ -24,7 +24,7 @@ import services from '@/lib/services';
 import type {RuntimeStorageListItem} from '@/lib/services/cluster/types';
 import type {
   SyncCheckpointSnapshot,
-  SyncJobInstance,
+  SyncJobSummary,
 } from '@/lib/services/sync';
 import {
   getSyncJobClusterId,
@@ -38,7 +38,7 @@ const CHECKPOINT_POLL_MS = 3000;
 
 export interface UseJobCheckpointOptions {
   /** 当前作业；为空或无效（local 模式 / 无集群 / 无引擎作业号）时文件列表置空。/ Current job; the file list stays empty for null or invalid jobs (local mode / no cluster / no engine job id). */
-  job: SyncJobInstance | null;
+  job: SyncJobSummary | null;
   /** 页签可见性开关：false 时不加载、不轮询。/ Tab visibility gate: no load / poll while false. */
   enabled: boolean;
 }
@@ -120,7 +120,7 @@ export function useJobCheckpoint({
   );
 
   const loadFiles = useCallback(
-    async (target: SyncJobInstance | null, silent = false) => {
+    async (target: SyncJobSummary | null, silent = false) => {
       const clusterId = getSyncJobClusterId(target);
       const engineJobId = (
         target?.engine_job_id ||

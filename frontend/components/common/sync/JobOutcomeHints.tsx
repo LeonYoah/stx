@@ -22,7 +22,7 @@ import {Badge} from '@/components/ui/badge';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {cn} from '@/lib/utils';
 import {formatDateTimeTz} from '@/lib/timezone';
-import type {SyncJobInstance} from '@/lib/services/sync';
+import type {SyncJobSummary} from '@/lib/services/sync';
 import {
   getCancelTimeoutMinutes,
   getSubmitOutcomeDeadline,
@@ -41,7 +41,7 @@ export function JobOutcomeHints({
   job,
   className,
 }: {
-  job: SyncJobInstance | null;
+  job: SyncJobSummary | null;
   className?: string;
 }) {
   const t = useTranslations('workbenchStudio');

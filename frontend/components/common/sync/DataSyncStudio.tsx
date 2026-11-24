@@ -119,7 +119,7 @@ import type {
   SyncDagResult,
   SyncFormat,
   SyncGlobalVariable,
-  SyncJobInstance,
+  SyncJobSummary,
   SyncPluginFactoryInfo,
   SyncPluginType,
   SyncPreviewDataset,
@@ -176,6 +176,7 @@ import {
   mergeKnownJobs,
   retainedActiveJobIds,
   useJobCheckpoint,
+  useJobDetail,
   useJobList,
   useJobLogs,
   useJobSparklines,
@@ -322,7 +323,6 @@ import {
   extractEditorStateFromTreeNode,
   extractJobMetricSummary,
   extractPreviewColumns,
-  extractPreviewDatasets,
   extractPreviewRows,
   extractTaskScheduleValue,
   extractVariableRowsFromDefinition,
@@ -622,7 +622,7 @@ export function DataSyncStudio() {
   const [compareVersion, setCompareVersion] = useState<SyncTaskVersion | null>(
     null,
   );
-  const [jobs, setJobs] = useState<SyncJobInstance[]>([]);
+  const [jobs, setJobs] = useState<SyncJobSummary[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const activeJobsPollInFlightRef = useRef(false);
   // retainedJobs：表格中选中 / 打开详情时留下的作业快照（D5 附带风险兜底）。翻页离开选中不丢，
@@ -630,7 +630,7 @@ export function DataSyncStudio() {
   // retainedJobs: snapshots of jobs selected or detail-opened in the table (the D5 safeguard). Selection
   // survives paging, and the snapshots never join `jobs` — `jobs` stays the run-state source of truth.
   const [retainedJobs, setRetainedJobs] = useState<
-    Map<number, SyncJobInstance>
+    Map<number, SyncJobSummary>
   >(() => new Map());
   // 深链置顶作业 ID：表格第一页无筛选时置顶显示。/ Deep-linked job pinned on the table's first page.
   const [pinnedJobId, setPinnedJobId] = useState<number | null>(null);
@@ -848,7 +848,7 @@ export function DataSyncStudio() {
   // Remote hits for the top-bar quick open: numeric input queries the backend
   // debounced so jobs outside the loaded set are found globally, not per task.
   const [quickOpenQuery, setQuickOpenQuery] = useState('');
-  const [remoteJobs, setRemoteJobs] = useState<SyncJobInstance[]>([]);
+  const [remoteJobs, setRemoteJobs] = useState<SyncJobSummary[]>([]);
   useEffect(() => {
     if (!/^\d+$/.test(quickOpenQuery.trim().replace(/^#+/, ''))) {
       setRemoteJobs([]);
@@ -887,7 +887,7 @@ export function DataSyncStudio() {
         group: t('matchingFiles'),
         keywords: [String(node.id)],
       }));
-    const toJobItem = (job: SyncJobInstance) => ({
+    const toJobItem = (job: SyncJobSummary) => ({
       id: `job-${job.id}`,
       title: `#${job.id}`,
       meta: findTreeNode(tree, job.task_id)?.name || job.platform_job_id || '',
@@ -1068,7 +1068,7 @@ export function DataSyncStudio() {
    * 选中或打开详情时把该行快照放进 retained 集合，翻页 / 刷新后仍可解析。
    * Retain a row snapshot on select / detail-open so it still resolves after paging or refreshes.
    */
-  const retainJob = useCallback((job: SyncJobInstance | null) => {
+  const retainJob = useCallback((job: SyncJobSummary | null) => {
     if (!job) {
       return;
     }
@@ -1085,11 +1085,16 @@ export function DataSyncStudio() {
       null,
     [knownJobs, jobs, selectedJobId],
   );
-  const detailJob = useMemo(
+  const detailJobRow = useMemo(
     () =>
       detailJobId === null ? null : (knownJobs.get(detailJobId) ?? null),
     [knownJobs, detailJobId],
   );
+  // 详情自持完整记录：摘要行只合并展示 / 状态字段，重字段由 getJob 补齐；active 刷新走 jobs 3s 轮询，
+  // 这里不再开第二个定时器。
+  // The detail owns its full record: summary rows merge display / status fields only while heavy fields
+  // come from getJob; active refresh rides on the 3s jobs poll, so no second timer starts here.
+  const detailJob = useJobDetail({job: detailJobRow, enabled: detailJobId !== null});
   // 日志与 Checkpoint 在底部面板或作业详情对应页签可见时都要加载，两处共用同一份数据。
   // Logs and checkpoint load when visible in either the bottom console or the job detail tab; both share one copy.
   const logsVisible = bottomConsoleTab === 'logs' || (detailJob !== null && detailTab === 'logs');
@@ -1127,21 +1132,14 @@ export function DataSyncStudio() {
    * Open the job detail: select the job and keep a retained snapshot so logs / checkpoint follow it
    * (still resolvable after paging away).
    */
-  const openJobDetail = useCallback((job: SyncJobInstance, tab: JobDetailTab = 'topology') => {
+  const openJobDetail = useCallback((job: SyncJobSummary, tab: JobDetailTab = 'topology') => {
     retainJob(job);
     setSelectedJobId(job.id);
     setDetailJobId(job.id);
     setDetailTab(tab);
-    // 列表行 result_preview 已被后端瘦身（仅留展示键）；缺 metrics 时单独取全量补进 retainedJobs，
-    // 否则详情弹窗的拓扑 / 指标 / 脚本页签拿不到字段。
-    // List rows carry a pruned result_preview (display keys only); when metrics is missing, fetch the
-    // full record into retainedJobs so the detail dialog's topology / metrics / script tabs render.
-    if (!job.result_preview?.metrics) {
-      void services.sync
-        .getJob(job.id)
-        .then(retainJob)
-        .catch(() => {});
-    }
+    // 完整记录由 useJobDetail 按 jobId 拉取并合并摘要更新（见上方 detailJob），这里不再回填 retainedJobs。
+    // The full record is fetched and merged by useJobDetail per jobId (see detailJob above); no
+    // retainedJobs backfill happens here anymore.
   }, [retainJob]);
   const previewDatasets = useMemo(
     () =>
@@ -1160,8 +1158,8 @@ export function DataSyncStudio() {
               1,
             ),
           }))
-        : extractPreviewDatasets(previewJob?.result_preview),
-    [previewJob, previewSnapshot],
+        : [],
+    [previewSnapshot],
   );
   const selectedPreviewDataset = useMemo(() => {
     if (previewDatasets.length === 0) {
@@ -1216,7 +1214,7 @@ export function DataSyncStudio() {
    * Job table row actions: the three non-detail actions map onto the existing stop / savepoint-stop /
    * recover handlers.
    */
-  const handleJobTableAction = (action: JobRowAction, job: SyncJobInstance) => {
+  const handleJobTableAction = (action: JobRowAction, job: SyncJobSummary) => {
     retainJob(job);
     if (action === 'recover') {
       handleRecoverFromHistory(job.id);
@@ -1706,17 +1704,23 @@ export function DataSyncStudio() {
   const handleInspectCheckpointFile = useCallback(
     async (path: string) => {
       const clusterId = getSyncJobClusterId(selectedJob);
-      if (!clusterId || !path) {
+      if (!clusterId || !path || !selectedJob) {
         toast.error(t('checkpointInspectUnavailable'));
         return;
       }
-      const jobConfig = buildCheckpointInspectJobConfig(
-        selectedJob,
-        editor,
-        customVariableRows,
-      );
       setCheckpointInspectDialogLoading(path);
       try {
+        // 检查用的是「提交脚本」，列表摘要行的 submit_spec 已不含 submitted_content，必须按 id 取
+        // 全量；取不到就报错，不拿编辑器当前脚本冒充提交脚本。
+        // Inspection runs on the submitted script, but a list summary row's submit_spec no longer
+        // carries submitted_content — fetch the full record by id; on failure we surface the error
+        // instead of passing the editor script off as the submitted one.
+        const fullJob = await services.sync.getJob(selectedJob.id);
+        const jobConfig = buildCheckpointInspectJobConfig(
+          fullJob,
+          editor,
+          customVariableRows,
+        );
         const result =
           await services.cluster.inspectCheckpointRuntimeStorageSafe(
             clusterId,
@@ -1731,6 +1735,10 @@ export function DataSyncStudio() {
         }
         setCheckpointInspectDialogResult(result.data);
         setCheckpointInspectDialogOpen(true);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : t('checkpointInspectFailed'),
+        );
       } finally {
         setCheckpointInspectDialogLoading(null);
       }

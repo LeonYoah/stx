@@ -19,7 +19,7 @@
 
 import {useCallback, useState} from 'react';
 import services from '@/lib/services';
-import type {SyncJobInstance, SyncJobStatus} from '@/lib/services/sync';
+import type {SyncJobStatus, SyncJobSummary} from '@/lib/services/sync';
 
 export type JobBulkAction = 'stop' | 'recover';
 
@@ -29,7 +29,7 @@ const RECOVERABLE: SyncJobStatus[] = ['failed', 'canceled'];
 /** 判断作业能否执行批量动作；不能的会被跳过。/ Whether a job is eligible for a bulk action; ineligible jobs are skipped. */
 export function canApplyJobBulkAction(
   action: JobBulkAction,
-  job: SyncJobInstance,
+  job: SyncJobSummary,
 ): boolean {
   return (action === 'stop' ? STOPPABLE : RECOVERABLE).includes(job.status);
 }
@@ -53,7 +53,7 @@ export function useJobBulkActions(onDone?: () => void) {
   const run = useCallback(
     async (
       action: JobBulkAction,
-      jobs: SyncJobInstance[],
+      jobs: SyncJobSummary[],
     ): Promise<JobBulkResult> => {
       setRunning(action);
       const outcome: JobBulkResult = {action, ok: 0, skipped: 0, failures: []};

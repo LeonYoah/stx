@@ -27,7 +27,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
-import type {SyncJobInstance} from '@/lib/services/sync';
+import type {SyncJobSummary} from '@/lib/services/sync';
 import {copyText} from '../job-detail/copy-text';
 import {getJobActionState} from '../sync-studio-utils';
 import {jobWorkbenchHref} from './job-table-format';
@@ -55,13 +55,13 @@ export function JobRowActions({
   onOpenDetail,
   onAction,
 }: {
-  job: SyncJobInstance;
+  job: SyncJobSummary;
   actor: JobActorContext;
   /** 「在工作台打开」菜单项仅 global 预设展示 / "Open in workbench" shows on the global preset only. */
   showWorkbenchLink: boolean;
   t: JobTableTranslator;
-  onOpenDetail: (job: SyncJobInstance) => void;
-  onAction: (action: JobRowAction, job: SyncJobInstance) => void;
+  onOpenDetail: (job: SyncJobSummary) => void;
+  onAction: (action: JobRowAction, job: SyncJobSummary) => void;
 }) {
   const actions = getJobActionState(job, actor);
   return (

@@ -25,6 +25,7 @@ import type {
   SyncJobListParams,
   SyncJobListSort,
   SyncJobStatusGroup,
+  SyncJobSummary,
 } from '@/lib/services/sync';
 import {usePolledResource} from '../../dashboard/use-polled-resource';
 import {
@@ -107,7 +108,7 @@ export interface UseJobListOptions {
   /** 深链作业：不在本页时单独 getJob 置顶插入（仅 page=1 且无筛选）/ Deep-linked job pinned on top. */
   pinnedJobId?: number;
   /** 宿主手里更新的作业副本，按 id 覆盖，updated_at 新者胜出 / Fresher copies from the host, merged by id. */
-  overlay?: SyncJobInstance[];
+  overlay?: SyncJobSummary[];
   /**
    * 范围无效时置 false（如工作台未打开任务）：不发请求、items 为空；缺省 true。
    * Set false while the scope is invalid (e.g. no task open in the workbench): no request fires and items
@@ -117,7 +118,7 @@ export interface UseJobListOptions {
 }
 
 export interface UseJobListResult {
-  items: SyncJobInstance[];
+  items: SyncJobSummary[];
   total: number;
   statusCounts: Partial<Record<SyncJobStatusGroup, number>>;
   loading: boolean;
@@ -153,7 +154,7 @@ export function useJobList({
   // 轮询间隔按「本页是否有活动作业」切换：用上一帧的 items 计算，避免自引用。
   // The interval depends on whether the current page holds active jobs; computed from the previous frame's items
   // to avoid self-reference.
-  const itemsRef = useRef<SyncJobInstance[]>([]);
+  const itemsRef = useRef<SyncJobSummary[]>([]);
   const hasActive = itemsRef.current.some((job) =>
     isJobLifecycleActive(getDisplayJobLifecycleStatus(job)),
   );

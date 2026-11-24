@@ -90,7 +90,7 @@ import type {
 } from '@/lib/services/cluster/types';
 import type {
   SyncCheckpointSnapshot,
-  SyncJobInstance,
+  SyncJobSummary,
   SyncPreviewDataset,
   SyncPreviewSnapshot,
 } from '@/lib/services/sync';
@@ -210,7 +210,7 @@ export function PreviewWorkspacePanel({
   monacoTheme,
   onSelectDataset,
 }: {
-  job: SyncJobInstance | null;
+  job: SyncJobSummary | null;
   previewSnapshot: SyncPreviewSnapshot | null;
   datasets: SyncPreviewDataset[];
   selectedDatasetName: string;
@@ -237,20 +237,19 @@ export function PreviewWorkspacePanel({
     null;
   const columns = activeDataset?.columns || [];
   const rows = (activeDataset?.rows || []) as Array<Record<string, unknown>>;
+  // 预览脚本只认 previewSnapshot：列表摘要行的 result_preview 已不含 preview_content / content_format。
+  // The preview script comes from previewSnapshot only: a list summary row's result_preview no longer
+  // carries preview_content / content_format.
   const previewContent =
     typeof previewSnapshot?.injected_script === 'string' &&
     previewSnapshot.injected_script
       ? previewSnapshot.injected_script
-      : typeof job.result_preview?.preview_content === 'string'
-        ? job.result_preview.preview_content
-        : '';
+      : '';
   const previewContentFormat =
     typeof previewSnapshot?.content_format === 'string' &&
     previewSnapshot.content_format
       ? previewSnapshot.content_format
-      : typeof job.result_preview?.content_format === 'string'
-        ? job.result_preview.content_format
-        : 'hocon';
+      : 'hocon';
   const previewEmptyMessage =
     previewSnapshot?.empty_reason === 'preview_not_ready'
       ? t('preparingPreview')
@@ -403,7 +402,7 @@ export function CheckpointWorkspacePanel({
   inspectLoadingPath,
   onRefresh,
 }: {
-  job: SyncJobInstance | null;
+  job: SyncJobSummary | null;
   checkpointSnapshot: SyncCheckpointSnapshot | null;
   loading?: boolean;
   checkpointFiles: RuntimeStorageListItem[];

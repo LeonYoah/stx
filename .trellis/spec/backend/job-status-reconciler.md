@@ -54,7 +54,9 @@ func effectiveSubmitTimeout(task *Task) time.Duration / effectiveStopTimeout(tas
 - **错误分类**：
   - 结果未知：已建立连接后的超时、`context` 到期或取消、EOF、连接重置、broken pipe、HTTP 504、读响应体出错。
   - 确定失败：拨号阶段失败（连接被拒、DNS、拨号超时）、TLS 错误、504 以外的非 2xx、其他拿不准的错误。
+  - `NewSeaTunnelEngineClient` 克隆默认 Transport 并配置独立 TCP `DialContext` 超时（`min(5s, timeout/2)`），保证访问不可达/黑洞 IP 时先触发 `*net.OpError{Op:"dial"}`（确定未送达）而非外层 `http.Client.Timeout` 被误判成结果未知。
   - 结果未知时**不回退 REST v1 再提交一次**；确定失败保持原有 v1 回退。2xx 但正文不是 JSON 按成功处理，jobId 用请求里的。
+- **单作业端点解析**（`resolveJobEngineEndpoint` / `backfillTerminalJobFinalMetrics` / `realtimeCandidates`）：有 `cluster_id` 时**优先按集群动态解析当前在线节点地址**（仅从 `submit_spec` 继承 `APIMode` / `ContextPath` 等协议形态），无集群信息或动态解析不可用时才回退到提交快照地址，防止宿主机改 IP 或主备切换后停止/刷新/Checkpoint 请求仍打向旧地址。
 - **提交结果未知**：写一条 `status=pending` 的作业，`engine_job_id` 等于本次 jobId，端点字段按实际请求的端点写；`submit_spec` 写：
 
   | 键 | 含义 |

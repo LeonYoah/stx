@@ -205,6 +205,71 @@ func TestSyncTaskPermissionsUpdateSendsOnlyPermissionChanges(t *testing.T) {
 	}
 }
 
+// TestSyncTaskPermissionsUpdateSendsAccessLevel 验证 --access-level 走新三态共享字段。
+// TestSyncTaskPermissionsUpdateSendsAccessLevel verifies --access-level posts the new three-state field.
+func TestSyncTaskPermissionsUpdateSendsAccessLevel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.URL.Path == "/api/v1/capabilities":
+			writeSyncCapabilities(t, writer, "sync.task.permissions.update", "R1")
+		case request.Method == http.MethodPut && request.URL.Path == "/api/v1/sync/tasks/42/permissions":
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("解析权限更新请求体失败: %v", err)
+			}
+			if body["access_level"] != "public_editable" {
+				t.Fatalf("access_level 未按三态发送: %#v", body)
+			}
+			if _, ok := body["is_public"]; ok {
+				t.Fatalf("--access-level 不应附带 is_public: %#v", body)
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"id": 42, "access_level": "public_editable"}})
+		default:
+			t.Fatalf("意外的请求: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runSyncCommand(t, store,
+		"sync", "task", "permissions", "update", "42",
+		"--access-level", "PUBLIC_EDITABLE",
+		"--confirm", "--idempotency-key", "permissions-key",
+	)
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("--access-level 更新任务权限失败: code=%d stderr=%s", exitCode, stderr)
+	}
+}
+
+// TestSyncTaskPermissionsUpdateRejectsInvalidAccessLevelLocally 验证非法枚举与参数冲突在本地拦截，不发请求。
+// TestSyncTaskPermissionsUpdateRejectsInvalidAccessLevelLocally verifies invalid enums and conflicting
+// flags are rejected locally without sending any request.
+func TestSyncTaskPermissionsUpdateRejectsInvalidAccessLevelLocally(t *testing.T) {
+	requestSeen := false
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestSeen = true
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{}})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	for _, args := range [][]string{
+		{"sync", "task", "permissions", "update", "42", "--access-level", "everyone", "--confirm"},
+		{"sync", "task", "permissions", "update", "42", "--access-level", "private", "--public", "--confirm"},
+		{"sync", "task", "permissions", "update", "42", "--confirm"},
+	} {
+		_, stderr, exitCode := runSyncCommand(t, store, args...)
+		if exitCode != int(clioutput.ExitUsage) {
+			t.Fatalf("参数 %v 应返回 ExitUsage, got code=%d stderr=%s", args, exitCode, stderr)
+		}
+	}
+	if requestSeen {
+		t.Fatalf("本地校验失败的权限更新不应发出任何请求")
+	}
+}
+
 func TestSyncTaskSubmitSendsWaitAndPollsJob(t *testing.T) {
 	jobPolls := 0
 	var gotBody map[string]any

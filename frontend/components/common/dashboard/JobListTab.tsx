@@ -36,9 +36,9 @@ import {Button} from '@/components/arc/button/button';
 import {BatchBar, usePagedSelection} from '@/components/common/layout';
 import services from '@/lib/services';
 import type {
-  SyncJobInstance,
   SyncJobListSort,
   SyncJobStatusGroup,
+  SyncJobSummary,
 } from '@/lib/services/sync';
 import {
   JobDetailHost,
@@ -72,7 +72,7 @@ const VALID_SORTS: readonly string[] = [
 /** 待确认的批量 / 单行作业操作；bulk=true 时走批量汇总，否则逐条 toast。/ Pending bulk or row job action. */
 interface PendingJobConfirm {
   action: JobRowAction;
-  jobs: SyncJobInstance[];
+  jobs: SyncJobSummary[];
   bulk: boolean;
 }
 
@@ -103,7 +103,7 @@ export function JobListTab({
   // Full detail dialog: row click, the row "details" action, and the multi-table badge all open the same
   // workbench JobDetailDialog in place (no lightweight preview drawer).
   const [detail, setDetail] = useState<{
-    job: SyncJobInstance;
+    job: SyncJobSummary;
     tab: JobDetailTab;
   } | null>(null);
   const [confirm, setConfirm] = useState<PendingJobConfirm | null>(null);
@@ -191,12 +191,12 @@ export function JobListTab({
   // reported per-item by the bulk action.
   const pageJobIds = useMemo(() => list.items.map((job) => job.id), [list.items]);
   const {ids: selected, setIds: setSelected} = usePagedSelection(pageJobIds);
-  const knownJobsRef = useRef<ReadonlyMap<number, SyncJobInstance>>(new Map());
+  const knownJobsRef = useRef<ReadonlyMap<number, SyncJobSummary>>(new Map());
 
   // 大盘逐行构造权限上下文：isOwner = 作业发起人；后端仍是最终裁决。
   // Per-row actor context on the dashboard: isOwner means the job initiator; the backend stays the final arbiter.
   const actor = useCallback(
-    (job: SyncJobInstance): JobActorContext => ({
+    (job: SyncJobSummary): JobActorContext => ({
       isAdmin: currentUser?.is_admin ?? false,
       isOwner:
         currentUser !== null &&
@@ -212,7 +212,7 @@ export function JobListTab({
   // 单行操作：确认后直接调接口，toast 提示结果并刷新列表。
   // Row actions: call the endpoint after confirmation, toast the outcome and reload the list.
   const runRowAction = useCallback(
-    async (action: JobRowAction, job: SyncJobInstance) => {
+    async (action: JobRowAction, job: SyncJobSummary) => {
       try {
         if (action === 'recover') {
           await services.sync.recoverJob(job.id);
@@ -256,7 +256,7 @@ export function JobListTab({
     () =>
       [...selected]
         .map((id) => knownJobs.get(id))
-        .filter((job): job is SyncJobInstance => job != null),
+        .filter((job): job is SyncJobSummary => job != null),
     [selected, knownJobs],
   );
 

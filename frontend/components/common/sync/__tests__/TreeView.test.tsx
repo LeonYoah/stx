@@ -208,6 +208,26 @@ describe('TreeView', () => {
     expect(onRenameStart).not.toHaveBeenCalled();
   });
 
+  it('marks read-only files with a neutral eye icon instead of a warning lock', () => {
+    const {container} = render(
+      <TreeView
+        nodes={mockNodes}
+        selectedNodeId={null}
+        selectedFolderId={null}
+        expandedFolderIds={[1]}
+        onSelect={vi.fn()}
+        onContextMenu={vi.fn()}
+      />,
+    );
+
+    // 只读态是中性 Eye + muted 着色，琥珀 Lock 不再出现。
+    // Read-only shows a neutral muted Eye; the amber Lock is gone.
+    const eyes = container.querySelectorAll('svg.lucide-eye');
+    expect(eyes).toHaveLength(1);
+    expect(eyes[0].getAttribute('class')).toContain('text-muted-foreground');
+    expect(container.querySelector('svg.lucide-lock')).toBeNull();
+  });
+
   it('renders inline rename input and commits on Enter', () => {
     const onRenameCommit = vi.fn();
     const onRenameCancel = vi.fn();

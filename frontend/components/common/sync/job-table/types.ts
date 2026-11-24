@@ -19,10 +19,10 @@ import type {ReactNode} from 'react';
 import type {useFormatter, useTranslations} from 'next-intl';
 import type {NotificationRecipientUser} from '@/lib/services/monitoring';
 import type {
-  SyncJobInstance,
   SyncJobListSort,
   SyncJobSparklines,
   SyncJobStatusGroup,
+  SyncJobSummary,
 } from '@/lib/services/sync';
 import type {JobDetailTab} from '../job-detail/types';
 
@@ -106,22 +106,22 @@ export interface JobTableContext {
   preset: JobTablePreset;
   query: JobListQuery;
   /** 当前页行（已合并 pinned / overlay）/ Rows of the current page (pinned / overlay already merged). */
-  items: SyncJobInstance[];
+  items: SyncJobSummary[];
   /** 本次刷新时刻，作为运行中作业时长的基准 / Refresh instant used as the base of running durations. */
   updatedAt: number | null;
   sparklines: SyncJobSparklines | null;
   clusterNames?: Map<number, string>;
   /** 逐行解析权限上下文（props 的函数形态已归一）/ Per-row actor context (normalized from the prop). */
-  actorOf: (job: SyncJobInstance) => JobActorContext;
+  actorOf: (job: SyncJobSummary) => JobActorContext;
   initiatorUsers: NotificationRecipientUser[];
   currentUserId?: number;
   currentUsername?: string;
   selection?: {ids: Set<number>; onChange: (ids: Set<number>) => void};
   t: JobTableTranslator;
   format: ReturnType<typeof useFormatter>;
-  onRowActivate: (job: SyncJobInstance) => void;
-  onOpenDetail: (job: SyncJobInstance, tab?: JobDetailTab) => void;
-  onAction: (action: JobRowAction, job: SyncJobInstance) => void;
+  onRowActivate: (job: SyncJobSummary) => void;
+  onOpenDetail: (job: SyncJobSummary, tab?: JobDetailTab) => void;
+  onAction: (action: JobRowAction, job: SyncJobSummary) => void;
   testIdPrefix: string;
 }
 
@@ -144,8 +144,8 @@ export interface JobColumnDef {
   width?: number;
   presets: JobTablePreset[];
   /** 动态显示（如 task 预设的 CDC 列在本页有值时才出现）/ Dynamic visibility (e.g. task CDC column shows only when any row has a value). */
-  visibleWhen?: (items: SyncJobInstance[], ctx: JobTableContext) => boolean;
-  cell: (job: SyncJobInstance, ctx: JobTableContext) => ReactNode;
+  visibleWhen?: (items: SyncJobSummary[], ctx: JobTableContext) => boolean;
+  cell: (job: SyncJobSummary, ctx: JobTableContext) => ReactNode;
 }
 
 /** 状态胶囊顺序（与后端 status_group 对齐）/ Status pill order (matches the backend status_group values). */

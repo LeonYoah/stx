@@ -42,6 +42,9 @@ export type SyncJobStatus =
   | 'savepoint_done';
 export type SyncFormat = 'hocon' | 'json';
 
+/** 任务三态共享级别：私有 / 公开只读 / 公开可协作。/ Task three-state sharing level: private / public read-only / public editable. */
+export type SyncTaskAccessLevel = 'private' | 'public_readonly' | 'public_editable';
+
 export interface SyncTask {
   id: number;
   parent_id?: number;
@@ -68,6 +71,7 @@ export interface SyncTask {
   is_owner?: boolean;
   is_collaborator?: boolean;
   is_public?: boolean;
+  access_level?: SyncTaskAccessLevel;
   /** 全局超时默认值，只在任务详情里返回 / Global timeout defaults, returned on task detail only. */
   timeout_defaults?: SyncTaskTimeoutDefaults;
   created_by: number;
@@ -155,6 +159,7 @@ export interface SyncTaskTreeNode {
   is_owner?: boolean;
   is_collaborator?: boolean;
   is_public?: boolean;
+  access_level?: SyncTaskAccessLevel;
   created_by?: number;
   children?: SyncTaskTreeNode[];
 }
@@ -341,6 +346,69 @@ export interface SyncJobLiveMetrics {
   table_count?: number;
 }
 
+/**
+ * 列表行 result_preview 的瘦身契约：/sync/jobs 每行只留白名单键（job_status 显示态、
+ * cancel_outcome / cancel_timeout_seconds 结果提示）；metrics / job_dag / datasets /
+ * preview_* 等重字段只由 getJob 详情返回。值保持 unknown，让完整记录（Record）可赋值进来。
+ * The slim result_preview contract of a /sync/jobs row: only allow-listed keys are kept
+ * (job_status for display state, cancel_outcome / cancel_timeout_seconds for outcome hints);
+ * heavy fields like metrics / job_dag / datasets / preview_* ship only via getJob. Values stay
+ * unknown so a full record (Record) remains assignable here.
+ */
+export interface SyncJobListResultPreview {
+  job_status?: unknown;
+  cancel_outcome?: unknown;
+  cancel_timeout_seconds?: unknown;
+}
+
+/**
+ * 列表行 submit_spec 的瘦身契约：行展示消费的元数据键保留，但不含 submitted_content
+ * （整段提交脚本只由 getJob 详情返回）。故意不加索引签名：读未列出的键会在编译期失败。
+ * The slim submit_spec contract of a list row: metadata keys the row displays are kept, but
+ * submitted_content is absent (the submitted script ships only via getJob). No index signature
+ * on purpose — reading an unlisted key fails at compile time.
+ */
+export interface SyncJobListSubmitSpec {
+  job_name?: unknown;
+  format?: unknown;
+  submitted_format?: unknown;
+  cluster_id?: unknown;
+  engine_api_mode?: unknown;
+  engine_base_url?: unknown;
+  engine_legacy_base_url?: unknown;
+  engine_version?: unknown;
+  trigger_source?: unknown;
+  trigger_mode?: unknown;
+  start_with_savepoint?: unknown;
+  stop_timeout_seconds?: unknown;
+  submit_timeout_seconds?: unknown;
+  submit_deadline?: unknown;
+  submit_outcome?: unknown;
+  target_host_id?: unknown;
+  execution_mode?: unknown;
+  mode?: unknown;
+  install_dir?: unknown;
+  observability?: unknown;
+}
+
+/**
+ * /sync/jobs 列表行摘要：与 SyncJobInstance 同构，但 result_preview / submit_spec 是瘦身形状。
+ * SyncJobInstance 可赋给 SyncJobSummary（全量记录可以进摘要上下文），反之不行——需要完整字段的
+ * 地方必须走 getJob。多来源合并时禁止用摘要行整行替换完整记录（最新 ≠ 最完整）。
+ * A /sync/jobs list-row summary: same shape as SyncJobInstance but result_preview / submit_spec
+ * are the slim variants. SyncJobInstance is assignable to SyncJobSummary (a full record can enter
+ * summary contexts), never the reverse — anything needing heavy fields must go through getJob.
+ * When merging rows from multiple sources, a summary row must never wholesale-replace a full
+ * record (freshest ≠ most complete).
+ */
+export type SyncJobSummary = Omit<
+  SyncJobInstance,
+  'result_preview' | 'submit_spec'
+> & {
+  result_preview: SyncJobListResultPreview;
+  submit_spec: SyncJobListSubmitSpec;
+};
+
 /** 全局作业列表的状态组 / Status groups of the global job list. */
 export type SyncJobStatusGroup =
   | 'failed'
@@ -412,7 +480,7 @@ export interface SyncTaskVersionListData {
 
 export interface SyncJobListData {
   total: number;
-  items: SyncJobInstance[];
+  items: SyncJobSummary[];
   /** 仅 with_counts=1 时返回 / Only returned with with_counts=1. */
   status_counts?: Partial<Record<SyncJobStatusGroup, number>>;
 }
@@ -690,6 +758,7 @@ export interface UpdateSyncTaskRequest extends CreateSyncTaskRequest {}
 
 export interface SyncTaskPermissions {
   task_id: number;
+  access_level: SyncTaskAccessLevel;
   is_public: boolean;
   collaborator_ids: number[];
   can_edit: boolean;
@@ -699,6 +768,7 @@ export interface SyncTaskPermissions {
 }
 
 export interface UpdateSyncTaskPermissionsRequest {
+  access_level?: SyncTaskAccessLevel;
   is_public?: boolean;
   collaborator_ids?: number[];
 }

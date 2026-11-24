@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	neturl "net/url"
 	"regexp"
@@ -163,13 +164,50 @@ type SeaTunnelEngineClient struct {
 // defaultEngineRequestTimeout is the HTTP timeout for engine REST calls when nothing is configured.
 const defaultEngineRequestTimeout = 15 * time.Second
 
+// defaultEngineDialTimeoutCap 是 TCP 建连超时上限；必须严格小于总请求超时，避免不可达 IP 先触发
+// Client.Timeout 被误判成结果未知（ErrEngineCallOutcomeUnknown）。
+// defaultEngineDialTimeoutCap caps the TCP dial timeout; it must stay strictly below the overall request timeout
+// so unreachable IPs fail with a dial *net.OpError instead of hitting Client.Timeout as an unknown outcome.
+const defaultEngineDialTimeoutCap = 5 * time.Second
+
+// engineDialTimeout 计算与总请求超时匹配的 TCP 建连超时：取 min(5s, timeout/2)。
+// engineDialTimeout computes the TCP dial timeout paired with the request timeout: min(5s, timeout/2).
+func engineDialTimeout(requestTimeout time.Duration) time.Duration {
+	if requestTimeout <= 0 {
+		return defaultEngineDialTimeoutCap
+	}
+	half := requestTimeout / 2
+	if half <= 0 {
+		return requestTimeout
+	}
+	if half < defaultEngineDialTimeoutCap {
+		return half
+	}
+	return defaultEngineDialTimeoutCap
+}
+
+// newSeaTunnelEngineClientWithTimeout 按指定总超时构造引擎客户端，并克隆默认 Transport 配独立短建连超时。
+// newSeaTunnelEngineClientWithTimeout builds an engine client with the given request timeout and a cloned transport
+// whose DialContext timeout is strictly shorter than the request timeout.
+func newSeaTunnelEngineClientWithTimeout(timeout time.Duration) *SeaTunnelEngineClient {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = (&net.Dialer{
+		Timeout:   engineDialTimeout(timeout),
+		KeepAlive: 30 * time.Second,
+	}).DialContext
+	return &SeaTunnelEngineClient{
+		httpClient: &http.Client{
+			Timeout:   timeout,
+			Transport: transport,
+		},
+	}
+}
+
 // NewSeaTunnelEngineClient 创建引擎客户端，HTTP 超时取 sync.engine_request_timeout_seconds（读写请求共用）。
 // NewSeaTunnelEngineClient creates the engine client; its HTTP timeout comes from
 // sync.engine_request_timeout_seconds and is shared by read and write calls.
 func NewSeaTunnelEngineClient() *SeaTunnelEngineClient {
-	return &SeaTunnelEngineClient{
-		httpClient: &http.Client{Timeout: engineRequestTimeout()},
-	}
+	return newSeaTunnelEngineClientWithTimeout(engineRequestTimeout())
 }
 
 // engineRequestTimeout 读取配置的引擎请求超时；没有配置或配置不是正数时用 15 秒。

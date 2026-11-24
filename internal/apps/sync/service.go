@@ -479,8 +479,30 @@ func (s *Service) UpdateTaskPermissionsForActor(ctx context.Context, actor execu
 
 	before := taskPermissionsForActor(task, actor)
 	definition := cloneJSONMap(task.Definition)
-	if req.IsPublic != nil {
-		definition["is_public"] = *req.IsPublic
+	if req.AccessLevel != nil {
+		level, err := normalizeTaskAccessLevel(*req.AccessLevel)
+		if err != nil {
+			return nil, nil, err
+		}
+		// access_level 与 is_public 同传时必须一致：is_public=true 覆盖 readonly/editable 两档，false 对应 private。
+		// access_level and is_public must agree when sent together: is_public=true covers both public levels,
+		// false corresponds to private.
+		if req.IsPublic != nil && *req.IsPublic != (level != TaskAccessLevelPrivate) {
+			return nil, nil, ErrInvalidTaskAccessLevel
+		}
+		definition["access_level"] = string(level)
+		definition["is_public"] = level != TaskAccessLevelPrivate
+	} else if req.IsPublic != nil {
+		level := TaskAccessLevelPublicReadOnly
+		if !*req.IsPublic {
+			level = TaskAccessLevelPrivate
+		} else if task.AccessLevel() == TaskAccessLevelPublicEditable {
+			// 旧客户端只回传 is_public=true 时不能误降级公开可协作的任务。
+			// Legacy clients echoing is_public=true must not silently downgrade a public-editable task.
+			level = TaskAccessLevelPublicEditable
+		}
+		definition["access_level"] = string(level)
+		definition["is_public"] = level != TaskAccessLevelPrivate
 	}
 	if req.CollaboratorIDs != nil {
 		ids := make([]uint, 0, len(req.CollaboratorIDs))
@@ -524,7 +546,7 @@ func preserveTaskPermissionFields(original, updated JSONMap) JSONMap {
 	if updated == nil {
 		updated = JSONMap{}
 	}
-	for _, key := range []string{"is_public", "collaborators", "collaborator_ids"} {
+	for _, key := range []string{"is_public", "access_level", "collaborators", "collaborator_ids"} {
 		if value, exists := original[key]; exists {
 			updated[key] = value
 		} else {
@@ -541,6 +563,7 @@ func taskPermissionsForActor(task *Task, actor executionapp.Actor) *TaskPermissi
 	}
 	return &TaskPermissions{
 		TaskID:          task.ID,
+		AccessLevel:     task.AccessLevel(),
 		IsPublic:        task.IsPublic(),
 		CollaboratorIDs: ids,
 		CanEdit:         task.CanUserEdit(uint(actor.UserID), actor.IsAdmin),
@@ -2225,6 +2248,7 @@ func buildTaskTree(tasks []*Task) []*TaskTreeNode {
 			IsOwner:                 task.IsOwner,
 			IsCollaborator:          task.IsCollaborator,
 			IsPublicTask:            task.IsPublicTask,
+			AccessLevel:             task.AccessLevel(),
 			Children:                []*TaskTreeNode{},
 		}
 	}

@@ -792,7 +792,8 @@ if commandType == "transfer_plugin" && resp.Status == pb.CommandStatus_RUNNING {
 ### 14.1 范围 / 触发条件
 
 - 工作台任务正文和共享设置由不同操作修改。
-- 共享设置只包含公开状态与协作者，不应要求客户端回传任务正文。
+- 共享设置是三态访问级别 `access_level` 与协作者列表，不应要求客户端回传任务正文。
+- `access_level` 取值为 `private`（私有）/ `public_readonly`（公开只读）/ `public_editable`（公开可协作），历史数据只有 `is_public` 布尔位，需要服务端兼容解析。
 - 修改正文时，即使请求体包含共享字段，也不能改变已经保存的共享设置。
 
 ### 14.2 接口与命令签名
@@ -802,16 +803,19 @@ GET /api/v1/sync/tasks/:id/permissions
 PUT /api/v1/sync/tasks/:id/permissions
 
 stx sync task permissions get <id>
-stx sync task permissions update <id> [--public|--private]
+stx sync task permissions update <id>
+    [--access-level <private|public_readonly|public_editable>]
+    [--public|--private]
     [--collaborator-id <user-id>...] [--clear-collaborators]
     --confirm [--idempotency-key <key>]
 ```
 
-权限修改请求：
+权限修改请求（`access_level` 与 `is_public` 至少要给一个才会改级别）：
 
 ```json
 {
-  "is_public": false,
+  "access_level": "public_editable",
+  "is_public": true,
   "collaborator_ids": [2, 3]
 }
 ```
@@ -819,19 +823,26 @@ stx sync task permissions update <id> [--public|--private]
 响应至少包含：
 
 ```text
-task_id, is_public, collaborator_ids,
+task_id, access_level, is_public, collaborator_ids,
 can_edit, can_manage, is_owner, is_collaborator
 ```
 
+`Task`、`TaskTreeNode`、`TaskPermissions` 的输出都必须带 `access_level` 字段。
+
 ### 14.3 接口与数据规则
 
-- `PUT /sync/tasks/:id` 只修改任务正文和基础信息；服务端必须从原记录保留 `is_public`、`collaborators`、`collaborator_ids`。
+- `PUT /sync/tasks/:id` 只修改任务正文和基础信息；服务端必须从原记录保留 `access_level`、`is_public`、`collaborators`、`collaborator_ids`（`preserveTaskPermissionFields`）。
 - `PUT /sync/tasks/:id/permissions` 只修改共享设置，不保存正文，也不创建任务正文版本。
 - 只有任务所有者或管理员可以修改共享设置；拥有查看或编辑权限不等于可以管理共享设置。
+- `access_level` 是共享级别的准规范字段；修改时服务端双写 `definition["access_level"]` 与派生的 `definition["is_public"]`（`private → false`，其余 → `true`）。
+- `access_level` 与 `is_public` 同传时必须一致（`is_public=false` 对应 `private`，`is_public=true` 覆盖两个公开档），矛盾返回 `400`。
+- 旧客户端只传 `is_public` 的兼容映射：`false → private`，`true → public_readonly`；但任务当前已是 `public_editable` 时，`is_public=true` 不得降级为 `public_readonly`。
+- 任务记录中 `access_level` 缺失或非法时按 `is_public` 推导：`false`/"false" 为 `private`，其余为 `public_readonly`（安全默认）；`is_public=false` 的旧记录不会凭空获得可协作权限。
 - `collaborator_ids` 使用正整数用户编号，重复值由服务端去重；空数组表示清空协作者。
 - 返回的 `collaborator_ids` 必须是数组，未配置时返回 `[]`，不能返回 `null`。
 - 网页和 CLI 的权限写请求都要发送确认、幂等与客户端来源 Header。
 - 审计使用 `operation_id=sync.task.permissions.update`，只记录修改前后的共享设置，不记录任务正文。
+- 编辑权限边界：`public_editable` 允许任何登录用户编辑正文；删除任务、管理共享设置仍限所有者或管理员（`CanUserEdit` 放开，但 `DeleteTaskForActor`/`canManageTaskPermissions`/`EvaluateJobPermissions` 的所有权判断不变）。
 
 ### 14.4 校验与错误对应表
 
@@ -843,21 +854,27 @@ can_edit, can_manage, is_owner, is_collaborator
 | 任务已归档 | 拒绝修改 | 输出服务端错误，不宣称成功 |
 | `collaborator_ids` 包含 `0` | `400` | 校验错误退出码 |
 | 同一协作者重复出现 | 保存去重后的数组 | 输出去重后的结果 |
+| `access_level` 非合法枚举 | `400`（`ErrInvalidTaskAccessLevel`） | 用法错误退出码，不发请求 |
+| `access_level` 与 `is_public` 同传且矛盾 | `400`（`ErrInvalidTaskAccessLevel`） | — |
+| 任务定义中 `access_level` 为非字符串类型 | `400` | 校验错误退出码 |
 | 同时使用 `--public` 和 `--private` | 不发送请求 | 用法错误退出码 |
+| `--access-level` 与 `--public`/`--private` 同用 | 不发送请求 | 用法错误退出码 |
 | 同时使用 `--clear-collaborators` 和 `--collaborator-id` | 不发送请求 | 用法错误退出码 |
 
 ### 14.5 Good / Base / Bad
 
-- Good：网页保存共享设置时只调用权限接口，正文请求不携带共享设置；审计只保存共享设置修改前后的值。
-- Base：旧客户端仍读取 `collaborators`，服务端在权限修改时同步保存 `collaborators` 与 `collaborator_ids`。
-- Bad：用完整正文更新接口修改公开状态，或为了改一个协作者而把密码、连接配置和任务正文全部回传。
+- Good：网页保存共享设置时只调用权限接口，发送 `access_level` 与 `collaborator_ids`，正文请求不携带共享设置；审计只保存共享设置修改前后的值。
+- Base：旧客户端只传 `is_public`，服务端按兼容规则推导 `access_level` 并双写两个字段；`public_editable` 任务不被降级。旧客户端仍读取 `collaborators`，服务端在权限修改时同步保存 `collaborators` 与 `collaborator_ids`。
+- Bad：用完整正文更新接口修改访问级别，或为了改一个协作者而把密码、连接配置和任务正文全部回传；用 `is_public` 布尔判断替代三态 `access_level` 决定谁能编辑。
 
 ### 14.6 必须有的测试
 
 - Service：所有者和管理员可以修改；普通查看者、协作者不能修改；编号 `0` 被拒绝；重复编号被去重。
-- Service：正文更新请求携带伪造共享字段时，数据库中的共享设置保持不变。
+- Service：`access_level` 三态写入、非法枚举 `400`、`access_level`+`is_public` 矛盾 `400`、旧 `is_public=true` 不降级 `public_editable`、切换级别不丢 `collaborator_ids`。
+- Model：缺失/非法 `access_level` 回退 `is_public` 推导；`public_editable` 下非所有者可编辑；`private`/`public_readonly` 边界不变。
+- Service：正文更新请求携带伪造共享字段时，数据库中的共享设置（含 `access_level`）保持不变。
 - Handler：读取与修改权限的状态码、响应数组、审计 `before/after` 正确。
-- CLI：读取命令路径正确；修改命令只发送共享字段；确认和幂等 Header 存在；冲突参数在本地拒绝。
+- CLI：读取命令路径正确；修改命令只发送共享字段；确认和幂等 Header 存在；`--access-level` 非法枚举与冲突参数在本地拒绝。
 - 前端：共享设置保存调用专用接口，不触发正文版本更新。
 - 命令登记：所有登记了 `CommandPath` 的操作都能在 Cobra 命令树中找到。
 
@@ -883,4 +900,11 @@ repo.UpdateTask(ctx, task)
 ```go
 before, after, err := service.UpdateTaskPermissionsForActor(ctx, actor, taskID, req)
 recordPermissionAudit(before, after)
+```
+
+判断可见性时通过单点解析而不是直接读 `is_public`：
+
+```go
+if task.AccessLevel() != TaskAccessLevelPrivate { /* 公开可见 */ }
+if task.CanUserEdit(actor.ID, actor.IsAdmin()) { /* public_editable 放行 */ }
 ```

@@ -239,6 +239,12 @@ func (s *Service) ListJobsWithOptions(ctx context.Context, actor executionapp.Ac
 			return nil, err
 		}
 	}
+	// 列表行统一瘦身（放在 live 组装之后）：完整 result_preview / submitted_content 只走 getJob 详情返回。
+	// Slim every list row (after live assembly): the full result_preview / submitted_content only ships via
+	// the getJob detail.
+	for _, job := range jobs {
+		slimJobListRow(job)
+	}
 	s.decorateJobPermissions(ctx, actor, jobs)
 	return out, nil
 }
@@ -337,26 +343,27 @@ func (s *Service) decorateJobsForList(ctx context.Context, jobs []*JobInstance) 
 	for _, job := range jobs {
 		job.TaskName = names[job.TaskID]
 		job.Live = buildJobLiveMetrics(job)
-		// live 已把列表需要的指标压平，result_preview 的大块内容（metrics 全量、预览数据等）在列表里没人读，
-		// 只保留行展示仍消费的三个键（job_status 显示态、cancel_outcome/cancel_timeout_seconds 结果提示），
-		// 把 50 行一页的响应从数百 KB 降到十分之一量级。详情由前端单独 getJob 取全量。
-		// `live` already flattens every metric the list needs, and nobody reads the heavy parts of
-		// result_preview (full metrics, preview payloads) in list rows. Keep only the three keys the row
-		// still consumes (job_status display state, cancel_outcome/cancel_timeout_seconds outcome hints),
-		// shrinking a 50-row page from hundreds of KB to a tenth of that. The detail view fetches the full
-		// job via getJob on demand.
-		if job.ResultPreview != nil {
-			job.ResultPreview = pruneResultPreviewForList(job.ResultPreview)
-		}
-		// submit_spec.submitted_content 是整段提交脚本（含脱敏密码），行展示只用 job_name / 通道 / 提交方式等
-		// 元数据键，脚本文本留给详情 getJob 返回。
-		// submit_spec.submitted_content is the whole submitted script (with masked secrets); the row only
-		// shows metadata keys (job_name / channel / trigger), and the detail getJob returns the script.
-		if job.SubmitSpec != nil {
-			delete(job.SubmitSpec, "submitted_content")
-		}
 	}
 	return nil
+}
+
+// slimJobListRow 把列表行裁剪到行展示消费的字段：result_preview 只留白名单键
+// （job_status 显示态、cancel_outcome/cancel_timeout_seconds 结果提示），删掉 submit_spec.submitted_content
+// （整段提交脚本，含脱敏密码）；live 已压平行需要的指标，详情由前端单独 getJob 取全量。
+// slimJobListRow trims a list row to what the row displays: result_preview keeps only allow-listed keys
+// (job_status display state, cancel_outcome/cancel_timeout_seconds outcome hints) and drops
+// submit_spec.submitted_content (the whole submitted script incl. masked secrets); `live` already flattens
+// the metrics the row needs, and the detail view fetches the full record via getJob.
+func slimJobListRow(job *JobInstance) {
+	if job == nil {
+		return
+	}
+	if job.ResultPreview != nil {
+		job.ResultPreview = pruneResultPreviewForList(job.ResultPreview)
+	}
+	if job.SubmitSpec != nil {
+		delete(job.SubmitSpec, "submitted_content")
+	}
 }
 
 // jobListPreviewKeepKeys 是列表行还消费的 result_preview 键（前端 JobOutcomeHints / 显示状态判定）。

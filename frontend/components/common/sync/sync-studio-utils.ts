@@ -25,12 +25,15 @@ import type {
   SyncFormat,
   SyncGlobalVariable,
   SyncJobInstance,
+  SyncJobListSubmitSpec,
+  SyncJobSummary,
   SyncJobListParams,
   SyncJSON,
   SyncPluginFactoryInfo,
   SyncPluginType,
   SyncPreviewDataset,
   SyncTask,
+  SyncTaskAccessLevel,
   SyncTaskTreeNode,
 } from '@/lib/services/sync';
 export type { SyncTaskTreeNode, SyncTask };
@@ -64,6 +67,7 @@ export interface EditorState {
   isOwner?: boolean;
   isCollaborator?: boolean;
   isPublic?: boolean;
+  accessLevel?: SyncTaskAccessLevel;
 }
 
 export interface TreeContextMenuState {
@@ -409,6 +413,245 @@ export function buildStudioGridTemplateRows(
   return `minmax(0,1fr) ${clampStudioConsoleHeight(consoleHeight)}px`;
 }
 
+// ==========================================
+// 响应式布局引擎（纯函数）
+// Responsive layout engine (pure functions)
+// ==========================================
+
+/** 工作台主区宽度模式：宽屏三栏 / 中屏互斥单栏 / 窄屏浮层抽屉。
+ *  Workbench width tier: wide three-column / medium single-docked / compact overlay drawers. */
+export type StudioViewportMode = 'wide' | 'medium' | 'compact';
+
+/** 顶栏紧凑档位：完整 / 紧凑图标 / 极窄折叠。
+ *  Topbar density tier: full / compact icon actions / narrow folded inspect menu. */
+export type StudioTopbarTier = 'wide' | 'medium' | 'compact';
+
+/** 主区三档断点：≥1280 双侧常驻 / 960–1279 单侧停靠 / <960 浮层抽屉。
+ *  Main-grid breakpoints: ≥1280 dual docked / 960–1279 single docked / <960 overlay drawers. */
+export const STUDIO_WIDE_BREAKPOINT = 1280;
+export const STUDIO_MEDIUM_BREAKPOINT = 960;
+/** 顶栏三档断点：≥1200 全显 / 900–1199 图标化 / <900 探查动作并入主菜单。
+ *  Topbar breakpoints: ≥1200 full / 900–1199 icon-only / <900 inspect actions fold into the menu. */
+export const STUDIO_TOPBAR_WIDE_BREAKPOINT = 1200;
+export const STUDIO_TOPBAR_MEDIUM_BREAKPOINT = 900;
+/** 任何停靠组合下中栏编辑区必须保留的最小宽度（px）。
+ *  Minimum center editor width preserved under any docked combination (px). */
+export const STUDIO_CENTER_MIN_WIDTH = 420;
+/** 控制台动态夹紧时编辑区保留的最小高度（px）。
+ *  Minimum editor height preserved while the console height is dynamically clamped (px). */
+export const STUDIO_EDITOR_MIN_HEIGHT = 180;
+
+/**
+ * 主区宽度模式：未测量首帧（<=0，含 SSR）一律回落 'wide'，与服务端默认布局一致，零水合差异。
+ * Width tier: an unmeasured first frame (<=0, incl. SSR) falls back to 'wide', matching the
+ * server-rendered default so hydration stays identical.
+ */
+export function resolveStudioViewportMode(
+  containerWidth: number,
+): StudioViewportMode {
+  if (containerWidth <= 0 || containerWidth >= STUDIO_WIDE_BREAKPOINT) {
+    return 'wide';
+  }
+  return containerWidth >= STUDIO_MEDIUM_BREAKPOINT ? 'medium' : 'compact';
+}
+
+/**
+ * 顶栏紧凑档位：未测量首帧（<=0）回落 'wide'，与 SSR 输出一致。
+ * Topbar tier: an unmeasured first frame (<=0) falls back to 'wide', matching SSR output.
+ */
+export function resolveStudioTopbarTier(
+  containerWidth: number,
+): StudioTopbarTier {
+  if (containerWidth <= 0 || containerWidth >= STUDIO_TOPBAR_WIDE_BREAKPOINT) {
+    return 'wide';
+  }
+  return containerWidth >= STUDIO_TOPBAR_MEDIUM_BREAKPOINT
+    ? 'medium'
+    : 'compact';
+}
+
+export interface StudioEffectiveLayoutInput {
+  /** 主工作区容器实测宽高；<=0 表示尚未测量（SSR 首帧）。
+   *  Measured workspace size; <=0 means not measured yet (SSR first frame). */
+  containerWidth: number;
+  containerHeight: number;
+  /** 用户侧的开合态（渲染态，不区分持久化来源）。
+   *  Rendered collapse flags (user-facing state, regardless of persistence). */
+  leftCollapsed: boolean;
+  rightCollapsed: boolean;
+  leftWidth: number;
+  rightWidth: number;
+  consoleHeight: number;
+  consoleMaximized: boolean;
+}
+
+export interface StudioEffectiveLayout {
+  viewportMode: StudioViewportMode;
+  topbarTier: StudioTopbarTier;
+  /** 是否以浮层抽屉承载左右侧栏。 / Whether sidebars render as overlay drawers. */
+  overlaySidebars: boolean;
+  /** 实际停靠在网格列中的开合态（窄屏均为收起，中屏双开时右栏暂收）。
+   *  Docked-in-grid collapse flags (both collapsed in compact; medium tucks the right
+   *  when both are open). */
+  dockedLeftCollapsed: boolean;
+  dockedRightCollapsed: boolean;
+  /** 中栏 ≥420px 保护后的渲染宽度与当前拖拽上限。
+   *  Render widths after the ≥420px center guard plus the live drag ceilings. */
+  effectiveLeftWidth: number;
+  effectiveRightWidth: number;
+  maxLeftWidth: number;
+  maxRightWidth: number;
+  /** 矮容器保护编辑区后的渲染控制台高与拖拽上限。
+   *  Render console height after the short-container guard plus its drag ceiling. */
+  effectiveConsoleHeight: number;
+  maxConsoleHeight: number;
+  gridTemplateColumns: string;
+  gridTemplateRows: string;
+}
+
+/**
+ * 计算本次渲染的安全布局值：宽屏保护中栏、中屏单侧停靠、窄屏浮层抽屉、矮容器夹紧控制台。
+ * 所有动态夹紧只作用于渲染值，绝不回写用户已保存的 localStorage 偏好。
+ * Resolve safe render-time layout values: the wide tier guards the center column, medium
+ * docks at most one sidebar, compact switches to overlay drawers, and short containers
+ * clamp the console. Dynamic clamps never write back to persisted localStorage prefs.
+ */
+export function resolveEffectiveStudioLayout(
+  input: StudioEffectiveLayoutInput,
+): StudioEffectiveLayout {
+  const {
+    containerWidth,
+    containerHeight,
+    leftCollapsed,
+    rightCollapsed,
+    leftWidth,
+    rightWidth,
+    consoleHeight,
+    consoleMaximized,
+  } = input;
+  const viewportMode = resolveStudioViewportMode(containerWidth);
+  const topbarTier = resolveStudioTopbarTier(containerWidth);
+  const overlaySidebars = viewportMode === 'compact';
+
+  const dockedLeftCollapsed = overlaySidebars ? true : leftCollapsed;
+  // 中屏只允许单侧停靠：左栏开着时右栏一律按停靠收起（瞬态兜底，不碰存储值）。
+  // Medium docks one side at most: while the left is open the right is treated as
+  // docked-collapsed (a render-time fallback, persisted prefs untouched).
+  const dockedRightCollapsed =
+    overlaySidebars ||
+    rightCollapsed ||
+    (viewportMode === 'medium' && !leftCollapsed);
+
+  let effectiveLeftWidth = clampStudioLeftWidth(leftWidth);
+  let effectiveRightWidth = clampStudioRightWidth(rightWidth);
+  let maxLeftWidth = STUDIO_LEFT_WIDTH_MAX;
+  let maxRightWidth = STUDIO_RIGHT_WIDTH_MAX;
+
+  if (containerWidth > 0 && (!dockedLeftCollapsed || !dockedRightCollapsed)) {
+    // 侧栏预算 = 容器宽 - 中栏下限；停靠侧栏合计不得挤破中栏 420px。
+    // Sidebar budget = container width minus the center floor; docked sidebars may not
+    // squeeze the center under 420px.
+    const budget = Math.max(0, containerWidth - STUDIO_CENTER_MIN_WIDTH);
+    if (!dockedLeftCollapsed && !dockedRightCollapsed) {
+      // 双侧停靠（仅宽屏可达）：总和超预算时先退到各自下限，剩余空间按超出占比分配。
+      // Dual dock (only reachable in wide): shrink each toward its floor, then split the
+      // leftover budget by overshoot share.
+      const floorLeft = Math.min(STUDIO_LEFT_WIDTH_MIN, budget);
+      const floorRight = Math.min(STUDIO_RIGHT_WIDTH_MIN, budget);
+      const wantLeft = effectiveLeftWidth;
+      const wantRight = effectiveRightWidth;
+      if (wantLeft + wantRight > budget) {
+        const slack = budget - floorLeft - floorRight;
+        const overshoot = wantLeft - floorLeft + (wantRight - floorRight);
+        if (slack <= 0 || overshoot <= 0) {
+          effectiveLeftWidth = floorLeft;
+          effectiveRightWidth = Math.max(0, budget - floorLeft);
+        } else {
+          effectiveLeftWidth = Math.round(
+            floorLeft + ((wantLeft - floorLeft) * slack) / overshoot,
+          );
+          effectiveRightWidth = Math.round(
+            floorRight + ((wantRight - floorRight) * slack) / overshoot,
+          );
+        }
+      }
+      // 拖拽上限联动：一侧越宽，另一侧能拖到的上限越小。
+      // Drag ceilings interlock: the wider one side already is, the less the other may take.
+      maxLeftWidth = Math.min(
+        STUDIO_LEFT_WIDTH_MAX,
+        Math.max(STUDIO_LEFT_WIDTH_MIN, budget - effectiveRightWidth),
+      );
+      maxRightWidth = Math.min(
+        STUDIO_RIGHT_WIDTH_MAX,
+        Math.max(STUDIO_RIGHT_WIDTH_MIN, budget - effectiveLeftWidth),
+      );
+    } else if (!dockedLeftCollapsed) {
+      // 单侧停靠：预算不足下限时退到 160px 兜底，优先保住中栏而不是侧栏下限。
+      // Single dock: below the floor budget it settles at a 160px fallback — the center
+      // wins over the sidebar's own minimum.
+      maxLeftWidth =
+        budget >= STUDIO_LEFT_WIDTH_MIN
+          ? Math.min(STUDIO_LEFT_WIDTH_MAX, budget)
+          : Math.max(160, budget);
+      effectiveLeftWidth = Math.min(effectiveLeftWidth, maxLeftWidth);
+    } else {
+      maxRightWidth =
+        budget >= STUDIO_RIGHT_WIDTH_MIN
+          ? Math.min(STUDIO_RIGHT_WIDTH_MAX, budget)
+          : Math.max(160, budget);
+      effectiveRightWidth = Math.min(effectiveRightWidth, maxRightWidth);
+    }
+  }
+
+  let maxConsoleHeight = STUDIO_CONSOLE_HEIGHT_MAX;
+  let effectiveConsoleHeight = clampStudioConsoleHeight(consoleHeight);
+  if (containerHeight > 0) {
+    if (containerHeight - STUDIO_EDITOR_MIN_HEIGHT >= STUDIO_CONSOLE_HEIGHT_MIN) {
+      // 常规高度：控制台高不超过「容器高 - 编辑区下限 180px」，但用户偏好本身不改。
+      // Normal heights: console tops out at container minus the 180px editor floor,
+      // while the stored preference itself stays untouched.
+      maxConsoleHeight = Math.min(
+        STUDIO_CONSOLE_HEIGHT_MAX,
+        containerHeight - STUDIO_EDITOR_MIN_HEIGHT,
+      );
+    } else {
+      // 极矮容器：编辑区与控制台都保不住下限，控制台按比例 45% 分配，编辑区吃剩余空间。
+      // Extremely short container: neither floor holds, so the console takes ~45%
+      // and the editor keeps the remainder.
+      maxConsoleHeight = Math.max(110, Math.floor(containerHeight * 0.45));
+    }
+    effectiveConsoleHeight = Math.min(
+      clampStudioConsoleHeight(consoleHeight),
+      maxConsoleHeight,
+    );
+  }
+
+  return {
+    viewportMode,
+    topbarTier,
+    overlaySidebars,
+    dockedLeftCollapsed,
+    dockedRightCollapsed,
+    effectiveLeftWidth,
+    effectiveRightWidth,
+    maxLeftWidth,
+    maxRightWidth,
+    effectiveConsoleHeight,
+    maxConsoleHeight,
+    // 直接拼接动态夹紧后的列宽，不再经过 buildStudioGridTemplateColumns 二次夹回下限，
+    // 确保网格轨道与有效宽及分隔条坐标严格一致。
+    // Format columns directly from the dynamically clamped widths without re-clamping via
+    // buildStudioGridTemplateColumns, keeping grid tracks and split handle positions aligned.
+    gridTemplateColumns: `${dockedLeftCollapsed ? '0px' : `${effectiveLeftWidth}px`} minmax(0,1fr) ${dockedRightCollapsed ? '0px' : `${effectiveRightWidth}px`}`,
+    // 动态夹紧值可能低于 STUDIO_CONSOLE_HEIGHT_MIN，不能再过 clampStudioConsoleHeight。
+    // The dynamic clamp may dip below STUDIO_CONSOLE_HEIGHT_MIN, so it must not be
+    // re-clamped by clampStudioConsoleHeight.
+    gridTemplateRows: consoleMaximized
+      ? '0px minmax(0,1fr)'
+      : `minmax(0,1fr) ${effectiveConsoleHeight}px`,
+  };
+}
+
 export const EMPTY_EDITOR: EditorState = {
   name: '',
   description: '',
@@ -423,6 +666,7 @@ export const EMPTY_EDITOR: EditorState = {
   isOwner: true,
   isCollaborator: false,
   isPublic: true,
+  accessLevel: 'public_readonly',
 };
 
 export const WORKSPACE_NAME_PATTERN = /^[\p{L}\p{N}._-]+$/u;
@@ -1299,7 +1543,7 @@ export function ensureSyncHoconLanguage(monaco: any) {
 // General and Comparison Utilities
 // ==========================================
 
-export function getSyncJobClusterId(job: SyncJobInstance | null): number | null {
+export function getSyncJobClusterId(job: SyncJobSummary | null): number | null {
   const raw = job?.submit_spec?.cluster_id;
   if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
     return raw;
@@ -1392,6 +1636,11 @@ export function buildTaskPayloadFromEditor(
   editor: EditorState,
   customVariableRows: VariableRow[],
 ): CreateSyncTaskRequest {
+  const accessLevel = resolveTaskAccessLevel({
+    access_level: editor.accessLevel,
+    is_public: editor.isPublic,
+    definition: editor.definition,
+  });
   return {
     parent_id: editor.parentId,
     node_type: 'file',
@@ -1403,10 +1652,10 @@ export function buildTaskPayloadFromEditor(
     job_name: editor.name.trim(),
     definition: {
       ...editor.definition,
-      is_public:
-        editor.definition?.is_public !== undefined
-          ? editor.definition.is_public
-          : (editor.isPublic ?? true),
+      // 共享字段与后端双写约定保持一致：access_level 为准，is_public 由它推导。
+      // Keep the backend dual-write contract: access_level is canonical and is_public is derived from it.
+      access_level: accessLevel,
+      is_public: accessLevel !== 'private',
       collaborators: Array.isArray(editor.definition?.collaborators)
         ? editor.definition.collaborators
         : Array.isArray(editor.definition?.collaborator_ids)
@@ -1856,6 +2105,15 @@ export function patchTreeNode(
         current_version: task.current_version,
         status: task.status,
         job_name: task.job_name,
+        // 权限装饰字段也要同步：共享弹窗保存后树节点的只读/协作标记必须跟随最新权限。
+        // Permission decoration must sync too: after saving the share popover the tree node's
+        // read-only / collaboration markers have to track the latest permissions.
+        can_edit: task.can_edit ?? node.can_edit,
+        can_run: task.can_run ?? node.can_run,
+        is_owner: task.is_owner ?? node.is_owner,
+        is_collaborator: task.is_collaborator ?? node.is_collaborator,
+        is_public: task.is_public ?? node.is_public,
+        access_level: task.access_level ?? node.access_level,
       };
     }
     if (node.children && node.children.length > 0) {
@@ -2411,7 +2669,7 @@ const REALTIME_ENGINE_RUNNING_STATUSES = new Set([
  * Realtime insight entry info for a job. `supported` is decided by the backend from the cluster version and stored
  * in submit_spec.observability; the frontend never compares versions itself.
  */
-export function getRealtimeEntry(job?: SyncJobInstance | null): {
+export function getRealtimeEntry(job?: SyncJobSummary | null): {
   supported: boolean;
   injected: boolean;
   running: boolean;
@@ -2533,7 +2791,7 @@ export function formatCellValue(value: unknown): string {
   return String(value);
 }
 
-export function getEngineAPIMode(job: SyncJobInstance | null): string {
+export function getEngineAPIMode(job: SyncJobSummary | null): string {
   const mode = job?.submit_spec?.engine_api_mode;
   if (typeof mode === 'string' && mode.trim()) {
     return mode.trim().toLowerCase();
@@ -2541,14 +2799,16 @@ export function getEngineAPIMode(job: SyncJobInstance | null): string {
   return 'v2';
 }
 
-export function submitSpecExecutionMode(spec: SyncJSON | undefined): ExecutionMode {
+export function submitSpecExecutionMode(
+  spec: SyncJSON | SyncJobListSubmitSpec | undefined,
+): ExecutionMode {
   if (spec?.execution_mode === 'local') {
     return 'local';
   }
   return 'cluster';
 }
 
-export function getEngineEndpointLabel(job: SyncJobInstance | null): string {
+export function getEngineEndpointLabel(job: SyncJobSummary | null): string {
   if (job && submitSpecExecutionMode(job.submit_spec) === 'local') {
     const installDir = job.submit_spec?.install_dir;
     return typeof installDir === 'string' && installDir.trim()
@@ -2604,7 +2864,7 @@ export function parseTaskTimeoutInput(raw: string): number | null | undefined {
  * 提交请求没拿到回复、仍在等引擎确认的作业。
  * A job whose submit got no reply and is still waiting for the engine to confirm it.
  */
-export function isSubmitOutcomeUnknown(job?: SyncJobInstance | null): boolean {
+export function isSubmitOutcomeUnknown(job?: SyncJobSummary | null): boolean {
   return (
     String(job?.status || '').toLowerCase() === 'pending' &&
     String(job?.submit_spec?.submit_outcome || '') === 'unknown'
@@ -2615,18 +2875,18 @@ export function isSubmitOutcomeUnknown(job?: SyncJobInstance | null): boolean {
  * 提交确认超时、已被判为失败的作业。
  * A job whose submit confirmation expired and was marked failed.
  */
-export function isSubmitOutcomeExpired(job?: SyncJobInstance | null): boolean {
+export function isSubmitOutcomeExpired(job?: SyncJobSummary | null): boolean {
   return String(job?.submit_spec?.submit_outcome || '') === 'expired';
 }
 
 /** 提交确认截止时间（RFC3339）/ The submit confirmation deadline (RFC3339). */
-export function getSubmitOutcomeDeadline(job?: SyncJobInstance | null): string | undefined {
+export function getSubmitOutcomeDeadline(job?: SyncJobSummary | null): string | undefined {
   const value = String(job?.submit_spec?.submit_deadline || '').trim();
   return value || undefined;
 }
 
 /** 提交超时时长（分钟），用于提示文案 / The submit timeout in minutes, for hint text. */
-export function getSubmitTimeoutMinutes(job?: SyncJobInstance | null): number {
+export function getSubmitTimeoutMinutes(job?: SyncJobSummary | null): number {
   const seconds = Number(job?.submit_spec?.submit_timeout_seconds || 0);
   return seconds > 0 ? Math.max(1, Math.round(seconds / 60)) : 5;
 }
@@ -2635,12 +2895,12 @@ export function getSubmitTimeoutMinutes(job?: SyncJobInstance | null): number {
  * 停止请求没拿到回复、仍在等引擎确认的作业。
  * A job whose stop request got no reply and is still waiting for the engine to confirm it.
  */
-export function isCancelOutcomeUnknown(job?: SyncJobInstance | null): boolean {
+export function isCancelOutcomeUnknown(job?: SyncJobSummary | null): boolean {
   return String(job?.result_preview?.cancel_outcome || '') === 'unknown';
 }
 
 /** 停止已超时仍未停下（后端派生）/ The stop is overdue and the job has not stopped (derived by the backend). */
-export function isCancelOverdue(job?: SyncJobInstance | null): boolean {
+export function isCancelOverdue(job?: SyncJobSummary | null): boolean {
   return job?.cancel_overdue === true;
 }
 
@@ -2651,7 +2911,7 @@ export function isCancelOverdue(job?: SyncJobInstance | null): boolean {
  * the job to running with cancel_outcome=reverted, meaning the stop can be issued again. Only shown
  * while the job is active — a terminal job or a fresh stop (which clears cancel_outcome) ends the hint.
  */
-export function isCancelReverted(job?: SyncJobInstance | null): boolean {
+export function isCancelReverted(job?: SyncJobSummary | null): boolean {
   return (
     String(job?.result_preview?.cancel_outcome || '') === 'reverted' &&
     isJobLifecycleActive(getDisplayJobLifecycleStatus(job ?? null))
@@ -2659,7 +2919,7 @@ export function isCancelReverted(job?: SyncJobInstance | null): boolean {
 }
 
 /** 停止超时时长（分钟），用于提示文案 / The stop timeout in minutes, for hint text. */
-export function getCancelTimeoutMinutes(job?: SyncJobInstance | null): number {
+export function getCancelTimeoutMinutes(job?: SyncJobSummary | null): number {
   const seconds = Number(job?.result_preview?.cancel_timeout_seconds || 0);
   return seconds > 0 ? Math.max(1, Math.round(seconds / 60)) : 5;
 }
@@ -2777,7 +3037,7 @@ export function getJobStatusLabel(status: string): string {
   }
 }
 
-export function getDisplayJobLifecycleStatus(job: SyncJobInstance | null): string {
+export function getDisplayJobLifecycleStatus(job: SyncJobSummary | null): string {
   if (!job) {
     return '-';
   }
@@ -2832,7 +3092,7 @@ export function formatJobDuration(
 }
 
 export function getRunModeLabel(
-  job: SyncJobInstance,
+  job: SyncJobSummary,
   t: ReturnType<typeof useTranslations<'workbenchStudio'>>,
 ): string {
   const runType = String(job.run_type || '')
@@ -2929,7 +3189,7 @@ export function isJobLifecycleTerminal(status: string | null | undefined): boole
   }
 }
 
-export function canRecoverFromJob(job: SyncJobInstance | null): boolean {
+export function canRecoverFromJob(job: SyncJobSummary | null): boolean {
   if (!job || job.run_type === 'preview') {
     return false;
   }
@@ -2950,7 +3210,7 @@ export function canRecoverFromJob(job: SyncJobInstance | null): boolean {
  * initiator). Both places must agree, so the rules live only here.
  */
 export function getJobActionState(
-  job: SyncJobInstance,
+  job: SyncJobSummary,
   ctx: {isAdmin: boolean; isOwner: boolean; canRun: boolean; currentUserId?: number; disableRecover: boolean},
 ): {showRecover: boolean; canRecover: boolean; showStop: boolean; canStop: boolean} {
   const showStop = isJobLifecycleActive(getDisplayJobLifecycleStatus(job));
@@ -2967,6 +3227,96 @@ export function getJobActionState(
     showStop,
     canStop: permittedStop,
   };
+}
+
+// /sync/jobs 摘要行 result_preview 保留的白名单键（与后端 slimJobListRow 一致）。
+// The allow-listed result_preview keys a /sync/jobs summary row keeps (mirrors the backend slimJobListRow).
+const JOB_RESULT_PREVIEW_LIST_KEYS = new Set([
+  'job_status',
+  'cancel_outcome',
+  'cancel_timeout_seconds',
+]);
+
+/**
+ * 该行是否带完整记录的重字段：摘要行 result_preview 只留白名单键、submit_spec 无 submitted_content；
+ * 任一重字段出现就说明来源是 getJob 全量（或等效记录），可直接采纳，不必再请求。
+ * Whether the row carries full-record heavy fields: a summary row keeps only allow-listed result_preview
+ * keys and no submit_spec.submitted_content; any heavy key present means the source is a getJob full
+ * record (or equivalent) that can be adopted as-is without refetching.
+ */
+export function isFullJobRecord(job: SyncJobSummary | null | undefined): boolean {
+  if (!job) {
+    return false;
+  }
+  if ('submitted_content' in toObject(job.submit_spec)) {
+    return true;
+  }
+  return Object.keys(toObject(job.result_preview)).some(
+    (key) => !JOB_RESULT_PREVIEW_LIST_KEYS.has(key),
+  );
+}
+
+/**
+ * 把摘要行与已持有的完整记录做字段级合并（不整行替换）：行级字段（status / live / task_name /
+ * updated_at 等）取较新一侧的值，result_preview / submit_spec 做键级合并——较新一侧的白名单 /
+ * 元数据键覆盖旧值，全量独有的重字段（job_dag / metrics / submitted_content 等）始终保留。
+ * Field-level merge of a summary row onto a held full record (never a wholesale replace): row-level
+ * fields (status / live / task_name / updated_at ...) come from whichever side is newer, while
+ * result_preview / submit_spec merge per-key — the newer side's allow-listed / metadata keys overwrite
+ * stale values and the full record's heavy fields (job_dag / metrics / submitted_content ...) always
+ * survive.
+ */
+export function mergeJobSummaryWithFull(
+  row: SyncJobSummary,
+  full: SyncJobInstance | null,
+): SyncJobInstance {
+  const rowPreview = toObject(row.result_preview);
+  const rowSpec = toObject(row.submit_spec);
+  if (!full) {
+    return {
+      ...row,
+      result_preview: {...rowPreview},
+      submit_spec: {...rowSpec},
+    } as SyncJobInstance;
+  }
+  const rowTs = Date.parse(row.updated_at || '');
+  const fullTs = Date.parse(full.updated_at || '');
+  // 行不比全量旧（含同时刻：行带着 live / task_name 这类全量没有的展示字段）→ 轻字段取行的，
+  // 否则全量整体较新、轻字段也取全量的；两侧的重字段始终由全量保留。
+  // A row not older than the record (equal counts — rows carry live / task_name display fields the
+  // record lacks) supplies light fields; otherwise the record is the newer whole and supplies them too.
+  // Heavy fields always survive from the full record.
+  const rowNewer =
+    Number.isFinite(rowTs) && (!Number.isFinite(fullTs) || rowTs >= fullTs);
+  if (!rowNewer) {
+    return {
+      ...row,
+      ...full,
+      result_preview: {...rowPreview, ...toObject(full.result_preview)},
+      submit_spec: {...rowSpec, ...toObject(full.submit_spec)},
+    } as SyncJobInstance;
+  }
+  // 行较新时，摘要携带的键集合是权威的：白名单键 / submit_spec 元数据键在行里缺失即表示已被后端清除
+  // （如重试停止时 cancel_outcome 被清空），不能让全量里的旧值残留；只保留摘要按契约不带的重字段。
+  // When the row is newer its key set is authoritative: an allow-listed result_preview key or submit_spec
+  // metadata key missing from the row means the backend cleared it (e.g. cancel_outcome reset on a stop
+  // retry), so stale full-record values must not linger; only the heavy fields summaries never carry survive.
+  const fullPreview = toObject(full.result_preview);
+  const heavyPreview = Object.fromEntries(
+    Object.entries(fullPreview).filter(
+      ([key]) => !JOB_RESULT_PREVIEW_LIST_KEYS.has(key),
+    ),
+  );
+  const fullSpec = toObject(full.submit_spec);
+  return {
+    ...full,
+    ...row,
+    result_preview: {...heavyPreview, ...rowPreview},
+    submit_spec:
+      'submitted_content' in fullSpec
+        ? {...rowSpec, submitted_content: fullSpec.submitted_content}
+        : {...rowSpec},
+  } as SyncJobInstance;
 }
 
 export function getJobSubmittedScript(job: SyncJobInstance | null): {
@@ -3698,10 +4048,47 @@ export function getPreviewRowKindBadgeClass(value: string): string {
   }
 }
 
+// resolveTaskAccessLevel 是前端解析任务共享级别的唯一入口，语义与后端 Task.AccessLevel() 一致：
+// 合法 access_level 优先（顶层字段先于 definition），无效值回退 is_public 推导，安全默认公开只读。
+// resolveTaskAccessLevel is the single client-side resolver for the task sharing level, mirroring
+// backend Task.AccessLevel(): a valid access_level wins (top-level before definition), invalid values
+// fall back to the is_public derivation, and the safe default is public-read-only.
+export function resolveTaskAccessLevel(
+  task?: {
+    access_level?: SyncTaskAccessLevel | string | null;
+    is_public?: boolean | string | null;
+    definition?: SyncJSON | null;
+  } | null,
+): SyncTaskAccessLevel {
+  if (task) {
+    const rawLevel = task.access_level ?? task.definition?.access_level;
+    if (typeof rawLevel === 'string') {
+      const normalized = rawLevel.trim().toLowerCase();
+      if (
+        normalized === 'private' ||
+        normalized === 'public_readonly' ||
+        normalized === 'public_editable'
+      ) {
+        return normalized;
+      }
+    }
+    const rawPublic = task.is_public ?? task.definition?.is_public;
+    if (
+      rawPublic === false ||
+      (typeof rawPublic === 'string' &&
+        rawPublic.toLowerCase() === 'false')
+    ) {
+      return 'private';
+    }
+  }
+  return 'public_readonly';
+}
+
 export function extractEditorState(task?: SyncTask | null): EditorState {
   if (!task) {
     return EMPTY_EDITOR;
   }
+  const accessLevel = resolveTaskAccessLevel(task);
   return {
     id: task.id,
     parentId: task.parent_id,
@@ -3718,7 +4105,8 @@ export function extractEditorState(task?: SyncTask | null): EditorState {
     canRun: task.can_run ?? true,
     isOwner: task.is_owner ?? true,
     isCollaborator: task.is_collaborator ?? false,
-    isPublic: task.is_public ?? true,
+    isPublic: accessLevel !== 'private',
+    accessLevel,
   };
 }
 
@@ -3728,6 +4116,7 @@ export function extractEditorStateFromTreeNode(
   if (!task) {
     return EMPTY_EDITOR;
   }
+  const accessLevel = resolveTaskAccessLevel(task);
   return {
     id: task.id,
     parentId: task.parent_id,
@@ -3744,7 +4133,8 @@ export function extractEditorStateFromTreeNode(
     canRun: task.can_run ?? true,
     isOwner: task.is_owner ?? true,
     isCollaborator: task.is_collaborator ?? false,
-    isPublic: task.is_public ?? true,
+    isPublic: accessLevel !== 'private',
+    accessLevel,
   };
 }
 
@@ -3842,6 +4232,12 @@ export function formatMetricWithUnit(
   }
   if (unit === 'qps') {
     return `${compact} QPS`;
+  }
+  // formatMetricCompactValue 的 K / M / B 是数量级后缀，字节速率要并成 KB / MB / GB。
+  // formatMetricCompactValue's K / M / B are magnitude suffixes; byte rates fold them into KB / MB / GB.
+  const scaled = compact.match(/^(.*) ([KMB])$/);
+  if (scaled) {
+    return `${scaled[1]} ${{K: 'KB', M: 'MB', B: 'GB'}[scaled[2] as 'K' | 'M' | 'B']}/s`;
   }
   return `${compact} B/s`;
 }
@@ -4048,6 +4444,372 @@ export function buildPairedMetricRows(metrics: Record<string, unknown>) {
       return null;
     })
     .filter((item): item is NonNullable<typeof item> => item !== null);
+}
+
+export type MetricFlowTone = 'neutral' | 'warning' | 'danger';
+export type MetricFlowCountState =
+  | 'empty'
+  | 'balanced'
+  | 'behind'
+  | 'ahead'
+  | 'writeZero';
+export type MetricFlowSpeedState = 'idle' | 'balanced' | 'lag' | 'lead';
+
+/** 一句话状态结论的一个分段（i18n key + 插值参数）。 / One segment of the single-line status conclusion (i18n key + params). */
+export interface MetricFlowConclusionSegment {
+  key: string;
+  values?: Record<string, string | number>;
+}
+
+export interface MetricFlowSummary {
+  readCount: number;
+  writeCount: number;
+  committedCount: number;
+  /** 已写未提交 / written but not yet committed */
+  pendingCommitCount: number;
+  /** 已读未写 / read but not yet written */
+  backlogCount: number;
+  /** 写超读（引擎放大或多写）/ rows written beyond what was read */
+  overWriteCount: number;
+  countState: MetricFlowCountState;
+  speedState: MetricFlowSpeedState;
+  /** 写速 / 读速；两端都无流速时为 null。 / write/read byte-rate ratio; null when no flow data. */
+  speedRatio: number | null;
+  hasCommitMetric: boolean;
+  tone: MetricFlowTone;
+  segments: MetricFlowConclusionSegment[];
+}
+
+/**
+ * 把作业累计读 / 写 / 提交汇总成统一流量快照：快照页的 KPI、结论句与分段条都从这里派生，
+ * 口径与趋势页 toPipelineShare 的三段拆分保持一致。
+ * Roll cumulative read / write / committed into one flow summary; the snapshot KPIs, conclusion
+ * and segment bar all derive from it, staying consistent with the toPipelineShare three-way split.
+ */
+export function summarizeMetricFlow(
+  metrics: Record<string, unknown>,
+  opts?: {failed?: boolean},
+): MetricFlowSummary {
+  const readCount = Math.max(
+    0,
+    parseMetricNumber(metrics.SourceReceivedCount) ?? 0,
+  );
+  const writeCount = Math.max(0, parseMetricNumber(metrics.SinkWriteCount) ?? 0);
+  const committedRaw = parseMetricNumber(metrics.SinkCommittedCount);
+  const hasCommitMetric = committedRaw !== null;
+  // 提交量锚定写入侧：写超读时多写的行也算在已提交里，读侧不再截断。
+  // Committed rows anchor on the write side: rows written beyond the read still
+  // count as committed, so the read side does not clip them.
+  const committedCount = Math.max(0, Math.min(committedRaw ?? 0, writeCount));
+  const pendingCommitCount = Math.max(0, writeCount - committedCount);
+  const backlogCount = Math.max(0, readCount - writeCount);
+  const overWriteCount = Math.max(0, writeCount - readCount);
+
+  const countState: MetricFlowCountState =
+    readCount === 0 && writeCount === 0
+      ? 'empty'
+      : readCount > 0 && writeCount === 0
+        ? 'writeZero'
+        : overWriteCount > 0
+          ? 'ahead'
+          : backlogCount > 0
+            ? 'behind'
+            : 'balanced';
+
+  const srcBps = Math.max(
+    0,
+    parseMetricNumber(metrics.SourceReceivedBytesPerSeconds) ?? 0,
+  );
+  const sinkBps = Math.max(
+    0,
+    parseMetricNumber(metrics.SinkWriteBytesPerSeconds) ?? 0,
+  );
+  let speedState: MetricFlowSpeedState = 'idle';
+  let speedRatio: number | null = null;
+  if (srcBps > 0 && sinkBps > 0) {
+    speedRatio = sinkBps / srcBps;
+    speedState =
+      speedRatio < 0.8 ? 'lag' : speedRatio > 1.25 ? 'lead' : 'balanced';
+  } else if (srcBps > 0 && sinkBps === 0) {
+    speedState = 'lag';
+  } else if (srcBps === 0 && sinkBps > 0) {
+    speedState = 'lead';
+  }
+
+  const segments: MetricFlowConclusionSegment[] = [];
+  if (countState === 'empty') {
+    segments.push({key: 'metricFlowEmpty'});
+  } else if (countState === 'writeZero') {
+    segments.push({key: 'metricFlowWriteZero'});
+  } else if (countState === 'behind') {
+    segments.push({
+      key: 'metricFlowBehind',
+      values: {percent: Math.round((writeCount / readCount) * 100)},
+    });
+  } else if (countState === 'ahead') {
+    segments.push({
+      key: 'pipelineExtraWrite',
+      values: {count: formatMetricCompactValue(overWriteCount)},
+    });
+  } else {
+    segments.push({key: 'metricFlowBalanced'});
+  }
+  // 写速落后独立成段：数量已追平但速率仍落后时也要提示。
+  // Lagging write speed is its own segment so it still warns when counts already caught up.
+  if (
+    speedState === 'lag' &&
+    countState !== 'empty' &&
+    countState !== 'writeZero'
+  ) {
+    segments.push({
+      key: 'pipelineSpeedLag',
+      values: {
+        percent: `${speedRatio !== null ? Math.round(speedRatio * 100) : 0}%`,
+      },
+    });
+  }
+  if (writeCount > 0) {
+    if (pendingCommitCount > 0) {
+      segments.push({
+        key: 'metricFlowPendingCommitCount',
+        values: {count: formatMetricCompactValue(pendingCommitCount)},
+      });
+    } else if (hasCommitMetric && committedCount >= writeCount) {
+      segments.push({key: 'metricFlowAllCommitted'});
+    }
+  }
+
+  const tone: MetricFlowTone = opts?.failed
+    ? 'danger'
+    : countState === 'behind' ||
+        countState === 'writeZero' ||
+        pendingCommitCount > 0 ||
+        speedState === 'lag'
+      ? 'warning'
+      : 'neutral';
+
+  return {
+    readCount,
+    writeCount,
+    committedCount,
+    pendingCommitCount,
+    backlogCount,
+    overWriteCount,
+    countState,
+    speedState,
+    speedRatio,
+    hasCommitMetric,
+    tone,
+    segments,
+  };
+}
+
+export type MetricFlowBarSegmentKey =
+  | 'committed'
+  | 'pendingCommit'
+  | 'backlog';
+
+export interface MetricFlowBarSegment {
+  key: MetricFlowBarSegmentKey;
+  value: number;
+  /** 占总刻度份额（0–1）；总刻度是 max(读, 写)。 / Share of the bar scale (0–1); the scale is max(read, write). */
+  share: number;
+}
+
+export interface MetricFlowBar {
+  /** 条的总刻度：读取量；写超读时扩到写入量。 / Bar scale: the read count, extended to write when write overshoots. */
+  total: number;
+  segments: MetricFlowBarSegment[];
+  /** 多写条数（写 > 读），只进图例不占段。 / Rows written beyond read; legend note only, never a segment. */
+  overWriteCount: number;
+}
+
+/**
+ * 分段条的数值：以读取量为总长，把写入拆成「已提交 / 待提交」两段、差额补「待写」段；
+ * 写超读时总刻度扩到写入量。三段互斥且总和不超 1。
+ * Segment values for the flow bar: the read count is the full scale, written rows split into
+ * committed / pending-commit, and the read-vs-write gap becomes the backlog segment; when write
+ * overshoots read the scale extends to write. Segments are exclusive and their shares never exceed 1.
+ */
+export function buildMetricFlowBar(
+  readCount: number,
+  writeCount: number,
+  committedCount: number,
+): MetricFlowBar {
+  const read = Math.max(0, readCount);
+  const write = Math.max(0, writeCount);
+  // 与 summarizeMetricFlow 同口径：提交量锚定写入侧，多写的行不进待提交。
+  // Same contract as summarizeMetricFlow: committed anchors on write; overshoot
+  // rows are reported separately, never as pending commit.
+  const committed = Math.max(0, Math.min(committedCount, write));
+  const pendingCommit = Math.max(0, write - committed);
+  const backlog = Math.max(0, read - write);
+  const overWrite = Math.max(0, write - read);
+  const total = Math.max(read, write);
+  const share = (value: number) => (total > 0 ? value / total : 0);
+  return {
+    total,
+    segments: [
+      {key: 'committed', value: committed, share: share(committed)},
+      {key: 'pendingCommit', value: pendingCommit, share: share(pendingCommit)},
+      {key: 'backlog', value: backlog, share: share(backlog)},
+    ],
+    overWriteCount: overWrite,
+  };
+}
+
+export interface MetricFlowSankeyLabels {
+  committed: string;
+  pendingCommit: string;
+  backlog: string;
+  otherSources: (count: number) => string;
+  otherSink: string;
+}
+
+export interface MetricFlowSankeyColors {
+  /** 表节点颜色：固定色，或按链路取色（源/目标共用一色，流向带宽按表区分）。
+      / Table node color: a fixed color, or per-link resolver (source and sink share it so band hue follows the table). */
+  table: string | ((pair: {srcLabel: string; sinkLabel: string}) => string);
+  /** 已提交节点颜色。 / Committed node color. */
+  outcome: string;
+  /** 待提交与待写节点的异常提示色。 / Pending-commit and backlog nodes (warning). */
+  warning: string;
+}
+
+export interface MetricFlowSankeyNode {
+  id: string;
+  label: string;
+  color?: string;
+}
+
+export interface MetricFlowSankeyLink {
+  id?: string;
+  source: string;
+  target: string;
+  value: number;
+}
+
+export interface MetricFlowSankey {
+  nodes: MetricFlowSankeyNode[];
+  links: MetricFlowSankeyLink[];
+  /** 有流量的配对链路数（Top-N 归并前）；少于 2 时视图应隐藏本图。 / Pair links carrying flow, before the Top-N merge; the chart stays hidden below 2. */
+  totalLinks: number;
+  /** 超出 Top-N 后并入「其它」的链路数。 / Links folded into the "other" bucket past Top-N. */
+  mergedLinks: number;
+}
+
+/**
+ * 按表指标 → 桑基图「源表 → 目标表 → 提交状态」三段流向：源到目标的带宽是写入量，
+ * 已读未写挂到「待写」，写入再分流到「已提交 / 待提交」。链路超过 Top-N 时其余合成
+ * 「其它 N 张表」一对节点；为零的分支不出节点。配对用 buildPairedMetricRows 的同一份数据。
+ * Per-table metrics to a "source table → sink table → commit state" Sankey: the source-to-sink
+ * band is the write count, read-but-unwritten rows go to a backlog node, and writes split into
+ * committed / pending-commit. Links past Top-N merge into one "other N tables" pair; zero-value
+ * branches emit no node. Pairing reuses buildPairedMetricRows.
+ */
+export function buildMetricFlowSankey(
+  metrics: Record<string, unknown>,
+  opts: {
+    labels: MetricFlowSankeyLabels;
+    colors: MetricFlowSankeyColors;
+    maxLinks?: number;
+  },
+): MetricFlowSankey {
+  const {labels, colors} = opts;
+  const maxLinks = Math.max(1, Math.floor(opts.maxLinks ?? 8));
+  const numbered = buildPairedMetricRows(metrics)
+    .map((row) => {
+      const committedRaw = parseMetricNumber(row.committedCount) ?? 0;
+      const write = Math.max(0, parseMetricNumber(row.sinkCount) ?? 0);
+      return {
+        key: row.key,
+        sourceTable: row.sourceTable || row.sourceNode,
+        sinkTable: row.sinkTable || row.sinkNode,
+        read: Math.max(0, parseMetricNumber(row.sourceCount) ?? 0),
+        write,
+        committed: Math.max(0, Math.min(committedRaw, Math.max(write, committedRaw))),
+      };
+    })
+    .filter((link) => link.read > 0 || link.write > 0);
+  // 读量大的链路排前面；排序稳定，读量相同保持配对顺序。
+  // Largest reads first; the sort is stable so ties keep pairing order.
+  numbered.sort((a, b) => b.read - a.read);
+  const shown = numbered.slice(0, maxLinks);
+  const rest = numbered.slice(maxLinks);
+
+  interface FlowPair {
+    srcId: string;
+    srcLabel: string;
+    sinkId: string;
+    sinkLabel: string;
+    read: number;
+    write: number;
+    committed: number;
+  }
+  const pairs: FlowPair[] = shown.map((link) => ({
+    srcId: `s:${link.key}`,
+    srcLabel: link.sourceTable,
+    sinkId: `t:${link.key}`,
+    sinkLabel: link.sinkTable,
+    read: link.read,
+    write: link.write,
+    committed: link.committed,
+  }));
+  if (rest.length > 0) {
+    pairs.push({
+      srcId: 's:__other__',
+      srcLabel: labels.otherSources(rest.length),
+      sinkId: 't:__other__',
+      sinkLabel: labels.otherSink,
+      read: rest.reduce((sum, link) => sum + link.read, 0),
+      write: rest.reduce((sum, link) => sum + link.write, 0),
+      committed: rest.reduce((sum, link) => sum + link.committed, 0),
+    });
+  }
+
+  const links: MetricFlowSankeyLink[] = [];
+  const nodes: MetricFlowSankeyNode[] = [];
+  let hasCommitted = false;
+  let hasPending = false;
+  let hasBacklog = false;
+  for (const pair of pairs) {
+    const committed = Math.min(pair.committed, pair.write);
+    const pending = Math.max(0, pair.write - committed);
+    const backlog = Math.max(0, pair.read - pair.write);
+    const pairColor =
+      typeof colors.table === 'function'
+        ? colors.table({srcLabel: pair.srcLabel, sinkLabel: pair.sinkLabel})
+        : colors.table;
+    nodes.push({id: pair.srcId, label: pair.srcLabel, color: pairColor});
+    if (pair.write > 0) {
+      nodes.push({id: pair.sinkId, label: pair.sinkLabel, color: pairColor});
+      links.push({source: pair.srcId, target: pair.sinkId, value: pair.write});
+      if (committed > 0) {
+        links.push({source: pair.sinkId, target: 'o:committed', value: committed});
+        hasCommitted = true;
+      }
+      if (pending > 0) {
+        links.push({source: pair.sinkId, target: 'o:pending', value: pending});
+        hasPending = true;
+      }
+    }
+    if (backlog > 0) {
+      links.push({source: pair.srcId, target: 'o:backlog', value: backlog});
+      hasBacklog = true;
+    }
+  }
+  // 结果节点放最后，保证列顺序是 源表 → 目标表 → 提交状态。
+  // Outcome nodes go last so columns order as source tables → sink tables → commit state.
+  if (hasCommitted) {
+    nodes.push({id: 'o:committed', label: labels.committed, color: colors.outcome});
+  }
+  if (hasPending) {
+    nodes.push({id: 'o:pending', label: labels.pendingCommit, color: colors.warning});
+  }
+  if (hasBacklog) {
+    nodes.push({id: 'o:backlog', label: labels.backlog, color: colors.warning});
+  }
+  return {nodes, links, totalLinks: numbered.length, mergedLinks: rest.length};
 }
 
 export function classifyMetricGroup(key: string): MetricGroupKey {
@@ -4460,15 +5222,15 @@ function findMatchingBraceOffset(content: string, openIdx: number): number {
 export async function findSyncJobsByIdInput(
   listJobs: (
     params: SyncJobListParams,
-  ) => Promise<{items?: SyncJobInstance[] | null}>,
+  ) => Promise<{items?: SyncJobSummary[] | null}>,
   input: string,
   options?: {firstOnly?: boolean},
-): Promise<SyncJobInstance[]> {
+): Promise<SyncJobSummary[]> {
   const raw = input.trim().replace(/^#+/, '');
   if (!/^\d+$/.test(raw)) {
     return [];
   }
-  const found: SyncJobInstance[] = [];
+  const found: SyncJobSummary[] = [];
   const seen = new Set<number>();
   const push = async (params: SyncJobListParams) => {
     if (options?.firstOnly && found.length) {

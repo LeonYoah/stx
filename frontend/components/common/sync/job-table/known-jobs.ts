@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-import type {SyncJobInstance} from '@/lib/services/sync';
+import type {SyncJobSummary} from '@/lib/services/sync';
 import {
   getDisplayJobLifecycleStatus,
+  isFullJobRecord,
   isJobLifecycleActive,
 } from '../sync-studio-utils';
 
@@ -29,17 +30,34 @@ import {
  * filtering moves them off the page (the attached risk of D5 in the parent design).
  */
 export function mergeKnownJobs(
-  jobs: SyncJobInstance[],
-  pageItems: SyncJobInstance[],
-  retainedJobs: ReadonlyMap<number, SyncJobInstance>,
-): Map<number, SyncJobInstance> {
-  const merged = new Map<number, SyncJobInstance>();
-  retainedJobs.forEach((job, id) => merged.set(id, job));
-  for (const job of pageItems) {
+  jobs: SyncJobSummary[],
+  pageItems: SyncJobSummary[],
+  retainedJobs: ReadonlyMap<number, SyncJobSummary>,
+): Map<number, SyncJobSummary> {
+  const merged = new Map<number, SyncJobSummary>();
+  const put = (job: SyncJobSummary) => {
+    const prev = merged.get(job.id);
+    // 摘要行不得遮蔽已持有的完整记录：只在摘要确实更新（updated_at 更晚）时才整行替换；详情需要的
+    // 重字段由 useJobDetail 按需 getJob 补齐（最新 ≠ 最完整）。
+    // A summary row must not shadow a held full record: wholesale replace only when the summary is
+    // strictly newer (updated_at); detail heavy fields are refetched on demand by useJobDetail
+    // (freshest ≠ most complete).
+    if (
+      prev &&
+      isFullJobRecord(prev) &&
+      !isFullJobRecord(job) &&
+      Date.parse(job.updated_at || '') <= Date.parse(prev.updated_at || '')
+    ) {
+      return;
+    }
     merged.set(job.id, job);
+  };
+  retainedJobs.forEach((job) => put(job));
+  for (const job of pageItems) {
+    put(job);
   }
   for (const job of jobs) {
-    merged.set(job.id, job);
+    put(job);
   }
   return merged;
 }
@@ -52,8 +70,8 @@ export function mergeKnownJobs(
  * stay unaffected.
  */
 export function retainedActiveJobIds(
-  knownJobs: ReadonlyMap<number, SyncJobInstance>,
-  jobs: SyncJobInstance[],
+  knownJobs: ReadonlyMap<number, SyncJobSummary>,
+  jobs: SyncJobSummary[],
   ids: ReadonlyArray<number | null>,
 ): number[] {
   const inJobs = new Set(jobs.map((job) => job.id));

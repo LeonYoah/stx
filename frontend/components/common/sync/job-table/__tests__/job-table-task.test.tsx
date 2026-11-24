@@ -27,7 +27,7 @@ import {fireEvent, render, screen, within} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import {describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
-import type {SyncJobInstance} from '@/lib/services/sync';
+import type {SyncJobInstance, SyncJobSummary} from '@/lib/services/sync';
 import type {JobDetailTab} from '../../job-detail/types';
 import {getJobActionState} from '../../sync-studio-utils';
 import {JobTable} from '../JobTable';
@@ -102,9 +102,9 @@ function renderTaskTable(
     pageSize?: number;
     total?: number;
     onQueryChange?: (patch: Partial<JobListQuery>) => void;
-    onRowActivate?: (job: SyncJobInstance) => void;
-    onOpenDetail?: (job: SyncJobInstance, tab?: JobDetailTab) => void;
-    onAction?: (action: JobRowAction, job: SyncJobInstance) => void;
+    onRowActivate?: (job: SyncJobSummary) => void;
+    onOpenDetail?: (job: SyncJobSummary, tab?: JobDetailTab) => void;
+    onAction?: (action: JobRowAction, job: SyncJobSummary) => void;
   } = {},
 ) {
   const handlers = {
@@ -112,13 +112,13 @@ function renderTaskTable(
       overrides.onQueryChange ??
       vi.fn<(patch: Partial<JobListQuery>) => void>(),
     onRowActivate:
-      overrides.onRowActivate ?? vi.fn<(job: SyncJobInstance) => void>(),
+      overrides.onRowActivate ?? vi.fn<(job: SyncJobSummary) => void>(),
     onOpenDetail:
       overrides.onOpenDetail ??
-      vi.fn<(job: SyncJobInstance, tab?: JobDetailTab) => void>(),
+      vi.fn<(job: SyncJobSummary, tab?: JobDetailTab) => void>(),
     onAction:
       overrides.onAction ??
-      vi.fn<(action: JobRowAction, job: SyncJobInstance) => void>(),
+      vi.fn<(action: JobRowAction, job: SyncJobSummary) => void>(),
   };
   render(
     <NextIntlClientProvider locale='zh' messages={zh} timeZone='Asia/Shanghai'>
@@ -353,6 +353,14 @@ describe('JobTableToolbar task preset', () => {
     const bar = container.firstElementChild as HTMLElement;
     expect(bar.className).toContain('flex-nowrap');
     expect(bar.className).toContain('overflow-hidden');
+    // 左侧状态胶囊带独立横向滚动壳，右侧搜索/排序操作槽不换行不收缩，避免窄宽下折成两行被裁切。
+    // Status pills own a horizontal scroll wrapper while the right actions stay nowrap + shrink-0,
+    // preventing search and sort controls from stacking and clipping at narrow widths.
+    const pillsScroll = bar.children[0] as HTMLElement;
+    const actionsSlot = bar.children[1] as HTMLElement;
+    expect(pillsScroll.className).toContain('overflow-x-auto');
+    expect(actionsSlot.className).toContain('flex-nowrap');
+    expect(actionsSlot.className).toContain('shrink-0');
   });
 
   it('patches statusGroup and resets the page when a pill is clicked', () => {

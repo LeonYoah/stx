@@ -294,17 +294,16 @@ func (s *Service) reconcileClusterJobsLight(ctx context.Context, clusterID uint,
 	if len(due) == 0 {
 		return nil
 	}
-	var endpoint *EngineEndpoint
-	if s.runtimeResolver != nil {
-		if resolved, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, nil); err == nil {
-			endpoint = resolved
+	endpointCache := newJobEndpointResolveCache()
+	if s.runtimeResolver != nil && clusterID > 0 {
+		var resolved *EngineEndpoint
+		if ep, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, nil); err == nil {
+			resolved = ep
 		}
+		endpointCache.clusters[clusterID] = resolved
 	}
 	for i, job := range due {
-		target := endpoint
-		if target == nil {
-			target = endpointFromSubmitSpec(job.SubmitSpec)
-		}
+		target := s.resolveJobEngineEndpointCached(ctx, job, endpointCache)
 		if target == nil {
 			s.recordJobSyncFailure(ctx, job)
 			continue
@@ -345,7 +344,9 @@ func clusterIDForJob(ctx context.Context, s *Service, job *JobInstance, cache ma
 	if err != nil || task == nil {
 		return 0
 	}
-	cache[job.TaskID] = task.ClusterID
+	if cache != nil {
+		cache[job.TaskID] = task.ClusterID
+	}
 	return task.ClusterID
 }
 
@@ -432,6 +433,17 @@ func (s *Service) reconcileClusterPass(ctx context.Context, clusterID uint, jobs
 		}()
 	}
 
+	endpointCache := newJobEndpointResolveCache()
+	if clusterID > 0 {
+		endpointCache.clusters[clusterID] = endpoint
+	}
+	jobDetailEndpoint := func(job *JobInstance) *EngineEndpoint {
+		if resolved := s.resolveJobEngineEndpointCached(ctx, job, endpointCache); resolved != nil {
+			return resolved
+		}
+		return endpoint
+	}
+
 	for i, job := range jobs {
 		if job == nil {
 			continue
@@ -451,7 +463,7 @@ func (s *Service) reconcileClusterPass(ctx context.Context, clusterID uint, jobs
 			}
 			// Prefer job-info so running metrics (and 30s metrics_log) are captured, not only list status.
 			// 优先拉 job-info，才能写入运行中指标与 30s metrics_log，而不是只同步列表状态。
-			detail, detailErr := s.engineClient.GetJobInfo(ctx, endpoint, engineJobID)
+			detail, detailErr := s.engineClient.GetJobInfo(ctx, jobDetailEndpoint(job), engineJobID)
 			if detailErr != nil {
 				if _, err := s.applyEngineJobInfoUpdate(ctx, job, engineListItemToInfo(item)); err != nil {
 					s.recordJobSyncFailure(ctx, job)
@@ -479,7 +491,7 @@ func (s *Service) reconcileClusterPass(ctx context.Context, clusterID uint, jobs
 				}
 				continue
 			}
-			detail, detailErr := s.engineClient.GetJobInfo(ctx, endpoint, engineJobID)
+			detail, detailErr := s.engineClient.GetJobInfo(ctx, jobDetailEndpoint(job), engineJobID)
 			if detailErr != nil {
 				s.recordJobSyncFailure(ctx, job)
 				// Do not permanently settle from list-only mid-run metrics; retry GetJobInfo on later ticks.
@@ -508,7 +520,7 @@ func (s *Service) reconcileClusterPass(ctx context.Context, clusterID uint, jobs
 		if time.Since(job.UpdatedAt) < 15*time.Second {
 			continue
 		}
-		detail, detailErr := s.engineClient.GetJobInfo(ctx, endpoint, engineJobID)
+		detail, detailErr := s.engineClient.GetJobInfo(ctx, jobDetailEndpoint(job), engineJobID)
 		if detailErr != nil {
 			s.recordJobSyncFailure(ctx, job)
 			if isEngineTransportError(detailErr) {
@@ -650,6 +662,7 @@ func (s *Service) backfillTerminalJobFinalMetrics(ctx context.Context) {
 		return
 	}
 	unreachable := map[string]bool{}
+	endpointCache := newJobEndpointResolveCache()
 	for _, job := range jobs {
 		if job == nil || hasFinalMetricsLog(job.ResultPreview) {
 			continue
@@ -657,11 +670,11 @@ func (s *Service) backfillTerminalJobFinalMetrics(ctx context.Context) {
 		if strings.TrimSpace(job.EngineJobID) == "" {
 			continue
 		}
-		clusterID := clusterIDForJob(ctx, s, job, map[uint]uint{})
+		clusterID := clusterIDForJob(ctx, s, job, endpointCache.taskCluster)
 		if clusterID > 0 && s.reconcile.inBackoff(clusterID) {
 			continue
 		}
-		endpoint := s.resolveJobEngineEndpoint(ctx, job)
+		endpoint := s.resolveJobEngineEndpointCached(ctx, job, endpointCache)
 		if endpoint == nil || unreachable[endpoint.BaseURL] {
 			continue
 		}

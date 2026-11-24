@@ -436,22 +436,32 @@ func hasRealtimePoints(result *JobRealtimeResult) bool {
 	return false
 }
 
-// realtimeCandidates 返回可探测的节点：优先集群全部在线节点，否则回落到提交时记录的引擎地址。
-// realtimeCandidates returns probe candidates: all online cluster nodes when available, otherwise the endpoint
-// recorded at submit time.
+// realtimeCandidates 返回可探测的节点：优先集群全部在线节点（携带任务定义覆盖与快照协议形态），否则回落到提交快照地址。
+// realtimeCandidates returns probe candidates: all online cluster nodes (with task definition overrides and
+// snapshot protocol hints merged) when available, otherwise the endpoint recorded at submit time.
 func (s *Service) realtimeCandidates(ctx context.Context, job *JobInstance, clusterID uint) []*EngineEndpoint {
+	snapshot := endpointFromSubmitSpec(job.SubmitSpec)
+	taskDef := s.taskDefinitionForJob(ctx, job, nil)
 	if lister, ok := s.runtimeResolver.(ClusterEngineEndpointLister); ok && lister != nil && clusterID > 0 {
-		if endpoints, err := lister.ListEngineEndpoints(ctx, clusterID, nil); err == nil && len(endpoints) > 0 {
-			return endpoints
+		if endpoints, err := lister.ListEngineEndpoints(ctx, clusterID, taskDef); err == nil && len(endpoints) > 0 {
+			merged := make([]*EngineEndpoint, 0, len(endpoints))
+			for _, ep := range endpoints {
+				if mergedEP := mergeEndpointProtocolHints(ep, snapshot); mergedEP != nil {
+					merged = append(merged, mergedEP)
+				}
+			}
+			if len(merged) > 0 {
+				return merged
+			}
 		}
 	}
 	if s.runtimeResolver != nil && clusterID > 0 {
-		if endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, nil); err == nil && endpoint != nil {
-			return []*EngineEndpoint{mergeEndpointProtocolHints(endpoint, endpointFromSubmitSpec(job.SubmitSpec))}
+		if endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, taskDef); err == nil && endpoint != nil {
+			return []*EngineEndpoint{mergeEndpointProtocolHints(endpoint, snapshot)}
 		}
 	}
-	if endpoint := endpointFromSubmitSpec(job.SubmitSpec); endpoint != nil {
-		return []*EngineEndpoint{endpoint}
+	if snapshot != nil {
+		return []*EngineEndpoint{snapshot}
 	}
 	return nil
 }

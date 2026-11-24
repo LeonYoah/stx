@@ -367,25 +367,97 @@ func mergeEndpointProtocolHints(resolved, snapshot *EngineEndpoint) *EngineEndpo
 	return &merged
 }
 
+// jobEndpointResolveCache 在单轮对账 / 补拉循环内缓存任务定义与集群端点，避免批量作业放大 DB 与集群解析查询。
+// jobEndpointResolveCache caches task definitions and cluster endpoints within a single reconcile/backfill pass
+// so multi-job ticks do not amplify DB and cluster resolution queries.
+type jobEndpointResolveCache struct {
+	tasks       map[uint]*Task
+	clusters    map[uint]*EngineEndpoint
+	taskCluster map[uint]uint
+}
+
+func newJobEndpointResolveCache() *jobEndpointResolveCache {
+	return &jobEndpointResolveCache{
+		tasks:       map[uint]*Task{},
+		clusters:    map[uint]*EngineEndpoint{},
+		taskCluster: map[uint]uint{},
+	}
+}
+
+// taskDefinitionForJob 读取作业关联任务的 Definition，供端点解析识别任务级显式 engine_base_url 覆盖；
+// 传入 cache 时同一轮内每个 taskID 最多查库一次（含未命中缓存）。
+// taskDefinitionForJob loads the linked task Definition so endpoint resolution honors task-pinned engine_base_url;
+// with a cache each taskID is queried at most once per pass (including misses).
+func (s *Service) taskDefinitionForJob(ctx context.Context, job *JobInstance, cache *jobEndpointResolveCache) JSONMap {
+	if s == nil || s.repo == nil || job == nil || job.TaskID == 0 {
+		return nil
+	}
+	if cache != nil {
+		if task, ok := cache.tasks[job.TaskID]; ok {
+			if task == nil {
+				return nil
+			}
+			return task.Definition
+		}
+	}
+	task, err := s.repo.GetTaskByID(ctx, job.TaskID)
+	if err != nil {
+		task = nil
+	}
+	if cache != nil {
+		cache.tasks[job.TaskID] = task
+		if task != nil && task.ClusterID > 0 {
+			cache.taskCluster[job.TaskID] = task.ClusterID
+		}
+	}
+	if task == nil {
+		return nil
+	}
+	return task.Definition
+}
+
 // resolveJobEngineEndpoint 优先按作业所属集群动态解析当前在线节点地址（兼容宿主机改 IP、主备切换与外部作业），
 // 仅在无集群信息或动态解析不可用时回退到提交快照里的引擎地址。
 // resolveJobEngineEndpoint resolves the live cluster endpoint first (surviving host IP changes, master failover,
 // and external jobs) and falls back to the submit snapshot only when no cluster is linked or resolution fails.
 func (s *Service) resolveJobEngineEndpoint(ctx context.Context, job *JobInstance) *EngineEndpoint {
+	return s.resolveJobEngineEndpointCached(ctx, job, nil)
+}
+
+// resolveJobEngineEndpointCached 是 resolveJobEngineEndpoint 的带单轮缓存版本。
+// 任务定义显式指定了 engine_base_url 时按任务定义解析；否则按 clusterID 复用单轮内的集群解析结果并合并快照协议形态。
+// resolveJobEngineEndpointCached is the per-pass cached variant of resolveJobEngineEndpoint.
+// A task-pinned engine_base_url is resolved from taskDefinition; otherwise the cluster endpoint is cached per
+// clusterID and merged with snapshot protocol hints.
+func (s *Service) resolveJobEngineEndpointCached(ctx context.Context, job *JobInstance, cache *jobEndpointResolveCache) *EngineEndpoint {
 	if job == nil {
 		return nil
 	}
 	snapshot := endpointFromSubmitSpec(job.SubmitSpec)
 	if s.runtimeResolver != nil {
-		clusterID := clusterIDForJob(ctx, s, job, map[uint]uint{})
+		var taskCluster map[uint]uint
+		if cache != nil {
+			taskCluster = cache.taskCluster
+		}
+		clusterID := clusterIDForJob(ctx, s, job, taskCluster)
 		if clusterID > 0 {
-			var taskDef JSONMap
-			if s.repo != nil && job.TaskID > 0 {
-				if task, err := s.repo.GetTaskByID(ctx, job.TaskID); err == nil && task != nil {
-					taskDef = task.Definition
+			taskDef := s.taskDefinitionForJob(ctx, job, cache)
+			if endpointFromTaskDefinition(taskDef) != nil {
+				if endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, taskDef); err == nil && endpoint != nil {
+					return mergeEndpointProtocolHints(endpoint, snapshot)
 				}
-			}
-			if endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, taskDef); err == nil && endpoint != nil {
+			} else if cache != nil {
+				resolved, ok := cache.clusters[clusterID]
+				if !ok {
+					if endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, nil); err == nil {
+						resolved = endpoint
+					}
+					cache.clusters[clusterID] = resolved
+				}
+				if resolved != nil {
+					return mergeEndpointProtocolHints(resolved, snapshot)
+				}
+			} else if endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, nil); err == nil && endpoint != nil {
 				return mergeEndpointProtocolHints(endpoint, snapshot)
 			}
 		}

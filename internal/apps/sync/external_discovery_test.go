@@ -368,3 +368,111 @@ func TestResolveJobEngineEndpoint_PrefersLiveClusterAndPreservesProtocolHints(t 
 		t.Fatalf("expected direct snapshot endpoint, got %+v", directEndpoint)
 	}
 }
+
+type countingRuntimeResolver struct {
+	endpoints map[uint]*EngineEndpoint
+	calls     int
+}
+
+func (r *countingRuntimeResolver) ResolveEngineEndpoint(_ context.Context, clusterID uint, taskDefinition JSONMap) (*EngineEndpoint, error) {
+	r.calls++
+	if endpoint := endpointFromTaskDefinition(taskDefinition); endpoint != nil {
+		return endpoint, nil
+	}
+	if ep, ok := r.endpoints[clusterID]; ok {
+		return ep, nil
+	}
+	return nil, ErrExecutionTargetUnavailable
+}
+
+type captureInfoEngineClient struct {
+	*discoveryEngineClient
+	infoEndpoints []*EngineEndpoint
+}
+
+func (c *captureInfoEngineClient) GetJobInfo(_ context.Context, endpoint *EngineEndpoint, jobID string) (*EngineJobInfo, error) {
+	c.infoEndpoints = append(c.infoEndpoints, endpoint)
+	return &EngineJobInfo{
+		JobID:     jobID,
+		JobStatus: "RUNNING",
+		Metrics:   map[string]interface{}{"SourceReceivedCount": "1"},
+	}, nil
+}
+
+func TestReconcileAndBackfill_MergeProtocolHintsAndCachePerPass(t *testing.T) {
+	service, base := newDiscoveryTestService(t)
+	capture := &captureInfoEngineClient{discoveryEngineClient: base}
+	service.engineClient = capture
+	ctx := context.Background()
+
+	live := &EngineEndpoint{BaseURL: "http://172.18.196.113:28080", LegacyURL: "http://172.18.196.113:15801"}
+	resolver := &countingRuntimeResolver{endpoints: map[uint]*EngineEndpoint{11: live}}
+	service.runtimeResolver = resolver
+
+	task := &Task{Name: "v1-task", NodeType: TaskNodeTypeFile, ClusterID: 11, CreatedBy: 1}
+	if err := service.repo.CreateTask(ctx, task); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	// 1. 终态补拉循环内复用集群端点缓存，且把 v1 / ContextPath 合并到最新集群地址上。
+	// 1. Terminal backfill caches cluster resolution within one pass and merges v1 / ContextPath onto live host.
+	now := time.Now().UTC()
+	for _, eid := range []string{"term-1", "term-2"} {
+		job := &JobInstance{
+			TaskID: task.ID, TaskVersion: 1, RunType: RunTypeRun, Status: JobStatusSuccess,
+			PlatformJobID: eid, EngineJobID: eid, ClusterID: 11, FinishedAt: &now,
+			SubmitSpec: JSONMap{
+				"cluster_id": 11, "engine_base_url": "http://192.168.0.105:28080",
+				"engine_api_mode": "v1", "engine_context_path": "/st",
+			},
+			CreatedBy: 1,
+		}
+		if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+			t.Fatalf("create terminal job %s: %v", eid, err)
+		}
+	}
+	service.backfillTerminalJobFinalMetrics(ctx)
+	if resolver.calls != 1 {
+		t.Fatalf("backfill pass must resolve cluster endpoint once, got %d calls", resolver.calls)
+	}
+	if len(capture.infoEndpoints) != 2 {
+		t.Fatalf("expected 2 backfill GetJobInfo calls, got %d", len(capture.infoEndpoints))
+	}
+	for _, ep := range capture.infoEndpoints {
+		if ep.BaseURL != live.BaseURL || ep.LegacyURL != live.LegacyURL || ep.APIMode != "v1" || ep.ContextPath != "/st" {
+			t.Fatalf("backfill endpoint lost live host or protocol hints: %+v", ep)
+		}
+	}
+
+	// 2. 完整对账与轻量对账的 GetJobInfo 同样保留 v1 / ContextPath。
+	// 2. Full and light reconcile GetJobInfo calls preserve v1 / ContextPath too.
+	capture.infoEndpoints = nil
+	runningJob := &JobInstance{
+		TaskID: task.ID, TaskVersion: 1, RunType: RunTypeRun, Status: JobStatusRunning,
+		PlatformJobID: "run-v1", EngineJobID: "run-v1", ClusterID: 11,
+		SubmitSpec: JSONMap{
+			"cluster_id": 11, "engine_base_url": "http://192.168.0.105:28080",
+			"engine_api_mode": "v1", "engine_context_path": "/st",
+		},
+		CreatedBy: 1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, runningJob); err != nil {
+		t.Fatalf("create running job: %v", err)
+	}
+	capture.runningItems = []*EngineJobListItem{{JobID: "run-v1", JobStatus: "RUNNING"}}
+	if err := service.reconcileClusterPass(ctx, 11, []*JobInstance{runningJob}, false); err != nil {
+		t.Fatalf("reconcileClusterPass: %v", err)
+	}
+	service.markJobWatched(runningJob.ID)
+	if err := service.reconcileClusterJobsLight(ctx, 11, []*JobInstance{runningJob}); err != nil {
+		t.Fatalf("reconcileClusterJobsLight: %v", err)
+	}
+	if len(capture.infoEndpoints) != 2 {
+		t.Fatalf("expected 2 reconcile GetJobInfo calls, got %d", len(capture.infoEndpoints))
+	}
+	for _, ep := range capture.infoEndpoints {
+		if ep.BaseURL != live.BaseURL || ep.APIMode != "v1" || ep.ContextPath != "/st" {
+			t.Fatalf("reconcile GetJobInfo endpoint lost protocol hints: %+v", ep)
+		}
+	}
+}

@@ -95,7 +95,7 @@ export function StudioSidebarShell({
     <Card
       data-studio-right-sidebar={dataStudioRightSidebar}
       className={cn(
-        'studio-sidebar-chrome row-start-1 gap-0 overflow-hidden border-border/60 bg-background/75 py-0 shadow-sm',
+        'studio-sidebar-chrome gap-0 overflow-hidden border-border/60 bg-background/75 py-0 shadow-sm',
         className,
       )}
       aria-hidden={ariaHidden || undefined}

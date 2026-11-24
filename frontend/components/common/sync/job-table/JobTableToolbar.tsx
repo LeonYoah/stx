@@ -109,7 +109,11 @@ export function JobTableToolbar({
 
   const searchForm = (
     <form
-      className='relative min-w-[160px] max-w-sm flex-1'
+      className={
+        preset === 'task'
+          ? 'relative w-36 shrink-0 sm:w-44'
+          : 'relative min-w-[160px] max-w-sm flex-1'
+      }
       onSubmit={(event) => {
         event.preventDefault();
         onQueryChange({keyword: keyword.trim(), page: 1});
@@ -216,9 +220,9 @@ export function JobTableToolbar({
     />
   );
 
-  // task 预设：单行 ≤36px——状态胶囊（带计数）+ 运行类型 + 可展开搜索；溢出横向滚动，不换行。
-  // Task preset: a single ≤36px row — status pills (with counts) + run type + expandable search; overflow
-  // scrolls horizontally instead of wrapping.
+  // task 预设：单行不换行——左侧状态胶囊横向滚动，右侧搜索与排序按钮固定单行不裁切。
+  // Task preset: single non-wrapping row — status pills scroll horizontally on the left,
+  // while search and sort controls stay on one line on the right without vertical clipping.
   if (preset === 'task') {
     return (
       <StatPillsBar
@@ -226,7 +230,8 @@ export function JobTableToolbar({
         activeKey={query.statusGroup || 'all'}
         onChange={handleStatusGroup}
         label={t('columns.status')}
-        className='h-9 flex-nowrap gap-2 overflow-hidden border-b border-border/60 px-2'
+        singleRow
+        className='min-h-10 shrink-0 gap-2 border-b border-border/60 px-2 py-1'
         actions={
           <>
             {typeControl}

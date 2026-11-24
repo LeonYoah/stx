@@ -60,7 +60,9 @@ export function MixedLogModeBanner({
   const t = useTranslations('workbenchStudio');
 
   return (
-    <div className='flex h-full min-h-[180px] flex-col items-center justify-center p-6 text-center'>
+    // 不写死最小高：控制台被夹紧时卡片可压缩，内部滚动兜住文案。
+    // No hard min-height: the card compresses with a clamped console and scrolls inside.
+    <div className='flex h-full min-h-0 flex-col items-center justify-center overflow-auto p-4 text-center'>
       <div className='max-w-lg space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 text-left shadow-sm'>
         <div className='flex items-center justify-between gap-2'>
           <div className='flex items-center gap-2 font-medium text-amber-600 dark:text-amber-400 text-sm'>
@@ -108,7 +110,9 @@ export function JobLogsEmptyBanner({
   const t = useTranslations('workbenchStudio');
 
   return (
-    <div className='flex h-full min-h-[180px] flex-col items-center justify-center p-6 text-center'>
+    // 不写死最小高：控制台被夹紧时卡片可压缩，内部滚动兜住文案。
+    // No hard min-height: the card compresses with a clamped console and scrolls inside.
+    <div className='flex h-full min-h-0 flex-col items-center justify-center overflow-auto p-4 text-center'>
       <div className='max-w-lg space-y-3 rounded-xl border border-border/60 bg-muted/20 p-5 text-left shadow-sm'>
         <div className='flex items-center justify-between gap-2'>
           <div className='flex items-center gap-2 font-medium text-foreground text-sm'>
@@ -215,7 +219,10 @@ export function ConsolePanel({
       <div className='relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/60 bg-background/70'>
         <TableLoadingBar loading={loading && logsResult !== null} />
         <div className='sticky top-0 z-10 shrink-0 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85'>
-          <div className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-xs text-muted-foreground'>
+          {/* 窄宽下头两行允许换行（左右两块各保最小宽），不再被 grid 的单行轨道裁切。 */}
+          {/* Both header rows may wrap under narrow widths (each side keeps min-width)
+              instead of being clipped by a single-line grid track. */}
+          <div className='flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2 text-xs text-muted-foreground'>
             <div className='flex min-w-0 items-center gap-2 overflow-hidden'>
               <span className='shrink-0'>{t('liveLogs')}</span>
               {job.error_message ? (
@@ -227,7 +234,7 @@ export function ConsolePanel({
                 </Badge>
               ) : null}
             </div>
-            <div className='flex items-center justify-self-end gap-2 whitespace-nowrap'>
+            <div className='flex shrink-0 items-center gap-2 whitespace-nowrap'>
               <SegmentedControl
                 label={t('logs')}
                 value={filterMode}
@@ -253,7 +260,7 @@ export function ConsolePanel({
               ) : null}
             </div>
           </div>
-          <div className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground'>
+          <div className='flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground'>
             <div className='flex min-w-0 items-center gap-3 overflow-hidden'>
               <span className='truncate'>
                 {t('jobId')}: {job.platform_job_id || job.engine_job_id || '-'}
@@ -266,7 +273,7 @@ export function ConsolePanel({
                 </span>
               ) : null}
             </div>
-            <span className='justify-self-end whitespace-nowrap'>
+            <span className='shrink-0 whitespace-nowrap'>
               {t('logFocusHint')}
             </span>
           </div>

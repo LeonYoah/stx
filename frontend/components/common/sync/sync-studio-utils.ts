@@ -413,6 +413,245 @@ export function buildStudioGridTemplateRows(
   return `minmax(0,1fr) ${clampStudioConsoleHeight(consoleHeight)}px`;
 }
 
+// ==========================================
+// 响应式布局引擎（纯函数）
+// Responsive layout engine (pure functions)
+// ==========================================
+
+/** 工作台主区宽度模式：宽屏三栏 / 中屏互斥单栏 / 窄屏浮层抽屉。
+ *  Workbench width tier: wide three-column / medium single-docked / compact overlay drawers. */
+export type StudioViewportMode = 'wide' | 'medium' | 'compact';
+
+/** 顶栏紧凑档位：完整 / 紧凑图标 / 极窄折叠。
+ *  Topbar density tier: full / compact icon actions / narrow folded inspect menu. */
+export type StudioTopbarTier = 'wide' | 'medium' | 'compact';
+
+/** 主区三档断点：≥1280 双侧常驻 / 960–1279 单侧停靠 / <960 浮层抽屉。
+ *  Main-grid breakpoints: ≥1280 dual docked / 960–1279 single docked / <960 overlay drawers. */
+export const STUDIO_WIDE_BREAKPOINT = 1280;
+export const STUDIO_MEDIUM_BREAKPOINT = 960;
+/** 顶栏三档断点：≥1200 全显 / 900–1199 图标化 / <900 探查动作并入主菜单。
+ *  Topbar breakpoints: ≥1200 full / 900–1199 icon-only / <900 inspect actions fold into the menu. */
+export const STUDIO_TOPBAR_WIDE_BREAKPOINT = 1200;
+export const STUDIO_TOPBAR_MEDIUM_BREAKPOINT = 900;
+/** 任何停靠组合下中栏编辑区必须保留的最小宽度（px）。
+ *  Minimum center editor width preserved under any docked combination (px). */
+export const STUDIO_CENTER_MIN_WIDTH = 420;
+/** 控制台动态夹紧时编辑区保留的最小高度（px）。
+ *  Minimum editor height preserved while the console height is dynamically clamped (px). */
+export const STUDIO_EDITOR_MIN_HEIGHT = 180;
+
+/**
+ * 主区宽度模式：未测量首帧（<=0，含 SSR）一律回落 'wide'，与服务端默认布局一致，零水合差异。
+ * Width tier: an unmeasured first frame (<=0, incl. SSR) falls back to 'wide', matching the
+ * server-rendered default so hydration stays identical.
+ */
+export function resolveStudioViewportMode(
+  containerWidth: number,
+): StudioViewportMode {
+  if (containerWidth <= 0 || containerWidth >= STUDIO_WIDE_BREAKPOINT) {
+    return 'wide';
+  }
+  return containerWidth >= STUDIO_MEDIUM_BREAKPOINT ? 'medium' : 'compact';
+}
+
+/**
+ * 顶栏紧凑档位：未测量首帧（<=0）回落 'wide'，与 SSR 输出一致。
+ * Topbar tier: an unmeasured first frame (<=0) falls back to 'wide', matching SSR output.
+ */
+export function resolveStudioTopbarTier(
+  containerWidth: number,
+): StudioTopbarTier {
+  if (containerWidth <= 0 || containerWidth >= STUDIO_TOPBAR_WIDE_BREAKPOINT) {
+    return 'wide';
+  }
+  return containerWidth >= STUDIO_TOPBAR_MEDIUM_BREAKPOINT
+    ? 'medium'
+    : 'compact';
+}
+
+export interface StudioEffectiveLayoutInput {
+  /** 主工作区容器实测宽高；<=0 表示尚未测量（SSR 首帧）。
+   *  Measured workspace size; <=0 means not measured yet (SSR first frame). */
+  containerWidth: number;
+  containerHeight: number;
+  /** 用户侧的开合态（渲染态，不区分持久化来源）。
+   *  Rendered collapse flags (user-facing state, regardless of persistence). */
+  leftCollapsed: boolean;
+  rightCollapsed: boolean;
+  leftWidth: number;
+  rightWidth: number;
+  consoleHeight: number;
+  consoleMaximized: boolean;
+}
+
+export interface StudioEffectiveLayout {
+  viewportMode: StudioViewportMode;
+  topbarTier: StudioTopbarTier;
+  /** 是否以浮层抽屉承载左右侧栏。 / Whether sidebars render as overlay drawers. */
+  overlaySidebars: boolean;
+  /** 实际停靠在网格列中的开合态（窄屏均为收起，中屏双开时右栏暂收）。
+   *  Docked-in-grid collapse flags (both collapsed in compact; medium tucks the right
+   *  when both are open). */
+  dockedLeftCollapsed: boolean;
+  dockedRightCollapsed: boolean;
+  /** 中栏 ≥420px 保护后的渲染宽度与当前拖拽上限。
+   *  Render widths after the ≥420px center guard plus the live drag ceilings. */
+  effectiveLeftWidth: number;
+  effectiveRightWidth: number;
+  maxLeftWidth: number;
+  maxRightWidth: number;
+  /** 矮容器保护编辑区后的渲染控制台高与拖拽上限。
+   *  Render console height after the short-container guard plus its drag ceiling. */
+  effectiveConsoleHeight: number;
+  maxConsoleHeight: number;
+  gridTemplateColumns: string;
+  gridTemplateRows: string;
+}
+
+/**
+ * 计算本次渲染的安全布局值：宽屏保护中栏、中屏单侧停靠、窄屏浮层抽屉、矮容器夹紧控制台。
+ * 所有动态夹紧只作用于渲染值，绝不回写用户已保存的 localStorage 偏好。
+ * Resolve safe render-time layout values: the wide tier guards the center column, medium
+ * docks at most one sidebar, compact switches to overlay drawers, and short containers
+ * clamp the console. Dynamic clamps never write back to persisted localStorage prefs.
+ */
+export function resolveEffectiveStudioLayout(
+  input: StudioEffectiveLayoutInput,
+): StudioEffectiveLayout {
+  const {
+    containerWidth,
+    containerHeight,
+    leftCollapsed,
+    rightCollapsed,
+    leftWidth,
+    rightWidth,
+    consoleHeight,
+    consoleMaximized,
+  } = input;
+  const viewportMode = resolveStudioViewportMode(containerWidth);
+  const topbarTier = resolveStudioTopbarTier(containerWidth);
+  const overlaySidebars = viewportMode === 'compact';
+
+  const dockedLeftCollapsed = overlaySidebars ? true : leftCollapsed;
+  // 中屏只允许单侧停靠：左栏开着时右栏一律按停靠收起（瞬态兜底，不碰存储值）。
+  // Medium docks one side at most: while the left is open the right is treated as
+  // docked-collapsed (a render-time fallback, persisted prefs untouched).
+  const dockedRightCollapsed =
+    overlaySidebars ||
+    rightCollapsed ||
+    (viewportMode === 'medium' && !leftCollapsed);
+
+  let effectiveLeftWidth = clampStudioLeftWidth(leftWidth);
+  let effectiveRightWidth = clampStudioRightWidth(rightWidth);
+  let maxLeftWidth = STUDIO_LEFT_WIDTH_MAX;
+  let maxRightWidth = STUDIO_RIGHT_WIDTH_MAX;
+
+  if (containerWidth > 0 && (!dockedLeftCollapsed || !dockedRightCollapsed)) {
+    // 侧栏预算 = 容器宽 - 中栏下限；停靠侧栏合计不得挤破中栏 420px。
+    // Sidebar budget = container width minus the center floor; docked sidebars may not
+    // squeeze the center under 420px.
+    const budget = Math.max(0, containerWidth - STUDIO_CENTER_MIN_WIDTH);
+    if (!dockedLeftCollapsed && !dockedRightCollapsed) {
+      // 双侧停靠（仅宽屏可达）：总和超预算时先退到各自下限，剩余空间按超出占比分配。
+      // Dual dock (only reachable in wide): shrink each toward its floor, then split the
+      // leftover budget by overshoot share.
+      const floorLeft = Math.min(STUDIO_LEFT_WIDTH_MIN, budget);
+      const floorRight = Math.min(STUDIO_RIGHT_WIDTH_MIN, budget);
+      const wantLeft = effectiveLeftWidth;
+      const wantRight = effectiveRightWidth;
+      if (wantLeft + wantRight > budget) {
+        const slack = budget - floorLeft - floorRight;
+        const overshoot = wantLeft - floorLeft + (wantRight - floorRight);
+        if (slack <= 0 || overshoot <= 0) {
+          effectiveLeftWidth = floorLeft;
+          effectiveRightWidth = Math.max(0, budget - floorLeft);
+        } else {
+          effectiveLeftWidth = Math.round(
+            floorLeft + ((wantLeft - floorLeft) * slack) / overshoot,
+          );
+          effectiveRightWidth = Math.round(
+            floorRight + ((wantRight - floorRight) * slack) / overshoot,
+          );
+        }
+      }
+      // 拖拽上限联动：一侧越宽，另一侧能拖到的上限越小。
+      // Drag ceilings interlock: the wider one side already is, the less the other may take.
+      maxLeftWidth = Math.min(
+        STUDIO_LEFT_WIDTH_MAX,
+        Math.max(STUDIO_LEFT_WIDTH_MIN, budget - effectiveRightWidth),
+      );
+      maxRightWidth = Math.min(
+        STUDIO_RIGHT_WIDTH_MAX,
+        Math.max(STUDIO_RIGHT_WIDTH_MIN, budget - effectiveLeftWidth),
+      );
+    } else if (!dockedLeftCollapsed) {
+      // 单侧停靠：预算不足下限时退到 160px 兜底，优先保住中栏而不是侧栏下限。
+      // Single dock: below the floor budget it settles at a 160px fallback — the center
+      // wins over the sidebar's own minimum.
+      maxLeftWidth =
+        budget >= STUDIO_LEFT_WIDTH_MIN
+          ? Math.min(STUDIO_LEFT_WIDTH_MAX, budget)
+          : Math.max(160, budget);
+      effectiveLeftWidth = Math.min(effectiveLeftWidth, maxLeftWidth);
+    } else {
+      maxRightWidth =
+        budget >= STUDIO_RIGHT_WIDTH_MIN
+          ? Math.min(STUDIO_RIGHT_WIDTH_MAX, budget)
+          : Math.max(160, budget);
+      effectiveRightWidth = Math.min(effectiveRightWidth, maxRightWidth);
+    }
+  }
+
+  let maxConsoleHeight = STUDIO_CONSOLE_HEIGHT_MAX;
+  let effectiveConsoleHeight = clampStudioConsoleHeight(consoleHeight);
+  if (containerHeight > 0) {
+    if (containerHeight - STUDIO_EDITOR_MIN_HEIGHT >= STUDIO_CONSOLE_HEIGHT_MIN) {
+      // 常规高度：控制台高不超过「容器高 - 编辑区下限 180px」，但用户偏好本身不改。
+      // Normal heights: console tops out at container minus the 180px editor floor,
+      // while the stored preference itself stays untouched.
+      maxConsoleHeight = Math.min(
+        STUDIO_CONSOLE_HEIGHT_MAX,
+        containerHeight - STUDIO_EDITOR_MIN_HEIGHT,
+      );
+    } else {
+      // 极矮容器：编辑区与控制台都保不住下限，控制台按比例 45% 分配，编辑区吃剩余空间。
+      // Extremely short container: neither floor holds, so the console takes ~45%
+      // and the editor keeps the remainder.
+      maxConsoleHeight = Math.max(110, Math.floor(containerHeight * 0.45));
+    }
+    effectiveConsoleHeight = Math.min(
+      clampStudioConsoleHeight(consoleHeight),
+      maxConsoleHeight,
+    );
+  }
+
+  return {
+    viewportMode,
+    topbarTier,
+    overlaySidebars,
+    dockedLeftCollapsed,
+    dockedRightCollapsed,
+    effectiveLeftWidth,
+    effectiveRightWidth,
+    maxLeftWidth,
+    maxRightWidth,
+    effectiveConsoleHeight,
+    maxConsoleHeight,
+    // 直接拼接动态夹紧后的列宽，不再经过 buildStudioGridTemplateColumns 二次夹回下限，
+    // 确保网格轨道与有效宽及分隔条坐标严格一致。
+    // Format columns directly from the dynamically clamped widths without re-clamping via
+    // buildStudioGridTemplateColumns, keeping grid tracks and split handle positions aligned.
+    gridTemplateColumns: `${dockedLeftCollapsed ? '0px' : `${effectiveLeftWidth}px`} minmax(0,1fr) ${dockedRightCollapsed ? '0px' : `${effectiveRightWidth}px`}`,
+    // 动态夹紧值可能低于 STUDIO_CONSOLE_HEIGHT_MIN，不能再过 clampStudioConsoleHeight。
+    // The dynamic clamp may dip below STUDIO_CONSOLE_HEIGHT_MIN, so it must not be
+    // re-clamped by clampStudioConsoleHeight.
+    gridTemplateRows: consoleMaximized
+      ? '0px minmax(0,1fr)'
+      : `minmax(0,1fr) ${effectiveConsoleHeight}px`,
+  };
+}
+
 export const EMPTY_EDITOR: EditorState = {
   name: '',
   description: '',

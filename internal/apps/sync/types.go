@@ -57,8 +57,11 @@ type UpdateTaskRequest struct {
 // UpdateTaskPermissionsRequest 表示一次只修改共享权限字段的请求。
 // UpdateTaskPermissionsRequest represents a partial sharing-permission update.
 type UpdateTaskPermissionsRequest struct {
-	IsPublic        *bool  `json:"is_public"`
-	CollaboratorIDs []uint `json:"collaborator_ids"`
+	// AccessLevel 是新式三态共享级别；与 is_public 同传时必须保持一致。
+	// AccessLevel is the new three-state sharing level; when sent together with is_public they must agree.
+	AccessLevel     *string `json:"access_level"`
+	IsPublic        *bool   `json:"is_public"`
+	CollaboratorIDs []uint  `json:"collaborator_ids"`
 }
 
 // PublishTaskRequest represents the payload for publishing a sync task.
@@ -341,6 +344,7 @@ type TaskTreeNode struct {
 	IsOwner                 bool            `json:"is_owner"`
 	IsCollaborator          bool            `json:"is_collaborator"`
 	IsPublicTask            bool            `json:"is_public"`
+	AccessLevel             TaskAccessLevel `json:"access_level"`
 	Children                []*TaskTreeNode `json:"children,omitempty"`
 }
 

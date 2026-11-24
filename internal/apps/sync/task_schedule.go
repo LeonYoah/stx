@@ -148,7 +148,32 @@ func validateTaskDefinition(definition JSONMap) error {
 	if err := validateTaskTimeouts(definition); err != nil {
 		return err
 	}
-	_, err := parseTaskSchedule(definition)
+	if _, err := parseTaskSchedule(definition); err != nil {
+		return err
+	}
+	return validateDefinitionAccessLevel(definition)
+}
+
+// validateDefinitionAccessLevel 在写入路径拦截非法 access_level：存在且非空时必须是三态字符串，
+// 非字符串或空串之外无法归一化的值都返回 ErrInvalidTaskAccessLevel。
+// validateDefinitionAccessLevel rejects invalid access_level on write paths: a present non-empty
+// value must be a three-state string; non-string or unnormalizable values return ErrInvalidTaskAccessLevel.
+func validateDefinitionAccessLevel(definition JSONMap) error {
+	if definition == nil {
+		return nil
+	}
+	raw, exists := definition["access_level"]
+	if !exists || raw == nil {
+		return nil
+	}
+	s, ok := raw.(string)
+	if !ok {
+		return ErrInvalidTaskAccessLevel
+	}
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	_, err := normalizeTaskAccessLevel(s)
 	return err
 }
 

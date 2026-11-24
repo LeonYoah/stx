@@ -175,6 +175,38 @@ const (
 	JobSyncStateUnknown  JobSyncState = "unknown"
 )
 
+// TaskAccessLevel 表示工作台同步任务的团队共享访问级别。
+// TaskAccessLevel represents the workspace sharing access level of a sync task.
+type TaskAccessLevel string
+
+const (
+	// TaskAccessLevelPrivate 私有：仅所有者、管理员与指定共建者可见、可编辑运行。
+	// TaskAccessLevelPrivate restricts visibility and editing to the owner, admins and named collaborators.
+	TaskAccessLevelPrivate TaskAccessLevel = "private"
+	// TaskAccessLevelPublicReadOnly 公开只读：全员可查看，仅所有者、管理员与共建者可编辑运行。
+	// TaskAccessLevelPublicReadOnly lets everyone view while only owner, admins and collaborators may edit or run.
+	TaskAccessLevelPublicReadOnly TaskAccessLevel = "public_readonly"
+	// TaskAccessLevelPublicEditable 公开可协作：全员可查看、编辑与运行；删除与权限管理仍归所有者/管理员。
+	// TaskAccessLevelPublicEditable lets everyone view, edit and run; delete and permission management stay owner/admin only.
+	TaskAccessLevelPublicEditable TaskAccessLevel = "public_editable"
+)
+
+// normalizeTaskAccessLevel 把外部输入归一化为合法的三态共享级别，其余值返回 ErrInvalidTaskAccessLevel。
+// normalizeTaskAccessLevel normalizes external input into a valid three-state access level;
+// any other value returns ErrInvalidTaskAccessLevel.
+func normalizeTaskAccessLevel(raw string) (TaskAccessLevel, error) {
+	switch TaskAccessLevel(strings.ToLower(strings.TrimSpace(raw))) {
+	case TaskAccessLevelPrivate:
+		return TaskAccessLevelPrivate, nil
+	case TaskAccessLevelPublicReadOnly:
+		return TaskAccessLevelPublicReadOnly, nil
+	case TaskAccessLevelPublicEditable:
+		return TaskAccessLevelPublicEditable, nil
+	default:
+		return "", ErrInvalidTaskAccessLevel
+	}
+}
+
 // Task represents one sync studio workspace node.
 // Task 表示一个数据同步工作台节点。
 type Task struct {
@@ -205,9 +237,12 @@ type Task struct {
 	IsOwner                 bool          `json:"is_owner" gorm:"-"`
 	IsCollaborator          bool          `json:"is_collaborator" gorm:"-"`
 	IsPublicTask            bool          `json:"is_public" gorm:"-"`
-	CreatedBy               uint          `json:"created_by"`
-	CreatedAt               time.Time     `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt               time.Time     `json:"updated_at" gorm:"autoUpdateTime"`
+	// TaskAccessLevel 是响应里输出的共享访问级别，由 DecoratePermissions 填充，不落库。
+	// TaskAccessLevel is the sharing level serialized to clients; DecoratePermissions fills it and it is not persisted.
+	TaskAccessLevel TaskAccessLevel `json:"access_level" gorm:"-"`
+	CreatedBy       uint            `json:"created_by"`
+	CreatedAt       time.Time       `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt       time.Time       `json:"updated_at" gorm:"autoUpdateTime"`
 
 	// TimeoutDefaults 只在任务详情里返回全局超时默认值，供任务设置的占位提示使用。
 	// TimeoutDefaults is returned on task detail only, carrying global timeout defaults for the settings placeholders.
@@ -220,23 +255,52 @@ func (Task) TableName() string {
 	return "sync_tasks"
 }
 
-// IsPublic reports whether this task is publicly visible in the workspace.
-func (t *Task) IsPublic() bool {
+// AccessLevel 解析任务的共享访问级别，是共享权限判断的唯一入口。
+// 历史记录只有 is_public：false 视为私有，其余（含缺失）保持公开只读的安全默认；
+// access_level 存了脏字符串时回退到 is_public 推导，避免异常数据让读取崩溃。
+// AccessLevel resolves the task's sharing level and is the single entry point for sharing checks.
+// Legacy rows only carry is_public: false maps to private and everything else (including a missing
+// key) stays public-read-only; a dirty access_level falls back to the is_public derivation so
+// malformed data cannot break reads.
+func (t *Task) AccessLevel() TaskAccessLevel {
 	if t == nil || t.Definition == nil {
-		return true
+		return TaskAccessLevelPublicReadOnly
 	}
+	if raw, exists := t.Definition["access_level"]; exists {
+		if s, ok := raw.(string); ok && strings.TrimSpace(s) != "" {
+			if level, err := normalizeTaskAccessLevel(s); err == nil {
+				return level
+			}
+		}
+	}
+	return t.legacyIsPublicAccessLevel()
+}
+
+// legacyIsPublicAccessLevel 按历史 is_public 字段推导共享级别：false 为私有，其余为公开只读。
+// legacyIsPublicAccessLevel derives the sharing level from the legacy is_public field:
+// false means private; any other value means public-read-only.
+func (t *Task) legacyIsPublicAccessLevel() TaskAccessLevel {
 	val, exists := t.Definition["is_public"]
 	if !exists {
-		return true
+		return TaskAccessLevelPublicReadOnly
 	}
 	switch v := val.(type) {
 	case bool:
-		return v
+		if !v {
+			return TaskAccessLevelPrivate
+		}
 	case string:
-		return !strings.EqualFold(v, "false")
-	default:
-		return true
+		if strings.EqualFold(v, "false") {
+			return TaskAccessLevelPrivate
+		}
 	}
+	return TaskAccessLevelPublicReadOnly
+}
+
+// IsPublic 表示任务是否对团队可见，等价于访问级别不是私有。
+// IsPublic reports whether this task is publicly visible in the workspace (non-private access level).
+func (t *Task) IsPublic() bool {
+	return t.AccessLevel() != TaskAccessLevelPrivate
 }
 
 // CollaboratorIDs returns the list of user IDs specified as co-developers.
@@ -308,7 +372,11 @@ func (t *Task) HasCollaborator(userID uint) bool {
 	return false
 }
 
-// CanUserEdit reports whether the given user can edit, save, or delete this task.
+// CanUserEdit 裁决编辑、保存、发布、运行与预览等协作权限；
+// 删除任务与修改共享设置不走这里，分别由 DeleteTaskForActor 与 canManageTaskPermissions 校验所有者/管理员。
+// CanUserEdit decides collaborative rights such as editing, saving, publishing, running and previewing;
+// deleting the task or changing sharing settings is checked separately by DeleteTaskForActor and
+// canManageTaskPermissions, which require the owner or an admin.
 func (t *Task) CanUserEdit(userID uint, isAdmin bool) bool {
 	if isAdmin {
 		return true
@@ -319,7 +387,10 @@ func (t *Task) CanUserEdit(userID uint, isAdmin bool) bool {
 	if t.CreatedBy == 0 || t.CreatedBy == userID {
 		return true
 	}
-	return t.HasCollaborator(userID)
+	if t.HasCollaborator(userID) {
+		return true
+	}
+	return t.AccessLevel() == TaskAccessLevelPublicEditable
 }
 
 // CanUserRun reports whether the given user can run/submit/preview this task.
@@ -351,18 +422,20 @@ func (t *Task) DecoratePermissions(userID uint, isAdmin bool) {
 	t.IsOwner = isAdmin || (t.CreatedBy != 0 && t.CreatedBy == userID)
 	t.IsCollaborator = t.HasCollaborator(userID)
 	t.IsPublicTask = t.IsPublic()
+	t.TaskAccessLevel = t.AccessLevel()
 }
 
 // TaskPermissions 只包含独立权限接口对外提供的共享字段。
 // TaskPermissions contains only the sharing fields exposed by the dedicated permissions API.
 type TaskPermissions struct {
-	TaskID          uint   `json:"task_id"`
-	IsPublic        bool   `json:"is_public"`
-	CollaboratorIDs []uint `json:"collaborator_ids"`
-	CanEdit         bool   `json:"can_edit"`
-	CanManage       bool   `json:"can_manage"`
-	IsOwner         bool   `json:"is_owner"`
-	IsCollaborator  bool   `json:"is_collaborator"`
+	TaskID          uint            `json:"task_id"`
+	AccessLevel     TaskAccessLevel `json:"access_level"`
+	IsPublic        bool            `json:"is_public"`
+	CollaboratorIDs []uint          `json:"collaborator_ids"`
+	CanEdit         bool            `json:"can_edit"`
+	CanManage       bool            `json:"can_manage"`
+	IsOwner         bool            `json:"is_owner"`
+	IsCollaborator  bool            `json:"is_collaborator"`
 }
 
 // TaskVersion stores one immutable snapshot of a sync file task.

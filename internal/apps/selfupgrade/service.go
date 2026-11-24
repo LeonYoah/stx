@@ -993,9 +993,12 @@ func unpackTarGz(tarPath, destDir string) error {
 		if !strings.HasPrefix(targetPath, lexDest+string(filepath.Separator)) && targetPath != lexDest {
 			return fmt.Errorf("illegal file path in archive: %s", hdr.Name)
 		}
-		realTarget, err := resolveInDir(cleanDest, targetPath)
-		if err != nil {
-			return fmt.Errorf("illegal path in archive: %s: %w", hdr.Name, err)
+		realTarget := cleanDest
+		if targetPath != lexDest {
+			realTarget, err = resolveInDir(cleanDest, targetPath)
+			if err != nil {
+				return fmt.Errorf("illegal path in archive: %s: %w", hdr.Name, err)
+			}
 		}
 
 		switch hdr.Typeflag {

@@ -22,6 +22,7 @@ import type {
 } from '@/lib/services/sync';
 import {
   buildInsertedCuratedContent,
+  buildTaskPayloadFromEditor,
   buildStudioGridTemplateColumns,
   buildStudioGridTemplateRows,
   clampStudioConsoleHeight,
@@ -31,6 +32,7 @@ import {
   isZeroMetricValue,
   detectVariables,
   dolphinPushBlockedReason,
+  EMPTY_EDITOR,
   filterTree,
   extractJobMetricSummary,
   countLogicalTables,
@@ -38,12 +40,14 @@ import {
   getRunModeLabel,
   isCursorInsideValueRegion,
   isNodeMatchingScope,
+  patchTreeNode,
   formatValueConstraintHints,
   isCursorAtFinishedEnumValue,
   readStudioLayoutPrefs,
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveOptionAssignmentContext,
+  resolveTaskAccessLevel,
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
   studioSaveSegment,
@@ -1235,5 +1239,128 @@ describe('findSyncJobsByIdInput', () => {
     const found = await findSyncJobsByIdInput(listJobsOf({}, calls), 'abc');
     expect(found).toEqual([]);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('resolveTaskAccessLevel', () => {
+  it('resolves the three states and keeps backend-compatible fallbacks', () => {
+    expect(resolveTaskAccessLevel(undefined)).toBe('public_readonly');
+    expect(resolveTaskAccessLevel({})).toBe('public_readonly');
+    expect(
+      resolveTaskAccessLevel({access_level: 'public_editable'}),
+    ).toBe('public_editable');
+    expect(resolveTaskAccessLevel({access_level: 'private'})).toBe('private');
+    // 顶层字段优先于 definition；脏值回退 is_public 推导。
+    // Top-level wins over definition; dirty values fall back to the is_public derivation.
+    expect(
+      resolveTaskAccessLevel({
+        access_level: 'private',
+        definition: {access_level: 'public_editable'},
+      }),
+    ).toBe('private');
+    expect(
+      resolveTaskAccessLevel({access_level: 'garbage', is_public: false}),
+    ).toBe('private');
+    expect(
+      resolveTaskAccessLevel({definition: {access_level: 'public_editable'}}),
+    ).toBe('public_editable');
+    expect(resolveTaskAccessLevel({is_public: false})).toBe('private');
+    expect(
+      resolveTaskAccessLevel({definition: {is_public: 'false'}}),
+    ).toBe('private');
+    expect(resolveTaskAccessLevel({is_public: true})).toBe('public_readonly');
+  });
+});
+
+describe('patchTreeNode permission fields', () => {
+  const baseNode = {
+    id: 7,
+    parent_id: 1,
+    node_type: 'file' as const,
+    name: 'task.conf',
+    description: '',
+    cluster_id: 1,
+    engine_version: '2.3.8',
+    mode: 'batch' as const,
+    status: 'draft' as const,
+    content_format: 'hocon' as const,
+    content: '',
+    job_name: 'task',
+    definition: {},
+    sort_order: 0,
+    current_version: 1,
+    can_edit: false,
+    can_run: false,
+    is_owner: false,
+    is_collaborator: false,
+    is_public: true,
+    access_level: 'public_readonly' as const,
+  };
+
+  it('syncs permission decoration when the task payload provides it', () => {
+    const task = {
+      ...baseNode,
+      can_edit: true,
+      can_run: true,
+      is_owner: false,
+      is_collaborator: true,
+      access_level: 'public_editable' as const,
+      created_by: 1,
+      created_at: '',
+      updated_at: '',
+    };
+    const [patched] = patchTreeNode([baseNode], task);
+    expect(patched.can_edit).toBe(true);
+    expect(patched.can_run).toBe(true);
+    expect(patched.is_collaborator).toBe(true);
+    expect(patched.access_level).toBe('public_editable');
+  });
+
+  it('keeps existing permission fields when the payload omits them', () => {
+    const task = {
+      id: 7,
+      name: 'task.conf',
+    } as never;
+    const [patched] = patchTreeNode([baseNode], task);
+    expect(patched.can_edit).toBe(false);
+    expect(patched.access_level).toBe('public_readonly');
+  });
+});
+
+describe('buildTaskPayloadFromEditor access_level', () => {
+  it('dual-writes access_level and a derived is_public', () => {
+    const payload = buildTaskPayloadFromEditor(
+      {
+        ...EMPTY_EDITOR,
+        name: 'task.conf',
+        accessLevel: 'public_editable',
+      },
+      [],
+    );
+    expect(payload.definition?.access_level).toBe('public_editable');
+    expect(payload.definition?.is_public).toBe(true);
+  });
+
+  it('maps private to is_public false', () => {
+    const payload = buildTaskPayloadFromEditor(
+      {...EMPTY_EDITOR, name: 'task.conf', accessLevel: 'private'},
+      [],
+    );
+    expect(payload.definition?.access_level).toBe('private');
+    expect(payload.definition?.is_public).toBe(false);
+  });
+
+  it('preserves private legacy editor state when accessLevel is omitted', () => {
+    const payload = buildTaskPayloadFromEditor(
+      {
+        ...EMPTY_EDITOR,
+        name: 'legacy-private.conf',
+        accessLevel: undefined,
+        isPublic: false,
+      },
+      [],
+    );
+    expect(payload.definition?.access_level).toBe('private');
+    expect(payload.definition?.is_public).toBe(false);
   });
 });

@@ -33,6 +33,7 @@ import type {
   SyncPluginType,
   SyncPreviewDataset,
   SyncTask,
+  SyncTaskAccessLevel,
   SyncTaskTreeNode,
 } from '@/lib/services/sync';
 export type { SyncTaskTreeNode, SyncTask };
@@ -66,6 +67,7 @@ export interface EditorState {
   isOwner?: boolean;
   isCollaborator?: boolean;
   isPublic?: boolean;
+  accessLevel?: SyncTaskAccessLevel;
 }
 
 export interface TreeContextMenuState {
@@ -425,6 +427,7 @@ export const EMPTY_EDITOR: EditorState = {
   isOwner: true,
   isCollaborator: false,
   isPublic: true,
+  accessLevel: 'public_readonly',
 };
 
 export const WORKSPACE_NAME_PATTERN = /^[\p{L}\p{N}._-]+$/u;
@@ -1394,6 +1397,11 @@ export function buildTaskPayloadFromEditor(
   editor: EditorState,
   customVariableRows: VariableRow[],
 ): CreateSyncTaskRequest {
+  const accessLevel = resolveTaskAccessLevel({
+    access_level: editor.accessLevel,
+    is_public: editor.isPublic,
+    definition: editor.definition,
+  });
   return {
     parent_id: editor.parentId,
     node_type: 'file',
@@ -1405,10 +1413,10 @@ export function buildTaskPayloadFromEditor(
     job_name: editor.name.trim(),
     definition: {
       ...editor.definition,
-      is_public:
-        editor.definition?.is_public !== undefined
-          ? editor.definition.is_public
-          : (editor.isPublic ?? true),
+      // 共享字段与后端双写约定保持一致：access_level 为准，is_public 由它推导。
+      // Keep the backend dual-write contract: access_level is canonical and is_public is derived from it.
+      access_level: accessLevel,
+      is_public: accessLevel !== 'private',
       collaborators: Array.isArray(editor.definition?.collaborators)
         ? editor.definition.collaborators
         : Array.isArray(editor.definition?.collaborator_ids)
@@ -1858,6 +1866,15 @@ export function patchTreeNode(
         current_version: task.current_version,
         status: task.status,
         job_name: task.job_name,
+        // 权限装饰字段也要同步：共享弹窗保存后树节点的只读/协作标记必须跟随最新权限。
+        // Permission decoration must sync too: after saving the share popover the tree node's
+        // read-only / collaboration markers have to track the latest permissions.
+        can_edit: task.can_edit ?? node.can_edit,
+        can_run: task.can_run ?? node.can_run,
+        is_owner: task.is_owner ?? node.is_owner,
+        is_collaborator: task.is_collaborator ?? node.is_collaborator,
+        is_public: task.is_public ?? node.is_public,
+        access_level: task.access_level ?? node.access_level,
       };
     }
     if (node.children && node.children.length > 0) {
@@ -3792,10 +3809,47 @@ export function getPreviewRowKindBadgeClass(value: string): string {
   }
 }
 
+// resolveTaskAccessLevel 是前端解析任务共享级别的唯一入口，语义与后端 Task.AccessLevel() 一致：
+// 合法 access_level 优先（顶层字段先于 definition），无效值回退 is_public 推导，安全默认公开只读。
+// resolveTaskAccessLevel is the single client-side resolver for the task sharing level, mirroring
+// backend Task.AccessLevel(): a valid access_level wins (top-level before definition), invalid values
+// fall back to the is_public derivation, and the safe default is public-read-only.
+export function resolveTaskAccessLevel(
+  task?: {
+    access_level?: SyncTaskAccessLevel | string | null;
+    is_public?: boolean | string | null;
+    definition?: SyncJSON | null;
+  } | null,
+): SyncTaskAccessLevel {
+  if (task) {
+    const rawLevel = task.access_level ?? task.definition?.access_level;
+    if (typeof rawLevel === 'string') {
+      const normalized = rawLevel.trim().toLowerCase();
+      if (
+        normalized === 'private' ||
+        normalized === 'public_readonly' ||
+        normalized === 'public_editable'
+      ) {
+        return normalized;
+      }
+    }
+    const rawPublic = task.is_public ?? task.definition?.is_public;
+    if (
+      rawPublic === false ||
+      (typeof rawPublic === 'string' &&
+        rawPublic.toLowerCase() === 'false')
+    ) {
+      return 'private';
+    }
+  }
+  return 'public_readonly';
+}
+
 export function extractEditorState(task?: SyncTask | null): EditorState {
   if (!task) {
     return EMPTY_EDITOR;
   }
+  const accessLevel = resolveTaskAccessLevel(task);
   return {
     id: task.id,
     parentId: task.parent_id,
@@ -3812,7 +3866,8 @@ export function extractEditorState(task?: SyncTask | null): EditorState {
     canRun: task.can_run ?? true,
     isOwner: task.is_owner ?? true,
     isCollaborator: task.is_collaborator ?? false,
-    isPublic: task.is_public ?? true,
+    isPublic: accessLevel !== 'private',
+    accessLevel,
   };
 }
 
@@ -3822,6 +3877,7 @@ export function extractEditorStateFromTreeNode(
   if (!task) {
     return EMPTY_EDITOR;
   }
+  const accessLevel = resolveTaskAccessLevel(task);
   return {
     id: task.id,
     parentId: task.parent_id,
@@ -3838,7 +3894,8 @@ export function extractEditorStateFromTreeNode(
     canRun: task.can_run ?? true,
     isOwner: task.is_owner ?? true,
     isCollaborator: task.is_collaborator ?? false,
-    isPublic: task.is_public ?? true,
+    isPublic: accessLevel !== 'private',
+    accessLevel,
   };
 }
 

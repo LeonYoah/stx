@@ -127,7 +127,7 @@ func syncOperationSpecs() []OperationSpec {
 		syncOp("sync.task.create", []string{"sync", "task", "create"}, "Create a sync task or folder", "POST", "/api/v1/sync/tasks", RiskR1, "创建同步任务或目录节点。", syncWriteInputs(false, nil), "stx sync task create --name my-task --confirm", false, false),
 		syncOp("sync.task.update", []string{"sync", "task", "update"}, "Update a sync task", "PUT", "/api/v1/sync/tasks/:id", RiskR1, "更新同步任务的基础信息或配置内容。", syncWriteInputs(false, taskIDInput), "stx sync task update 1 --confirm", false, false),
 		syncOp("sync.task.permissions.get", []string{"sync", "task", "permissions", "get"}, "Get sync task sharing permissions", "GET", "/api/v1/sync/tasks/:id/permissions", RiskR0, "", taskIDInput, "stx sync task permissions get 1", false, false),
-		syncOp("sync.task.permissions.update", []string{"sync", "task", "permissions", "update"}, "Update sync task sharing permissions", "PUT", "/api/v1/sync/tasks/:id/permissions", RiskR1, "修改任务公开状态和协作者列表，不会修改任务正文，也不会发布新版本。", syncWriteInputs(true, taskIDInput), "stx sync task permissions update 1 --request-file permissions.json --confirm", false, false),
+		syncOp("sync.task.permissions.update", []string{"sync", "task", "permissions", "update"}, "Update sync task sharing permissions", "PUT", "/api/v1/sync/tasks/:id/permissions", RiskR1, "修改任务共享级别（private/public_readonly/public_editable）和协作者列表，不会修改任务正文，也不会发布新版本。", syncWriteInputs(true, taskIDInput), "stx sync task permissions update 1 --access-level public_editable --confirm", false, false),
 		// 作业告警配置：get 由登记表生成；set 是手写命令（参数式），停用用 set --disable；删除只在网页和 API 提供。
 		// Job alert config: get is generated from the registry; set is a hand-written flag command and disables with
 		// set --disable; delete is only offered in the web UI and API.

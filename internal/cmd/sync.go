@@ -215,13 +215,14 @@ func newSyncTaskPermissionsGetCommand(storeProvider authStoreProvider) *cobra.Co
 func newSyncTaskPermissionsUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
 	var public, private, clearCollaborators bool
+	var accessLevel string
 	var collaboratorIDs []uint
 
 	command := &cobra.Command{
 		Use:     "update <id>",
 		Short:   "Update sync task sharing permissions",
-		Long:    "Replace the public flag and/or collaborator list for a sync task. Only the owner or an administrator may change these fields.",
-		Example: "stx sync task permissions update 1 --public --collaborator-id 2 --collaborator-id 3 --confirm",
+		Long:    "Replace the sharing level and/or collaborator list for a sync task. Only the owner or an administrator may change these fields.",
+		Example: "stx sync task permissions update 1 --access-level public_editable --collaborator-id 2 --collaborator-id 3 --confirm",
 		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
 			taskID, err := parseTaskID(args[0])
@@ -231,20 +232,35 @@ func newSyncTaskPermissionsUpdateCommand(storeProvider authStoreProvider) *cobra
 			if public && private {
 				return clioutput.NewError(clioutput.CodeUsage, "--public and --private cannot be used together", clioutput.ExitUsage, false)
 			}
+			accessLevelChanged := command.Flags().Changed("access-level")
+			normalizedAccessLevel := strings.ToLower(strings.TrimSpace(accessLevel))
+			if accessLevelChanged {
+				switch normalizedAccessLevel {
+				case "private", "public_readonly", "public_editable":
+				default:
+					return clioutput.NewError(clioutput.CodeUsage, "--access-level must be one of private, public_readonly, or public_editable", clioutput.ExitUsage, false)
+				}
+				if public || private {
+					return clioutput.NewError(clioutput.CodeUsage, "--access-level cannot be used with --public or --private", clioutput.ExitUsage, false)
+				}
+			}
 			if clearCollaborators && command.Flags().Changed("collaborator-id") {
 				return clioutput.NewError(clioutput.CodeUsage, "--clear-collaborators cannot be used with --collaborator-id", clioutput.ExitUsage, false)
 			}
-			if !public && !private && !command.Flags().Changed("collaborator-id") && !clearCollaborators {
-				return clioutput.NewError(clioutput.CodeUsage, "one of --public, --private, --collaborator-id, or --clear-collaborators is required", clioutput.ExitUsage, false)
+			if !accessLevelChanged && !public && !private && !command.Flags().Changed("collaborator-id") && !clearCollaborators {
+				return clioutput.NewError(clioutput.CodeUsage, "one of --access-level, --public, --private, --collaborator-id, or --clear-collaborators is required", clioutput.ExitUsage, false)
 			}
 
 			operationID := "sync.task.permissions.update"
-			client, headers, err := prepareSecureWrite(command, storeProvider, operationID, &options, "修改工作台任务的公开状态或协作者列表，不会修改任务正文。")
+			client, headers, err := prepareSecureWrite(command, storeProvider, operationID, &options, "修改工作台任务的共享级别或协作者列表，不会修改任务正文。")
 			if err != nil {
 				return err
 			}
 
-			body := make(map[string]any, 2)
+			body := make(map[string]any, 3)
+			if accessLevelChanged {
+				body["access_level"] = normalizedAccessLevel
+			}
 			if public || private {
 				body["is_public"] = public
 			}
@@ -263,7 +279,8 @@ func newSyncTaskPermissionsUpdateCommand(storeProvider authStoreProvider) *cobra
 		},
 	}
 	addSecureWriteFlags(command, &options)
-	command.Flags().BoolVar(&public, "public", false, "Make the task visible to all users")
+	command.Flags().StringVar(&accessLevel, "access-level", "", "Set the sharing level: private, public_readonly, or public_editable")
+	command.Flags().BoolVar(&public, "public", false, "Make the task visible to all users (read-only unless --access-level is used)")
 	command.Flags().BoolVar(&private, "private", false, "Make the task visible only to permitted users")
 	command.Flags().UintSliceVar(&collaboratorIDs, "collaborator-id", nil, "Replace collaborators with this user ID; repeat the flag for multiple users")
 	command.Flags().BoolVar(&clearCollaborators, "clear-collaborators", false, "Remove all collaborators")

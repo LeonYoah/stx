@@ -2661,3 +2661,217 @@ func TestTaskPermissionsAndRoles(t *testing.T) {
 		t.Fatalf("私有任务不应该出现在非授权用户的任务树中")
 	}
 }
+
+// TestTaskAccessLevelPermissions 覆盖三态共享模型的服务级行为：
+// public_editable 放开编辑/运行但收紧删除与权限管理；access_level 写入校验、兼容与防降级；
+// 正文接口无法伪造共享字段；树节点对外输出 access_level。
+// TestTaskAccessLevelPermissions covers service-level behavior of the three-state sharing model:
+// public_editable opens edit/run while delete and permission management stay owner/admin-only;
+// access_level writes are validated, backward compatible and downgrade-safe; content updates cannot
+// forge sharing fields; tree nodes expose access_level.
+func TestTaskAccessLevelPermissions(t *testing.T) {
+	ctx := context.Background()
+	service := newTestSyncService(t)
+
+	folder, err := service.CreateTask(ctx, &CreateTaskRequest{
+		NodeType: string(TaskNodeTypeFolder),
+		Name:     "access_level_root",
+	}, 1)
+	if err != nil {
+		t.Fatalf("创建目录失败: %v", err)
+	}
+	newFile := func(name string, definition JSONMap) *Task {
+		task, err := service.CreateTask(ctx, &CreateTaskRequest{
+			ParentID:      &folder.ID,
+			NodeType:      string(TaskNodeTypeFile),
+			Name:          name,
+			Mode:          string(TaskModeBatch),
+			ContentFormat: string(ContentFormatHOCON),
+			Content:       "env { parallelism = 1 }",
+			Definition:    definition,
+		}, 1)
+		if err != nil {
+			t.Fatalf("创建任务 %s 失败: %v", name, err)
+		}
+		return task
+	}
+
+	ownerActor := executionapp.Actor{UserID: 1, IsAdmin: true}
+	regularActor := executionapp.Actor{UserID: 9, IsAdmin: false}
+	boolPtr := func(v bool) *bool { return &v }
+	strPtr := func(v string) *string { return &v }
+
+	// 1. access_level 非法枚举在创建路径即被拒绝。
+	// 1. Invalid access_level values are rejected on the create path.
+	if _, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID:      &folder.ID,
+		NodeType:      string(TaskNodeTypeFile),
+		Name:          "bad_level.env",
+		Mode:          string(TaskModeBatch),
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "env { parallelism = 1 }",
+		Definition:    JSONMap{"access_level": "open"},
+	}, 1); !errors.Is(err, ErrInvalidTaskAccessLevel) {
+		t.Fatalf("非法 access_level 创建任务应返回 ErrInvalidTaskAccessLevel, got: %v", err)
+	}
+
+	// 2. public_editable 任务：普通用户可编辑可运行，但不可删除、不可改权限。
+	// 2. public_editable task: a regular user may edit and run, but not delete or manage permissions.
+	editableTask := newFile("editable.env", JSONMap{"access_level": "public_editable"})
+	loaded, err := service.GetTaskForActor(ctx, regularActor, editableTask.ID)
+	if err != nil {
+		t.Fatalf("普通用户读取公开可协作任务失败: %v", err)
+	}
+	if loaded.TaskAccessLevel != TaskAccessLevelPublicEditable || !loaded.CanEdit || !loaded.CanRun || loaded.IsOwner {
+		t.Fatalf("public_editable 装饰结果错误: %+v", loaded)
+	}
+	if _, err := service.UpdateTaskForActor(ctx, regularActor, editableTask.ID, &UpdateTaskRequest{
+		ParentID: &folder.ID,
+		Name:     "editable.env",
+		Content:  "env { parallelism = 3 }",
+	}); err != nil {
+		t.Fatalf("普通用户编辑公开可协作任务应成功: %v", err)
+	}
+	if err := service.DeleteTaskForActor(ctx, regularActor, editableTask.ID); !errors.Is(err, ErrTaskPermissionDenied) {
+		t.Fatalf("普通用户删除他人任务应返回 ErrTaskPermissionDenied, got: %v", err)
+	}
+	if _, _, err := service.UpdateTaskPermissionsForActor(ctx, regularActor, editableTask.ID, &UpdateTaskPermissionsRequest{
+		AccessLevel: strPtr("private"),
+	}); !errors.Is(err, ErrTaskPermissionDenied) {
+		t.Fatalf("普通用户修改共享权限应返回 ErrTaskPermissionDenied, got: %v", err)
+	}
+	// 2b. 公开可协作任务下，非提交人可恢复作业但仍不能停止他人作业。
+	// 2b. On a public-editable task a non-submitter may recover jobs but still cannot stop others' jobs.
+	otherJob := &JobInstance{TaskID: editableTask.ID, TaskVersion: 1, RunType: RunTypeRun, Status: JobStatusRunning, PlatformJobID: "pj-1", CreatedBy: 1}
+	perms := EvaluateJobPermissions(otherJob, editableTask, regularActor)
+	if !perms.CanRecover || perms.CanStop {
+		t.Fatalf("public_editable 非提交人应可恢复不可停止: %+v", perms)
+	}
+
+	// 3. access_level 写入：双写 access_level 与 is_public，切换三态不丢 collaborator_ids。
+	// 3. access_level writes dual-write both keys and switching states keeps collaborator_ids.
+	sharedTask := newFile("shared.env", JSONMap{"is_public": true})
+	before, after, err := service.UpdateTaskPermissionsForActor(ctx, ownerActor, sharedTask.ID, &UpdateTaskPermissionsRequest{
+		AccessLevel:     strPtr("public_editable"),
+		CollaboratorIDs: []uint{4},
+	})
+	if err != nil {
+		t.Fatalf("owner 写入 access_level 失败: %v", err)
+	}
+	if before.AccessLevel != TaskAccessLevelPublicReadOnly || after.AccessLevel != TaskAccessLevelPublicEditable || !after.IsPublic {
+		t.Fatalf("access_level 前后状态错误: before=%+v after=%+v", before, after)
+	}
+	stored, err := service.GetTask(ctx, sharedTask.ID)
+	if err != nil {
+		t.Fatalf("重读任务失败: %v", err)
+	}
+	if stored.Definition["access_level"] != "public_editable" || stored.Definition["is_public"] != true {
+		t.Fatalf("access_level 与 is_public 未双写: %+v", stored.Definition)
+	}
+
+	// 3b. public_editable → private 仍保留 collaborator_ids。
+	// 3b. Switching public_editable down to private keeps collaborator_ids.
+	_, after, err = service.UpdateTaskPermissionsForActor(ctx, ownerActor, sharedTask.ID, &UpdateTaskPermissionsRequest{
+		AccessLevel: strPtr("private"),
+	})
+	if err != nil {
+		t.Fatalf("切换 private 失败: %v", err)
+	}
+	if after.AccessLevel != TaskAccessLevelPrivate || after.IsPublic || len(after.CollaboratorIDs) != 1 || after.CollaboratorIDs[0] != 4 {
+		t.Fatalf("切换 private 后权限错误: %+v", after)
+	}
+
+	// 4. 非法值与同传冲突都返回 ErrInvalidTaskAccessLevel。
+	// 4. Invalid values and contradictory payloads both return ErrInvalidTaskAccessLevel.
+	if _, _, err := service.UpdateTaskPermissionsForActor(ctx, ownerActor, sharedTask.ID, &UpdateTaskPermissionsRequest{
+		AccessLevel: strPtr("everyone"),
+	}); !errors.Is(err, ErrInvalidTaskAccessLevel) {
+		t.Fatalf("非法 access_level 应返回 ErrInvalidTaskAccessLevel, got: %v", err)
+	}
+	if _, _, err := service.UpdateTaskPermissionsForActor(ctx, ownerActor, sharedTask.ID, &UpdateTaskPermissionsRequest{
+		AccessLevel: strPtr("private"),
+		IsPublic:    boolPtr(true),
+	}); !errors.Is(err, ErrInvalidTaskAccessLevel) {
+		t.Fatalf("access_level 与 is_public 冲突应返回 ErrInvalidTaskAccessLevel, got: %v", err)
+	}
+	// 4b. 一致组合（public_editable + true）被接受。
+	// 4b. A consistent pair (public_editable + true) is accepted.
+	if _, _, err := service.UpdateTaskPermissionsForActor(ctx, ownerActor, sharedTask.ID, &UpdateTaskPermissionsRequest{
+		AccessLevel: strPtr("public_editable"),
+		IsPublic:    boolPtr(true),
+	}); err != nil {
+		t.Fatalf("一致的 access_level/is_public 组合应成功: %v", err)
+	}
+
+	// 5. 兼容只传 is_public=true 的旧客户端：public_editable 不降级，private 升为 public_readonly。
+	// 5. Legacy is_public=true clients: public_editable is not downgraded, private upgrades to public_readonly.
+	_, after, err = service.UpdateTaskPermissionsForActor(ctx, ownerActor, sharedTask.ID, &UpdateTaskPermissionsRequest{
+		IsPublic: boolPtr(true),
+	})
+	if err != nil {
+		t.Fatalf("is_public 回写失败: %v", err)
+	}
+	if after.AccessLevel != TaskAccessLevelPublicEditable {
+		t.Fatalf("public_editable 不应被 is_public=true 降级: %+v", after)
+	}
+	legacyPrivate := newFile("legacy_private.env", JSONMap{"is_public": false})
+	_, after, err = service.UpdateTaskPermissionsForActor(ctx, ownerActor, legacyPrivate.ID, &UpdateTaskPermissionsRequest{
+		IsPublic: boolPtr(true),
+	})
+	if err != nil {
+		t.Fatalf("私有任务 is_public=true 更新失败: %v", err)
+	}
+	if after.AccessLevel != TaskAccessLevelPublicReadOnly || !after.IsPublic {
+		t.Fatalf("private + is_public=true 应升级为 public_readonly: %+v", after)
+	}
+	_, after, err = service.UpdateTaskPermissionsForActor(ctx, ownerActor, legacyPrivate.ID, &UpdateTaskPermissionsRequest{
+		IsPublic: boolPtr(false),
+	})
+	if err != nil {
+		t.Fatalf("is_public=false 更新失败: %v", err)
+	}
+	if after.AccessLevel != TaskAccessLevelPrivate || after.IsPublic {
+		t.Fatalf("is_public=false 应映射为 private: %+v", after)
+	}
+
+	// 6. 正文更新不能伪造 access_level。
+	// 6. Content updates cannot forge access_level.
+	forged, err := service.UpdateTaskForActor(ctx, ownerActor, sharedTask.ID, &UpdateTaskRequest{
+		ParentID:   &folder.ID,
+		Name:       "shared.env",
+		Content:    "env { parallelism = 5 }",
+		Definition: JSONMap{"access_level": "private", "is_public": false},
+	})
+	if err != nil {
+		t.Fatalf("owner 更新任务正文失败: %v", err)
+	}
+	if forged.Definition["access_level"] != "public_editable" || forged.Definition["is_public"] != true {
+		t.Fatalf("正文更新不应篡改共享字段: %+v", forged.Definition)
+	}
+
+	// 7. 树节点输出 access_level。
+	// 7. Tree nodes expose access_level.
+	tree, err := service.GetTaskTreeForActor(ctx, regularActor)
+	if err != nil {
+		t.Fatalf("获取任务树失败: %v", err)
+	}
+	var findNode func(nodes []*TaskTreeNode, id uint) *TaskTreeNode
+	findNode = func(nodes []*TaskTreeNode, id uint) *TaskTreeNode {
+		for _, n := range nodes {
+			if n.ID == id {
+				return n
+			}
+			if hit := findNode(n.Children, id); hit != nil {
+				return hit
+			}
+		}
+		return nil
+	}
+	node := findNode(tree, sharedTask.ID)
+	if node == nil {
+		t.Fatalf("任务树缺少目标节点 %d", sharedTask.ID)
+	}
+	if node.AccessLevel != TaskAccessLevelPublicEditable || !node.IsPublicTask || !node.CanEdit {
+		t.Fatalf("树节点 access_level/权限装饰错误: %+v", node)
+	}
+}

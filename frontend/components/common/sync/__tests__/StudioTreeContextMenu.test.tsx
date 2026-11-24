@@ -168,6 +168,53 @@ describe('StudioTreeContextMenu', () => {
     expect(onCreateFolder).toHaveBeenCalledWith(folderNode);
   });
 
+  it('hides delete for team-editable members but keeps it for the owner', () => {
+    const baseMenuProps = {
+      onClose: vi.fn(),
+      onCreateFile: vi.fn(),
+      onCreateFolder: vi.fn(),
+      onRename: vi.fn(),
+      onMove: vi.fn(),
+      onCopyFile: vi.fn(),
+      onDelete: vi.fn(),
+      onRefresh: vi.fn(),
+    };
+
+    // public_editable 下非所有者可以编辑但不能删除（与后端 DeleteTaskForActor 对齐）。
+    // A non-owner member may edit a public-editable task but cannot delete it (mirrors backend DeleteTaskForActor).
+    const teamEditableNode: SyncTaskTreeNode = {
+      ...mockNode,
+      is_owner: false,
+      created_by: 1,
+      can_edit: true,
+    };
+    const {unmount} = render(
+      <StudioTreeContextMenu
+        menuState={{open: true, x: 100, y: 100, kind: 'file', node: teamEditableNode}}
+        {...baseMenuProps}
+      />,
+    );
+    expect(screen.getByText('rename')).toBeInTheDocument();
+    expect(screen.queryByText('delete')).not.toBeInTheDocument();
+    unmount();
+
+    // 所有者即使 can_edit 缺失也可见删除入口。
+    // The owner sees delete even when can_edit is missing.
+    const ownerNode: SyncTaskTreeNode = {
+      ...mockNode,
+      is_owner: true,
+      created_by: 1,
+      can_edit: false,
+    };
+    render(
+      <StudioTreeContextMenu
+        menuState={{open: true, x: 100, y: 100, kind: 'file', node: ownerNode}}
+        {...baseMenuProps}
+      />,
+    );
+    expect(screen.getByText('delete')).toBeInTheDocument();
+  });
+
   it('offers collapse all on the root menu when folders are expanded', () => {
     const onToggleCollapseAll = vi.fn();
     render(

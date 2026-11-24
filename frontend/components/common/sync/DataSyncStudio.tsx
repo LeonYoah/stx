@@ -79,7 +79,6 @@ import {
   Loader2,
   Eye,
   Clock3,
-  Lock,
   Shield,
   Users,
   UserCheck,
@@ -125,6 +124,7 @@ import type {
   SyncPreviewDataset,
   SyncPreviewSnapshot,
   SyncTask,
+  SyncTaskAccessLevel,
   SyncTaskTimeoutDefaults,
   SyncTaskTreeNode,
   SyncTaskVersion,
@@ -395,6 +395,7 @@ import {
   isCursorAtFinishedEnumValue,
   resolveOptionAssignmentContext,
   resolveOptionKeyFromLine,
+  resolveTaskAccessLevel,
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
   splitLogLines,
@@ -4519,18 +4520,22 @@ export function DataSyncStudio() {
   );
 
   // 更新任务共享与共建者设置（纯内存更新，不污染文件未保存草稿状态）
-  // Update task sharing and collaborator permissions (in-memory only, does not dirty file draft)
+  // access_level 为准，isPublic 由它推导，与后端双写约定一致。
+  // Update task sharing and collaborator permissions (in-memory only, does not dirty file draft).
+  // access_level is canonical and isPublic is derived from it, matching the backend dual-write contract.
   const handleUpdateSharing = useCallback(
-    (isPublic: boolean, collaboratorIds: number[]) => {
+    (accessLevel: SyncTaskAccessLevel, collaboratorIds: number[]) => {
       const nextDef = {
         ...editor.definition,
-        is_public: isPublic,
+        access_level: accessLevel,
+        is_public: accessLevel !== 'private',
         collaborator_ids: collaboratorIds,
         collaborators: collaboratorIds,
       };
       setEditor((prev) => ({
         ...prev,
-        isPublic,
+        accessLevel,
+        isPublic: accessLevel !== 'private',
         definition: nextDef,
       }));
     },
@@ -4550,28 +4555,41 @@ export function DataSyncStudio() {
         : Array.isArray(editor.definition?.collaborators)
           ? (editor.definition.collaborators as number[])
           : [];
+      const accessLevel = resolveTaskAccessLevel({
+        access_level: editor.accessLevel,
+        is_public: editor.isPublic,
+        definition: editor.definition,
+      });
       const permissions = await services.sync.updateTaskPermissions(editor.id, {
-        is_public: editor.isPublic ?? true,
+        access_level: accessLevel,
         collaborator_ids: collaboratorIds,
       });
       const nextDefinition = {
         ...(currentTask.definition || {}),
+        access_level: permissions.access_level,
         is_public: permissions.is_public,
         collaborator_ids: permissions.collaborator_ids,
         collaborators: permissions.collaborator_ids,
       };
       const updatedTask = {
         ...currentTask,
+        access_level: permissions.access_level,
         is_public: permissions.is_public,
         can_edit: permissions.can_edit,
+        can_run: permissions.can_edit,
         is_owner: permissions.is_owner,
         is_collaborator: permissions.is_collaborator,
         definition: nextDefinition,
       };
       setEditor((prev) => ({
         ...prev,
-        isPublic: updatedTask.is_public ?? editor.isPublic,
-        definition: updatedTask.definition || nextDefinition,
+        accessLevel: permissions.access_level,
+        isPublic: permissions.is_public,
+        canEdit: permissions.can_edit,
+        canRun: permissions.can_edit,
+        isOwner: permissions.is_owner,
+        isCollaborator: permissions.is_collaborator,
+        definition: nextDefinition,
       }));
       setTree((current) => patchTreeNode(current, updatedTask));
       toast.success(t('savePermissionsSuccess'));
@@ -4580,7 +4598,7 @@ export function DataSyncStudio() {
         error instanceof Error ? error.message : t('savePermissionsFailed'),
       );
     }
-  }, [editor.id, editor.definition, editor.isPublic, t]);
+  }, [editor.id, editor.definition, editor.accessLevel, editor.isPublic, t]);
 
   // 顶栏 Savepoint 恢复是否不可用（本地模式 / 有进行中作业 / 无恢复源）
   // Whether top-bar Savepoint Recover is unavailable (local mode / active job / no recover source)
@@ -4685,13 +4703,14 @@ export function DataSyncStudio() {
                       {editor.status === 'published' ? t('published') : t('draft')}
                     </span>
 
-                    {/* 只读锁定标识 / Read-only locked badge */}
+                    {/* 只读是可查看的正常状态，中性 Eye 徽章区别于私有任务的琥珀 Lock。 */}
+                    {/* Read-only is a viewable state: a neutral Eye badge, distinct from the amber Lock of private tasks. */}
                     {!editor.canEdit ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <span className='inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-normal text-amber-600 dark:text-amber-400'>
-                            <Lock className='size-2.5' />
-                            {t('readOnlyLocked')}
+                          <span className='inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-normal text-muted-foreground'>
+                            <Eye className='size-2.5' />
+                            {t('readOnly')}
                           </span>
                         </TooltipTrigger>
                         <TooltipContent>{t('readOnlyBannerText')}</TooltipContent>
@@ -4704,6 +4723,7 @@ export function DataSyncStudio() {
                       isCollaborator={editor.isCollaborator ?? false}
                       canEdit={editor.canEdit ?? true}
                       isPublic={editor.isPublic ?? true}
+                      accessLevel={editor.accessLevel}
                       createdBy={editor.createdBy}
                       collaboratorIds={
                         Array.isArray(editor.definition?.collaborator_ids)
@@ -5259,19 +5279,20 @@ export function DataSyncStudio() {
               </div>
             ) : null}
 
-            {/* 任务只读锁定横幅提示 */}
-            {/* Read-only locked warning banner */}
+            {/* 任务只读横幅：中性提示而非琥珀警示，与共享弹窗「公开只读」同一语义。 */}
+            {/* Read-only banner: a neutral notice instead of an amber warning, sharing the same
+                semantics as the popover's public-read-only level. */}
             {editor.id && !editor.canEdit ? (
-              <div className='flex items-center justify-between border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400 shrink-0'>
+              <div className='flex items-center justify-between border-b border-border/60 bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground shrink-0'>
                 <div className='flex items-center gap-2'>
-                  <Lock className='size-3.5 shrink-0' />
+                  <Eye className='size-3.5 shrink-0' />
                   <span>{t('readOnlyBannerText')}</span>
                 </div>
                 <Badge
                   variant='outline'
-                  className='border-amber-500/30 bg-amber-500/15 text-[10px] text-amber-600 dark:text-amber-400'
+                  className='border-border/60 bg-muted/50 text-[10px] text-muted-foreground'
                 >
-                  {t('readOnlyLocked')}
+                  {t('readOnly')}
                 </Badge>
               </div>
             ) : null}

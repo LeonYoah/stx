@@ -33,68 +33,119 @@ const mockUsers = [
   { id: 3, username: 'bob', nickname: 'Bob Engineer' },
 ];
 
+const baseProps = {
+  isOwner: true,
+  isCollaborator: false,
+  canEdit: true,
+  createdBy: 1,
+  workspaceUsers: mockUsers,
+  isAdmin: true,
+};
+
 describe('StudioSharePopover', () => {
-  it('renders trigger button with visibility status and collaborator count', () => {
+  it('renders trigger glyph by access level and collaborator count', () => {
     render(
       <StudioSharePopover
-        isOwner={true}
-        isCollaborator={false}
-        canEdit={true}
-        isPublic={true}
-        createdBy={1}
+        {...baseProps}
+        accessLevel='public_readonly'
         collaboratorIds={[2, 3]}
-        workspaceUsers={mockUsers}
-        isAdmin={true}
       />,
     );
 
-    // 触发器收成图标 + 着色可见性小标；可见性文案改由 title 承载。
-    // Trigger is icon + colored visibility glyph; the visibility text moved to title.
+    // 触发器小标 title 展示当前共享级别，协作者数照常计数。
+    // The trigger glyph title reflects the current sharing level; collaborator count stays.
     const trigger = screen.getByRole('button', {name: 'shareTask'});
     expect(trigger).toBeInTheDocument();
-    expect(trigger.querySelector('span[title="public"]')).not.toBeNull();
+    expect(
+      trigger.querySelector('span[title="accessLevelPublicReadOnly"]'),
+    ).not.toBeNull();
     expect(screen.getByText('+2')).toBeInTheDocument();
   });
 
-  it('opens popover on click and allows toggling visibility and removing collaborators', () => {
-    const onUpdateSharing = vi.fn();
-    const onSavePermissions = vi.fn();
+  it('falls back to isPublic when accessLevel is absent', () => {
+    render(<StudioSharePopover {...baseProps} isPublic={false} />);
+    const trigger = screen.getByRole('button', {name: 'shareTask'});
+    expect(
+      trigger.querySelector('span[title="accessLevelPrivate"]'),
+    ).not.toBeNull();
+  });
 
+  it('selects access level through the vertical radiogroup and keeps collaborator list', () => {
+    const onUpdateSharing = vi.fn();
     render(
       <StudioSharePopover
-        isOwner={true}
-        isCollaborator={false}
-        canEdit={true}
-        isPublic={true}
-        createdBy={1}
+        {...baseProps}
+        accessLevel='public_readonly'
         collaboratorIds={[2]}
-        workspaceUsers={mockUsers}
-        isAdmin={true}
         onUpdateSharing={onUpdateSharing}
-        onSavePermissions={onSavePermissions}
       />,
     );
 
-    // 点击触发按钮展开 Popover
-    // Click trigger to expand Popover
-    fireEvent.click(screen.getByRole('button', { name: /shareTask/i }));
+    fireEvent.click(screen.getByRole('button', {name: 'shareTask'}));
 
-    // 验证 Popover 内部内容
-    // Verify popover inner content
-    expect(screen.getByText('taskSharingAndPerms')).toBeInTheDocument();
-    expect(screen.getByText('taskVisibility')).toBeInTheDocument();
-    expect(screen.getByText('alice')).toBeInTheDocument();
+    const radios = screen.getAllByRole('radio');
+    expect(radios).toHaveLength(3);
+    expect(radios[1]).toHaveAttribute('aria-checked', 'true');
 
-    // 切换私有状态
-    // Toggle private state
-    const privateBtn = screen.getByRole('button', { name: /private/i });
-    fireEvent.click(privateBtn);
-    expect(onUpdateSharing).toHaveBeenCalledWith(false, [2]);
+    fireEvent.click(radios[0]);
+    expect(onUpdateSharing).toHaveBeenCalledWith('private', [2]);
 
-    // 移除协作者
-    // Remove collaborator
-    const removeBtn = screen.getByTitle('removeCollaborator');
-    fireEvent.click(removeBtn);
-    expect(onUpdateSharing).toHaveBeenCalledWith(true, []);
+    fireEvent.click(radios[2]);
+    expect(onUpdateSharing).toHaveBeenCalledWith('public_editable', [2]);
+  });
+
+  it('keeps collaborators editable and passes current access level on remove', () => {
+    const onUpdateSharing = vi.fn();
+    render(
+      <StudioSharePopover
+        {...baseProps}
+        accessLevel='public_editable'
+        collaboratorIds={[2]}
+        onUpdateSharing={onUpdateSharing}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', {name: 'shareTask'}));
+    fireEvent.click(screen.getByTitle('removeCollaborator'));
+    expect(onUpdateSharing).toHaveBeenCalledWith('public_editable', []);
+    expect(screen.getByText('publicEditableCollaboratorHint')).toBeInTheDocument();
+  });
+
+  it('shows team editable badge for non-owner members with edit rights', () => {
+    render(
+      <StudioSharePopover
+        isOwner={false}
+        isCollaborator={false}
+        canEdit={true}
+        accessLevel='public_editable'
+        createdBy={1}
+        workspaceUsers={mockUsers}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', {name: 'shareTask'}));
+    expect(screen.getByText('teamCollaborator')).toBeInTheDocument();
+    // 非管理员普通成员不可管理共享，但无 cursor-not-allowed 残留。
+    // Regular members cannot manage sharing; no cursor-not-allowed styling remains.
+    expect(document.querySelector('.cursor-not-allowed')).toBeNull();
+  });
+
+  it('shows read-only badge for viewers without edit rights', () => {
+    render(
+      <StudioSharePopover
+        isOwner={false}
+        isCollaborator={false}
+        canEdit={false}
+        accessLevel='public_readonly'
+        createdBy={1}
+        workspaceUsers={mockUsers}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', {name: 'shareTask'}));
+    expect(screen.getByText('readOnly')).toBeInTheDocument();
+    // 只读用户的单选项禁用且无法触发切换。
+    // Viewers get disabled radios and cannot switch levels.
+    for (const radio of screen.getAllByRole('radio')) {
+      expect(radio).toBeDisabled();
+    }
   });
 });

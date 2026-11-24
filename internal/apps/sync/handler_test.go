@@ -220,3 +220,60 @@ func TestTaskPermissionHandlersKeepContentAndPermissionChangesSeparate(t *testin
 		t.Fatalf("permission audit record is missing after state: %+v", logs[0].Details)
 	}
 }
+
+// TestUpdateTaskPermissionsRejectsInvalidAccessLevel 验证权限接口对非法 access_level 返回 400。
+// TestUpdateTaskPermissionsRejectsInvalidAccessLevel verifies the permissions endpoint maps invalid
+// access_level values to HTTP 400.
+func TestUpdateTaskPermissionsRejectsInvalidAccessLevel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	database, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := database.AutoMigrate(&Task{}, &TaskVersion{}, &JobInstance{}, &GlobalVariable{}, &PreviewSession{}, &PreviewTable{}, &PreviewRow{}, &SchedulerConnection{}, &TaskSchedulerBinding{}, &audit.AuditLog{}); err != nil {
+		t.Fatalf("migrate test models failed: %v", err)
+	}
+	service := NewService(NewRepository(database))
+	handler := NewHandler(service)
+
+	folder, err := service.CreateTask(context.Background(), &CreateTaskRequest{
+		NodeType: string(TaskNodeTypeFolder),
+		Name:     "access_level_root",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create folder failed: %v", err)
+	}
+	task, err := service.CreateTask(context.Background(), &CreateTaskRequest{
+		ParentID:      &folder.ID,
+		NodeType:      string(TaskNodeTypeFile),
+		Name:          "access_level_bad.env",
+		Mode:          string(TaskModeBatch),
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "env { parallelism = 1 }",
+		Definition:    JSONMap{"is_public": true},
+	}, 1)
+	if err != nil {
+		t.Fatalf("create task failed: %v", err)
+	}
+
+	owner := &auth.User{ID: 1, Username: "owner", IsActive: true}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		auth.SetUserToContext(c, owner)
+		c.Next()
+	})
+	router.PUT("/api/v1/sync/tasks/:id/permissions", handler.UpdateTaskPermissions)
+
+	for _, body := range []string{
+		`{"access_level":"open"}`,
+		`{"access_level":"private","is_public":true}`,
+	} {
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/sync/tasks/"+strconv.Itoa(int(task.ID))+"/permissions", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(resp, req)
+		if resp.Code != http.StatusBadRequest {
+			t.Fatalf("body %s expected 400, got %d: %s", body, resp.Code, resp.Body.String())
+		}
+	}
+}

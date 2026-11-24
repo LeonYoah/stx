@@ -67,6 +67,20 @@ export function useJobDetail({
   // 已按此 updated_at 发过补充拉取，避免响应未落地时按每帧摘要重复请求。
   // A refetch was already issued for this updated_at — avoids one request per summary tick while in flight.
   const refetchedAtRef = useRef('');
+  // 两条 getJob 通道（打开即取 / 摘要变新重取）可能乱序返回：只采纳不比已持有记录旧的响应。
+  // The two getJob paths (fetch-on-open / refetch-on-newer-summary) can resolve out of order: only adopt a
+  // response that is not older than the held record.
+  const adoptFull = (next: SyncJobInstance) =>
+    setFullJob((prev) => {
+      if (prev && prev.id === next.id) {
+        const prevTs = Date.parse(prev.updated_at || '');
+        const nextTs = Date.parse(next.updated_at || '');
+        if (Number.isFinite(prevTs) && Number.isFinite(nextTs) && nextTs < prevTs) {
+          return prev;
+        }
+      }
+      return next;
+    });
 
   // 换作业时丢掉上一份全量：详情绝不把别的作业的字段带过来。
   // Drop the previous full record on job switch: the detail must never carry another job's fields.
@@ -124,7 +138,7 @@ export function useJobDetail({
       refetchedAtRef.current = job.updated_at || '';
       void services.sync
         .getJob(job.id)
-        .then(setFullJob)
+        .then(adoptFull)
         .catch(() => {
           // 瞬时失败保留上一份；下一帧更新的摘要会再次触发。/ Keep the previous copy; the next fresher summary re-triggers.
         });
@@ -149,7 +163,7 @@ export function useJobDetail({
       try {
         const next = await services.sync.getJob(jobId);
         if (!disposed) {
-          setFullJob(next);
+          adoptFull(next);
         }
       } catch {
         // 瞬时轮询失败保留上一份数据。/ Transient poll failures keep the previous copy.

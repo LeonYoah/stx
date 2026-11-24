@@ -96,6 +96,9 @@ func watchdogRun(ctx context.Context, plan *restartPlan) restartResult {
 		if plan.Frontend != nil {
 			fr := restartFrontend(ctx, plan)
 			res.Frontend = &fr
+		} else if fs := plan.FrontendSwap; fs != nil && fs.Swapped {
+			res.Frontend = &ProcessRestart{Component: "frontend", Status: RestartSucceeded,
+				Message: locale.Pick(ctx, "前端文件已替换（未检测到运行中的前端进程）", "frontend files replaced (no running frontend detected)")}
 		}
 		return res
 	}
@@ -112,9 +115,10 @@ func watchdogRun(ctx context.Context, plan *restartPlan) restartResult {
 	}
 	if fp := plan.Frontend; fp != nil && fp.Swapped {
 		// 进程管理器重启前换入的新前端随之恢复。/ restore the frontend dir swapped in before the manager restart.
-		_ = os.RemoveAll(fp.AppDir + ".failed")
-		_ = os.Rename(fp.AppDir, fp.AppDir+".failed")
-		_ = os.Rename(fp.AppDir+".bak", fp.AppDir)
+		restoreSwappedFrontendDir(fp.AppDir)
+	}
+	if fs := plan.FrontendSwap; fs != nil && fs.Swapped {
+		restoreSwappedFrontendDir(fs.AppDir)
 	}
 	if rerr := restoreBinary(plan.Backup, plan.Executable); rerr != nil {
 		cp.Status = RestartFailed
@@ -280,15 +284,7 @@ func restartFrontend(ctx context.Context, plan *restartPlan) ProcessRestart {
 
 	swapped := false
 	if fp.NewDir != "" && fp.AppDir != "" {
-		bak := fp.AppDir + ".bak"
-		_ = os.RemoveAll(bak)
-		if err := os.Rename(fp.AppDir, bak); err == nil {
-			if err := os.Rename(fp.NewDir, fp.AppDir); err != nil {
-				_ = os.Rename(bak, fp.AppDir)
-			} else {
-				swapped = true
-			}
-		}
+		swapped = swapFrontendDir(fp.AppDir, fp.NewDir)
 	}
 	stopFrontend(fp.PID)
 	pid, err := startFrontend(fp)
@@ -306,9 +302,7 @@ func restartFrontend(ctx context.Context, plan *restartPlan) ProcessRestart {
 	firstErr := err
 	stopFrontend(pid)
 	if swapped {
-		_ = os.RemoveAll(fp.AppDir + ".failed")
-		_ = os.Rename(fp.AppDir, fp.AppDir+".failed")
-		_ = os.Rename(fp.AppDir+".bak", fp.AppDir)
+		restoreSwappedFrontendDir(fp.AppDir)
 	}
 	pid, err = startFrontend(fp)
 	if err == nil {
@@ -330,6 +324,24 @@ func stringsTrim(b []byte) string {
 		s = s[:len(s)-1]
 	}
 	return s
+}
+
+func swapFrontendDir(appDir, newDir string) bool {
+	_ = os.RemoveAll(appDir + ".bak")
+	if err := os.Rename(appDir, appDir+".bak"); err != nil {
+		return false
+	}
+	if err := os.Rename(newDir, appDir); err != nil {
+		_ = os.Rename(appDir+".bak", appDir)
+		return false
+	}
+	return true
+}
+
+func restoreSwappedFrontendDir(appDir string) {
+	_ = os.RemoveAll(appDir + ".failed")
+	_ = os.Rename(appDir, appDir+".failed")
+	_ = os.Rename(appDir+".bak", appDir)
 }
 
 // stopFrontend 只在命令行确认是 node server.js 时才发送信号。/ stopFrontend only signals a verified `node server.js` process.

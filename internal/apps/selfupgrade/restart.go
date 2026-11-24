@@ -116,6 +116,13 @@ type restartPlan struct {
 	ResultPath     string          `json:"result_path"`
 	TimeoutSeconds int             `json:"timeout_seconds"`
 	Frontend       *frontendPlan   `json:"frontend,omitempty"`
+	FrontendSwap   *frontendDirSwap `json:"frontend_swap,omitempty"`
+}
+
+type frontendDirSwap struct {
+	AppDir  string `json:"app_dir"`
+	NewDir  string `json:"new_dir"`
+	Swapped bool   `json:"swapped,omitempty"`
 }
 
 type restartResult struct {
@@ -479,7 +486,38 @@ func (s *Service) buildRestartPlan(taskID, target, from string) (*restartPlan, e
 			plan.Frontend = fp
 		}
 	}
+	if plan.Frontend == nil && st.Kind != RestartStrategyHook {
+		fs, err := s.buildFrontendSwap(target, exe, cwd)
+		if err != nil {
+			return nil, err
+		}
+		plan.FrontendSwap = fs
+	}
 	return plan, nil
+}
+
+func (s *Service) buildFrontendSwap(target, exe, cwd string) (*frontendDirSwap, error) {
+	dir, err := s.versionStagingDir(target)
+	if err != nil {
+		return nil, nil
+	}
+	src := filepath.Join(dir, "frontend")
+	if !fileExists(filepath.Join(src, "server.js")) {
+		return nil, nil
+	}
+	for _, base := range []string{cwd, filepath.Dir(exe)} {
+		appDir := filepath.Join(base, "frontend")
+		if !fileExists(filepath.Join(appDir, "server.js")) {
+			continue
+		}
+		newDir := appDir + ".new"
+		_ = os.RemoveAll(newDir)
+		if err := copyDir(src, newDir); err != nil {
+			return nil, fmt.Errorf("prepare new frontend: %w", err)
+		}
+		return &frontendDirSwap{AppDir: appDir, NewDir: newDir}, nil
+	}
+	return nil, nil
 }
 
 func fileExists(p string) bool {
@@ -552,6 +590,10 @@ func absolutizeRestartPlan(plan *restartPlan) {
 		fp.PIDFile = absPath(fp.PIDFile)
 		fp.AppDir = absPath(fp.AppDir)
 		fp.NewDir = absPath(fp.NewDir)
+	}
+	if fs := plan.FrontendSwap; fs != nil {
+		fs.AppDir = absPath(fs.AppDir)
+		fs.NewDir = absPath(fs.NewDir)
 	}
 }
 

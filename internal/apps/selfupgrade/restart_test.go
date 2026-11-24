@@ -486,6 +486,163 @@ func TestWatchdogRestartsBundledFrontend(t *testing.T) {
 	}
 }
 
+// 前端进程识别不到时仍要换文件：plan.FrontendSwap 交棒前已换入，watchdog 成功时报 files-only 结果，
+// 控制面回滚时换回旧目录。/ With no detectable frontend process the files still get replaced: the swap
+// lands at handover, the watchdog reports a files-only result on success, and restores the old dir on rollback.
+func TestWatchdogReportsFilesOnlyFrontendSwap(t *testing.T) {
+	f := newWatchdogFixture(t, fakeControlPlane("1.0.1"))
+	app := filepath.Join(f.dir, "frontend")
+	_ = os.MkdirAll(app, 0o755)
+	_ = os.WriteFile(filepath.Join(app, "server.js"), []byte("old"), 0o644)
+	newDir := app + ".new"
+	_ = os.MkdirAll(newDir, 0o755)
+	_ = os.WriteFile(filepath.Join(newDir, "server.js"), []byte("new"), 0o644)
+	if !swapFrontendDir(app, newDir) {
+		t.Fatal("handover swap failed")
+	}
+	f.plan.FrontendSwap = &frontendDirSwap{AppDir: app, NewDir: newDir, Swapped: true}
+	res := watchdogRun(context.Background(), f.plan)
+	f.procs.add(res.ControlPlane.NewPID)
+	if res.Status != restartOutcomeSucceeded || res.Frontend == nil || res.Frontend.Status != RestartSucceeded {
+		t.Fatalf("result = %+v", res)
+	}
+	if b, _ := os.ReadFile(filepath.Join(app, "server.js")); string(b) != "new" {
+		t.Fatalf("frontend dir = %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(app+".bak", "server.js")); string(b) != "old" {
+		t.Fatalf("frontend.bak = %q", b)
+	}
+}
+
+func TestWatchdogRollbackRestoresFilesOnlyFrontendSwap(t *testing.T) {
+	f := newWatchdogFixture(t, "echo boom >&2; exit 3")
+	app := filepath.Join(f.dir, "frontend")
+	_ = os.MkdirAll(app, 0o755)
+	_ = os.WriteFile(filepath.Join(app, "server.js"), []byte("old"), 0o644)
+	newDir := app + ".new"
+	_ = os.MkdirAll(newDir, 0o755)
+	_ = os.WriteFile(filepath.Join(newDir, "server.js"), []byte("new"), 0o644)
+	if !swapFrontendDir(app, newDir) {
+		t.Fatal("handover swap failed")
+	}
+	f.plan.FrontendSwap = &frontendDirSwap{AppDir: app, NewDir: newDir, Swapped: true}
+	res := watchdogRun(context.Background(), f.plan)
+	f.procs.add(res.ControlPlane.NewPID)
+	if res.Status != restartOutcomeRolledBack {
+		t.Fatalf("result = %+v", res)
+	}
+	if b, _ := os.ReadFile(filepath.Join(app, "server.js")); string(b) != "old" {
+		t.Fatalf("frontend dir after rollback = %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(app+".failed", "server.js")); string(b) != "new" {
+		t.Fatalf("frontend.failed = %q", b)
+	}
+}
+
+func TestApplySwapsFrontendFilesWhenNoProcessDetected(t *testing.T) {
+	h := newApplyHarness(t)
+	stage, err := h.s.versionStagingDir("1.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(stage, "frontend"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stage, "frontend", "server.js"), []byte("new-frontend"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	appDir := filepath.Join(cwd, "frontend")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "server.js"), []byte("old-frontend"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	task := h.runApply(t)
+	if h.plan == nil {
+		t.Fatal("plan missing")
+	}
+	if h.plan.Frontend != nil {
+		t.Fatalf("unexpected detected frontend: %+v", h.plan.Frontend)
+	}
+	fs := h.plan.FrontendSwap
+	if fs == nil || !fs.Swapped || fs.AppDir != appDir {
+		t.Fatalf("FrontendSwap = %+v", fs)
+	}
+	if b, _ := os.ReadFile(filepath.Join(appDir, "server.js")); string(b) != "new-frontend" {
+		t.Fatalf("frontend dir = %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(appDir+".bak", "server.js")); string(b) != "old-frontend" {
+		t.Fatalf("frontend.bak = %q", b)
+	}
+	got, _ := h.s.GetTask(task.ID)
+	var fr *ProcessRestart
+	for i := range got.Restarts {
+		if got.Restarts[i].Component == "frontend" {
+			fr = &got.Restarts[i]
+		}
+	}
+	if fr == nil || fr.Strategy != "files" {
+		t.Fatalf("restarts = %+v", got.Restarts)
+	}
+}
+
+func TestApplySwapsFrontendFilesUnderSystemdWithoutProcess(t *testing.T) {
+	h := newApplyHarness(t)
+	oldRead := restartReadFile
+	t.Cleanup(func() { restartReadFile = oldRead })
+	restartGetenv = func(k string) string {
+		if k == "INVOCATION_ID" {
+			return "test-invocation"
+		}
+		return ""
+	}
+	restartReadFile = func(name string) ([]byte, error) {
+		if name == "/proc/self/cgroup" {
+			return []byte("0::/system.slice/stx.service\n"), nil
+		}
+		return oldRead(name)
+	}
+	stage, err := h.s.versionStagingDir("1.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(stage, "frontend"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stage, "frontend", "server.js"), []byte("new-frontend"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	appDir := filepath.Join(cwd, "frontend")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "server.js"), []byte("old-frontend"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := h.s.Execute(context.Background(), ExecuteRequest{Mode: ExecModeApply}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for h.plan == nil && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if h.plan == nil || h.plan.Strategy.Kind != RestartStrategySystemd {
+		t.Fatalf("plan = %+v", h.plan)
+	}
+	fs := h.plan.FrontendSwap
+	if fs == nil || !fs.Swapped || fs.AppDir != appDir {
+		t.Fatalf("FrontendSwap = %+v", fs)
+	}
+	if b, _ := os.ReadFile(filepath.Join(appDir, "server.js")); string(b) != "new-frontend" {
+		t.Fatalf("frontend dir = %q", b)
+	}
+}
+
 func TestStopFrontendRefusesNonFrontendProcesses(t *testing.T) {
 	p := &procs{}
 	t.Cleanup(p.killAll)

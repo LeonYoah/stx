@@ -641,6 +641,8 @@ probe_script_replace() {
 run_self_upgrade() {
   local out
 
+  PRE_FRONTEND_BUILD_ID="$(sudo -n cat "$INSTALL_DIR/frontend/.next/BUILD_ID" 2>/dev/null || true)"
+
   log "checking target version via self-upgrade check ..."
   if cli_has self-upgrade check; then
     cli_call out self-upgrade check --force-latest "$TARGET" >/dev/null \
@@ -752,6 +754,14 @@ assert_generic() {
   local code
   code="$(curl -fsS -o /dev/null -w '%{http_code}' -L "http://127.0.0.1:17880/" 2>/dev/null || echo 000)"
   assert_true "frontend 200" [ "$code" = "200" ]
+
+  local post_build
+  post_build="$(sudo -n cat "$INSTALL_DIR/frontend/.next/BUILD_ID" 2>/dev/null || true)"
+  if sudo -n test -d "$INSTALL_DIR/frontend.bak" || sudo -n test -d "$INSTALL_DIR/frontend.failed"; then
+    assert_true "frontend files swapped" bash -c "[ -n '$post_build' ] && [ '$post_build' != '$PRE_FRONTEND_BUILD_ID' ]"
+  else
+    notice "no frontend.bak/frontend.failed: FROM upgrader predates the frontend file swap; swap assert skipped"
+  fi
 
   # 断言一律走 TARGET CLI 的读命令（升级后二进制就位，缺命令即真失败）。
   # Assertions go through the TARGET CLI read commands (post-upgrade binary is in

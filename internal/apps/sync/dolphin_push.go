@@ -372,7 +372,7 @@ func (s *Service) pushNewWorkflow(ctx context.Context, actor executionapp.Actor,
 		cronExpr, timezone := builtinScheduleForDolphin(task)
 		if cronExpr != "" {
 			result.Warning = joinWarning(result.Warning, domDowWarning(ctx, cronExpr))
-			if err := client.CreateSchedule(ctx, projectCode, graph.Code, dolphinCrontab(cronExpr), timezone); err != nil {
+			if err := client.CreateSchedule(ctx, projectCode, graph.Code, dolphinCrontab(cronExpr), timezone, envCode); err != nil {
 				result.Warning = joinWarning(result.Warning, err.Error())
 			}
 		}

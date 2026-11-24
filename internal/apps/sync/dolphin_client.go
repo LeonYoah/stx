@@ -279,7 +279,7 @@ func (c *DolphinClient) Release(ctx context.Context, projectCode, workflowCode i
 	return err
 }
 
-func (c *DolphinClient) CreateSchedule(ctx context.Context, projectCode, workflowCode int64, crontab, timezone string) error {
+func (c *DolphinClient) CreateSchedule(ctx context.Context, projectCode, workflowCode int64, crontab, timezone string, environmentCode int64) error {
 	if err := c.ensureStyle(ctx, projectCode); err != nil {
 		return err
 	}
@@ -291,6 +291,9 @@ func (c *DolphinClient) CreateSchedule(ctx context.Context, projectCode, workflo
 		form.Set("workflowDefinitionCode", code)
 	} else {
 		form.Set("processDefinitionCode", code)
+	}
+	if environmentCode > 0 {
+		form.Set("environmentCode", strconv.FormatInt(environmentCode, 10))
 	}
 	form.Set("schedule", fmt.Sprintf(`{"startTime":"2000-01-01 00:00:00","endTime":"2099-12-31 23:59:59","crontab":%q,"timezoneId":%q}`, crontab, timezone))
 	_, err := c.doForm(ctx, http.MethodPost, fmt.Sprintf("/projects/%d/schedules", projectCode), form)

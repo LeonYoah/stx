@@ -965,6 +965,33 @@ func unpackTarGz(tarPath, destDir string) error {
 			if err := os.MkdirAll(targetPath, 0o755); err != nil {
 				return err
 			}
+		case tar.TypeSymlink:
+			resolved := hdr.Linkname
+			if !filepath.IsAbs(resolved) {
+				resolved = filepath.Join(filepath.Dir(targetPath), resolved)
+			}
+			resolved = filepath.Clean(resolved)
+			if resolved != cleanDest && !strings.HasPrefix(resolved, cleanDest+string(filepath.Separator)) {
+				return fmt.Errorf("illegal symlink in archive: %s -> %s", hdr.Name, hdr.Linkname)
+			}
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+				return err
+			}
+			_ = os.RemoveAll(targetPath)
+			if err := os.Symlink(hdr.Linkname, targetPath); err != nil {
+				return err
+			}
+		case tar.TypeLink:
+			src := filepath.Clean(filepath.Join(destDir, hdr.Linkname))
+			if !strings.HasPrefix(src, cleanDest+string(filepath.Separator)) {
+				return fmt.Errorf("illegal hard link in archive: %s -> %s", hdr.Name, hdr.Linkname)
+			}
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+				return err
+			}
+			if err := os.Link(src, targetPath); err != nil {
+				return err
+			}
 		case tar.TypeReg, tar.TypeRegA:
 			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 				return err
@@ -1071,6 +1098,16 @@ func copyDir(src, dst string) error {
 		destPath := filepath.Join(dst, rel)
 		if info.IsDir() {
 			return os.MkdirAll(destPath, info.Mode())
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+				return err
+			}
+			return os.Symlink(link, destPath)
 		}
 		return copyFile(path, destPath)
 	})

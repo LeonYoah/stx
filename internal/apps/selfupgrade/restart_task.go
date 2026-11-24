@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	stxversion "github.com/LeonYoah/stx/internal/version"
 )
 
@@ -80,7 +81,7 @@ func (s *Service) beginControlPlaneRestart(taskID, target string) error {
 		restarts = append(restarts, ProcessRestart{Component: "frontend", Strategy: frontendStrategyFor(plan.Strategy), Status: RestartPending, OldPID: plan.Frontend.PID, At: &now})
 	} else if plan.FrontendSwap != nil {
 		restarts = append(restarts, ProcessRestart{Component: "frontend", Strategy: "files", Status: RestartPending, At: &now,
-			Message: "未检测到运行中的前端进程，仅替换前端文件 / no running frontend detected; replacing frontend files only"})
+			Message: locale.Pick(context.Background(), "未检测到运行中的前端进程，仅替换前端文件", "no running frontend detected; replacing frontend files only")})
 	}
 
 	s.mu.Lock()
@@ -112,10 +113,12 @@ func (s *Service) beginControlPlaneRestart(taskID, target string) error {
 	absolutizeRestartPlan(plan)
 	planPath := absPath(s.restartPlanPath())
 	if err := writeJSONFile(planPath, plan); err != nil {
+		undoFrontendSwaps(plan)
 		_ = os.Remove(s.activeTaskPath())
 		return fmt.Errorf("persist restart plan: %w", err)
 	}
 	if err := spawnWatchdogFn(planPath, plan); err != nil {
+		undoFrontendSwaps(plan)
 		_ = os.Remove(s.activeTaskPath())
 		_ = os.Remove(planPath)
 		return fmt.Errorf("start restart watchdog: %w", err)
@@ -140,6 +143,17 @@ func (s *Service) beginControlPlaneRestart(taskID, target string) error {
 		}
 	}()
 	return nil
+}
+
+func undoFrontendSwaps(plan *restartPlan) {
+	if fp := plan.Frontend; fp != nil && fp.Swapped {
+		restoreSwappedFrontendDir(fp.AppDir)
+		fp.Swapped = false
+	}
+	if fs := plan.FrontendSwap; fs != nil && fs.Swapped {
+		restoreSwappedFrontendDir(fs.AppDir)
+		fs.Swapped = false
+	}
 }
 
 func (s *Service) setStepLocked(code, status, msg string) {

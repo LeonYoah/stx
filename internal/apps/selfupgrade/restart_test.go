@@ -1140,3 +1140,40 @@ func TestBeginControlPlaneRestartPersistsAbsolutePlanPaths(t *testing.T) {
 		t.Fatalf("strategy = %s", persisted.Strategy.Kind)
 	}
 }
+
+func TestDetectFrontendFallsBackToProcScan(t *testing.T) {
+	dir := t.TempDir()
+	node := filepath.Join(dir, "node")
+	sh, _ := exec.LookPath("sh")
+	raw, _ := os.ReadFile(sh)
+	if err := os.WriteFile(node, raw, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	app := filepath.Join(dir, "frontend")
+	if err := os.MkdirAll(app, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app, "server.js"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := &procs{}
+	t.Cleanup(p.killAll)
+	startProcess(t, p, node, "-c", "sleep 60", filepath.Join(app, "server.js"))
+
+	fp := detectFrontend(filepath.Join(dir, "stx"), dir)
+	if fp == nil {
+		t.Fatal("proc scan should find the running frontend without a pid file")
+	}
+	if fp.AppDir != app || fp.PIDFile != "" {
+		t.Fatalf("plan = %+v", fp)
+	}
+
+	outside := t.TempDir()
+	outApp := filepath.Join(outside, "frontend")
+	if err := os.MkdirAll(outApp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if fp := detectFrontend(filepath.Join(outside, "stx"), outside); fp != nil {
+		t.Fatalf("unrelated frontend dir should be ignored, got %+v", fp)
+	}
+}

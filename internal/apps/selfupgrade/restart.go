@@ -301,28 +301,66 @@ func detectFrontend(exe, cwd string) *frontendPlan {
 		if err != nil || pid <= 0 || !processAlive(pid) {
 			continue
 		}
-		argv, env, dir, logPath, err := snapshotProcess(pid)
-		if err != nil || !isFrontendCommandLine(argv) {
+		if fp := frontendPlanFromProc(pid, pidFile); fp != nil {
+			return fp
+		}
+	}
+	bases := []string{filepath.Dir(exe), cwd}
+	for _, pid := range scanFrontendPIDs() {
+		fp := frontendPlanFromProc(pid, "")
+		if fp == nil || fp.AppDir == "" {
 			continue
 		}
-		fp := &frontendPlan{PID: pid, Argv: argv, Env: env, Dir: dir, LogPath: logPath, PIDFile: pidFile}
-		for _, kv := range env {
-			if strings.HasPrefix(kv, "PORT=") {
-				fp.Port, _ = strconv.Atoi(strings.TrimPrefix(kv, "PORT="))
+		for _, base := range bases {
+			if base != "" && strings.HasPrefix(fp.AppDir, filepath.Clean(base)+string(filepath.Separator)) {
+				return fp
 			}
 		}
-		for _, a := range argv[1:] {
-			if filepath.Base(a) == "server.js" {
-				p := a
-				if !filepath.IsAbs(p) {
-					p = filepath.Join(dir, p)
-				}
-				fp.AppDir = filepath.Dir(p)
-			}
-		}
-		return fp
 	}
 	return nil
+}
+
+func frontendPlanFromProc(pid int, pidFile string) *frontendPlan {
+	argv, env, dir, logPath, err := snapshotProcess(pid)
+	if err != nil || !isFrontendCommandLine(argv) {
+		return nil
+	}
+	fp := &frontendPlan{PID: pid, Argv: argv, Env: env, Dir: dir, LogPath: logPath, PIDFile: pidFile}
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "PORT=") {
+			fp.Port, _ = strconv.Atoi(strings.TrimPrefix(kv, "PORT="))
+		}
+	}
+	for _, a := range argv[1:] {
+		if filepath.Base(a) == "server.js" {
+			p := a
+			if !filepath.IsAbs(p) {
+				p = filepath.Join(dir, p)
+			}
+			fp.AppDir = filepath.Dir(p)
+		}
+	}
+	return fp
+}
+
+func scanFrontendPIDs() []int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	var pids []int
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
+		if err != nil || !isFrontendCommandLine(splitNul(raw)) {
+			continue
+		}
+		pids = append(pids, pid)
+	}
+	return pids
 }
 
 // isFrontendCommandLine 只接受 node server.js 形态的前端进程。/ isFrontendCommandLine only accepts `node server.js` frontends.

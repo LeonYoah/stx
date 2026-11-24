@@ -75,6 +75,12 @@ func watchdogRun(ctx context.Context, plan *restartPlan) restartResult {
 		if !standalone {
 			cp.Status = RestartFailed
 			cp.Message = locale.Pick(ctx, fmt.Sprintf("%s 未在 %s 内重启控制面", plan.Strategy.Kind, oldProcessExitTimeout), fmt.Sprintf("%s did not restart the control plane within %s", plan.Strategy.Kind, oldProcessExitTimeout))
+			if fp := plan.Frontend; fp != nil && fp.Swapped {
+				restoreSwappedFrontendDir(fp.AppDir)
+			}
+			if fs := plan.FrontendSwap; fs != nil && fs.Swapped {
+				restoreSwappedFrontendDir(fs.AppDir)
+			}
 			return restartResult{Status: restartOutcomeFailed, Reason: cp.Message, ControlPlane: cp}
 		}
 		// 旧进程未按计划退出：先温和再强制，仅针对控制面自身 PID。/ old process did not exit: TERM then KILL, own PID only.

@@ -32,10 +32,23 @@ export default function ProjectLayout({children}: {children: React.ReactNode}) {
   // `/hosts/[id]` 复用 `/hosts` 的 HostMain + DetailHost，保持同一 key 避免切行同步地址栏时整页重挂。
   // `/hosts/[id]` reuses `/hosts`'s HostMain + DetailHost; keep one key so switching rows does not remount the page.
   const pageKey = pathname.startsWith('/hosts/') ? '/hosts' : pathname;
+  // 工作台需要整屏贴合视口（内部自带三栏与控制台滚动），不能走滚动页的 pb-28 留白，
+  // 否则双层高度叠加必出整页滚动条并把控制台顶出视口；其他控制台页面外壳保持原样。
+  // The workbench must hug the viewport (it owns its own three-pane and console scroll);
+  // the scroll-page pb-28 padding would stack heights past 100dvh, forcing a page
+  // scrollbar and pushing the console off-screen. Other console pages keep their shell.
+  const isWorkbench =
+    pathname === '/workbench' || pathname.startsWith('/workbench/');
 
   return (
     <OnboardingProvider>
-      <div className='min-h-screen flex flex-col'>
+      <div
+        className={
+          isWorkbench
+            ? 'h-dvh min-h-0 flex flex-col overflow-hidden'
+            : 'min-h-screen flex flex-col'
+        }
+      >
         {/* 顶部轻量路由加载进度条 / Top lightweight route loading progress bar */}
         <Suspense fallback={null}>
           <RouteProgressBar />
@@ -51,13 +64,29 @@ export default function ProjectLayout({children}: {children: React.ReactNode}) {
         {/* Bottom persistent Dock bar: remains mounted across page switches without remounting */}
         <MemoizedManagementBar />
 
-        <div className='flex flex-1 flex-col'>
-          <div className='@container/main flex flex-1 flex-col gap-2'>
+        <div
+          className={
+            isWorkbench
+              ? 'flex min-h-0 flex-1 flex-col'
+              : 'flex flex-1 flex-col'
+          }
+        >
+          <div
+            className={
+              isWorkbench
+                ? '@container/main flex min-h-0 flex-1 flex-col'
+                : '@container/main flex flex-1 flex-col gap-2'
+            }
+          >
             {/* 统一页面容器与平滑进场淡入动画 */}
             {/* Unified page container with smooth entry fade-in animation */}
             <div
               key={pageKey}
-              className='flex flex-col gap-4 mb-8 pb-28 w-full max-w-none px-3 sm:px-4 lg:px-6 xl:px-8 2xl:px-10 py-6 md:gap-6 animate-in fade-in-50 duration-200'
+              className={
+                isWorkbench
+                  ? 'flex min-h-0 flex-1 flex-col w-full max-w-none px-2.5 sm:px-3 pt-2.5 pb-[84px] animate-in fade-in-50 duration-200'
+                  : 'flex flex-col gap-4 mb-8 pb-28 w-full max-w-none px-3 sm:px-4 lg:px-6 xl:px-8 2xl:px-10 py-6 md:gap-6 animate-in fade-in-50 duration-200'
+              }
             >
               {children}
             </div>

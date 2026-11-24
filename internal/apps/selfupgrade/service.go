@@ -34,6 +34,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/LeonYoah/stx/install"
@@ -793,7 +794,26 @@ func (s *Service) downloadWithFallback(ctx context.Context, owner, repo, tag, as
 
 		total := resp.ContentLength
 		hasher := sha256.New()
-		var downloaded int64
+		var downloaded atomic.Int64
+		stall := make(chan struct{})
+		go func() {
+			var last int64
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stall:
+					return
+				case <-ticker.C:
+				}
+				cur := downloaded.Load()
+				if cur == last {
+					resp.Body.Close()
+					return
+				}
+				last = cur
+			}
+		}()
 		buf := make([]byte, 32*1024)
 		success := true
 
@@ -802,6 +822,7 @@ func (s *Service) downloadWithFallback(ctx context.Context, owner, repo, tag, as
 			case <-ctx.Done():
 				out.Close()
 				resp.Body.Close()
+				close(stall)
 				_ = os.Remove(tmpPath)
 				return ErrCancelled
 			default:
@@ -815,9 +836,9 @@ func (s *Service) downloadWithFallback(ctx context.Context, owner, repo, tag, as
 					success = false
 					break
 				}
-				downloaded += int64(n)
+				cur := downloaded.Add(int64(n))
 				if progressCb != nil {
-					progressCb(downloaded, total)
+					progressCb(cur, total)
 				}
 			}
 			if rErr == io.EOF {
@@ -830,6 +851,7 @@ func (s *Service) downloadWithFallback(ctx context.Context, owner, repo, tag, as
 			}
 		}
 
+		close(stall)
 		out.Close()
 		resp.Body.Close()
 

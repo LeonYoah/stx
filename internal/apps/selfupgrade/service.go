@@ -34,6 +34,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/LeonYoah/stx/install"
@@ -104,6 +105,7 @@ type Service struct {
 	stagingDir  string
 	historyPath string
 	httpClient  *http.Client
+	dlClient    *http.Client
 	mockMode    bool
 	allowSim    bool
 
@@ -157,8 +159,12 @@ func NewService(dataDir string) *Service {
 		stagingDir:  staging,
 		historyPath: history,
 		httpClient:  &http.Client{Timeout: 20 * time.Second},
-		mockMode:    mock,
-		allowSim:    allowSim,
+		dlClient: &http.Client{Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			ResponseHeaderTimeout: 15 * time.Second,
+		}},
+		mockMode: mock,
+		allowSim: allowSim,
 		stage: StageState{
 			Status:      StatusIdle,
 			Assets:      initialAssets(),
@@ -768,7 +774,7 @@ func (s *Service) downloadWithFallback(ctx context.Context, owner, repo, tag, as
 		}
 		req.Header.Set("User-Agent", "stx-self-upgrade")
 
-		resp, err := s.httpClient.Do(req)
+		resp, err := s.dlClient.Do(req)
 		if err != nil {
 			lastErr = err
 			continue
@@ -788,7 +794,26 @@ func (s *Service) downloadWithFallback(ctx context.Context, owner, repo, tag, as
 
 		total := resp.ContentLength
 		hasher := sha256.New()
-		var downloaded int64
+		var downloaded atomic.Int64
+		stall := make(chan struct{})
+		go func() {
+			var last int64
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stall:
+					return
+				case <-ticker.C:
+				}
+				cur := downloaded.Load()
+				if cur == last {
+					resp.Body.Close()
+					return
+				}
+				last = cur
+			}
+		}()
 		buf := make([]byte, 32*1024)
 		success := true
 
@@ -797,6 +822,7 @@ func (s *Service) downloadWithFallback(ctx context.Context, owner, repo, tag, as
 			case <-ctx.Done():
 				out.Close()
 				resp.Body.Close()
+				close(stall)
 				_ = os.Remove(tmpPath)
 				return ErrCancelled
 			default:
@@ -810,9 +836,9 @@ func (s *Service) downloadWithFallback(ctx context.Context, owner, repo, tag, as
 					success = false
 					break
 				}
-				downloaded += int64(n)
+				cur := downloaded.Add(int64(n))
 				if progressCb != nil {
-					progressCb(downloaded, total)
+					progressCb(cur, total)
 				}
 			}
 			if rErr == io.EOF {
@@ -825,6 +851,7 @@ func (s *Service) downloadWithFallback(ctx context.Context, owner, repo, tag, as
 			}
 		}
 
+		close(stall)
 		out.Close()
 		resp.Body.Close()
 
@@ -928,6 +955,36 @@ func (s *Service) refreshStagedAssets(dir string) {
 	}
 }
 
+func resolveInDir(root, target string) (string, error) {
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
+	dir := filepath.Dir(target)
+	var rest []string
+	for {
+		if _, err := os.Lstat(dir); err == nil {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("cannot resolve %s", target)
+		}
+		rest = append([]string{filepath.Base(dir)}, rest...)
+		dir = parent
+	}
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
+	}
+	for _, seg := range rest {
+		real = filepath.Join(real, seg)
+	}
+	if real != root && !strings.HasPrefix(real, root+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes destination")
+	}
+	return filepath.Join(real, filepath.Base(target)), nil
+}
+
 // unpackTarGz 安全解压 tar.gz 压缩包至指定目录（防路径穿越）。
 // unpackTarGz securely unpacks a tar.gz archive to destDir with ZipSlip protection.
 func unpackTarGz(tarPath, destDir string) error {
@@ -945,6 +1002,9 @@ func unpackTarGz(tarPath, destDir string) error {
 
 	tr := tar.NewReader(gzr)
 	cleanDest := filepath.Clean(destDir)
+	if resolved, err := filepath.EvalSymlinks(destDir); err == nil {
+		cleanDest = resolved
+	}
 
 	for {
 		hdr, err := tr.Next()
@@ -956,24 +1016,63 @@ func unpackTarGz(tarPath, destDir string) error {
 		}
 
 		targetPath := filepath.Clean(filepath.Join(destDir, hdr.Name))
-		if !strings.HasPrefix(targetPath, cleanDest+string(filepath.Separator)) && targetPath != cleanDest {
+		lexDest := filepath.Clean(destDir)
+		if !strings.HasPrefix(targetPath, lexDest+string(filepath.Separator)) && targetPath != lexDest {
 			return fmt.Errorf("illegal file path in archive: %s", hdr.Name)
+		}
+		realTarget := cleanDest
+		if targetPath != lexDest {
+			realTarget, err = resolveInDir(cleanDest, targetPath)
+			if err != nil {
+				return fmt.Errorf("illegal path in archive: %s: %w", hdr.Name, err)
+			}
+		}
+		if realTarget == cleanDest && hdr.Typeflag != tar.TypeDir {
+			return fmt.Errorf("illegal non-directory entry at archive root: %s", hdr.Name)
 		}
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(targetPath, 0o755); err != nil {
+			if err := os.MkdirAll(realTarget, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeSymlink:
+			resolved := hdr.Linkname
+			if !filepath.IsAbs(resolved) {
+				resolved = filepath.Join(filepath.Dir(realTarget), resolved)
+			}
+			resolved = filepath.Clean(resolved)
+			if resolved != cleanDest && !strings.HasPrefix(resolved, cleanDest+string(filepath.Separator)) {
+				return fmt.Errorf("illegal symlink in archive: %s -> %s", hdr.Name, hdr.Linkname)
+			}
+			if err := os.MkdirAll(filepath.Dir(realTarget), 0o755); err != nil {
+				return err
+			}
+			_ = os.RemoveAll(realTarget)
+			if err := os.Symlink(hdr.Linkname, realTarget); err != nil {
+				return err
+			}
+		case tar.TypeLink:
+			src := filepath.Clean(filepath.Join(destDir, hdr.Linkname))
+			if !strings.HasPrefix(src, cleanDest+string(filepath.Separator)) {
+				return fmt.Errorf("illegal hard link in archive: %s -> %s", hdr.Name, hdr.Linkname)
+			}
+			if err := os.MkdirAll(filepath.Dir(realTarget), 0o755); err != nil {
+				return err
+			}
+			_ = os.Remove(realTarget)
+			if err := os.Link(src, realTarget); err != nil {
 				return err
 			}
 		case tar.TypeReg, tar.TypeRegA:
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(realTarget), 0o755); err != nil {
 				return err
 			}
 			mode := hdr.FileInfo().Mode()
 			if mode == 0 {
 				mode = 0o644
 			}
-			outF, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			outF, err := os.OpenFile(realTarget, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 			if err != nil {
 				return err
 			}
@@ -1071,6 +1170,16 @@ func copyDir(src, dst string) error {
 		destPath := filepath.Join(dst, rel)
 		if info.IsDir() {
 			return os.MkdirAll(destPath, info.Mode())
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+				return err
+			}
+			return os.Symlink(link, destPath)
 		}
 		return copyFile(path, destPath)
 	})

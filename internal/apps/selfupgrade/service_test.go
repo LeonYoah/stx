@@ -18,9 +18,13 @@
 package selfupgrade
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -223,4 +227,145 @@ func waitTask(t *testing.T, s *Service, id, want string, timeout time.Duration) 
 		status = task.Status
 	}
 	t.Fatalf("timeout waiting for %s, last=%s", want, status)
+}
+
+func TestUnpackTarGzPreservesSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	src := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(src, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "pkg", "real.js"), []byte("real"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("pkg", "real.js"), filepath.Join(src, "link.js")); err != nil {
+		t.Fatal(err)
+	}
+	tarPath := filepath.Join(t.TempDir(), "b.tar.gz")
+	f, err := os.Create(tarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gzw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gzw)
+	filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+		if err != nil || p == src {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		link := ""
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, _ = os.Readlink(p)
+		}
+		hdr, err := tar.FileInfoHeader(info, link)
+		if err != nil {
+			return err
+		}
+		hdr.Name = rel
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		if info.Mode().IsRegular() {
+			in, err := os.Open(p)
+			if err != nil {
+				return err
+			}
+			io.Copy(tw, in)
+			in.Close()
+		}
+		return nil
+	})
+	tw.Close()
+	gzw.Close()
+	f.Close()
+
+	if err := unpackTarGz(tarPath, dir); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.Readlink(filepath.Join(dir, "link.js"))
+	if err != nil {
+		t.Fatalf("symlink dropped: %v", err)
+	}
+	if got != filepath.Join("pkg", "real.js") {
+		t.Fatalf("link target = %q", got)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "link.js"))
+	if err != nil || string(body) != "real" {
+		t.Fatalf("resolve via link: body=%q err=%v", body, err)
+	}
+}
+
+func TestUnpackTarGzRejectsEscapingSymlink(t *testing.T) {
+	dir := t.TempDir()
+	tarPath := filepath.Join(t.TempDir(), "b.tar.gz")
+	f, err := os.Create(tarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gzw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gzw)
+	if err := tw.WriteHeader(&tar.Header{Name: "evil", Typeflag: tar.TypeSymlink, Linkname: "../../etc/passwd"}); err != nil {
+		t.Fatal(err)
+	}
+	tw.Close()
+	gzw.Close()
+	f.Close()
+	if err := unpackTarGz(tarPath, dir); err == nil {
+		t.Fatal("expected escaping symlink to be rejected")
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "evil")); !os.IsNotExist(err) {
+		t.Fatal("escaping symlink should not exist")
+	}
+}
+
+func TestUnpackTarGzRejectsFileThroughSymlink(t *testing.T) {
+	dir := t.TempDir()
+	tarPath := filepath.Join(t.TempDir(), "b.tar.gz")
+	f, err := os.Create(tarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gzw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gzw)
+	if err := tw.WriteHeader(&tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: ".."}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: "link/evil.txt", Typeflag: tar.TypeReg, Size: 4, Mode: 0o644}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte("evil")); err != nil {
+		t.Fatal(err)
+	}
+	tw.Close()
+	gzw.Close()
+	f.Close()
+	if err := unpackTarGz(tarPath, dir); err == nil {
+		t.Fatal("expected write through escaping symlink to be rejected")
+	}
+	if _, err := os.Lstat(filepath.Join(filepath.Dir(dir), "evil.txt")); !os.IsNotExist(err) {
+		t.Fatal("file must not be written outside destDir")
+	}
+}
+
+func TestUnpackTarGzRejectsRootSymlink(t *testing.T) {
+	dir := t.TempDir()
+	tarPath := filepath.Join(t.TempDir(), "b.tar.gz")
+	f, err := os.Create(tarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gzw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gzw)
+	if err := tw.WriteHeader(&tar.Header{Name: "./", Typeflag: tar.TypeSymlink, Linkname: "sub"}); err != nil {
+		t.Fatal(err)
+	}
+	tw.Close()
+	gzw.Close()
+	f.Close()
+	if err := unpackTarGz(tarPath, dir); err == nil {
+		t.Fatal("expected root symlink entry to be rejected")
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatal("staging dir must remain a directory")
+	}
 }

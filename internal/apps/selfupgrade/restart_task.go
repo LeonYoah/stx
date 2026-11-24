@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	stxversion "github.com/LeonYoah/stx/internal/version"
 )
 
@@ -78,6 +79,9 @@ func (s *Service) beginControlPlaneRestart(taskID, target string) error {
 		Message: "restarting onto " + target + " via " + plan.Strategy.Kind + " / 正在通过 " + plan.Strategy.Kind + " 重启到 " + target}}
 	if plan.Frontend != nil {
 		restarts = append(restarts, ProcessRestart{Component: "frontend", Strategy: frontendStrategyFor(plan.Strategy), Status: RestartPending, OldPID: plan.Frontend.PID, At: &now})
+	} else if plan.FrontendSwap != nil {
+		restarts = append(restarts, ProcessRestart{Component: "frontend", Strategy: "files", Status: RestartPending, At: &now,
+			Message: locale.Pick(context.Background(), "未检测到运行中的前端进程，仅替换前端文件", "no running frontend detected; replacing frontend files only")})
 	}
 
 	s.mu.Lock()
@@ -96,13 +100,12 @@ func (s *Service) beginControlPlaneRestart(taskID, target string) error {
 	// 进程管理器会连同前端一起重启：提前换入新前端目录（失败时 watchdog 会换回）。
 	// A process manager restarts the frontend too: swap the new frontend dir in now (the watchdog swaps it back on failure).
 	if fp := plan.Frontend; fp != nil && fp.ManagedBy != "" && fp.NewDir != "" && fp.AppDir != "" {
-		_ = os.RemoveAll(fp.AppDir + ".bak")
-		if err := os.Rename(fp.AppDir, fp.AppDir+".bak"); err == nil {
-			if err := os.Rename(fp.NewDir, fp.AppDir); err == nil {
-				fp.Swapped = true
-			} else {
-				_ = os.Rename(fp.AppDir+".bak", fp.AppDir)
-			}
+		fp.Swapped = swapFrontendDir(fp.AppDir, fp.NewDir)
+	}
+	if fs := plan.FrontendSwap; fs != nil {
+		fs.Swapped = swapFrontendDir(fs.AppDir, fs.NewDir)
+		if !fs.Swapped {
+			log.Printf("[self-upgrade] staged frontend swap into %s failed", fs.AppDir)
 		}
 	}
 	// 落盘前绝对化路径，确保独立会话 / systemd 单元即使用 cwd=/ 也能读写 plan/ready/result（DEF-UPG-1）。
@@ -110,10 +113,12 @@ func (s *Service) beginControlPlaneRestart(taskID, target string) error {
 	absolutizeRestartPlan(plan)
 	planPath := absPath(s.restartPlanPath())
 	if err := writeJSONFile(planPath, plan); err != nil {
+		undoFrontendSwaps(plan)
 		_ = os.Remove(s.activeTaskPath())
 		return fmt.Errorf("persist restart plan: %w", err)
 	}
 	if err := spawnWatchdogFn(planPath, plan); err != nil {
+		undoFrontendSwaps(plan)
 		_ = os.Remove(s.activeTaskPath())
 		_ = os.Remove(planPath)
 		return fmt.Errorf("start restart watchdog: %w", err)
@@ -138,6 +143,17 @@ func (s *Service) beginControlPlaneRestart(taskID, target string) error {
 		}
 	}()
 	return nil
+}
+
+func undoFrontendSwaps(plan *restartPlan) {
+	if fp := plan.Frontend; fp != nil && fp.Swapped {
+		restoreSwappedFrontendDir(fp.AppDir)
+		fp.Swapped = false
+	}
+	if fs := plan.FrontendSwap; fs != nil && fs.Swapped {
+		restoreSwappedFrontendDir(fs.AppDir)
+		fs.Swapped = false
+	}
 }
 
 func (s *Service) setStepLocked(code, status, msg string) {

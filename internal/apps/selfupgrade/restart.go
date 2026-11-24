@@ -116,6 +116,13 @@ type restartPlan struct {
 	ResultPath     string          `json:"result_path"`
 	TimeoutSeconds int             `json:"timeout_seconds"`
 	Frontend       *frontendPlan   `json:"frontend,omitempty"`
+	FrontendSwap   *frontendDirSwap `json:"frontend_swap,omitempty"`
+}
+
+type frontendDirSwap struct {
+	AppDir  string `json:"app_dir"`
+	NewDir  string `json:"new_dir"`
+	Swapped bool   `json:"swapped,omitempty"`
 }
 
 type restartResult struct {
@@ -294,28 +301,73 @@ func detectFrontend(exe, cwd string) *frontendPlan {
 		if err != nil || pid <= 0 || !processAlive(pid) {
 			continue
 		}
-		argv, env, dir, logPath, err := snapshotProcess(pid)
-		if err != nil || !isFrontendCommandLine(argv) {
+		if fp := frontendPlanFromProc(pid, pidFile); fp != nil {
+			return fp
+		}
+	}
+	bases := []string{filepath.Dir(exe), cwd}
+	for _, pid := range scanFrontendPIDs() {
+		fp := frontendPlanFromProc(pid, "")
+		if fp == nil || fp.AppDir == "" {
 			continue
 		}
-		fp := &frontendPlan{PID: pid, Argv: argv, Env: env, Dir: dir, LogPath: logPath, PIDFile: pidFile}
-		for _, kv := range env {
-			if strings.HasPrefix(kv, "PORT=") {
-				fp.Port, _ = strconv.Atoi(strings.TrimPrefix(kv, "PORT="))
+		for _, base := range bases {
+			if base != "" && strings.HasPrefix(fp.AppDir, filepath.Clean(base)+string(filepath.Separator)) {
+				return fp
 			}
 		}
-		for _, a := range argv[1:] {
-			if filepath.Base(a) == "server.js" {
-				p := a
-				if !filepath.IsAbs(p) {
-					p = filepath.Join(dir, p)
-				}
-				fp.AppDir = filepath.Dir(p)
-			}
-		}
-		return fp
 	}
 	return nil
+}
+
+func frontendPlanFromProc(pid int, pidFile string) *frontendPlan {
+	argv, env, dir, logPath, err := snapshotProcess(pid)
+	if err != nil || !isFrontendCommandLine(argv) {
+		return nil
+	}
+	fp := &frontendPlan{PID: pid, Argv: argv, Env: env, Dir: dir, LogPath: logPath, PIDFile: pidFile}
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "PORT=") {
+			fp.Port, _ = strconv.Atoi(strings.TrimPrefix(kv, "PORT="))
+		}
+	}
+	for _, a := range argv[1:] {
+		if filepath.Base(a) == "server.js" {
+			p := a
+			if !filepath.IsAbs(p) {
+				p = filepath.Join(dir, p)
+			}
+			fp.AppDir = filepath.Dir(p)
+		}
+	}
+	return fp
+}
+
+func scanFrontendPIDs() []int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	var pids []int
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if st, ok := info.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != os.Geteuid() {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
+		if err != nil || !isFrontendCommandLine(splitNul(raw)) {
+			continue
+		}
+		pids = append(pids, pid)
+	}
+	return pids
 }
 
 // isFrontendCommandLine 只接受 node server.js 形态的前端进程。/ isFrontendCommandLine only accepts `node server.js` frontends.
@@ -479,7 +531,38 @@ func (s *Service) buildRestartPlan(taskID, target, from string) (*restartPlan, e
 			plan.Frontend = fp
 		}
 	}
+	if plan.Frontend == nil && st.Kind != RestartStrategyHook {
+		fs, err := s.buildFrontendSwap(target, exe, cwd)
+		if err != nil {
+			return nil, err
+		}
+		plan.FrontendSwap = fs
+	}
 	return plan, nil
+}
+
+func (s *Service) buildFrontendSwap(target, exe, cwd string) (*frontendDirSwap, error) {
+	dir, err := s.versionStagingDir(target)
+	if err != nil {
+		return nil, nil
+	}
+	src := filepath.Join(dir, "frontend")
+	if !fileExists(filepath.Join(src, "server.js")) {
+		return nil, nil
+	}
+	for _, base := range []string{cwd, filepath.Dir(exe)} {
+		appDir := filepath.Join(base, "frontend")
+		if !fileExists(filepath.Join(appDir, "server.js")) {
+			continue
+		}
+		newDir := appDir + ".new"
+		_ = os.RemoveAll(newDir)
+		if err := copyDir(src, newDir); err != nil {
+			return nil, fmt.Errorf("prepare new frontend: %w", err)
+		}
+		return &frontendDirSwap{AppDir: appDir, NewDir: newDir}, nil
+	}
+	return nil, nil
 }
 
 func fileExists(p string) bool {
@@ -552,6 +635,10 @@ func absolutizeRestartPlan(plan *restartPlan) {
 		fp.PIDFile = absPath(fp.PIDFile)
 		fp.AppDir = absPath(fp.AppDir)
 		fp.NewDir = absPath(fp.NewDir)
+	}
+	if fs := plan.FrontendSwap; fs != nil {
+		fs.AppDir = absPath(fs.AppDir)
+		fs.NewDir = absPath(fs.NewDir)
 	}
 }
 

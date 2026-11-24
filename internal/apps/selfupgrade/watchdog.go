@@ -75,6 +75,12 @@ func watchdogRun(ctx context.Context, plan *restartPlan) restartResult {
 		if !standalone {
 			cp.Status = RestartFailed
 			cp.Message = locale.Pick(ctx, fmt.Sprintf("%s 未在 %s 内重启控制面", plan.Strategy.Kind, oldProcessExitTimeout), fmt.Sprintf("%s did not restart the control plane within %s", plan.Strategy.Kind, oldProcessExitTimeout))
+			if fp := plan.Frontend; fp != nil && fp.Swapped {
+				restoreSwappedFrontendDir(fp.AppDir)
+			}
+			if fs := plan.FrontendSwap; fs != nil && fs.Swapped {
+				restoreSwappedFrontendDir(fs.AppDir)
+			}
 			return restartResult{Status: restartOutcomeFailed, Reason: cp.Message, ControlPlane: cp}
 		}
 		// 旧进程未按计划退出：先温和再强制，仅针对控制面自身 PID。/ old process did not exit: TERM then KILL, own PID only.
@@ -96,6 +102,9 @@ func watchdogRun(ctx context.Context, plan *restartPlan) restartResult {
 		if plan.Frontend != nil {
 			fr := restartFrontend(ctx, plan)
 			res.Frontend = &fr
+		} else if fs := plan.FrontendSwap; fs != nil && fs.Swapped {
+			res.Frontend = &ProcessRestart{Component: "frontend", Status: RestartSucceeded,
+				Message: locale.Pick(ctx, "前端文件已替换（未检测到运行中的前端进程）", "frontend files replaced (no running frontend detected)")}
 		}
 		return res
 	}
@@ -112,9 +121,10 @@ func watchdogRun(ctx context.Context, plan *restartPlan) restartResult {
 	}
 	if fp := plan.Frontend; fp != nil && fp.Swapped {
 		// 进程管理器重启前换入的新前端随之恢复。/ restore the frontend dir swapped in before the manager restart.
-		_ = os.RemoveAll(fp.AppDir + ".failed")
-		_ = os.Rename(fp.AppDir, fp.AppDir+".failed")
-		_ = os.Rename(fp.AppDir+".bak", fp.AppDir)
+		restoreSwappedFrontendDir(fp.AppDir)
+	}
+	if fs := plan.FrontendSwap; fs != nil && fs.Swapped {
+		restoreSwappedFrontendDir(fs.AppDir)
 	}
 	if rerr := restoreBinary(plan.Backup, plan.Executable); rerr != nil {
 		cp.Status = RestartFailed
@@ -261,11 +271,16 @@ func restartFrontend(ctx context.Context, plan *restartPlan) ProcessRestart {
 		newPID := 0
 		deadline := time.Now().Add(time.Duration(plan.TimeoutSeconds) * time.Second)
 		for time.Now().Before(deadline) {
-			if raw, err := os.ReadFile(fp.PIDFile); err == nil {
-				if p, err := strconv.Atoi(stringsTrim(raw)); err == nil && p != fp.PID && processAlive(p) {
-					newPID = p
-					break
+			if fp.PIDFile != "" {
+				if raw, err := os.ReadFile(fp.PIDFile); err == nil {
+					if p, err := strconv.Atoi(stringsTrim(raw)); err == nil && p != fp.PID && processAlive(p) {
+						newPID = p
+						break
+					}
 				}
+			} else if p := scanManagedFrontendPID(fp); p != 0 {
+				newPID = p
+				break
 			}
 			time.Sleep(watchdogPoll)
 		}
@@ -280,15 +295,7 @@ func restartFrontend(ctx context.Context, plan *restartPlan) ProcessRestart {
 
 	swapped := false
 	if fp.NewDir != "" && fp.AppDir != "" {
-		bak := fp.AppDir + ".bak"
-		_ = os.RemoveAll(bak)
-		if err := os.Rename(fp.AppDir, bak); err == nil {
-			if err := os.Rename(fp.NewDir, fp.AppDir); err != nil {
-				_ = os.Rename(bak, fp.AppDir)
-			} else {
-				swapped = true
-			}
-		}
+		swapped = swapFrontendDir(fp.AppDir, fp.NewDir)
 	}
 	stopFrontend(fp.PID)
 	pid, err := startFrontend(fp)
@@ -306,9 +313,7 @@ func restartFrontend(ctx context.Context, plan *restartPlan) ProcessRestart {
 	firstErr := err
 	stopFrontend(pid)
 	if swapped {
-		_ = os.RemoveAll(fp.AppDir + ".failed")
-		_ = os.Rename(fp.AppDir, fp.AppDir+".failed")
-		_ = os.Rename(fp.AppDir+".bak", fp.AppDir)
+		restoreSwappedFrontendDir(fp.AppDir)
 	}
 	pid, err = startFrontend(fp)
 	if err == nil {
@@ -324,12 +329,42 @@ func restartFrontend(ctx context.Context, plan *restartPlan) ProcessRestart {
 	return pr
 }
 
+func scanManagedFrontendPID(fp *frontendPlan) int {
+	for _, pid := range scanFrontendPIDs() {
+		if pid == fp.PID {
+			continue
+		}
+		if np := frontendPlanFromProc(pid, ""); np != nil && np.AppDir == fp.AppDir {
+			return pid
+		}
+	}
+	return 0
+}
+
 func stringsTrim(b []byte) string {
 	s := string(b)
 	for len(s) > 0 && (s[len(s)-1] == '\n' || s[len(s)-1] == ' ' || s[len(s)-1] == '\r') {
 		s = s[:len(s)-1]
 	}
 	return s
+}
+
+func swapFrontendDir(appDir, newDir string) bool {
+	_ = os.RemoveAll(appDir + ".bak")
+	if err := os.Rename(appDir, appDir+".bak"); err != nil {
+		return false
+	}
+	if err := os.Rename(newDir, appDir); err != nil {
+		_ = os.Rename(appDir+".bak", appDir)
+		return false
+	}
+	return true
+}
+
+func restoreSwappedFrontendDir(appDir string) {
+	_ = os.RemoveAll(appDir + ".failed")
+	_ = os.Rename(appDir, appDir+".failed")
+	_ = os.Rename(appDir+".bak", appDir)
 }
 
 // stopFrontend 只在命令行确认是 node server.js 时才发送信号。/ stopFrontend only signals a verified `node server.js` process.

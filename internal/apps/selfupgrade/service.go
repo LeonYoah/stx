@@ -104,6 +104,7 @@ type Service struct {
 	stagingDir  string
 	historyPath string
 	httpClient  *http.Client
+	dlClient    *http.Client
 	mockMode    bool
 	allowSim    bool
 
@@ -157,8 +158,12 @@ func NewService(dataDir string) *Service {
 		stagingDir:  staging,
 		historyPath: history,
 		httpClient:  &http.Client{Timeout: 20 * time.Second},
-		mockMode:    mock,
-		allowSim:    allowSim,
+		dlClient: &http.Client{Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			ResponseHeaderTimeout: 15 * time.Second,
+		}},
+		mockMode: mock,
+		allowSim: allowSim,
 		stage: StageState{
 			Status:      StatusIdle,
 			Assets:      initialAssets(),
@@ -768,7 +773,7 @@ func (s *Service) downloadWithFallback(ctx context.Context, owner, repo, tag, as
 		}
 		req.Header.Set("User-Agent", "stx-self-upgrade")
 
-		resp, err := s.httpClient.Do(req)
+		resp, err := s.dlClient.Do(req)
 		if err != nil {
 			lastErr = err
 			continue

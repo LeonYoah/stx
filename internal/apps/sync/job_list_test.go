@@ -192,6 +192,72 @@ func TestListJobsWithOptionsFiltersAndAttentionOrder(t *testing.T) {
 	}
 }
 
+// TestListJobsSlimsRowsWithoutWithLive：不带 with_live 的裸列表同样裁剪重字段 ——
+// result_preview 只留行展示键、submit_spec.submitted_content 删除；全量只走 getJob。
+// Bare list calls slim rows the same way: result_preview keeps display keys only and
+// submit_spec.submitted_content is dropped; the full record ships via getJob only.
+func TestListJobsSlimsRowsWithoutWithLive(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+	db := service.repo.db
+	admin := executionapp.Actor{UserID: 1, IsAdmin: true}
+	job := &JobInstance{
+		RunType: RunTypeRun, Status: JobStatusRunning, CreatedBy: 1,
+		SubmitSpec: JSONMap{"cluster_id": 1, "mode": "streaming", "submitted_content": "env {}"},
+		ResultPreview: JSONMap{
+			"job_status":       "RUNNING",
+			"metrics":          map[string]interface{}{"SinkWriteQPS": "42"},
+			"preview_content":  "source {...}",
+			"cancel_outcome":   "unknown",
+			"unrelated_detail": "x",
+		},
+	}
+	if err := db.Create(job).Error; err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	data, err := service.ListJobsWithOptions(ctx, admin, &JobFilter{Page: 1, Size: 50}, JobListOptions{})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(data.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(data.Items))
+	}
+	row := data.Items[0]
+	if _, ok := row.SubmitSpec["submitted_content"]; ok {
+		t.Fatalf("submitted_content must be stripped from list rows")
+	}
+	if row.SubmitSpec["cluster_id"] == nil {
+		t.Fatalf("submit_spec metadata keys must be kept, got %+v", row.SubmitSpec)
+	}
+	wantKeys := map[string]bool{"job_status": true, "cancel_outcome": true, "cancel_timeout_seconds": true}
+	for key := range row.ResultPreview {
+		if !wantKeys[key] {
+			t.Fatalf("result_preview key %q must be pruned from list rows, got %+v", key, row.ResultPreview)
+		}
+	}
+	if row.ResultPreview["job_status"] != "RUNNING" || row.ResultPreview["cancel_outcome"] != "unknown" {
+		t.Fatalf("kept keys mangled: %+v", row.ResultPreview)
+	}
+	if row.Live != nil || row.TaskName != "" {
+		t.Fatalf("bare list must not add live/task_name decorations")
+	}
+
+	// with_live 仍先取指标再裁剪：live 有值，行内 metrics 已删。
+	// with_live still reads metrics before pruning: live is populated while the row metrics are gone.
+	live, err := service.ListJobsWithOptions(ctx, admin, &JobFilter{Page: 1, Size: 50}, JobListOptions{WithLive: true})
+	if err != nil {
+		t.Fatalf("list with_live: %v", err)
+	}
+	liveRow := live.Items[0]
+	if liveRow.Live == nil || liveRow.Live.WriteQPS == nil || *liveRow.Live.WriteQPS != 42 {
+		t.Fatalf("live decoration lost metrics: %+v", liveRow.Live)
+	}
+	if _, ok := liveRow.ResultPreview["metrics"]; ok {
+		t.Fatalf("metrics must stay pruned even with with_live")
+	}
+}
+
 func TestListJobsWithOptionsInMemoryRateSort(t *testing.T) {
 	service := newTestSyncService(t)
 	seedJobListFixture(t, service)

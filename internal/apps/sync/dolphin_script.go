@@ -27,7 +27,6 @@ const (
 	// defaultDolphinWorkerGroup 必须是 Dolphin 自带的 default；真实单机没有 stx-workers。
 	// defaultDolphinWorkerGroup must be Dolphin's built-in default; a real standalone has no stx-workers group.
 	defaultDolphinWorkerGroup = "default"
-	defaultDolphinEnvironment = "stx-cli-prod"
 	// dolphinScheduleTimePlaceholder 必须保持为 Dolphin 原样占位符，不能在 Go 里插值。
 	// dolphinScheduleTimePlaceholder must stay a Dolphin placeholder and must not be interpolated by Go.
 	dolphinScheduleTimePlaceholder     = `${system.datetime}`
@@ -41,11 +40,11 @@ func BuildDolphinShellScript(task *Task, variables map[string]string, workerGrou
 	if task == nil {
 		return &DolphinScriptResult{
 			WorkerGroup: defaultString(workerGroup, defaultDolphinWorkerGroup),
-			Environment: defaultString(environment, defaultDolphinEnvironment),
+			Environment: strings.TrimSpace(environment),
 		}
 	}
 	workerGroup = defaultString(strings.TrimSpace(workerGroup), defaultDolphinWorkerGroup)
-	environment = defaultString(strings.TrimSpace(environment), defaultDolphinEnvironment)
+	environment = strings.TrimSpace(environment)
 
 	ref := fmt.Sprintf("ds:%s:%s", dolphinWorkflowInstancePlaceholder, dolphinTaskCodePlaceholder)
 	waitFlags := "--wait --confirm"
@@ -86,13 +85,9 @@ func BuildDolphinShellScript(task *Task, variables map[string]string, workerGrou
 		}
 	}
 
-	// env_notes 只提醒 Worker 由用户自行绑定登录令牌；推送不会签发或写入 STX_TOKEN。
-	// env_notes only remind the operator to bind the login token; push never issues or writes STX_TOKEN.
 	envNotes := strings.Join([]string{
-		"# Worker 环境 stx-cli-prod 由用户自行绑定 STX 登录令牌；推送只写 SHELL 脚本，不签发、不写入 STX_TOKEN。",
-		"# The stx-cli-prod worker binds the STX login token itself; push only writes the SHELL script and does not issue or set STX_TOKEN.",
-		"# 用户侧：管理员签发 stx_ 后，在 Worker 上执行 stx login --token，或自行设置 STX_SERVER / STX_TOKEN。",
-		"# Operator side: after an admin issues stx_, bind it on the worker with stx login --token or STX_SERVER / STX_TOKEN.",
+		"# 推送不签发、不写入 STX_TOKEN，也不再默认绑定调度环境；Worker 凭据走 stx login 或自行设置 STX_SERVER / STX_TOKEN。",
+		"# Push does not issue or write STX_TOKEN, and no longer binds a scheduler environment by default; worker credentials come from stx login or STX_SERVER / STX_TOKEN.",
 	}, "\n")
 
 	return &DolphinScriptResult{

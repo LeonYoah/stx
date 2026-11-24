@@ -317,3 +317,32 @@ func TestUnpackTarGzRejectsEscapingSymlink(t *testing.T) {
 		t.Fatal("escaping symlink should not exist")
 	}
 }
+
+func TestUnpackTarGzRejectsFileThroughSymlink(t *testing.T) {
+	dir := t.TempDir()
+	tarPath := filepath.Join(t.TempDir(), "b.tar.gz")
+	f, err := os.Create(tarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gzw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gzw)
+	if err := tw.WriteHeader(&tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: ".."}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: "link/evil.txt", Typeflag: tar.TypeReg, Size: 4, Mode: 0o644}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte("evil")); err != nil {
+		t.Fatal(err)
+	}
+	tw.Close()
+	gzw.Close()
+	f.Close()
+	if err := unpackTarGz(tarPath, dir); err == nil {
+		t.Fatal("expected write through escaping symlink to be rejected")
+	}
+	if _, err := os.Lstat(filepath.Join(filepath.Dir(dir), "evil.txt")); !os.IsNotExist(err) {
+		t.Fatal("file must not be written outside destDir")
+	}
+}

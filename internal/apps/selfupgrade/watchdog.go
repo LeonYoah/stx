@@ -271,11 +271,16 @@ func restartFrontend(ctx context.Context, plan *restartPlan) ProcessRestart {
 		newPID := 0
 		deadline := time.Now().Add(time.Duration(plan.TimeoutSeconds) * time.Second)
 		for time.Now().Before(deadline) {
-			if raw, err := os.ReadFile(fp.PIDFile); err == nil {
-				if p, err := strconv.Atoi(stringsTrim(raw)); err == nil && p != fp.PID && processAlive(p) {
-					newPID = p
-					break
+			if fp.PIDFile != "" {
+				if raw, err := os.ReadFile(fp.PIDFile); err == nil {
+					if p, err := strconv.Atoi(stringsTrim(raw)); err == nil && p != fp.PID && processAlive(p) {
+						newPID = p
+						break
+					}
 				}
+			} else if p := scanManagedFrontendPID(fp); p != 0 {
+				newPID = p
+				break
 			}
 			time.Sleep(watchdogPoll)
 		}
@@ -322,6 +327,18 @@ func restartFrontend(ctx context.Context, plan *restartPlan) ProcessRestart {
 	pr.Status, pr.NewPID = RestartRolledBack, pid
 	pr.Message = locale.Pick(ctx, fmt.Sprintf("新前端启动失败（%v），已恢复旧前端并重启（pid %d）", firstErr, pid), fmt.Sprintf("new frontend failed (%v); previous frontend restored and restarted (pid %d)", firstErr, pid))
 	return pr
+}
+
+func scanManagedFrontendPID(fp *frontendPlan) int {
+	for _, pid := range scanFrontendPIDs() {
+		if pid == fp.PID {
+			continue
+		}
+		if np := frontendPlanFromProc(pid, ""); np != nil && np.AppDir == fp.AppDir {
+			return pid
+		}
+	}
+	return 0
 }
 
 func stringsTrim(b []byte) string {

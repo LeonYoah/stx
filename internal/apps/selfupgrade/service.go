@@ -928,6 +928,36 @@ func (s *Service) refreshStagedAssets(dir string) {
 	}
 }
 
+func resolveInDir(root, target string) (string, error) {
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
+	dir := filepath.Dir(target)
+	var rest []string
+	for {
+		if _, err := os.Lstat(dir); err == nil {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("cannot resolve %s", target)
+		}
+		rest = append([]string{filepath.Base(dir)}, rest...)
+		dir = parent
+	}
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
+	}
+	for _, seg := range rest {
+		real = filepath.Join(real, seg)
+	}
+	if real != root && !strings.HasPrefix(real, root+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes destination")
+	}
+	return filepath.Join(real, filepath.Base(target)), nil
+}
+
 // unpackTarGz 安全解压 tar.gz 压缩包至指定目录（防路径穿越）。
 // unpackTarGz securely unpacks a tar.gz archive to destDir with ZipSlip protection.
 func unpackTarGz(tarPath, destDir string) error {
@@ -945,6 +975,9 @@ func unpackTarGz(tarPath, destDir string) error {
 
 	tr := tar.NewReader(gzr)
 	cleanDest := filepath.Clean(destDir)
+	if resolved, err := filepath.EvalSymlinks(destDir); err == nil {
+		cleanDest = resolved
+	}
 
 	for {
 		hdr, err := tr.Next()
@@ -956,29 +989,34 @@ func unpackTarGz(tarPath, destDir string) error {
 		}
 
 		targetPath := filepath.Clean(filepath.Join(destDir, hdr.Name))
-		if !strings.HasPrefix(targetPath, cleanDest+string(filepath.Separator)) && targetPath != cleanDest {
+		lexDest := filepath.Clean(destDir)
+		if !strings.HasPrefix(targetPath, lexDest+string(filepath.Separator)) && targetPath != lexDest {
 			return fmt.Errorf("illegal file path in archive: %s", hdr.Name)
+		}
+		realTarget, err := resolveInDir(cleanDest, targetPath)
+		if err != nil {
+			return fmt.Errorf("illegal path in archive: %s: %w", hdr.Name, err)
 		}
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(targetPath, 0o755); err != nil {
+			if err := os.MkdirAll(realTarget, 0o755); err != nil {
 				return err
 			}
 		case tar.TypeSymlink:
 			resolved := hdr.Linkname
 			if !filepath.IsAbs(resolved) {
-				resolved = filepath.Join(filepath.Dir(targetPath), resolved)
+				resolved = filepath.Join(filepath.Dir(realTarget), resolved)
 			}
 			resolved = filepath.Clean(resolved)
 			if resolved != cleanDest && !strings.HasPrefix(resolved, cleanDest+string(filepath.Separator)) {
 				return fmt.Errorf("illegal symlink in archive: %s -> %s", hdr.Name, hdr.Linkname)
 			}
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(realTarget), 0o755); err != nil {
 				return err
 			}
-			_ = os.RemoveAll(targetPath)
-			if err := os.Symlink(hdr.Linkname, targetPath); err != nil {
+			_ = os.RemoveAll(realTarget)
+			if err := os.Symlink(hdr.Linkname, realTarget); err != nil {
 				return err
 			}
 		case tar.TypeLink:
@@ -986,21 +1024,22 @@ func unpackTarGz(tarPath, destDir string) error {
 			if !strings.HasPrefix(src, cleanDest+string(filepath.Separator)) {
 				return fmt.Errorf("illegal hard link in archive: %s -> %s", hdr.Name, hdr.Linkname)
 			}
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(realTarget), 0o755); err != nil {
 				return err
 			}
-			if err := os.Link(src, targetPath); err != nil {
+			_ = os.Remove(realTarget)
+			if err := os.Link(src, realTarget); err != nil {
 				return err
 			}
 		case tar.TypeReg, tar.TypeRegA:
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(realTarget), 0o755); err != nil {
 				return err
 			}
 			mode := hdr.FileInfo().Mode()
 			if mode == 0 {
 				mode = 0o644
 			}
-			outF, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			outF, err := os.OpenFile(realTarget, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 			if err != nil {
 				return err
 			}

@@ -354,6 +354,13 @@ func scanFrontendPIDs() []int {
 		if err != nil || pid <= 0 {
 			continue
 		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if st, ok := info.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != os.Geteuid() {
+			continue
+		}
 		raw, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
 		if err != nil || !isFrontendCommandLine(splitNul(raw)) {
 			continue

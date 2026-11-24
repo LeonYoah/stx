@@ -42,6 +42,9 @@ export type SyncJobStatus =
   | 'savepoint_done';
 export type SyncFormat = 'hocon' | 'json';
 
+/** 任务三态共享级别：私有 / 公开只读 / 公开可协作。/ Task three-state sharing level: private / public read-only / public editable. */
+export type SyncTaskAccessLevel = 'private' | 'public_readonly' | 'public_editable';
+
 export interface SyncTask {
   id: number;
   parent_id?: number;
@@ -68,6 +71,7 @@ export interface SyncTask {
   is_owner?: boolean;
   is_collaborator?: boolean;
   is_public?: boolean;
+  access_level?: SyncTaskAccessLevel;
   /** 全局超时默认值，只在任务详情里返回 / Global timeout defaults, returned on task detail only. */
   timeout_defaults?: SyncTaskTimeoutDefaults;
   created_by: number;
@@ -155,6 +159,7 @@ export interface SyncTaskTreeNode {
   is_owner?: boolean;
   is_collaborator?: boolean;
   is_public?: boolean;
+  access_level?: SyncTaskAccessLevel;
   created_by?: number;
   children?: SyncTaskTreeNode[];
 }
@@ -690,6 +695,7 @@ export interface UpdateSyncTaskRequest extends CreateSyncTaskRequest {}
 
 export interface SyncTaskPermissions {
   task_id: number;
+  access_level: SyncTaskAccessLevel;
   is_public: boolean;
   collaborator_ids: number[];
   can_edit: boolean;
@@ -699,6 +705,7 @@ export interface SyncTaskPermissions {
 }
 
 export interface UpdateSyncTaskPermissionsRequest {
+  access_level?: SyncTaskAccessLevel;
   is_public?: boolean;
   collaborator_ids?: number[];
 }

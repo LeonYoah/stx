@@ -122,6 +122,16 @@ export function StudioTreeContextMenu({
   const isFolder = menuState.kind === 'folder';
   const isFile = menuState.kind === 'file';
   const canEdit = menuState.node?.can_edit !== false;
+  // 删除与后端 DeleteTaskForActor 对齐：仅所有者/管理员可见；created_by 为 0 的遗留任务视为公共财产可删；
+  // is_owner 缺失的旧数据回退到 can_edit 判断，避免误藏删除入口。
+  // Delete mirrors backend DeleteTaskForActor: owner/admin only; legacy tasks with created_by = 0 count as
+  // shared assets and are deletable; when is_owner is missing fall back to can_edit so the delete entry
+  // is not hidden by mistake.
+  const canDelete =
+    menuState.node != null &&
+    (menuState.node.is_owner === true ||
+      menuState.node.created_by === 0 ||
+      (menuState.node.is_owner === undefined && canEdit));
 
   return (
     <div
@@ -220,7 +230,7 @@ export function StudioTreeContextMenu({
 
       {/* 危险操作组：删除 */}
       {/* Destructive group: delete */}
-      {!isRoot && canEdit && menuState.node ? (
+      {!isRoot && canDelete && menuState.node ? (
         <>
           <div className='my-1 h-px bg-border/40' />
           <button

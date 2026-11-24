@@ -31,11 +31,11 @@ import {
   Braces,
   Code2,
   Database,
+  Eye,
   FileCode2,
   FilePlus2,
   FileText,
   FolderPlus,
-  Lock,
   SquareTerminal,
 } from 'lucide-react';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
@@ -341,9 +341,11 @@ export function TreeView({
         {node.node_type === 'file' && node.can_edit === false ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Lock className='size-3.5 text-amber-500 shrink-0' />
+              {/* 只读是可查看的正常状态，用中性 Eye 而非警示色 Lock。 */}
+              {/* Read-only is a normal viewable state: neutral Eye, not a warning Lock. */}
+              <Eye className='size-3.5 text-muted-foreground shrink-0' />
             </TooltipTrigger>
-            <TooltipContent side='right'>{t('readOnlyLocked')}</TooltipContent>
+            <TooltipContent side='right'>{t('readOnlyViewOnly')}</TooltipContent>
           </Tooltip>
         ) : null}
 

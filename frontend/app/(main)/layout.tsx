@@ -45,7 +45,7 @@ export default function ProjectLayout({children}: {children: React.ReactNode}) {
       <div
         className={
           isWorkbench
-            ? 'h-dvh min-h-[520px] flex flex-col overflow-hidden'
+            ? 'h-dvh min-h-0 flex flex-col overflow-hidden'
             : 'min-h-screen flex flex-col'
         }
       >

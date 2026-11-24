@@ -32,7 +32,7 @@ import {useLocale} from '@/lib/i18n';
 import {cn} from '@/lib/utils';
 import {SankeyChart} from '@/components/charts/sankey-chart';
 import {type SyncJobInstance, type SyncJobTimeseries} from '@/lib/services/sync';
-import {buildMetricFlowSankey, toObject} from '../sync-studio-utils';
+import {buildMetricFlowSankey, buildPairedMetricRows, toObject} from '../sync-studio-utils';
 import {fetchJobTimeseriesCached} from './metric-timeseries';
 import {
   TREND_COLORS,
@@ -346,25 +346,30 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
   // 所以终态 / 未开监控 / 时序加载中的作业也能显示。链路数 < 2 时整块隐藏。
   // The data-flow Sankey reads snapshot per-table metrics (paired rows + TableSinkCommittedCount),
   // not timeseries, so terminal jobs and disabled/loading monitoring still show it; hidden below 2 links.
-  const flowSankey = useMemo(
-    () =>
-      buildMetricFlowSankey(toObject(job?.result_preview?.metrics), {
-        labels: {
-          committed: t('pipeline.committed'),
-          pendingCommit: t('flow.pendingCommit'),
-          backlog: t('flow.backlog'),
-          otherSources: (count) => t('flow.otherSources', {count}),
-          otherSink: t('flow.otherSink'),
-        },
-        colors: {
-          table: 'var(--muted-foreground)',
-          outcome: 'var(--muted-foreground)',
-          warning: 'var(--warning)',
-        },
-        maxLinks: 8,
-      }),
-    [job, t],
-  );
+  const flowSankey = useMemo(() => {
+    const metrics = toObject(job?.result_preview?.metrics);
+    // 与按表曲线同一套配色：同一张表在桑基图和下方按表图里同色。未匹配（「其它」归并）退回中性色。
+    // Same palette as the per-table charts so a table keeps its color here; unmatched (merged "other") falls back to neutral.
+    const tableColors = colorByTable(
+      buildPairedMetricRows(metrics).map((row) => row.sinkTable || row.sinkNode),
+    );
+    return buildMetricFlowSankey(metrics, {
+      labels: {
+        committed: t('pipeline.committed'),
+        pendingCommit: t('flow.pendingCommit'),
+        backlog: t('flow.backlog'),
+        otherSources: (count) => t('flow.otherSources', {count}),
+        otherSink: t('flow.otherSink'),
+      },
+      colors: {
+        table: ({sinkLabel, srcLabel}) =>
+          tableColors.get(sinkLabel) ?? tableColors.get(srcLabel) ?? 'var(--muted-foreground)',
+        outcome: TREND_COLORS.committed,
+        warning: 'var(--warning)',
+      },
+      maxLinks: 8,
+    });
+  }, [job, t]);
   // beUI 自己做占位符插值（{count}/{source}/{share}），必须走 t.raw 取未插值模板，
   // 直接 t() 会被 next-intl 当成缺参报错。
   // beUI interpolates placeholders ({count}/{source}/{share}) itself, so pass raw

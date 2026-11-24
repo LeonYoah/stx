@@ -4371,9 +4371,10 @@ export interface MetricFlowSankeyLabels {
 }
 
 export interface MetricFlowSankeyColors {
-  /** 表节点中性色。 / Neutral table nodes. */
-  table: string;
-  /** 已提交节点（中性）。 / Committed node (neutral). */
+  /** 表节点颜色：固定色，或按链路取色（源/目标共用一色，流向带宽按表区分）。
+      / Table node color: a fixed color, or per-link resolver (source and sink share it so band hue follows the table). */
+  table: string | ((pair: {srcLabel: string; sinkLabel: string}) => string);
+  /** 已提交节点颜色。 / Committed node color. */
   outcome: string;
   /** 待提交与待写节点的异常提示色。 / Pending-commit and backlog nodes (warning). */
   warning: string;
@@ -4479,9 +4480,13 @@ export function buildMetricFlowSankey(
     const committed = Math.min(pair.committed, pair.write);
     const pending = Math.max(0, pair.write - committed);
     const backlog = Math.max(0, pair.read - pair.write);
-    nodes.push({id: pair.srcId, label: pair.srcLabel, color: colors.table});
+    const pairColor =
+      typeof colors.table === 'function'
+        ? colors.table({srcLabel: pair.srcLabel, sinkLabel: pair.sinkLabel})
+        : colors.table;
+    nodes.push({id: pair.srcId, label: pair.srcLabel, color: pairColor});
     if (pair.write > 0) {
-      nodes.push({id: pair.sinkId, label: pair.sinkLabel, color: colors.table});
+      nodes.push({id: pair.sinkId, label: pair.sinkLabel, color: pairColor});
       links.push({source: pair.srcId, target: pair.sinkId, value: pair.write});
       if (committed > 0) {
         links.push({source: pair.sinkId, target: 'o:committed', value: committed});

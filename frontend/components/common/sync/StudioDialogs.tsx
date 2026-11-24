@@ -534,14 +534,14 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
   );
   const perTableRows = buildPerTableMetricRows(rawMetrics);
   const pairedMetricRows = buildPairedMetricRows(rawMetrics);
-  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [detailsExpanded, setDetailsExpanded] = useState(true);
   const [moreExpanded, setMoreExpanded] = useState(false);
   const [tableSearch, setTableSearch] = useState('');
   const sparklinePoints = useWriteRateSparkline(job);
 
-  // 换作业时明细与搜索都回到折叠默认态。 / Folds and search reset to collapsed when switching jobs.
+  // 换作业时明细回到默认展开态、搜索清空。 / Per-table details reset to expanded and search clears when switching jobs.
   useEffect(() => {
-    setDetailsExpanded(false);
+    setDetailsExpanded(true);
     setMoreExpanded(false);
     setTableSearch('');
   }, [job?.id]);
@@ -632,7 +632,7 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
   }
 
   return (
-    <div className='space-y-5 overflow-auto pr-1'>
+    <div className='space-y-5 overflow-auto pr-1 pt-3'>
       {/* KPI 行：读 / 写 / 写速 + 一句状态结论。精确值、读写速率与 QPS 都收进悬停提示。 */}
       {/* KPI row: read / written / write-rate plus a single-line conclusion. Exact values, rates and QPS live in tooltips. */}
       <div className='flex flex-wrap items-end gap-x-8 gap-y-3'>
@@ -747,8 +747,8 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
         </div>
       </div>
 
-      {/* 逐表明细：默认折叠的配对链路表；来源/目标合并成一列「链路」，字节与提交量进悬停提示。 */}
-      {/* Per-table details: the paired link table collapsed by default; source/sink merge into one
+      {/* 逐表明细：默认展开的配对链路表；来源/目标合并成一列「链路」，字节与提交量进悬停提示。 */}
+      {/* Per-table details: the paired link table expanded by default; source/sink merge into one
           link column while bytes and committed counts move into a hover tooltip. */}
       {pairedMetricRows.length > 0 ? (
         <MetricFoldRow

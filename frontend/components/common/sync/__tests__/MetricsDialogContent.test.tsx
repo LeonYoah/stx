@@ -135,7 +135,7 @@ describe('MetricsDialogContent', () => {
     expect(screen.getByText(/已写入 62%/)).toBeInTheDocument();
   });
 
-  it('keeps per-table details collapsed and expands on click', () => {
+  it('expands per-table details by default and collapses on click', () => {
     renderSnapshot(
       job({
         result_preview: {
@@ -144,10 +144,10 @@ describe('MetricsDialogContent', () => {
       }),
     );
     const fold = screen.getByRole('button', {name: /逐表明细/});
-    expect(fold).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText(copy.metricFlowLink)).not.toBeInTheDocument();
-    fireEvent.click(fold);
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText(copy.metricFlowLink)).toBeInTheDocument();
+    fireEvent.click(fold);
+    expect(screen.queryByText(copy.metricFlowLink)).not.toBeInTheDocument();
     // 链路数 ≤ 5 时搜索框不渲染。 / Search stays hidden at 5 links or fewer.
     expect(screen.queryByPlaceholderText(copy.pipelineSearchTable)).not.toBeInTheDocument();
   });
@@ -160,7 +160,6 @@ describe('MetricsDialogContent', () => {
         },
       }),
     );
-    fireEvent.click(screen.getByRole('button', {name: /逐表明细/}));
     const search = screen.getByPlaceholderText(copy.pipelineSearchTable);
     fireEvent.change(search, {target: {value: 'db.t5'}});
     expect(screen.getByText('Sink #6')).toBeInTheDocument();

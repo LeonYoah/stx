@@ -100,10 +100,13 @@ export function useWriteRateSparkline(
   const jobId = job?.id ?? null;
   const updatedAt = job?.updated_at ?? '';
   const running = Boolean(job) && getRealtimeEntry(job).running;
-  const [points, setPoints] = useState<TrendPoint[] | null>(null);
+  // 点位按 jobId 归属保存：切换作业时新请求未返回前不得显示上一个作业的曲线；同一作业轮询刷新时保留旧点位不闪烁。
+  // Points are stored with the jobId they belong to: after a job switch the previous job's series must not
+  // show while the new request is pending; refreshes of the same job keep the old points to avoid flicker.
+  const [state, setState] = useState<{jobId: number; points: TrendPoint[] | null} | null>(null);
   useEffect(() => {
     if (!jobId || !running) {
-      setPoints(null);
+      setState(null);
       return;
     }
     let disposed = false;
@@ -118,16 +121,17 @@ export function useWriteRateSparkline(
         const write = (timeseries.series ?? []).find(
           (item) => item.key === 'throughput_write',
         );
-        setPoints(write?.points?.length ? write.points : null);
+        setState({jobId, points: write?.points?.length ? write.points : null});
       })
       .catch(() => {
         if (!disposed) {
-          setPoints(null);
+          setState({jobId, points: null});
         }
       });
     return () => {
       disposed = true;
     };
   }, [jobId, running, updatedAt]);
+  const points = state && state.jobId === jobId ? state.points : null;
   return points && points.length >= SPARKLINE_MIN_POINTS ? points : null;
 }

@@ -358,7 +358,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
         },
         colors: {
           table: 'var(--muted-foreground)',
-          outcome: 'var(--foreground)',
+          outcome: 'var(--muted-foreground)',
           warning: 'var(--warning)',
         },
         maxLinks: 8,

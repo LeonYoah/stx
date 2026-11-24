@@ -132,7 +132,7 @@ describe('MetricsDialogContent', () => {
         },
       }),
     );
-    expect(screen.getByText(/写入落后 62%/)).toBeInTheDocument();
+    expect(screen.getByText(/已写入 62%/)).toBeInTheDocument();
   });
 
   it('keeps per-table details collapsed and expands on click', () => {

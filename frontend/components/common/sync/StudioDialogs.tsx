@@ -613,10 +613,6 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
     getMetricValue(rawMetrics, 'SinkWriteBytesPerSeconds'),
     'bps',
   );
-  const writeQps = formatMetricWithUnit(
-    getMetricValue(rawMetrics, 'SinkWriteQPS'),
-    'qps',
-  );
   const readQps = formatMetricWithUnit(
     getMetricValue(rawMetrics, 'SourceReceivedQPS'),
     'qps',
@@ -660,12 +656,15 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
             </>
           }
         />
+        {/* 速率主值用行/秒：与旁边 sparkline 的 throughput_write（records/s）同口径，字节速率进悬停提示。 */}
+        {/* The headline rate is rows/s to match the sparkline's throughput_write (records/s); bytes/s moves to the tooltip. */}
         <MetricFlowKpi
           label={t('pipelineWriteRate')}
-          value={writeSpeed}
+          value={formatRateDisplay(getMetricValue(rawMetrics, 'SinkWriteQPS') as number | string | null | undefined)}
+          unit={t('metricFlowRowsPerSecondUnit')}
           tooltip={
             <>
-              {t('metricFlowExact')}: {formatMetricDisplayValue(getMetricValue(rawMetrics, 'SinkWriteBytesPerSeconds'))} · {t('pipelineThroughput')}: {writeQps}
+              {t('metricFlowExact')}: {formatMetricDisplayValue(getMetricValue(rawMetrics, 'SinkWriteQPS'))} · {t('pipelineWriteRate')}: {writeSpeed}
             </>
           }
         >
@@ -678,10 +677,12 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
               )}
               label={t('pipelineWriteRate')}
               variant='area'
-              color='var(--series-2)'
+              color='var(--muted-foreground)'
               height={26}
               interactive
-              formatValue={(value) => formatRateDisplay(value)}
+              formatValue={(value) =>
+                `${formatRateDisplay(value)} ${t('metricFlowRowsPerSecondUnit')}`
+              }
             />
           ) : null}
         </MetricFlowKpi>

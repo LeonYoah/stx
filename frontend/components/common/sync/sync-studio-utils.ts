@@ -3937,6 +3937,12 @@ export function formatMetricWithUnit(
   if (unit === 'qps') {
     return `${compact} QPS`;
   }
+  // formatMetricCompactValue 的 K / M / B 是数量级后缀，字节速率要并成 KB / MB / GB。
+  // formatMetricCompactValue's K / M / B are magnitude suffixes; byte rates fold them into KB / MB / GB.
+  const scaled = compact.match(/^(.*) ([KMB])$/);
+  if (scaled) {
+    return `${scaled[1]} ${{K: 'KB', M: 'MB', B: 'GB'}[scaled[2] as 'K' | 'M' | 'B']}/s`;
+  }
   return `${compact} B/s`;
 }
 

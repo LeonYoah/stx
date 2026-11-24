@@ -332,6 +332,9 @@ func clusterIDForJob(ctx context.Context, s *Service, job *JobInstance, cache ma
 	if id := uintValue(job.SubmitSpec, "cluster_id"); id > 0 {
 		return id
 	}
+	if job.ClusterID > 0 {
+		return job.ClusterID
+	}
 	if job.TaskID == 0 || s == nil || s.repo == nil {
 		return 0
 	}
@@ -654,16 +657,11 @@ func (s *Service) backfillTerminalJobFinalMetrics(ctx context.Context) {
 		if strings.TrimSpace(job.EngineJobID) == "" {
 			continue
 		}
-		clusterID := uintValue(job.SubmitSpec, "cluster_id")
+		clusterID := clusterIDForJob(ctx, s, job, map[uint]uint{})
 		if clusterID > 0 && s.reconcile.inBackoff(clusterID) {
 			continue
 		}
-		endpoint := endpointFromSubmitSpec(job.SubmitSpec)
-		if endpoint == nil && s.runtimeResolver != nil && clusterID > 0 {
-			if resolved, resolveErr := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, nil); resolveErr == nil {
-				endpoint = resolved
-			}
-		}
+		endpoint := s.resolveJobEngineEndpoint(ctx, job)
 		if endpoint == nil || unreachable[endpoint.BaseURL] {
 			continue
 		}

@@ -344,26 +344,51 @@ func externalJobMode(jobDag map[string]interface{}) string {
 	return string(TaskModeBatch)
 }
 
-// resolveJobEngineEndpoint 优先用作业快照里的引擎地址，没有时按所属集群动态解析（外部作业、主备切换）。
-// resolveJobEngineEndpoint prefers the engine address in the job snapshot and otherwise resolves it from the job's
-// cluster (external jobs, master failover).
+// mergeEndpointProtocolHints 保留动态解析得到的最新集群地址，仅继承快照里的协议形态（APIMode / ContextPath），
+// 防止宿主机换 IP 或主备切换后仍打向旧地址，同时不丢 v1 兼容模式。
+// mergeEndpointProtocolHints keeps the live cluster host/port from dynamic resolution and only inherits protocol
+// hints (APIMode / ContextPath) from the submit snapshot, surviving IP changes and failover without losing v1 mode.
+func mergeEndpointProtocolHints(resolved, snapshot *EngineEndpoint) *EngineEndpoint {
+	if resolved == nil {
+		return snapshot
+	}
+	merged := *resolved
+	if snapshot != nil {
+		if strings.TrimSpace(merged.APIMode) == "" && strings.TrimSpace(snapshot.APIMode) != "" {
+			merged.APIMode = strings.TrimSpace(snapshot.APIMode)
+		}
+		if strings.TrimSpace(merged.ContextPath) == "" && strings.TrimSpace(snapshot.ContextPath) != "" {
+			merged.ContextPath = strings.TrimSpace(snapshot.ContextPath)
+		}
+		if strings.EqualFold(strings.TrimSpace(merged.APIMode), "v1") && strings.TrimSpace(merged.LegacyURL) == "" {
+			merged.LegacyURL = strings.TrimSpace(merged.BaseURL)
+		}
+	}
+	return &merged
+}
+
+// resolveJobEngineEndpoint 优先按作业所属集群动态解析当前在线节点地址（兼容宿主机改 IP、主备切换与外部作业），
+// 仅在无集群信息或动态解析不可用时回退到提交快照里的引擎地址。
+// resolveJobEngineEndpoint resolves the live cluster endpoint first (surviving host IP changes, master failover,
+// and external jobs) and falls back to the submit snapshot only when no cluster is linked or resolution fails.
 func (s *Service) resolveJobEngineEndpoint(ctx context.Context, job *JobInstance) *EngineEndpoint {
 	if job == nil {
 		return nil
 	}
-	if endpoint := endpointFromSubmitSpec(job.SubmitSpec); endpoint != nil {
-		return endpoint
+	snapshot := endpointFromSubmitSpec(job.SubmitSpec)
+	if s.runtimeResolver != nil {
+		clusterID := clusterIDForJob(ctx, s, job, map[uint]uint{})
+		if clusterID > 0 {
+			var taskDef JSONMap
+			if s.repo != nil && job.TaskID > 0 {
+				if task, err := s.repo.GetTaskByID(ctx, job.TaskID); err == nil && task != nil {
+					taskDef = task.Definition
+				}
+			}
+			if endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, taskDef); err == nil && endpoint != nil {
+				return mergeEndpointProtocolHints(endpoint, snapshot)
+			}
+		}
 	}
-	if s.runtimeResolver == nil {
-		return nil
-	}
-	clusterID := clusterIDForJob(ctx, s, job, map[uint]uint{})
-	if clusterID == 0 {
-		return nil
-	}
-	endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, nil)
-	if err != nil {
-		return nil
-	}
-	return endpoint
+	return snapshot
 }

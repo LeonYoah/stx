@@ -445,13 +445,13 @@ func (s *Service) realtimeCandidates(ctx context.Context, job *JobInstance, clus
 			return endpoints
 		}
 	}
-	if endpoint := endpointFromSubmitSpec(job.SubmitSpec); endpoint != nil {
-		return []*EngineEndpoint{endpoint}
-	}
 	if s.runtimeResolver != nil && clusterID > 0 {
 		if endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, nil); err == nil && endpoint != nil {
-			return []*EngineEndpoint{endpoint}
+			return []*EngineEndpoint{mergeEndpointProtocolHints(endpoint, endpointFromSubmitSpec(job.SubmitSpec))}
 		}
+	}
+	if endpoint := endpointFromSubmitSpec(job.SubmitSpec); endpoint != nil {
+		return []*EngineEndpoint{endpoint}
 	}
 	return nil
 }

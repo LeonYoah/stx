@@ -346,3 +346,26 @@ func TestUnpackTarGzRejectsFileThroughSymlink(t *testing.T) {
 		t.Fatal("file must not be written outside destDir")
 	}
 }
+
+func TestUnpackTarGzRejectsRootSymlink(t *testing.T) {
+	dir := t.TempDir()
+	tarPath := filepath.Join(t.TempDir(), "b.tar.gz")
+	f, err := os.Create(tarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gzw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gzw)
+	if err := tw.WriteHeader(&tar.Header{Name: "./", Typeflag: tar.TypeSymlink, Linkname: "sub"}); err != nil {
+		t.Fatal(err)
+	}
+	tw.Close()
+	gzw.Close()
+	f.Close()
+	if err := unpackTarGz(tarPath, dir); err == nil {
+		t.Fatal("expected root symlink entry to be rejected")
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatal("staging dir must remain a directory")
+	}
+}

@@ -1000,6 +1000,9 @@ func unpackTarGz(tarPath, destDir string) error {
 				return fmt.Errorf("illegal path in archive: %s: %w", hdr.Name, err)
 			}
 		}
+		if realTarget == cleanDest && hdr.Typeflag != tar.TypeDir {
+			return fmt.Errorf("illegal non-directory entry at archive root: %s", hdr.Name)
+		}
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:

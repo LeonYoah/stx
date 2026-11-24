@@ -22,6 +22,7 @@ import zh from '@/lib/i18n/locales/zh.json';
 import {SyncService, type SyncJobInstance, type SyncJobTimeseries} from '@/lib/services/sync';
 import {MetricsTrendView} from '../MetricsTrendView';
 import {LIFETIME_TAIL_MS} from '../metrics-trend-data';
+import {clearJobTimeseriesCache} from '../metric-timeseries';
 
 if (typeof globalThis.ResizeObserver === 'undefined') {
   globalThis.ResizeObserver = class {
@@ -94,6 +95,14 @@ vi.mock('@/components/arc/donut-chart/donut-chart', () => ({
   DonutChart: ({label}: {label: string}) => <div data-testid='arc-donut-chart'>{label}</div>,
 }));
 
+vi.mock('@/components/charts/sankey-chart', () => ({
+  SankeyChart: ({label}: {label: string}) => (
+    <section aria-label={label} data-testid='beui-sankey-chart'>
+      {label}
+    </section>
+  ),
+}));
+
 const copy = zh.workbenchStudio.jobDetail.metricsView;
 
 function job(partial: Partial<SyncJobInstance> = {}): SyncJobInstance {
@@ -125,6 +134,7 @@ function renderTrend(instance: SyncJobInstance | null) {
 describe('MetricsTrendView', () => {
   beforeEach(() => {
     vi.mocked(SyncService.getJobTimeseries).mockReset();
+    clearJobTimeseriesCache();
   });
 
   it('shows the observability empty state when Prometheus is off', async () => {
@@ -243,6 +253,89 @@ describe('MetricsTrendView', () => {
       expect(labels).toContain(copy.charts.tableThroughput);
       expect(labels).toContain(copy.charts.tableRows);
     });
+  });
+
+  it('renders the data-flow Sankey from snapshot per-table metrics', async () => {
+    const t0 = Date.UTC(2026, 10, 14, 2, 0);
+    vi.mocked(SyncService.getJobTimeseries).mockResolvedValue({
+      ...emptyPrometheus('1h'),
+      series: [
+        {key: 'throughput_read', label: 'read', unit: 'records/s', points: [[t0, 10]]},
+      ],
+    } as SyncJobTimeseries);
+    renderTrend(
+      job({
+        result_preview: {
+          metrics: {
+            TableSourceReceivedCount: {
+              'Source[0].db.orders': 500,
+              'Source[1].db.users': 300,
+            },
+            TableSinkWriteCount: {
+              'Sink[0].db.orders': 400,
+              'Sink[0].db.users': 300,
+            },
+            TableSinkCommittedCount: {
+              'Sink[0].db.orders': 300,
+              'Sink[0].db.users': 300,
+            },
+          },
+        },
+      }),
+    );
+    await waitFor(() => {
+      const labels = screen.getAllByRole('region').map((node) => node.getAttribute('aria-label'));
+      expect(labels).toContain(copy.charts.flow);
+    });
+    expect(screen.getByTestId('beui-sankey-chart')).toBeInTheDocument();
+  });
+
+  it('hides the data-flow Sankey below two links but still shows it when observability is off', async () => {
+    vi.mocked(SyncService.getJobTimeseries).mockResolvedValue({
+      source: 'none',
+      reason: 'observability_disabled',
+      range: '1h',
+      start_ms: 0,
+      end_ms: 0,
+      step_seconds: 0,
+      engine_observability_enabled: false,
+      series: [],
+      annotations: [],
+    } as SyncJobTimeseries);
+    // 单条链路：按表指标只有一对时整块不渲染。 / One link: the whole block stays hidden.
+    const {unmount} = renderTrend(
+      job({
+        result_preview: {
+          metrics: {
+            TableSourceReceivedCount: {'Source[0].db.orders': 500},
+            TableSinkWriteCount: {'Sink[0].db.orders': 400},
+          },
+        },
+      }),
+    );
+    await screen.findByText(copy.emptyTitle);
+    expect(screen.queryByTestId('beui-sankey-chart')).not.toBeInTheDocument();
+    unmount();
+    // 两条链路：未开监控也能显示（走快照按表指标）。 / Two links: visible even with monitoring off
+    // since it reads snapshot per-table metrics.
+    renderTrend(
+      job({
+        result_preview: {
+          metrics: {
+            TableSourceReceivedCount: {
+              'Source[0].db.orders': 500,
+              'Source[1].db.users': 300,
+            },
+            TableSinkWriteCount: {
+              'Sink[0].db.orders': 400,
+              'Sink[0].db.users': 300,
+            },
+          },
+        },
+      }),
+    );
+    await screen.findByText(copy.emptyTitle);
+    expect(screen.getByTestId('beui-sankey-chart')).toBeInTheDocument();
   });
 
   it('falls back to updated_at when finished_at is before the start', async () => {

@@ -18,27 +18,20 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import {useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
+import {useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
 import {
-  Activity,
   AlertCircle,
   AlertTriangle,
-  ArrowDownToLine,
   ArrowRight,
-  BarChart3,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Clock,
   Copy,
-  Database,
   ExternalLink,
-  Gauge,
   Lightbulb,
   Search,
-  Zap,
 } from 'lucide-react';
 import {toast} from '@/lib/toast';
 import {Badge} from '@/components/ui/badge';
@@ -48,6 +41,7 @@ import {
   DialogContent,
 } from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/ui/input';
+import {Sparkline} from '@/components/charts/sparkline';
 import {
   Table,
   TableBody,
@@ -62,24 +56,24 @@ import {ExpandableTextPanel} from '@/components/common/layout';
 import type {SyncJobInstance, SyncValidateResult} from '@/lib/services/sync';
 import {
   buildMetricGroups,
-  formatRateDisplay,
-  isZeroMetricValue,
-  buildMetricHighlights,
+  buildMetricFlowBar,
   buildPairedMetricRows,
   buildPerTableMetricRows,
-  countLogicalTables,
-  formatJobDuration,
   formatMetricCompactValue,
   formatMetricDisplayValue,
   formatMetricWithUnit,
-  getJobStatusBadgeClass,
-  getJobStatusLabel,
+  formatRateDisplay,
   getJobSubmittedScript,
   getLogLineClass,
   getMetricValue,
+  isZeroMetricValue,
+  summarizeMetricFlow,
   toObject,
+  type MetricFlowBarSegmentKey,
+  type MetricFlowTone,
   type UserFacingErrorState,
 } from './sync-studio-utils';
+import {useWriteRateSparkline} from './job-detail/metric-timeseries';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
@@ -425,39 +419,133 @@ export function ValidationResultPanel({result}: {result: SyncValidateResult | nu
   );
 }
 
+/** 结论句与状态点的色调：常态走静音色，异常才用 warning/danger 语义色。 / Tone colors for the conclusion and its dot: muted in normal state, warning/danger semantic tones only on anomalies. */
+const FLOW_TONE_COLOR: Record<MetricFlowTone, string> = {
+  neutral: 'var(--muted-foreground)',
+  warning: 'var(--warning)',
+  danger: 'var(--danger)',
+};
+
+/** 分段条与图例共用的段样式：已提交中性，待提交实心 warning，待写斜纹 warning。 / Segment styles shared by the flow bar and its legend: committed neutral, pending-commit solid warning, backlog hatched warning. */
+const FLOW_BAR_STYLE: Record<MetricFlowBarSegmentKey, CSSProperties> = {
+  committed: {background: 'var(--muted-foreground)'},
+  pendingCommit: {background: 'var(--warning)'},
+  backlog: {
+    backgroundImage:
+      'repeating-linear-gradient(45deg, color-mix(in oklab, var(--warning) 40%, transparent) 0 3px, transparent 3px 7px)',
+  },
+};
+
+/** KPI 数字块：大数字 + 单位，悬停给出精确值与速率明细。 / KPI block: headline number + unit, hover for exact value and rate details. */
+function MetricFlowKpi({
+  label,
+  value,
+  unit,
+  tooltip,
+  children,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+  tooltip?: ReactNode;
+  children?: ReactNode;
+}) {
+  const content = (
+    <div className='flex flex-col gap-1'>
+      <span className='text-xs text-muted-foreground'>{label}</span>
+      <span className='inline-flex items-end gap-3'>
+        <span className='text-2xl font-medium leading-none tracking-tight tabular-nums text-foreground'>
+          {value}
+          {unit ? (
+            <small className='ml-1 text-xs font-normal text-muted-foreground'>
+              {unit}
+            </small>
+          ) : null}
+        </span>
+        {children}
+      </span>
+    </div>
+  );
+  if (!tooltip) {
+    return content;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className='cursor-default'>{content}</div>
+      </TooltipTrigger>
+      <TooltipContent side='bottom' className='text-xs'>
+        {tooltip}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** 可折叠明细行：标题 + 静音 hint，内容展开时才挂载。 / Collapsible detail row: title + muted hint; children mount only when expanded. */
+function MetricFoldRow({
+  title,
+  hint,
+  expanded,
+  onToggle,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <button
+        type='button'
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className='flex w-full items-center gap-2 py-1 text-left'
+      >
+        {expanded ? (
+          <ChevronDown className='size-3.5 shrink-0 text-muted-foreground' />
+        ) : (
+          <ChevronRight className='size-3.5 shrink-0 text-muted-foreground' />
+        )}
+        <span className='text-sm font-medium text-foreground'>{title}</span>
+        {hint ? (
+          <span className='truncate text-xs text-muted-foreground'>{hint}</span>
+        ) : null}
+      </button>
+      {expanded ? <div className='mt-3'>{children}</div> : null}
+    </div>
+  );
+}
+
 export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
   const t = useTranslations('workbenchStudio');
   const rawMetrics = toObject(job?.result_preview?.metrics);
   const allMetricGroups = buildMetricGroups(rawMetrics, t).filter(
     (group) => group.key !== 'read' && group.key !== 'write',
   );
-  // 全为 0 的扩展指标折叠成一行，非零指标照常分组展示。
-  // All-zero extended metrics collapse into one row; non-zero metrics keep their groups.
+  // 全为 0 的扩展指标收进「更多指标」一行，非零指标照常分组展示。
+  // All-zero extended metrics fold into the "more metrics" row; non-zero metrics keep their groups.
   const metricGroups = allMetricGroups
     .map((group) => ({...group, items: group.items.filter((item) => !isZeroMetricValue(item.value))}))
     .filter((group) => group.items.length > 0);
   const zeroMetricItems = allMetricGroups.flatMap((group) =>
     group.items.filter((item) => isZeroMetricValue(item.value)),
   );
-  const [zeroMetricsExpanded, setZeroMetricsExpanded] = useState(false);
-  const metricHighlights = buildMetricHighlights(rawMetrics, t);
   const perTableRows = buildPerTableMetricRows(rawMetrics);
   const pairedMetricRows = buildPairedMetricRows(rawMetrics);
-  const logicalTableCount = useMemo(
-    () => countLogicalTables(perTableRows.map((row) => row.rawTable)),
-    [perTableRows],
-  );
-  const shouldExpandPerTableByDefault = pairedMetricRows.length === 0;
-  const [perTableExpanded, setPerTableExpanded] = useState(
-    shouldExpandPerTableByDefault,
-  );
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [moreExpanded, setMoreExpanded] = useState(false);
   const [tableSearch, setTableSearch] = useState('');
+  const sparklinePoints = useWriteRateSparkline(job);
 
+  // 换作业时明细与搜索都回到折叠默认态。 / Folds and search reset to collapsed when switching jobs.
   useEffect(() => {
-    setPerTableExpanded(shouldExpandPerTableByDefault);
-  }, [job?.id, shouldExpandPerTableByDefault]);
+    setDetailsExpanded(false);
+    setMoreExpanded(false);
+    setTableSearch('');
+  }, [job?.id]);
 
-  // 表名过滤联动
   const filteredPairedRows = useMemo(() => {
     if (!tableSearch.trim()) {
       return pairedMetricRows;
@@ -472,18 +560,6 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
     );
   }, [pairedMetricRows, tableSearch]);
 
-  const filteredPerTableRows = useMemo(() => {
-    if (!tableSearch.trim()) {
-      return perTableRows;
-    }
-    const q = tableSearch.trim().toLowerCase();
-    return perTableRows.filter(
-      (r) =>
-        r.tablePath.toLowerCase().includes(q) ||
-        r.nodeLabel.toLowerCase().includes(q),
-    );
-  }, [perTableRows, tableSearch]);
-
   if (!job) {
     return (
       <div className='flex items-center justify-center p-8 text-sm text-muted-foreground'>
@@ -491,7 +567,7 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
       </div>
     );
   }
-  if (metricGroups.length === 0 && metricHighlights.length === 0 && zeroMetricItems.length === 0) {
+  if (Object.keys(rawMetrics).length === 0) {
     return (
       <div className='flex items-center justify-center p-8 text-sm text-muted-foreground'>
         {t('noMetricsOutput')}
@@ -499,819 +575,426 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
     );
   }
 
-  // 计算数据流达成度（写入量 / 读取量）与各端核心度量
-  // Calculate data stream progress (sink / source) and core metrics for each endpoint
-  const srcCount = Number(getMetricValue(rawMetrics, 'SourceReceivedCount')) || 0;
-  const sinkCount = Number(getMetricValue(rawMetrics, 'SinkWriteCount')) || 0;
-  const commitCount = Number(getMetricValue(rawMetrics, 'SinkCommittedCount')) || 0;
-  const syncRatio =
-    srcCount > 0 ? Math.min(100, Math.max(0, Math.round((sinkCount / srcCount) * 100))) : null;
-
-  // 1. 读取端数据 / Source metrics
-  const sourceRowsRaw = formatMetricDisplayValue(getMetricValue(rawMetrics, 'SourceReceivedCount'));
-  const sourceRowsValue = formatMetricWithUnit(getMetricValue(rawMetrics, 'SourceReceivedCount'), 'rows');
-  const sourceSpeedRaw = formatMetricDisplayValue(getMetricValue(rawMetrics, 'SourceReceivedBytesPerSeconds'));
-  const sourceSpeedValue = formatMetricWithUnit(getMetricValue(rawMetrics, 'SourceReceivedBytesPerSeconds'), 'bps');
-
-  // 2. 写入端与落盘数据 / Sink & Commit metrics
-  const sinkRowsRaw = formatMetricDisplayValue(getMetricValue(rawMetrics, 'SinkWriteCount'));
-  const sinkRowsValue = formatMetricWithUnit(getMetricValue(rawMetrics, 'SinkWriteCount'), 'rows');
-  const sinkSpeedRaw = formatMetricDisplayValue(getMetricValue(rawMetrics, 'SinkWriteBytesPerSeconds'));
-  const sinkSpeedValue = formatMetricWithUnit(getMetricValue(rawMetrics, 'SinkWriteBytesPerSeconds'), 'bps');
-  const committedRowsRaw = formatMetricDisplayValue(getMetricValue(rawMetrics, 'SinkCommittedCount'));
-  const committedRowsValue = formatMetricWithUnit(getMetricValue(rawMetrics, 'SinkCommittedCount'), 'rows');
-
-  // 3. 性能速率与吞吐达成 / Throughput & QPS metrics
-  const sinkQpsRaw = formatMetricDisplayValue(getMetricValue(rawMetrics, 'SinkWriteQPS'));
-  const sinkQpsValue = formatMetricWithUnit(getMetricValue(rawMetrics, 'SinkWriteQPS'), 'qps');
-
-  // 4. 多表拓扑表名去重汇总 / Multi-table topology unique counting
-  const sourceTables = Array.from(
-    new Set(
-      pairedMetricRows.length > 0
-        ? pairedMetricRows.map((r) => r.sourceTable).filter(Boolean)
-        : perTableRows
-            .filter((r) => r.rowTone === 'source')
-            .map((r) => r.tablePath)
-            .filter(Boolean),
-    ),
+  const status = String(job.status || '').toUpperCase();
+  const flow = summarizeMetricFlow(rawMetrics, {
+    failed: /FAILED|FAILING/.test(status),
+  });
+  const bar = buildMetricFlowBar(
+    flow.readCount,
+    flow.writeCount,
+    flow.committedCount,
   );
-  const sinkTables = Array.from(
-    new Set(
-      pairedMetricRows.length > 0
-        ? pairedMetricRows.map((r) => r.sinkTable).filter(Boolean)
-        : perTableRows
-            .filter((r) => r.rowTone === 'sink')
-            .map((r) => r.tablePath)
-            .filter(Boolean),
-    ),
+  const conclusion = flow.segments
+    .map((segment) => t(segment.key, segment.values))
+    .join(' · ');
+  const toneColor = FLOW_TONE_COLOR[flow.tone];
+  const barAria = bar.segments
+    .filter((segment) => segment.value > 0)
+    .map(
+      (segment) =>
+        `${t(`metricFlowBar_${segment.key}`)} ${formatMetricDisplayValue(segment.value)}`,
+    )
+    .join(' · ');
+
+  const readRowsRaw = formatMetricDisplayValue(
+    getMetricValue(rawMetrics, 'SourceReceivedCount'),
+  );
+  const writeRowsRaw = formatMetricDisplayValue(
+    getMetricValue(rawMetrics, 'SinkWriteCount'),
+  );
+  const committedRowsRaw = formatMetricDisplayValue(
+    getMetricValue(rawMetrics, 'SinkCommittedCount'),
+  );
+  const readSpeed = formatMetricWithUnit(
+    getMetricValue(rawMetrics, 'SourceReceivedBytesPerSeconds'),
+    'bps',
+  );
+  const writeSpeed = formatMetricWithUnit(
+    getMetricValue(rawMetrics, 'SinkWriteBytesPerSeconds'),
+    'bps',
+  );
+  const writeQps = formatMetricWithUnit(
+    getMetricValue(rawMetrics, 'SinkWriteQPS'),
+    'qps',
+  );
+  const readQps = formatMetricWithUnit(
+    getMetricValue(rawMetrics, 'SourceReceivedQPS'),
+    'qps',
   );
 
-  const sourceTableCount = sourceTables.length > 0 ? sourceTables.length : 1;
-  const sinkTableCount = sinkTables.length > 0 ? sinkTables.length : 1;
-
-  // 5. 数量不对等度量（差额与对等状态） / Count asymmetry metrics (delta and parity status)
-  const countDelta = sinkCount - srcCount;
-  const isCountBalanced = srcCount > 0 && sinkCount > 0 && countDelta === 0;
-
-  // 6. 速度不对等度量（流速比与不对等状态） / Speed asymmetry metrics (rate ratio and parity status)
-  const srcBps =
-    Number(getMetricValue(rawMetrics, 'SourceReceivedBytesPerSeconds')) || 0;
-  const sinkBps =
-    Number(getMetricValue(rawMetrics, 'SinkWriteBytesPerSeconds')) || 0;
-
-  let speedDisparityLabel = '';
-  let speedDisparityVariant: 'balanced' | 'lag' | 'lead' | 'idle' = 'idle';
-
-  if (srcBps > 0 && sinkBps > 0) {
-    const speedRatio = sinkBps / srcBps;
-    if (speedRatio < 0.8) {
-      const percent = Math.round(speedRatio * 100);
-      speedDisparityLabel = t('pipelineSpeedLag', {percent: `${percent}%`});
-      speedDisparityVariant = 'lag';
-    } else if (speedRatio > 1.25) {
-      speedDisparityLabel = t('pipelineSpeedLead', {
-        ratio: `${speedRatio.toFixed(1)}x`,
-      });
-      speedDisparityVariant = 'lead';
-    } else {
-      speedDisparityLabel = t('pipelineSpeedBalanced');
-      speedDisparityVariant = 'balanced';
-    }
-  } else if (srcBps > 0 && sinkBps === 0) {
-    speedDisparityLabel = t('pipelineSpeedSinkIdle');
-    speedDisparityVariant = 'lag';
-  } else if (srcBps === 0 && sinkBps > 0) {
-    speedDisparityLabel = t('pipelineSpeedDraining');
-    speedDisparityVariant = 'lead';
+  const moreHintParts: string[] = [];
+  if (perTableRows.length > 0) {
+    moreHintParts.push(t('metricFlowEndpoints', {count: perTableRows.length}));
+  }
+  if (metricGroups.length > 0) {
+    moreHintParts.push(t('metricFlowMoreGroups', {count: metricGroups.length}));
+  }
+  if (zeroMetricItems.length > 0) {
+    moreHintParts.push(
+      t('metricFlowMoreZero', {count: zeroMetricItems.length}),
+    );
   }
 
   return (
-    <div className='space-y-4 overflow-auto pr-1'>
-      {/* 1. 作业执行时况上下文条 */}
-      <div className='flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 px-3.5 py-2.5 shadow-xs'>
-        <div className='flex items-center gap-2.5 flex-wrap'>
-          <div className='flex items-center gap-1.5'>
-            <span className='font-mono text-xs font-semibold text-foreground'>
-              #{job.id}
-            </span>
-            {job.engine_job_id ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type='button'
-                    className='inline-flex items-center rounded border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:text-foreground'
-                    onClick={() => {
-                      void navigator.clipboard.writeText(String(job.engine_job_id));
-                      toast.success(t('copied'));
-                    }}
-                  >
-                    Engine: {job.engine_job_id}
-                    <Copy className='ml-1 size-2.5' />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t('copy')}</TooltipContent>
-              </Tooltip>
-            ) : null}
-          </div>
-
-          <div className='h-3.5 w-px bg-border/60' />
-
-          {/* 状态指示灯与 Badge */}
-          {(() => {
-            const rawStatus = String(job.status || '').toUpperCase();
-            const isSuccess = /SUCCESS|FINISHED|SAVEPOINT_DONE/.test(rawStatus);
-            const isFailed = /FAILED|FAILING/.test(rawStatus);
-            const isRunning = /RUNNING|DOING_SAVEPOINT/.test(rawStatus);
-            return (
-              <Badge
-                variant='outline'
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-[11px] font-medium tracking-tight',
-                  getJobStatusBadgeClass(job.status),
-                )}
-              >
-                <span
-                  className={cn(
-                    'size-1.5 rounded-full',
-                    isSuccess && 'bg-emerald-500 shadow-xs shadow-emerald-500/50',
-                    isFailed && 'bg-destructive shadow-xs shadow-destructive/50',
-                    isRunning && 'bg-sky-500 animate-pulse',
-                    !isSuccess && !isFailed && !isRunning && 'bg-muted-foreground',
-                  )}
-                />
-                <span>{getJobStatusLabel(job.status)}</span>
-              </Badge>
-            );
-          })()}
-
-          <Badge variant='outline' className='font-mono text-[10px] px-1.5 py-0 uppercase'>
-            {job.run_type || 'SYNC'}
-          </Badge>
-        </div>
-
-        {/* 耗时与达成率 */}
-        <div className='flex items-center gap-4 text-xs text-muted-foreground'>
-          <div className='flex items-center gap-1 font-mono'>
-            <Clock className='size-3 text-primary/70' />
-            <span className='font-medium text-foreground'>
-              {formatJobDuration(job.started_at, job.finished_at)}
-            </span>
-          </div>
-
-          {syncRatio !== null ? (
-            <div className='flex items-center gap-1.5'>
-              <span className='text-[11px] text-muted-foreground'>吞吐达成:</span>
-              <div className='flex items-center gap-1.5'>
-                <div className='h-1.5 w-16 overflow-hidden rounded-full bg-muted'>
-                  <div
-                    className={cn(
-                      'h-full rounded-full transition-all duration-300',
-                      syncRatio >= 100 ? 'bg-emerald-500' : 'bg-primary',
-                    )}
-                    style={{width: `${syncRatio}%`}}
-                  />
-                </div>
-                <span
-                  className={cn(
-                    'font-mono text-[11px] font-semibold',
-                    syncRatio >= 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
-                  )}
-                >
-                  {syncRatio}%
-                </span>
-              </div>
-            </div>
+    <div className='space-y-5 overflow-auto pr-1'>
+      {/* KPI 行：读 / 写 / 写速 + 一句状态结论。精确值、读写速率与 QPS 都收进悬停提示。 */}
+      {/* KPI row: read / written / write-rate plus a single-line conclusion. Exact values, rates and QPS live in tooltips. */}
+      <div className='flex flex-wrap items-end gap-x-8 gap-y-3'>
+        <MetricFlowKpi
+          label={t('metricFlowKpiRead')}
+          value={formatMetricDisplayValue(flow.readCount)}
+          unit={t('metricFlowRowsUnit')}
+          tooltip={
+            <>
+              {t('metricFlowExact')}: {readRowsRaw} · {t('pipelineReadRate')}: {readSpeed} · QPS: {readQps}
+            </>
+          }
+        />
+        <MetricFlowKpi
+          label={t('metricFlowKpiWrite')}
+          value={formatMetricDisplayValue(flow.writeCount)}
+          unit={t('metricFlowRowsUnit')}
+          tooltip={
+            <>
+              {t('metricFlowExact')}: {writeRowsRaw} · {t('pipelineWriteRate')}: {writeSpeed} · {t('metricFlowCommitted')}: {committedRowsRaw}
+            </>
+          }
+        />
+        <MetricFlowKpi
+          label={t('pipelineWriteRate')}
+          value={writeSpeed}
+          tooltip={
+            <>
+              {t('metricFlowExact')}: {formatMetricDisplayValue(getMetricValue(rawMetrics, 'SinkWriteBytesPerSeconds'))} · {t('pipelineThroughput')}: {writeQps}
+            </>
+          }
+        >
+          {sparklinePoints ? (
+            <Sparkline
+              className='mb-0.5 w-28 shrink-0 text-foreground/80'
+              data={sparklinePoints.map((point) => point[1])}
+              labels={sparklinePoints.map((point) =>
+                new Date(point[0]).toLocaleTimeString(),
+              )}
+              label={t('pipelineWriteRate')}
+              variant='area'
+              color='var(--series-2)'
+              height={26}
+              interactive
+              formatValue={(value) => formatRateDisplay(value)}
+            />
           ) : null}
+        </MetricFlowKpi>
+        <div className='ml-auto flex min-w-0 items-center gap-2 pb-0.5'>
+          <span
+            aria-hidden
+            className='size-1.5 shrink-0 rounded-full'
+            style={{background: toneColor}}
+          />
+          <span className='text-xs' style={{color: toneColor}}>
+            {conclusion}
+          </span>
         </div>
       </div>
 
-      {/* 2. 数据流管道度量看板 (Pipeline Flow Metrics) */}
-      {/* 流式管道设计：消除五颜六色调色盘，按「源端 ➔ 速率 ➔ 目标端」呈现高信噪比数据流 */}
-      {/* Pipeline flow design: clean stream view replacing rainbow cards */}
-      <div className='rounded-lg border border-border/60 bg-card/60 p-3 shadow-xs'>
-        <div className='grid grid-cols-1 md:grid-cols-11 items-center gap-3'>
-
-          {/* 源端 (Source) */}
-          <div className='md:col-span-3 rounded-md border border-border/50 bg-muted/20 p-2.5 space-y-1.5'>
-            <div className='flex items-center justify-between text-xs'>
-              <span className='font-medium text-foreground flex items-center gap-1.5'>
-                <Database className='size-3.5 text-muted-foreground' />
-                {t('pipelineSource')}
-              </span>
-              <span className='text-[10px] font-mono text-muted-foreground'>
-                {t('pipelineTableCount', {count: sourceTableCount})}
-              </span>
-            </div>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className='font-mono text-2xl font-bold tracking-tight text-foreground truncate cursor-default'>
-                  {sourceRowsValue}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side='bottom' className='font-mono text-xs'>
-                精确原始值: {sourceRowsRaw}
-              </TooltipContent>
-            </Tooltip>
-
-            <div className='flex items-center justify-between pt-1 border-t border-border/40 text-[10px] font-mono text-muted-foreground'>
-              <span>{t('pipelineReadRate')}</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className='font-medium text-foreground cursor-default'>{sourceSpeedValue}</span>
-                </TooltipTrigger>
-                <TooltipContent side='bottom' className='font-mono text-xs'>
-                  精确原始值: {sourceSpeedRaw}
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          </div>
-
-          {/* 中间流动管线与速率频次 (Flow & Throughput) */}
-          <div className='md:col-span-4 flex flex-col items-center justify-center px-1'>
-            {/* 拓扑关系与数量对等状态 / Topology & count parity badge */}
-            <div className='mb-1 flex items-center justify-center gap-1.5 flex-wrap'>
-              <span className='inline-flex items-center rounded-md border border-border/60 px-2 py-0.5 text-[11px] font-mono bg-muted/40 font-medium text-foreground'>
-                {sourceTableCount} ➔ {sinkTableCount}
-              </span>
-
-              {/* 数量对等/差额胶囊 / Count disparity status pill */}
-              {isCountBalanced ? (
-                <span className='inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/5 px-2 py-0.5 text-[11px] font-mono font-medium text-emerald-600 dark:text-emerald-400'>
-                  {t('pipelineDisparityBalanced')}
-                </span>
-              ) : countDelta < 0 && srcCount > 0 ? (
-                <span className='inline-flex items-center rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 text-[11px] font-mono font-medium text-amber-600 dark:text-amber-400'>
-                  {t('pipelineDisparityLag', {
-                    count: formatMetricCompactValue(Math.abs(countDelta)),
-                  })}
-                </span>
-              ) : countDelta > 0 && srcCount > 0 ? (
-                <span className='inline-flex items-center rounded-md border border-blue-500/30 bg-blue-500/5 px-2 py-0.5 text-[11px] font-mono font-medium text-blue-600 dark:text-blue-400'>
-                  {t('pipelineDisparityExpansion', {
-                    count: formatMetricCompactValue(countDelta),
-                    ratio: (sinkCount / srcCount).toFixed(1),
-                  })}
-                </span>
-              ) : null}
-            </div>
-
-            {/* 动态管线槽 / Flow pipeline track */}
-            <div className='relative my-1.5 h-2 w-full overflow-hidden rounded-full border border-border/60 bg-muted/40'>
+      {/* 一根分段条替代原三端卡片：总长 = 读取量，写入拆成已提交 / 待提交，差额为待写；写超读时总长扩到写入量。 */}
+      {/* One segmented bar replaces the three endpoint cards: scale is the read count (extended to
+          write on overshoot), written rows split into committed / pending-commit, the gap is backlog. */}
+      <div className='space-y-2'>
+        <div
+          role='img'
+          aria-label={barAria}
+          className='flex h-2.5 w-full gap-[2px] overflow-hidden rounded-full bg-muted/60'
+        >
+          {bar.segments.map((segment) =>
+            segment.value > 0 ? (
               <div
-                className={cn(
-                  'h-full rounded-full transition-all duration-500',
-                  speedDisparityVariant === 'lag'
-                    ? 'bg-amber-500/80'
-                    : 'bg-blue-500/80',
-                )}
-                style={{width: `${syncRatio ?? 100}%`}}
+                key={segment.key}
+                className='h-full min-w-[2px] transition-[width] duration-500'
+                style={{
+                  width: `${segment.share * 100}%`,
+                  ...FLOW_BAR_STYLE[segment.key],
+                }}
               />
-            </div>
-
-            {/* 性能频次、流速对比与达成率 / Throughput, speed disparity and progress */}
-            <div className='w-full flex items-center justify-between text-[10px] text-muted-foreground font-mono mt-0.5'>
-              <span className='inline-flex items-center gap-1'>
-                <span>{t('pipelineThroughput')}</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <b className='text-foreground font-semibold cursor-default'>{sinkQpsValue}</b>
-                  </TooltipTrigger>
-                  <TooltipContent side='bottom' className='font-mono text-xs'>
-                    精确原始值: {sinkQpsRaw}
-                  </TooltipContent>
-                </Tooltip>
-              </span>
-
-              {/* 读写流速对等比指示 / Speed disparity indicator */}
-              {speedDisparityLabel ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span
-                      className={cn(
-                        'cursor-default px-1.5 py-0.5 rounded text-[10px] font-medium border',
-                        speedDisparityVariant === 'lag' &&
-                          'text-amber-600 dark:text-amber-400 border-amber-500/30 bg-amber-500/5',
-                        speedDisparityVariant === 'lead' &&
-                          'text-blue-600 dark:text-blue-400 border-blue-500/30 bg-blue-500/5',
-                        speedDisparityVariant === 'balanced' &&
-                          'text-emerald-600 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/5',
-                        speedDisparityVariant === 'idle' &&
-                          'text-muted-foreground border-border/40',
-                      )}
-                    >
-                      {speedDisparityLabel}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side='bottom' className='font-mono text-xs'>
-                    读速: {sourceSpeedValue} · 写速: {sinkSpeedValue}
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
-
-              <span className='text-emerald-600 dark:text-emerald-400 font-medium'>
-                {syncRatio !== null ? `${syncRatio}% · ` : ''}{formatJobDuration(job.started_at, job.finished_at)}
-              </span>
-            </div>
-          </div>
-
-          {/* 目标端 (Sink & Commit) */}
-          <div className='md:col-span-4 rounded-md border border-border/50 bg-muted/20 p-2.5 space-y-1.5'>
-            <div className='flex items-center justify-between text-xs'>
-              <span className='font-medium text-foreground flex items-center gap-1.5'>
-                <ArrowDownToLine className='size-3.5 text-muted-foreground' />
-                {t('pipelineSink')}
-              </span>
-              <span className='text-[10px] font-mono text-muted-foreground'>
-                {t('pipelineTableCount', {count: sinkTableCount})}
-              </span>
-            </div>
-
-            <div className='grid grid-cols-2 gap-2 pt-0.5'>
-              {/* 写入条数与数量不对等差额 / Written rows & count disparity */}
-              <div>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className='flex items-baseline gap-1 cursor-default'>
-                      <span className='font-mono text-2xl font-bold tracking-tight text-foreground truncate'>
-                        {sinkRowsValue.replace(/\s*rows$/, '')}
-                      </span>
-                      <span className='text-[10px] text-muted-foreground font-mono'>{t('pipelineWritten')}</span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side='bottom' className='font-mono text-xs'>
-                    精确原始值: {sinkRowsRaw}
-                  </TooltipContent>
-                </Tooltip>
-                <div className='text-[10px] font-mono truncate'>
-                  {countDelta < 0 && srcCount > 0 ? (
-                    <span className='text-amber-600 dark:text-amber-400'>
-                      {t('pipelinePendingWrite', {
-                        count: formatMetricCompactValue(Math.abs(countDelta)),
-                      })}
-                    </span>
-                  ) : countDelta > 0 && srcCount > 0 ? (
-                    <span className='text-blue-600 dark:text-blue-400'>
-                      {t('pipelineExtraWrite', {
-                        count: formatMetricCompactValue(countDelta),
-                      })}
-                    </span>
-                  ) : isCountBalanced ? (
-                    <span className='text-emerald-600 dark:text-emerald-400'>
-                      {t('pipelineCountMatch')}
-                    </span>
-                  ) : (
-                    <span className='text-muted-foreground'>-</span>
-                  )}
-                </div>
-              </div>
-
-              {/* 确认落盘条数 / Committed rows */}
-              <div className='border-l border-border/40 pl-2.5'>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className='flex items-baseline gap-1 cursor-default'>
-                      <span className='font-mono text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400 truncate'>
-                        {committedRowsValue.replace(/\s*rows$/, '')}
-                      </span>
-                      <span className='text-[10px] text-emerald-600/80 dark:text-emerald-400/80 font-mono'>
-                        {t('pipelineCommitted')}
-                      </span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side='bottom' className='font-mono text-xs'>
-                    精确原始值: {committedRowsRaw}
-                  </TooltipContent>
-                </Tooltip>
-
-                <div className='text-[10px] text-emerald-600 dark:text-emerald-400 font-mono flex items-center gap-0.5 truncate'>
-                  <span>✓</span>
-                  <span>{commitCount >= sinkCount && sinkCount > 0 ? t('pipelineCommittedConsistent') : t('pipelineCommittedPending')}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* 目标端底栏：写入速率与明细入口 / Sink footer: write rate & details */}
-            <div className='flex items-center justify-between pt-1 border-t border-border/40 text-[10px] font-mono text-muted-foreground'>
-              <div className='flex items-center gap-1.5'>
-                <span>{t('pipelineWriteRate')}</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className='font-medium text-foreground cursor-default'>{sinkSpeedValue}</span>
-                  </TooltipTrigger>
-                  <TooltipContent side='bottom' className='font-mono text-xs'>
-                    精确原始值: {sinkSpeedRaw}
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              {perTableRows.length > 0 ? (
-                <button
-                  type='button'
-                  className='text-primary hover:underline cursor-pointer'
-                  onClick={() => setPerTableExpanded(true)}
-                >
-                  {t('pipelineDetails')} ↓
-                </button>
-              ) : null}
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-      {/* 3. 映射链路表与分表统计表 */}
-      {perTableRows.length > 0 ? (
-        <div className='overflow-hidden rounded-lg border border-border/60 bg-background/80 shadow-xs'>
-          {pairedMetricRows.length > 0 ? (
-            <>
-              {/* 映射表头部工具栏 */}
-              <div className='flex items-center justify-between gap-3 border-b border-border/50 bg-muted/20 px-3 py-2'>
-                <div className='flex items-center gap-2'>
-                  <span className='text-xs font-semibold text-foreground'>
-                    {t('metricMappedView')}
-                  </span>
-                  <Badge variant='outline' className='text-[10px] font-mono px-1.5 py-0'>
-                    {t('pipelineLinkCount', {count: filteredPairedRows.length})}
-                  </Badge>
-                </div>
-                <div className='relative w-44'>
-                  <Search className='absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground' />
-                  <Input
-                    value={tableSearch}
-                    onChange={(e) => setTableSearch(e.target.value)}
-                    placeholder={t('pipelineSearchTable')}
-                    className='h-6 pl-7 text-[11px] bg-background'
-                  />
-                </div>
-              </div>
-
-              <div className='max-h-[260px] overflow-auto border-b border-border/50'>
-                <Table>
-                  <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
-                    <TableRow className='hover:bg-transparent border-border/50'>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold'>{t('metricPairSourceNode')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold'>{t('metricPairSourceTable')}</TableHead>
-                      <TableHead className='h-8 py-1 px-1 text-xs text-center w-6'></TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold'>{t('metricPairSinkNode')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold'>{t('metricPairSinkTable')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricSourceRows')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricSourceBytes')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricSourceQps')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricSinkRows')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricSinkBytes')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricSinkQps')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricCountDiff')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricCommittedRows')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricCommittedBytes')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredPairedRows.length > 0 ? (
-                      filteredPairedRows.map((row) => (
-                        <TableRow key={row.key} className='border-border/40 hover:bg-muted/40'>
-                          <TableCell className='py-1.5 px-2.5 text-xs font-medium text-muted-foreground'>
-                            {row.sourceNode}
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs font-semibold text-foreground'>
-                            {row.sourceTable}
-                          </TableCell>
-                          <TableCell className='py-1.5 px-1 text-center text-muted-foreground/50'>
-                            <ArrowRight className='size-3 inline' />
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 text-xs font-medium text-muted-foreground'>
-                            {row.sinkNode}
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs font-semibold text-foreground'>
-                            {row.sinkTable}
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{row.sourceCount}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.sourceCount}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{row.sourceBytes}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.sourceBytes}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{formatRateDisplay(row.sourceQps)}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.sourceQps}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{row.sinkCount}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.sinkCount}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{row.sinkBytes}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.sinkBytes}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{formatRateDisplay(row.sinkQps)}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.sinkQps}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs'>
-                            {row.countDiff === null ? (
-                              <span className='text-muted-foreground'>-</span>
-                            ) : row.countDiff === 0 ? (
-                              <span className='text-muted-foreground'>0</span>
-                            ) : row.countDiff < 0 ? (
-                              <span className='text-amber-600 dark:text-amber-400 font-medium'>
-                                {row.countDiff.toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className='text-blue-600 dark:text-blue-400 font-medium'>
-                                +{row.countDiff.toLocaleString()}
-                              </span>
-                            )}
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{row.committedCount}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.committedCount}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{row.committedBytes}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.committedBytes}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={14} className='text-center py-6 text-xs text-muted-foreground'>
-                          未找到匹配表名 &quot;{tableSearch}&quot; 的映射链路
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </>
-          ) : null}
-
-          {/* 分表明细表头部与折叠开关 */}
-          <div className='flex items-center justify-between gap-2 border-b border-border/50 bg-muted/20 px-3 py-2'>
-            <div className='flex items-center gap-2'>
-              <span className='text-xs font-semibold text-foreground'>{t('metricPerTable')}</span>
-              <Badge variant='outline' className='text-[10px] font-mono px-1.5 py-0'>
-                {t('metricPerTableCount', {
-                  endpoints: filteredPerTableRows.length,
-                  totalEndpoints: perTableRows.length,
-                  tables: logicalTableCount,
-                })}
-              </Badge>
-            </div>
-            {pairedMetricRows.length > 0 ? (
-              <button
-                type='button'
-                className='inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer'
-                onClick={() => setPerTableExpanded((value) => !value)}
-              >
-                {perTableExpanded ? (
-                  <ChevronDown className='size-3.5' />
-                ) : (
-                  <ChevronRight className='size-3.5' />
-                )}
-                <span>
-                  {perTableExpanded
-                    ? t('collapsePerTableMetrics')
-                    : t('expandPerTableMetrics')}
-                </span>
-              </button>
-            ) : null}
-          </div>
-
-          {perTableExpanded ? (
-            <>
-              {pairedMetricRows.length === 0 ? (
-                <div className='flex items-center justify-between gap-2 border-b border-border/50 bg-background px-3 py-2 text-xs'>
-                  <span className='text-xs text-muted-foreground'>{t('pipelineFilterByTable')}</span>
-                  <div className='relative w-44'>
-                    <Search className='absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground' />
-                    <Input
-                      value={tableSearch}
-                      onChange={(e) => setTableSearch(e.target.value)}
-                      placeholder={t('pipelineSearchTable')}
-                      className='h-6 pl-7 text-[11px] bg-background'
-                    />
-                  </div>
-                </div>
-              ) : null}
-
-              <div className='max-h-[320px] overflow-auto'>
-                <Table>
-                  <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
-                    <TableRow className='hover:bg-transparent border-border/50'>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold'>{t('node')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold'>{t('table')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricSourceRows')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricSourceBytes')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricSourceQps')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricSinkRows')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricSinkBytes')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricSinkQps')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricCommittedRows')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-muted-foreground'>{t('metricCommittedBytes')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredPerTableRows.length > 0 ? (
-                      filteredPerTableRows.map((row) => (
-                        <TableRow
-                          key={row.rawTable}
-                          className='border-border/40 hover:bg-muted/40'
-                        >
-                          <TableCell className='py-1.5 px-2.5 text-xs font-medium text-muted-foreground'>
-                            {row.nodeLabel}
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs font-semibold text-foreground'>
-                            {row.tablePath}
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{row.sourceCount}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.sourceCount}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{row.sourceBytes}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.sourceBytes}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{formatRateDisplay(row.sourceQps)}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.sourceQps}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{row.sinkCount}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.sinkCount}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{row.sinkBytes}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.sinkBytes}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{formatRateDisplay(row.sinkQps)}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{row.sinkQps}</TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{row.committedCount}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {row.committedCount}
-                              </TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>{row.committedBytes}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {row.committedBytes}
-                              </TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={10} className='text-center py-6 text-xs text-muted-foreground'>
-                          未找到匹配表名 &quot;{tableSearch}&quot; 的分表统计
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </>
-          ) : (
-            <div className='px-3 py-3 text-xs text-muted-foreground'>
-              {t('perTableMetricsCollapsed')}
-            </div>
+            ) : null,
           )}
         </div>
-      ) : null}
-
-      {/* 4. 扩展分类度量（JVM、引擎特有指标等） */}
-      {metricGroups.length > 0 ? (
-        <div className='grid gap-4 lg:grid-cols-2'>
-          {metricGroups.map((group) => (
-            <div
-              key={group.key}
-              className='overflow-hidden rounded-lg border border-border/60 bg-background/80 shadow-xs'
-            >
-              <div className='border-b border-border/50 bg-muted/20 px-3 py-2 text-xs font-semibold text-foreground flex items-center justify-between'>
-                <span>{group.title}</span>
-                <Badge variant='outline' className='text-[10px] font-mono px-1 py-0'>
-                  {group.items.length} 项
-                </Badge>
-              </div>
-              <div className='max-h-[300px] overflow-auto'>
-                <Table>
-                  <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
-                    <TableRow className='hover:bg-transparent border-border/50'>
-                      <TableHead className='h-7 py-1 px-2.5 text-xs'>{t('metric')}</TableHead>
-                      <TableHead className='h-7 py-1 px-2.5 text-xs text-right'>{t('value')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {group.items.map((item) => (
-                      <TableRow key={item.key} className='border-border/40 hover:bg-muted/30'>
-                        <TableCell className='py-1.5 px-2.5 font-mono text-xs text-muted-foreground'>
-                          {item.key}
-                        </TableCell>
-                        <TableCell className='py-1.5 px-2.5 text-xs font-mono text-right font-medium text-foreground'>
-                          {formatMetricDisplayValue(item.value)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {zeroMetricItems.length > 0 ? (
-        <div className='overflow-hidden rounded-lg border border-border/60 bg-background/80'>
-          <button
-            type='button'
-            className='flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/30'
-            onClick={() => setZeroMetricsExpanded((value) => !value)}
-            aria-expanded={zeroMetricsExpanded}
-          >
-            {zeroMetricsExpanded ? <ChevronDown className='size-3.5' /> : <ChevronRight className='size-3.5' />}
-            <span>{t('zeroMetricsCollapsed', {count: zeroMetricItems.length})}</span>
-          </button>
-          {zeroMetricsExpanded ? (
-            <div className='flex flex-wrap gap-1.5 border-t border-border/50 px-3 py-2'>
-              {zeroMetricItems.map((item) => (
-                <span key={item.key} className='rounded border border-border/50 bg-muted/30 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground'>
-                  {item.key}
+        <div className='flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground'>
+          {bar.segments.map((segment) =>
+            segment.value > 0 ? (
+              <span key={segment.key} className='inline-flex items-center gap-1.5'>
+                <span
+                  aria-hidden
+                  className='size-2 shrink-0 rounded-[2px]'
+                  style={FLOW_BAR_STYLE[segment.key]}
+                />
+                {t(`metricFlowBar_${segment.key}`)}
+                <span className='font-medium tabular-nums text-foreground'>
+                  {formatMetricDisplayValue(segment.value)}
                 </span>
-              ))}
+              </span>
+            ) : null,
+          )}
+          {bar.overWriteCount > 0 ? (
+            <span>
+              {t('pipelineExtraWrite', {
+                count: formatMetricCompactValue(bar.overWriteCount),
+              })}
+            </span>
+          ) : null}
+          {bar.total === 0 ? <span>{t('metricFlowEmpty')}</span> : null}
+        </div>
+      </div>
+
+      {/* 逐表明细：默认折叠的配对链路表；来源/目标合并成一列「链路」，字节与提交量进悬停提示。 */}
+      {/* Per-table details: the paired link table collapsed by default; source/sink merge into one
+          link column while bytes and committed counts move into a hover tooltip. */}
+      {pairedMetricRows.length > 0 ? (
+        <MetricFoldRow
+          title={t('metricFlowPerTable')}
+          hint={t('pipelineLinkCount', {count: pairedMetricRows.length})}
+          expanded={detailsExpanded}
+          onToggle={() => setDetailsExpanded((value) => !value)}
+        >
+          {pairedMetricRows.length > 5 ? (
+            <div className='relative mb-2 w-56'>
+              <Search className='absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground' />
+              <Input
+                value={tableSearch}
+                onChange={(event) => setTableSearch(event.target.value)}
+                placeholder={t('pipelineSearchTable')}
+                className='h-7 pl-7 text-xs bg-background'
+              />
             </div>
           ) : null}
-        </div>
+          <div className='max-h-[320px] overflow-y-auto'>
+            <Table className='table-fixed'>
+              <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
+                <TableRow className='hover:bg-transparent border-border/50'>
+                  <TableHead className='h-8 py-1 px-2 text-xs font-medium text-muted-foreground'>
+                    {t('metricFlowLink')}
+                  </TableHead>
+                  <TableHead className='h-8 w-[88px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
+                    {t('metricFlowReadRows')}
+                  </TableHead>
+                  <TableHead className='h-8 w-[88px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
+                    {t('metricFlowWriteRows')}
+                  </TableHead>
+                  <TableHead className='h-8 w-[68px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
+                    QPS
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredPairedRows.length > 0 ? (
+                  filteredPairedRows.map((row) => (
+                    <TableRow key={row.key} className='border-border/40 hover:bg-muted/40'>
+                      <TableCell className='py-1.5 px-2'>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className='flex min-w-0 cursor-default items-center gap-1.5 text-xs'>
+                              <span className='shrink-0 text-muted-foreground'>
+                                {row.sourceNode}
+                              </span>
+                              <span className='truncate font-mono text-foreground'>
+                                {row.sourceTable}
+                              </span>
+                              <ArrowRight className='size-3 shrink-0 text-muted-foreground/60' />
+                              <span className='shrink-0 text-muted-foreground'>
+                                {row.sinkNode}
+                              </span>
+                              <span className='truncate font-mono text-foreground'>
+                                {row.sinkTable}
+                              </span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent className='max-w-[420px] text-xs'>
+                            <div className='space-y-1'>
+                              <div className='font-mono break-all'>
+                                {row.sourceNode} · {row.sourceTable} → {row.sinkNode} · {row.sinkTable}
+                              </div>
+                              <div>
+                                {t('metricSourceBytes')}: {row.sourceBytes} · {t('metricSinkBytes')}: {row.sinkBytes}
+                              </div>
+                              <div>
+                                {t('metricFlowCommitted')}: {row.committedCount} ({row.committedBytes})
+                                {row.countDiff !== null
+                                  ? ` · ${t('metricCountDiff')}: ${row.countDiff.toLocaleString()}`
+                                  : ''}
+                              </div>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell className='py-1.5 px-2 text-right font-mono text-xs tabular-nums text-foreground'>
+                        {row.sourceCount}
+                      </TableCell>
+                      <TableCell className='py-1.5 px-2 text-right font-mono text-xs tabular-nums text-foreground'>
+                        {row.sinkCount}
+                      </TableCell>
+                      <TableCell className='py-1.5 px-2 text-right font-mono text-xs tabular-nums text-foreground'>
+                        {formatRateDisplay(
+                          row.sinkQps !== '-' ? row.sinkQps : row.sourceQps,
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className='py-6 text-center text-xs text-muted-foreground'>
+                      {t('metricFlowSearchEmpty', {query: tableSearch})}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </MetricFoldRow>
+      ) : null}
+
+      {/* 更多指标：分表明细 + 非零扩展分组 + 全为 0 的指标合并进一个折叠行。 */}
+      {/* More metrics: the per-endpoint table, non-zero extended groups and all-zero metrics fold into one row. */}
+      {perTableRows.length > 0 || metricGroups.length > 0 || zeroMetricItems.length > 0 ? (
+        <MetricFoldRow
+          title={t('metricFlowMore')}
+          hint={moreHintParts.join(' · ')}
+          expanded={moreExpanded}
+          onToggle={() => setMoreExpanded((value) => !value)}
+        >
+          <div className='space-y-5'>
+            {perTableRows.length > 0 ? (
+              <section>
+                <div className='mb-1.5 flex items-center justify-between'>
+                  <h4 className='text-xs font-medium text-muted-foreground'>
+                    {t('metricPerTable')}
+                  </h4>
+                  <span className='text-xs text-muted-foreground'>
+                    {t('metricFlowEndpoints', {count: perTableRows.length})}
+                  </span>
+                </div>
+                <div className='max-h-[280px] overflow-y-auto'>
+                  <Table className='table-fixed'>
+                    <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
+                      <TableRow className='hover:bg-transparent border-border/50'>
+                        <TableHead className='h-8 py-1 px-2 text-xs font-medium text-muted-foreground'>
+                          {t('metricFlowLink')}
+                        </TableHead>
+                        <TableHead className='h-8 w-[88px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
+                          {t('metricFlowReadRows')}
+                        </TableHead>
+                        <TableHead className='h-8 w-[88px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
+                          {t('metricFlowWriteRows')}
+                        </TableHead>
+                        <TableHead className='h-8 w-[68px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
+                          QPS
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {perTableRows.map((row) => (
+                        <TableRow key={row.rawTable} className='border-border/40 hover:bg-muted/40'>
+                          <TableCell className='py-1.5 px-2'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className='flex min-w-0 cursor-default items-center gap-1.5 text-xs'>
+                                  <span className='shrink-0 text-muted-foreground'>
+                                    {row.nodeLabel}
+                                  </span>
+                                  <span className='truncate font-mono text-foreground'>
+                                    {row.tablePath}
+                                  </span>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent className='max-w-[420px] text-xs'>
+                                <div className='space-y-1'>
+                                  <div className='font-mono break-all'>
+                                    {row.nodeLabel} · {row.tablePath}
+                                  </div>
+                                  <div>
+                                    {t('metricSourceBytes')}: {row.sourceBytes} · {t('metricSinkBytes')}: {row.sinkBytes}
+                                  </div>
+                                  <div>
+                                    {t('metricFlowCommitted')}: {row.committedCount} ({row.committedBytes})
+                                  </div>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2 text-right font-mono text-xs tabular-nums text-foreground'>
+                            {row.sourceCount}
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2 text-right font-mono text-xs tabular-nums text-foreground'>
+                            {row.sinkCount}
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2 text-right font-mono text-xs tabular-nums text-foreground'>
+                            {formatRateDisplay(
+                              row.sinkQps !== '-' ? row.sinkQps : row.sourceQps,
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </section>
+            ) : null}
+
+            {metricGroups.map((group) => (
+              <section key={group.key}>
+                <div className='mb-1.5 flex items-center justify-between'>
+                  <h4 className='text-xs font-medium text-muted-foreground'>
+                    {group.title}
+                  </h4>
+                  <span className='text-xs text-muted-foreground'>
+                    {t('metricFlowItemCount', {count: group.items.length})}
+                  </span>
+                </div>
+                <div className='max-h-[280px] overflow-y-auto'>
+                  <Table>
+                    <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
+                      <TableRow className='hover:bg-transparent border-border/50'>
+                        <TableHead className='h-7 py-1 px-2 text-xs font-medium text-muted-foreground'>
+                          {t('metric')}
+                        </TableHead>
+                        <TableHead className='h-7 w-[140px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
+                          {t('value')}
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {group.items.map((item) => (
+                        <TableRow key={item.key} className='border-border/40 hover:bg-muted/30'>
+                          <TableCell className='py-1.5 px-2 font-mono text-xs text-muted-foreground break-all'>
+                            {item.key}
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2 text-right font-mono text-xs font-medium tabular-nums text-foreground'>
+                            {formatMetricDisplayValue(item.value)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </section>
+            ))}
+
+            {zeroMetricItems.length > 0 ? (
+              <section>
+                <h4 className='mb-1.5 text-xs font-medium text-muted-foreground'>
+                  {t('metricFlowZeroTitle', {count: zeroMetricItems.length})}
+                </h4>
+                <p className='font-mono text-xs leading-6 text-muted-foreground break-all'>
+                  {zeroMetricItems.map((item) => item.key).join(' · ')}
+                </p>
+              </section>
+            ) : null}
+          </div>
+        </MetricFoldRow>
       ) : null}
     </div>
   );
 }
+
 
 export function JobScriptDialogContent({
   job,

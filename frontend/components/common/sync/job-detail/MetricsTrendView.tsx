@@ -30,7 +30,10 @@ import type {DateRange} from '@/components/arc/date-range-picker/date-range-pick
 import {ArcDateRangePicker} from '@/components/common/layout/ArcDateRangePicker';
 import {useLocale} from '@/lib/i18n';
 import {cn} from '@/lib/utils';
-import {SyncService, type SyncJobInstance, type SyncJobTimeseries} from '@/lib/services/sync';
+import {SankeyChart} from '@/components/charts/sankey-chart';
+import {type SyncJobInstance, type SyncJobTimeseries} from '@/lib/services/sync';
+import {buildMetricFlowSankey, toObject} from '../sync-studio-utils';
+import {fetchJobTimeseriesCached} from './metric-timeseries';
 import {
   TREND_COLORS,
   brushMinSpan,
@@ -143,7 +146,13 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
     setLoading(true);
     setError(null);
     try {
-      const result = await SyncService.getJobTimeseries(job.id, {...query, signal});
+      // 走共享 TTL 缓存：快照 sparkline 与切回趋势视图复用同一份时序；缓存请求不可中断，过期结果在这里丢弃。
+      // Share the TTL cache: the snapshot sparkline and returning to this view reuse one fetch;
+      // cached requests are not abortable, so stale results get dropped here.
+      const result = await fetchJobTimeseriesCached(job.id, query);
+      if (signal?.aborted) {
+        return;
+      }
       setData(result);
       setFetchedAt(Date.now());
     } catch (err) {
@@ -333,37 +342,106 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
     };
   }, [annotationLabel, data?.annotations, data?.step_seconds, formatDateTime, formatTime, seriesByKey, t]);
 
+  // 数据流向桑基图：取快照按表指标（配对行 + TableSinkCommittedCount），不依赖时序，
+  // 所以终态 / 未开监控 / 时序加载中的作业也能显示。链路数 < 2 时整块隐藏。
+  // The data-flow Sankey reads snapshot per-table metrics (paired rows + TableSinkCommittedCount),
+  // not timeseries, so terminal jobs and disabled/loading monitoring still show it; hidden below 2 links.
+  const flowSankey = useMemo(
+    () =>
+      buildMetricFlowSankey(toObject(job?.result_preview?.metrics), {
+        labels: {
+          committed: t('pipeline.committed'),
+          pendingCommit: t('flow.pendingCommit'),
+          backlog: t('flow.backlog'),
+          otherSources: (count) => t('flow.otherSources', {count}),
+          otherSink: t('flow.otherSink'),
+        },
+        colors: {
+          table: 'var(--muted-foreground)',
+          outcome: 'var(--foreground)',
+          warning: 'var(--warning)',
+        },
+        maxLinks: 8,
+      }),
+    [job, t],
+  );
+  // beUI 自己做占位符插值（{count}/{source}/{share}），必须走 t.raw 取未插值模板，
+  // 直接 t() 会被 next-intl 当成缺参报错。
+  // beUI interpolates placeholders ({count}/{source}/{share}) itself, so pass raw
+  // templates via t.raw; plain t() would throw missing-argument errors.
+  const sankeyLabels = useMemo(
+    () => ({
+      label: t.raw('sankey.label'),
+      tableCaption: t.raw('sankey.tableCaption'),
+      flow: t.raw('sankey.flow'),
+      value: t.raw('sankey.value'),
+      shareOfSource: t.raw('sankey.shareOfSource'),
+      flowRow: t.raw('sankey.flowRow'),
+      nodes: t.raw('sankey.nodes'),
+      nodeFlows: t.raw('sankey.nodeFlows'),
+      tooltipFlows: t.raw('sankey.tooltipFlows'),
+      from: t.raw('sankey.from'),
+      to: t.raw('sankey.to'),
+      more: t.raw('sankey.more'),
+      linkShare: t.raw('sankey.linkShare'),
+      noFlows: t.raw('sankey.noFlows'),
+      empty: t.raw('sankey.empty'),
+    }),
+    [t],
+  );
+
+  const formatCount = (value: number) => Math.round(value).toLocaleString(intlLocale);
+  const formatRate = (value: number) => value.toLocaleString(intlLocale, {maximumFractionDigits: 1});
+  const formatSeconds = (value: number) => `${value.toLocaleString(intlLocale, {maximumFractionDigits: 2})}`;
+
+  const flowSection = flowSankey.totalLinks >= 2 ? (
+    <TrendSection title={t('charts.flow')} unit={t('unit.rows')} className='md:col-span-2'>
+      <SankeyChart
+        nodes={flowSankey.nodes}
+        links={flowSankey.links}
+        label={t('charts.flow')}
+        formatValue={formatCount}
+        labels={sankeyLabels}
+      />
+    </TrendSection>
+  ) : null;
+
   if (!job) {
     return <div className='flex h-40 items-center justify-center text-sm text-muted-foreground'>{t('noJob')}</div>;
   }
 
   if (loading && !data) {
-    return <div className='flex h-40 items-center justify-center text-sm text-muted-foreground'>{t('loading')}</div>;
+    return (
+      <div className='flex flex-col gap-4'>
+        <div className='flex h-40 items-center justify-center text-sm text-muted-foreground'>{t('loading')}</div>
+        {flowSection}
+      </div>
+    );
   }
 
   if (!loading && data && (data.source === 'none' || data.reason === 'observability_disabled' || data.reason === 'prometheus_unavailable')) {
     const disabled = data.reason === 'observability_disabled';
     return (
-      <div className='flex min-h-[420px] items-center justify-center rounded-lg border border-border'>
-        <div className='max-w-md px-6 text-center'>
-          <div className='mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-muted text-muted-foreground'>
-            <Activity className='h-5 w-5' />
+      <div className='flex flex-col gap-4'>
+        <div className='flex min-h-[420px] items-center justify-center rounded-lg border border-border'>
+          <div className='max-w-md px-6 text-center'>
+            <div className='mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-muted text-muted-foreground'>
+              <Activity className='h-5 w-5' />
+            </div>
+            {/* 未开启 / 暂不可用都只留说明：前端没有开启入口，不放假 CTA；文案负责把“怎么开”说清楚。
+                Only explanatory copy for both states: there is no in-app switch to link to, so the
+                description itself explains how to enable monitoring instead of a fake CTA. */}
+            <div className='text-[15px] font-medium'>{disabled ? t('emptyTitle') : t('unavailableTitle')}</div>
+            <p className='mt-2 text-[12.5px] leading-relaxed text-muted-foreground'>{disabled ? t('emptyBody') : t('unavailableBody')}</p>
+            <p className='mt-5 border-t border-border pt-3 text-xs text-muted-foreground'>{t('emptySnapshotHint')}</p>
           </div>
-          {/* 未开启 / 暂不可用都只留说明：前端没有开启入口，不放假 CTA；文案负责把“怎么开”说清楚。
-              Only explanatory copy for both states: there is no in-app switch to link to, so the
-              description itself explains how to enable monitoring instead of a fake CTA. */}
-          <div className='text-[15px] font-medium'>{disabled ? t('emptyTitle') : t('unavailableTitle')}</div>
-          <p className='mt-2 text-[12.5px] leading-relaxed text-muted-foreground'>{disabled ? t('emptyBody') : t('unavailableBody')}</p>
-          <p className='mt-5 border-t border-border pt-3 text-xs text-muted-foreground'>{t('emptySnapshotHint')}</p>
         </div>
+        {flowSection}
       </div>
     );
   }
 
   const engineObs = Boolean(data?.engine_observability_enabled);
-  const formatCount = (value: number) => Math.round(value).toLocaleString(intlLocale);
-  const formatRate = (value: number) => value.toLocaleString(intlLocale, {maximumFractionDigits: 1});
-  const formatSeconds = (value: number) => `${value.toLocaleString(intlLocale, {maximumFractionDigits: 2})}`;
 
   return (
     <div className='flex flex-col gap-4 pb-2'>
@@ -447,6 +525,10 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
             formatValue={formatCount}
           />
         </TrendSection>
+        {/* 数据流向放在总览两张图之后、表级分解之前：先看总量曲线，再看当前数据在哪一段。
+            The data-flow Sankey sits after the totals and before the per-table breakdown: totals
+            first, then where the data currently sits. */}
+        {flowSection}
         {/* 表级分解紧跟总览两张图；作业没有表级指标时整块不渲染（如 FakeSource 单流）。 / The per-table
             breakdown follows the totals; it stays hidden for jobs without per-table metrics (e.g. a single FakeSource stream). */}
         {charts.hasTableSeries ? (

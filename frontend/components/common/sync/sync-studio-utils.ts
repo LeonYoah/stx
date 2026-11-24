@@ -4144,6 +4144,367 @@ export function buildPairedMetricRows(metrics: Record<string, unknown>) {
     .filter((item): item is NonNullable<typeof item> => item !== null);
 }
 
+export type MetricFlowTone = 'neutral' | 'warning' | 'danger';
+export type MetricFlowCountState =
+  | 'empty'
+  | 'balanced'
+  | 'behind'
+  | 'ahead'
+  | 'writeZero';
+export type MetricFlowSpeedState = 'idle' | 'balanced' | 'lag' | 'lead';
+
+/** 一句话状态结论的一个分段（i18n key + 插值参数）。 / One segment of the single-line status conclusion (i18n key + params). */
+export interface MetricFlowConclusionSegment {
+  key: string;
+  values?: Record<string, string | number>;
+}
+
+export interface MetricFlowSummary {
+  readCount: number;
+  writeCount: number;
+  committedCount: number;
+  /** 已写未提交 / written but not yet committed */
+  pendingCommitCount: number;
+  /** 已读未写 / read but not yet written */
+  backlogCount: number;
+  /** 写超读（引擎放大或多写）/ rows written beyond what was read */
+  overWriteCount: number;
+  countState: MetricFlowCountState;
+  speedState: MetricFlowSpeedState;
+  /** 写速 / 读速；两端都无流速时为 null。 / write/read byte-rate ratio; null when no flow data. */
+  speedRatio: number | null;
+  hasCommitMetric: boolean;
+  tone: MetricFlowTone;
+  segments: MetricFlowConclusionSegment[];
+}
+
+/**
+ * 把作业累计读 / 写 / 提交汇总成统一流量快照：快照页的 KPI、结论句与分段条都从这里派生，
+ * 口径与趋势页 toPipelineShare 的三段拆分保持一致。
+ * Roll cumulative read / write / committed into one flow summary; the snapshot KPIs, conclusion
+ * and segment bar all derive from it, staying consistent with the toPipelineShare three-way split.
+ */
+export function summarizeMetricFlow(
+  metrics: Record<string, unknown>,
+  opts?: {failed?: boolean},
+): MetricFlowSummary {
+  const readCount = Math.max(
+    0,
+    parseMetricNumber(metrics.SourceReceivedCount) ?? 0,
+  );
+  const writeCount = Math.max(0, parseMetricNumber(metrics.SinkWriteCount) ?? 0);
+  const committedRaw = parseMetricNumber(metrics.SinkCommittedCount);
+  const hasCommitMetric = committedRaw !== null;
+  // 提交量锚定写入侧：写超读时多写的行也算在已提交里，读侧不再截断。
+  // Committed rows anchor on the write side: rows written beyond the read still
+  // count as committed, so the read side does not clip them.
+  const committedCount = Math.max(0, Math.min(committedRaw ?? 0, writeCount));
+  const pendingCommitCount = Math.max(0, writeCount - committedCount);
+  const backlogCount = Math.max(0, readCount - writeCount);
+  const overWriteCount = Math.max(0, writeCount - readCount);
+
+  const countState: MetricFlowCountState =
+    readCount === 0 && writeCount === 0
+      ? 'empty'
+      : readCount > 0 && writeCount === 0
+        ? 'writeZero'
+        : overWriteCount > 0
+          ? 'ahead'
+          : backlogCount > 0
+            ? 'behind'
+            : 'balanced';
+
+  const srcBps = Math.max(
+    0,
+    parseMetricNumber(metrics.SourceReceivedBytesPerSeconds) ?? 0,
+  );
+  const sinkBps = Math.max(
+    0,
+    parseMetricNumber(metrics.SinkWriteBytesPerSeconds) ?? 0,
+  );
+  let speedState: MetricFlowSpeedState = 'idle';
+  let speedRatio: number | null = null;
+  if (srcBps > 0 && sinkBps > 0) {
+    speedRatio = sinkBps / srcBps;
+    speedState =
+      speedRatio < 0.8 ? 'lag' : speedRatio > 1.25 ? 'lead' : 'balanced';
+  } else if (srcBps > 0 && sinkBps === 0) {
+    speedState = 'lag';
+  } else if (srcBps === 0 && sinkBps > 0) {
+    speedState = 'lead';
+  }
+
+  const segments: MetricFlowConclusionSegment[] = [];
+  if (countState === 'empty') {
+    segments.push({key: 'metricFlowEmpty'});
+  } else if (countState === 'writeZero') {
+    segments.push({key: 'metricFlowWriteZero'});
+  } else if (countState === 'behind') {
+    segments.push({
+      key: 'metricFlowBehind',
+      values: {percent: Math.round((writeCount / readCount) * 100)},
+    });
+  } else if (countState === 'ahead') {
+    segments.push({
+      key: 'pipelineExtraWrite',
+      values: {count: formatMetricCompactValue(overWriteCount)},
+    });
+  } else {
+    segments.push({key: 'metricFlowBalanced'});
+  }
+  // 写速落后独立成段：数量已追平但速率仍落后时也要提示。
+  // Lagging write speed is its own segment so it still warns when counts already caught up.
+  if (
+    speedState === 'lag' &&
+    countState !== 'empty' &&
+    countState !== 'writeZero'
+  ) {
+    segments.push({
+      key: 'pipelineSpeedLag',
+      values: {
+        percent: `${speedRatio !== null ? Math.round(speedRatio * 100) : 0}%`,
+      },
+    });
+  }
+  if (writeCount > 0) {
+    if (pendingCommitCount > 0) {
+      segments.push({
+        key: 'metricFlowPendingCommitCount',
+        values: {count: formatMetricCompactValue(pendingCommitCount)},
+      });
+    } else if (hasCommitMetric && committedCount >= writeCount) {
+      segments.push({key: 'metricFlowAllCommitted'});
+    }
+  }
+
+  const tone: MetricFlowTone = opts?.failed
+    ? 'danger'
+    : countState === 'behind' ||
+        countState === 'writeZero' ||
+        pendingCommitCount > 0 ||
+        speedState === 'lag'
+      ? 'warning'
+      : 'neutral';
+
+  return {
+    readCount,
+    writeCount,
+    committedCount,
+    pendingCommitCount,
+    backlogCount,
+    overWriteCount,
+    countState,
+    speedState,
+    speedRatio,
+    hasCommitMetric,
+    tone,
+    segments,
+  };
+}
+
+export type MetricFlowBarSegmentKey =
+  | 'committed'
+  | 'pendingCommit'
+  | 'backlog';
+
+export interface MetricFlowBarSegment {
+  key: MetricFlowBarSegmentKey;
+  value: number;
+  /** 占总刻度份额（0–1）；总刻度是 max(读, 写)。 / Share of the bar scale (0–1); the scale is max(read, write). */
+  share: number;
+}
+
+export interface MetricFlowBar {
+  /** 条的总刻度：读取量；写超读时扩到写入量。 / Bar scale: the read count, extended to write when write overshoots. */
+  total: number;
+  segments: MetricFlowBarSegment[];
+  /** 多写条数（写 > 读），只进图例不占段。 / Rows written beyond read; legend note only, never a segment. */
+  overWriteCount: number;
+}
+
+/**
+ * 分段条的数值：以读取量为总长，把写入拆成「已提交 / 待提交」两段、差额补「待写」段；
+ * 写超读时总刻度扩到写入量。三段互斥且总和不超 1。
+ * Segment values for the flow bar: the read count is the full scale, written rows split into
+ * committed / pending-commit, and the read-vs-write gap becomes the backlog segment; when write
+ * overshoots read the scale extends to write. Segments are exclusive and their shares never exceed 1.
+ */
+export function buildMetricFlowBar(
+  readCount: number,
+  writeCount: number,
+  committedCount: number,
+): MetricFlowBar {
+  const read = Math.max(0, readCount);
+  const write = Math.max(0, writeCount);
+  // 与 summarizeMetricFlow 同口径：提交量锚定写入侧，多写的行不进待提交。
+  // Same contract as summarizeMetricFlow: committed anchors on write; overshoot
+  // rows are reported separately, never as pending commit.
+  const committed = Math.max(0, Math.min(committedCount, write));
+  const pendingCommit = Math.max(0, write - committed);
+  const backlog = Math.max(0, read - write);
+  const overWrite = Math.max(0, write - read);
+  const total = Math.max(read, write);
+  const share = (value: number) => (total > 0 ? value / total : 0);
+  return {
+    total,
+    segments: [
+      {key: 'committed', value: committed, share: share(committed)},
+      {key: 'pendingCommit', value: pendingCommit, share: share(pendingCommit)},
+      {key: 'backlog', value: backlog, share: share(backlog)},
+    ],
+    overWriteCount: overWrite,
+  };
+}
+
+export interface MetricFlowSankeyLabels {
+  committed: string;
+  pendingCommit: string;
+  backlog: string;
+  otherSources: (count: number) => string;
+  otherSink: string;
+}
+
+export interface MetricFlowSankeyColors {
+  /** 表节点中性色。 / Neutral table nodes. */
+  table: string;
+  /** 已提交节点（中性）。 / Committed node (neutral). */
+  outcome: string;
+  /** 待提交与待写节点的异常提示色。 / Pending-commit and backlog nodes (warning). */
+  warning: string;
+}
+
+export interface MetricFlowSankeyNode {
+  id: string;
+  label: string;
+  color?: string;
+}
+
+export interface MetricFlowSankeyLink {
+  id?: string;
+  source: string;
+  target: string;
+  value: number;
+}
+
+export interface MetricFlowSankey {
+  nodes: MetricFlowSankeyNode[];
+  links: MetricFlowSankeyLink[];
+  /** 有流量的配对链路数（Top-N 归并前）；少于 2 时视图应隐藏本图。 / Pair links carrying flow, before the Top-N merge; the chart stays hidden below 2. */
+  totalLinks: number;
+  /** 超出 Top-N 后并入「其它」的链路数。 / Links folded into the "other" bucket past Top-N. */
+  mergedLinks: number;
+}
+
+/**
+ * 按表指标 → 桑基图「源表 → 目标表 → 提交状态」三段流向：源到目标的带宽是写入量，
+ * 已读未写挂到「待写」，写入再分流到「已提交 / 待提交」。链路超过 Top-N 时其余合成
+ * 「其它 N 张表」一对节点；为零的分支不出节点。配对用 buildPairedMetricRows 的同一份数据。
+ * Per-table metrics to a "source table → sink table → commit state" Sankey: the source-to-sink
+ * band is the write count, read-but-unwritten rows go to a backlog node, and writes split into
+ * committed / pending-commit. Links past Top-N merge into one "other N tables" pair; zero-value
+ * branches emit no node. Pairing reuses buildPairedMetricRows.
+ */
+export function buildMetricFlowSankey(
+  metrics: Record<string, unknown>,
+  opts: {
+    labels: MetricFlowSankeyLabels;
+    colors: MetricFlowSankeyColors;
+    maxLinks?: number;
+  },
+): MetricFlowSankey {
+  const {labels, colors} = opts;
+  const maxLinks = Math.max(1, Math.floor(opts.maxLinks ?? 8));
+  const numbered = buildPairedMetricRows(metrics)
+    .map((row) => {
+      const committedRaw = parseMetricNumber(row.committedCount) ?? 0;
+      const write = Math.max(0, parseMetricNumber(row.sinkCount) ?? 0);
+      return {
+        key: row.key,
+        sourceTable: row.sourceTable || row.sourceNode,
+        sinkTable: row.sinkTable || row.sinkNode,
+        read: Math.max(0, parseMetricNumber(row.sourceCount) ?? 0),
+        write,
+        committed: Math.max(0, Math.min(committedRaw, Math.max(write, committedRaw))),
+      };
+    })
+    .filter((link) => link.read > 0 || link.write > 0);
+  // 读量大的链路排前面；排序稳定，读量相同保持配对顺序。
+  // Largest reads first; the sort is stable so ties keep pairing order.
+  numbered.sort((a, b) => b.read - a.read);
+  const shown = numbered.slice(0, maxLinks);
+  const rest = numbered.slice(maxLinks);
+
+  interface FlowPair {
+    srcId: string;
+    srcLabel: string;
+    sinkId: string;
+    sinkLabel: string;
+    read: number;
+    write: number;
+    committed: number;
+  }
+  const pairs: FlowPair[] = shown.map((link) => ({
+    srcId: `s:${link.key}`,
+    srcLabel: link.sourceTable,
+    sinkId: `t:${link.key}`,
+    sinkLabel: link.sinkTable,
+    read: link.read,
+    write: link.write,
+    committed: link.committed,
+  }));
+  if (rest.length > 0) {
+    pairs.push({
+      srcId: 's:__other__',
+      srcLabel: labels.otherSources(rest.length),
+      sinkId: 't:__other__',
+      sinkLabel: labels.otherSink,
+      read: rest.reduce((sum, link) => sum + link.read, 0),
+      write: rest.reduce((sum, link) => sum + link.write, 0),
+      committed: rest.reduce((sum, link) => sum + link.committed, 0),
+    });
+  }
+
+  const links: MetricFlowSankeyLink[] = [];
+  const nodes: MetricFlowSankeyNode[] = [];
+  let hasCommitted = false;
+  let hasPending = false;
+  let hasBacklog = false;
+  for (const pair of pairs) {
+    const committed = Math.min(pair.committed, pair.write);
+    const pending = Math.max(0, pair.write - committed);
+    const backlog = Math.max(0, pair.read - pair.write);
+    nodes.push({id: pair.srcId, label: pair.srcLabel, color: colors.table});
+    if (pair.write > 0) {
+      nodes.push({id: pair.sinkId, label: pair.sinkLabel, color: colors.table});
+      links.push({source: pair.srcId, target: pair.sinkId, value: pair.write});
+      if (committed > 0) {
+        links.push({source: pair.sinkId, target: 'o:committed', value: committed});
+        hasCommitted = true;
+      }
+      if (pending > 0) {
+        links.push({source: pair.sinkId, target: 'o:pending', value: pending});
+        hasPending = true;
+      }
+    }
+    if (backlog > 0) {
+      links.push({source: pair.srcId, target: 'o:backlog', value: backlog});
+      hasBacklog = true;
+    }
+  }
+  // 结果节点放最后，保证列顺序是 源表 → 目标表 → 提交状态。
+  // Outcome nodes go last so columns order as source tables → sink tables → commit state.
+  if (hasCommitted) {
+    nodes.push({id: 'o:committed', label: labels.committed, color: colors.outcome});
+  }
+  if (hasPending) {
+    nodes.push({id: 'o:pending', label: labels.pendingCommit, color: colors.warning});
+  }
+  if (hasBacklog) {
+    nodes.push({id: 'o:backlog', label: labels.backlog, color: colors.warning});
+  }
+  return {nodes, links, totalLinks: numbered.length, mergedLinks: rest.length};
+}
+
 export function classifyMetricGroup(key: string): MetricGroupKey {
   const normalized = key.toLowerCase();
   if (

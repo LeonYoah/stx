@@ -57,6 +57,7 @@ import {
 import type {ClusterMonitoringOverviewData} from '@/lib/services/monitoring';
 import {ClusterStatusChip, NodeStatusChip} from './ClusterStatusChip';
 import {getClusterActionFlags} from './useClusterLifecycle';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 const MAX_PREVIEW_NODES = 5;
 
@@ -84,7 +85,7 @@ function CopyValueButton({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(value);
+      await writeClipboard(value);
       setCopied(true);
       toast.success(t('cluster.logCopied'));
       window.setTimeout(() => setCopied(false), 1800);

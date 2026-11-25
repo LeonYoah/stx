@@ -26,6 +26,7 @@ import type {DiagnosticsInspectionFinding} from '@/lib/services/diagnostics';
 import {Button} from '@/components/ui/button';
 import {cn} from '@/lib/utils';
 import {localizeDiagnosticsText} from './text-utils';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 interface InspectionFindingCardProps {
   finding: DiagnosticsInspectionFinding;
@@ -74,7 +75,7 @@ export function InspectionFindingCard({
 
   const copyRecommendation = async () => {
     try {
-      await navigator.clipboard.writeText(recommendation);
+      await writeClipboard(recommendation);
       toast.success(t('evidence.copied'));
     } catch {
       toast.error(t('evidence.copyFailed'));

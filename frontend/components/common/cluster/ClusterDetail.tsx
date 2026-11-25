@@ -142,6 +142,7 @@ import {
 import {useLifecycleStatusPoll} from './useLifecycleStatusPoll';
 import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
 import {useOnboardingOptional} from '@/components/common/onboarding/OnboardingContext';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 interface ClusterDetailProps {
   clusterId: number;
@@ -2824,7 +2825,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                   iconOnly
                   onClick={() => {
                     if (runtimeStoragePreview?.path) {
-                      void navigator.clipboard.writeText(
+                      void writeClipboard(
                         runtimeStoragePreview.path,
                       );
                       toast.success(

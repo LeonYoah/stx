@@ -38,6 +38,7 @@ import {
   DialogTitle,
   WorkbenchDialogContent,
 } from '@/components/ui/dialog';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 export type ExpandableTextPanelTone = 'dark' | 'plain';
 
@@ -176,7 +177,7 @@ export function ExpandableTextPanel({
       onCopy(text);
       return;
     }
-    void navigator.clipboard.writeText(text).then(
+    void writeClipboard(text).then(
       () => {
         setCopied(true);
         toast.success(t('contentCopied'));

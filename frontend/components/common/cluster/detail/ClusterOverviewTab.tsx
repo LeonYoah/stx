@@ -56,6 +56,7 @@ import {formatDateTimeMinuteTz} from '@/lib/timezone';
 import {toast} from '@/lib/toast';
 import {NodeStatusChip} from '../ClusterStatusChip';
 import type {RuntimeSubView} from './cluster-detail-tabs';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 export interface ClusterOverviewTabProps {
   cluster: ClusterInfo;
@@ -162,7 +163,7 @@ export function ClusterOverviewTab({
 
   const handleCopy = async (value: string, field: 'dir' | 'code') => {
     try {
-      await navigator.clipboard.writeText(value);
+      await writeClipboard(value);
       setCopiedField(field);
       toast.success(t('cluster.logCopied'));
       window.setTimeout(() => setCopiedField(null), 1800);

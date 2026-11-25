@@ -65,6 +65,7 @@ import type {
 import {formatDateTimeMinuteTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {AccountsNavTabs} from './AccountsNavTabs';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 type ExpiresPreset = '7d' | '30d' | '90d' | 'never' | 'custom';
 
@@ -239,7 +240,7 @@ export function TokenManagement() {
 
   const handleCopy = async (value: string) => {
     try {
-      await navigator.clipboard.writeText(value);
+      await writeClipboard(value);
       setCopied(true);
       toast.success(t('admin.tokenManagement.copied'));
     } catch {

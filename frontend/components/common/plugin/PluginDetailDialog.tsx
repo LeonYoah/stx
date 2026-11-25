@@ -80,6 +80,7 @@ import {
   generateConnectorDocUrls,
   getConnectorSemanticIcon,
 } from './connector-quick-helper';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 interface PluginDetailDialogProps {
   open: boolean;
@@ -356,7 +357,7 @@ export function PluginDetailDialog({
   // Copy to clipboard helper / 复制到剪贴板辅助方法
   const handleCopyText = async (text: string, kind: 'coord' | 'xml') => {
     try {
-      await navigator.clipboard.writeText(text);
+      await writeClipboard(text);
       toast.success(t('plugin.copied'));
       if (kind === 'coord') {
         setCopiedCoord(true);

@@ -46,6 +46,7 @@ import {
 import services from '@/lib/services';
 import {AgentStatus, HostInfo, HostStatus} from '@/lib/services/host/types';
 import {formatTimeTz} from '@/lib/timezone';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 interface HostInstallGuideContentProps {
   // 目标主机信息
@@ -179,7 +180,7 @@ export function HostInstallGuideContent({
       return;
     }
     try {
-      await navigator.clipboard.writeText(installCommand);
+      await writeClipboard(installCommand);
       setCopied(true);
       toast.success(t('host.commandCopied'));
       setTimeout(() => {

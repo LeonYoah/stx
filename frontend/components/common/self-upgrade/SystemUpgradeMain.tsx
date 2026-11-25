@@ -56,6 +56,7 @@ import {AgentNodeList, AgentVersionsPanel} from './AgentNodesPanel';
 import {ExecuteActions} from './ExecuteActions';
 import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
 import {toast} from '@/lib/toast';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 // 去掉可选的 v 前缀，便于比较与展示版本号
 // Strip an optional leading v so versions compare and render consistently
@@ -658,7 +659,7 @@ export function SystemUpgradeMain() {
                 variant='ghost'
                 className='h-7 shrink-0 text-xs gap-1 hover:bg-background'
                 onClick={() => {
-                  navigator.clipboard.writeText(status.docker_compose_upgrade_cmd || 'docker compose pull && docker compose up -d');
+                  void writeClipboard(status.docker_compose_upgrade_cmd || 'docker compose pull && docker compose up -d');
                   toast.success(t('dockerNoticeCopied'));
                 }}
               >

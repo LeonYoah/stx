@@ -107,6 +107,7 @@ import {
   summarizeCheckpointSubtaskMetrics,
 } from './sync-studio-utils';
 import {formatDateTimeTz} from '@/lib/timezone';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
@@ -1060,7 +1061,7 @@ function QuickCopyButton({text}: {text: string}) {
     if (!text) {
       return;
     }
-    void navigator.clipboard.writeText(text);
+    void writeClipboard(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -2319,7 +2320,7 @@ export function CheckpointInspectDialog({
     if (!activeResult?.path) {
       return;
     }
-    void navigator.clipboard.writeText(activeResult.path);
+    void writeClipboard(activeResult.path);
     setCopiedPath(true);
     setTimeout(() => setCopiedPath(false), 2000);
   }, [activeResult?.path]);
@@ -2328,7 +2329,7 @@ export function CheckpointInspectDialog({
     if (!activeResult) {
       return;
     }
-    void navigator.clipboard.writeText(JSON.stringify(activeResult, null, 2));
+    void writeClipboard(JSON.stringify(activeResult, null, 2));
     setCopiedJson(true);
     setTimeout(() => setCopiedJson(false), 2000);
   }, [activeResult]);

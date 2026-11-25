@@ -41,6 +41,7 @@ import {NeutralChip, TableLoadingBar} from '@/components/common/layout';
 import services from '@/lib/services';
 import type {NodeInfo} from '@/lib/services/cluster/types';
 import {toast} from '@/lib/toast';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 interface ClusterNodeLogDialogProps {
   open: boolean;
@@ -128,7 +129,7 @@ export function ClusterNodeLogDialog({
       return;
     }
     try {
-      await navigator.clipboard.writeText(logContent);
+      await writeClipboard(logContent);
       setCopied(true);
       toast.success(t('cluster.logCopied'));
       window.setTimeout(() => setCopied(false), 1800);

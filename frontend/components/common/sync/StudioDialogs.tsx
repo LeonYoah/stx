@@ -74,6 +74,7 @@ import {
   type UserFacingErrorState,
 } from './sync-studio-utils';
 import {useWriteRateSparkline} from './job-detail/metric-timeseries';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
@@ -103,7 +104,7 @@ export function StudioErrorDiagnosticsView({
       ? `${error.title}\n${error.description}\n\n[Details]\n${error.raw}`
       : `${error.title}\n${error.description}`;
     try {
-      await navigator.clipboard.writeText(textToCopy);
+      await writeClipboard(textToCopy);
       setCopied(true);
       toast.success(t('variableValueCopied') || '已复制错误信息');
       setTimeout(() => setCopied(false), 2000);

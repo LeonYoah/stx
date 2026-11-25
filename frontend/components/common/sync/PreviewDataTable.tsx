@@ -26,6 +26,7 @@ import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {Table, type TableColumn} from '@/components/motion/table';
 import {cn} from '@/lib/utils';
 import {formatCellValue, getPreviewRowKindBadgeClass} from './sync-studio-utils';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 type PreviewRow = Record<string, unknown>;
 
@@ -108,7 +109,7 @@ function PreviewCell({column, value}: {column: string; value: unknown}) {
     // 别让点击冒泡成行选中或列排序。 / Keep the click from bubbling into row or column handlers.
     event.stopPropagation();
     try {
-      await navigator.clipboard.writeText(text);
+      await writeClipboard(text);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {

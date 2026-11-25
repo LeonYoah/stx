@@ -43,6 +43,7 @@ import {HostInfo, HostStatus, HostType} from '@/lib/services/host/types';
 import {formatDateTimeTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import layout from '@/components/common/layout/list-detail.module.css';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 interface HostDetailProps {
   host: HostInfo | null;
@@ -147,7 +148,7 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
 
   const handleCopyCommand = async (commandText: string, isUninstall = false) => {
     try {
-      await navigator.clipboard.writeText(commandText);
+      await writeClipboard(commandText);
       if (isUninstall) {
         setCopiedUninstall(true);
         setTimeout(() => setCopiedUninstall(false), 2000);

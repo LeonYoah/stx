@@ -81,6 +81,7 @@ import {ScrollArea} from '@/components/ui/scroll-area';
 import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
 import {SaveMemoryDialog} from './SaveMemoryDialog';
 import {formatDateTz} from '@/lib/timezone';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 export interface TroubleshootingMemoryCenterProps {
   // 可选过滤的集群 ID
@@ -272,7 +273,7 @@ export function TroubleshootingMemoryCenter({
       if (!solutionText) {
         return;
       }
-      navigator.clipboard.writeText(solutionText);
+      void writeClipboard(solutionText);
       setCopiedId(id);
       toast.success(t('solutionCopied'));
       setTimeout(() => setCopiedId(null), 2000);

@@ -67,6 +67,7 @@ import type {
   RuntimeStorageListResult,
   RuntimeStorageSpec,
 } from '@/lib/services/cluster/types';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 /**
  * 格式化字节大小
@@ -224,7 +225,7 @@ export function RuntimeStorageFileExplorer({
   // 复制当前完整路径 / Copy current full path
   const handleCopyCurrentPath = useCallback(() => {
     if (!effectiveCurrentPath) {return;}
-    void navigator.clipboard.writeText(effectiveCurrentPath);
+    void writeClipboard(effectiveCurrentPath);
     setCopied(true);
     toast.success(t('copyPathSuccess'));
     setTimeout(() => setCopied(false), 2000);
@@ -234,7 +235,7 @@ export function RuntimeStorageFileExplorer({
   const handleCopyItemPath = useCallback(
     (path: string, e?: React.MouseEvent) => {
       e?.stopPropagation();
-      void navigator.clipboard.writeText(path);
+      void writeClipboard(path);
       toast.success(t('copyPathSuccess'));
     },
     [t],
@@ -244,7 +245,7 @@ export function RuntimeStorageFileExplorer({
   const handleCopyItemName = useCallback(
     (name: string, e?: React.MouseEvent) => {
       e?.stopPropagation();
-      void navigator.clipboard.writeText(name);
+      void writeClipboard(name);
       toast.success(t('copyContentSuccess'));
     },
     [t],

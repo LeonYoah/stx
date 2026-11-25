@@ -39,6 +39,23 @@ const eslintConfig = [
       // curly 规则：要求 if/else 等必须使用大括号（保持代码清晰）
       'linebreak-style': 'off', // 如果您是windows系统，可在开发时禁用行尾换行符检查
       curly: ['error', 'all'],
+      // 复制规范硬约束：裸 clipboard 与复制反馈文案一律收口到底层组件，例外用 eslint-disable 注明理由
+      // Copy conventions as hard rules: raw clipboard access and copy feedback labels stay inside the base components; exceptions need an eslint-disable with a reason
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[object.name='navigator'][property.name='clipboard']",
+          message: '禁止裸调 navigator.clipboard：统一走 writeClipboard / Arc CopyButton（use-copy-feedback 除外），否则 HTTP+IP 非安全上下文下复制静默失败。',
+        },
+        {
+          selector: "JSXAttribute[name.name='copiedLabel']",
+          message: '禁止业务侧传 copiedLabel：反馈文案由 CopyButton 内部 i18n 统一（common.copied）。确需覆盖须 eslint-disable 并注明理由。',
+        },
+        {
+          selector: "JSXAttribute[name.name='failedLabel']",
+          message: '禁止业务侧传 failedLabel：反馈文案由 CopyButton 内部 i18n 统一（common.copyFailed）。确需覆盖须 eslint-disable 并注明理由。',
+        },
+      ],
     },
   },
 ];

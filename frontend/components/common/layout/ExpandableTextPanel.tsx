@@ -254,7 +254,7 @@ export function ExpandableTextPanel({
           <CopyButton
             value={content as string}
             label={resolvedCopyLabel}
-            copiedLabel={copiedLabel}
+            {...(copiedLabel !== undefined ? {copiedLabel} : {})}
             variant='plain'
             className='h-7 px-2 text-xs border border-border'
           />
@@ -332,7 +332,7 @@ export function ExpandableTextPanel({
                     <CopyButton
                       value={content as string}
                       label={resolvedCopyLabel}
-                      copiedLabel={copiedLabel}
+                      {...(copiedLabel !== undefined ? {copiedLabel} : {})}
                       variant='plain'
                       className='h-7 px-2 text-xs border border-border'
                     />

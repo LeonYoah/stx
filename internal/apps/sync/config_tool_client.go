@@ -33,21 +33,31 @@ import (
 
 // ConfigToolClient talks to stx-java-proxy config APIs.
 type ConfigToolClient interface {
-	InspectDAG(ctx context.Context, endpoint string, req *ConfigToolContentRequest) (*ConfigToolDAGResponse, error)
-	InspectWebUIDAG(ctx context.Context, endpoint string, req *ConfigToolContentRequest) (*ConfigToolWebUIDAGResponse, error)
-	ValidateConfig(ctx context.Context, endpoint string, req *ConfigToolValidateRequest) (*ConfigToolValidateResponse, error)
-	DeriveSourcePreview(ctx context.Context, endpoint string, req *ConfigToolPreviewRequest) (*ConfigToolPreviewResponse, error)
-	DeriveTransformPreview(ctx context.Context, endpoint string, req *ConfigToolPreviewRequest) (*ConfigToolPreviewResponse, error)
-	ListPlugins(ctx context.Context, endpoint string, req *ConfigToolPluginListRequest) (*ConfigToolPluginListResponse, error)
-	GetPluginOptions(ctx context.Context, endpoint string, req *ConfigToolPluginOptionsRequest) (*ConfigToolPluginOptionsResponse, error)
-	RenderPluginTemplate(ctx context.Context, endpoint string, req *ConfigToolPluginTemplateRequest) (*ConfigToolPluginTemplateResponse, error)
-	ListPluginEnumValues(ctx context.Context, endpoint string, req *ConfigToolPluginEnumValuesRequest) (*ConfigToolPluginEnumValuesResponse, error)
-	PreviewSinkSaveMode(ctx context.Context, endpoint string, req *ConfigToolSinkSaveModePreviewRequest) (*ConfigToolSinkSaveModePreviewResponse, error)
+	InspectDAG(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolContentRequest) (*ConfigToolDAGResponse, error)
+	InspectWebUIDAG(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolContentRequest) (*ConfigToolWebUIDAGResponse, error)
+	ValidateConfig(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolValidateRequest) (*ConfigToolValidateResponse, error)
+	DeriveSourcePreview(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPreviewRequest) (*ConfigToolPreviewResponse, error)
+	DeriveTransformPreview(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPreviewRequest) (*ConfigToolPreviewResponse, error)
+	ListPlugins(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPluginListRequest) (*ConfigToolPluginListResponse, error)
+	GetPluginOptions(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPluginOptionsRequest) (*ConfigToolPluginOptionsResponse, error)
+	RenderPluginTemplate(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPluginTemplateRequest) (*ConfigToolPluginTemplateResponse, error)
+	ListPluginEnumValues(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPluginEnumValuesRequest) (*ConfigToolPluginEnumValuesResponse, error)
+	PreviewSinkSaveMode(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolSinkSaveModePreviewRequest) (*ConfigToolSinkSaveModePreviewResponse, error)
+}
+
+// ConfigToolEndpoint 携带伴生 Proxy 端点地址与可选 Transport；K8s apiserver_proxy 端点按
+// 集群注入 TLS/认证，避免进程级全局注册表的凭据串用。
+// ConfigToolEndpoint carries the companion proxy endpoint URL plus an optional transport;
+// K8s apiserver_proxy endpoints inject TLS/auth per cluster, avoiding the credential
+// cross-use of a process-wide registry.
+type ConfigToolEndpoint struct {
+	BaseURL   string
+	Transport http.RoundTripper
 }
 
 // ConfigToolResolver resolves java-proxy endpoint for a sync task.
 type ConfigToolResolver interface {
-	ResolveConfigToolEndpoint(ctx context.Context, clusterID uint, taskDefinition JSONMap) (string, error)
+	ResolveConfigToolEndpoint(ctx context.Context, clusterID uint, taskDefinition JSONMap) (*ConfigToolEndpoint, error)
 }
 
 // ConfigToolContentRequest represents shared content/filePath input.
@@ -345,16 +355,23 @@ type DefaultConfigToolClient struct {
 // NewDefaultConfigToolClient creates a config tool client.
 func NewDefaultConfigToolClient() *DefaultConfigToolClient {
 	return &DefaultConfigToolClient{
-		// K8s apiserver_proxy 端点经 DelegatingRoundTripper 按 host 继承 TLS/认证；
-		// 裸金属 proxy 未注册，零行为变化。
-		// K8s apiserver_proxy endpoints inherit TLS/auth per host through the delegating
-		// RoundTripper; bare-metal proxies are never registered so behavior is unchanged.
-		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: &k8s.DelegatingRoundTripper{}},
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
+// clientForEndpoint 按端点选择 HTTP client：K8s apiserver_proxy 端点用其注入的 Transport，
+// 其余回落默认 client。
+// clientForEndpoint picks the HTTP client per endpoint: K8s apiserver_proxy endpoints use
+// their injected transport while everything else falls back to the default client.
+func (c *DefaultConfigToolClient) clientForEndpoint(endpoint *ConfigToolEndpoint) *http.Client {
+	if endpoint != nil && endpoint.Transport != nil {
+		return &http.Client{Timeout: 30 * time.Second, Transport: endpoint.Transport}
+	}
+	return c.httpClient
+}
+
 // InspectDAG calls /api/v1/config/dag.
-func (c *DefaultConfigToolClient) InspectDAG(ctx context.Context, endpoint string, req *ConfigToolContentRequest) (*ConfigToolDAGResponse, error) {
+func (c *DefaultConfigToolClient) InspectDAG(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolContentRequest) (*ConfigToolDAGResponse, error) {
 	var result ConfigToolDAGResponse
 	if err := c.postJSON(ctx, endpoint, "/api/v1/config/dag", req, &result); err != nil {
 		return nil, err
@@ -363,7 +380,7 @@ func (c *DefaultConfigToolClient) InspectDAG(ctx context.Context, endpoint strin
 }
 
 // InspectWebUIDAG calls /api/v1/config/webui-dag.
-func (c *DefaultConfigToolClient) InspectWebUIDAG(ctx context.Context, endpoint string, req *ConfigToolContentRequest) (*ConfigToolWebUIDAGResponse, error) {
+func (c *DefaultConfigToolClient) InspectWebUIDAG(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolContentRequest) (*ConfigToolWebUIDAGResponse, error) {
 	var result ConfigToolWebUIDAGResponse
 	if err := c.postJSON(ctx, endpoint, "/api/v1/config/webui-dag", req, &result); err != nil {
 		return nil, err
@@ -372,7 +389,7 @@ func (c *DefaultConfigToolClient) InspectWebUIDAG(ctx context.Context, endpoint 
 }
 
 // ValidateConfig calls /api/v1/config/validate.
-func (c *DefaultConfigToolClient) ValidateConfig(ctx context.Context, endpoint string, req *ConfigToolValidateRequest) (*ConfigToolValidateResponse, error) {
+func (c *DefaultConfigToolClient) ValidateConfig(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolValidateRequest) (*ConfigToolValidateResponse, error) {
 	var result ConfigToolValidateResponse
 	if err := c.postJSON(ctx, endpoint, "/api/v1/config/validate", req, &result); err != nil {
 		return nil, err
@@ -381,7 +398,7 @@ func (c *DefaultConfigToolClient) ValidateConfig(ctx context.Context, endpoint s
 }
 
 // DeriveSourcePreview calls /api/v1/config/preview/source.
-func (c *DefaultConfigToolClient) DeriveSourcePreview(ctx context.Context, endpoint string, req *ConfigToolPreviewRequest) (*ConfigToolPreviewResponse, error) {
+func (c *DefaultConfigToolClient) DeriveSourcePreview(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPreviewRequest) (*ConfigToolPreviewResponse, error) {
 	var result ConfigToolPreviewResponse
 	if err := c.postJSON(ctx, endpoint, "/api/v1/config/preview/source", req, &result); err != nil {
 		return nil, err
@@ -390,7 +407,7 @@ func (c *DefaultConfigToolClient) DeriveSourcePreview(ctx context.Context, endpo
 }
 
 // DeriveTransformPreview calls /api/v1/config/preview/transform.
-func (c *DefaultConfigToolClient) DeriveTransformPreview(ctx context.Context, endpoint string, req *ConfigToolPreviewRequest) (*ConfigToolPreviewResponse, error) {
+func (c *DefaultConfigToolClient) DeriveTransformPreview(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPreviewRequest) (*ConfigToolPreviewResponse, error) {
 	var result ConfigToolPreviewResponse
 	if err := c.postJSON(ctx, endpoint, "/api/v1/config/preview/transform", req, &result); err != nil {
 		return nil, err
@@ -399,7 +416,7 @@ func (c *DefaultConfigToolClient) DeriveTransformPreview(ctx context.Context, en
 }
 
 // ListPlugins calls /api/v1/plugin/list.
-func (c *DefaultConfigToolClient) ListPlugins(ctx context.Context, endpoint string, req *ConfigToolPluginListRequest) (*ConfigToolPluginListResponse, error) {
+func (c *DefaultConfigToolClient) ListPlugins(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPluginListRequest) (*ConfigToolPluginListResponse, error) {
 	var result ConfigToolPluginListResponse
 	if err := c.postJSON(ctx, endpoint, "/api/v1/plugin/list", req, &result); err != nil {
 		return nil, err
@@ -408,7 +425,7 @@ func (c *DefaultConfigToolClient) ListPlugins(ctx context.Context, endpoint stri
 }
 
 // GetPluginOptions calls /api/v1/plugin/options.
-func (c *DefaultConfigToolClient) GetPluginOptions(ctx context.Context, endpoint string, req *ConfigToolPluginOptionsRequest) (*ConfigToolPluginOptionsResponse, error) {
+func (c *DefaultConfigToolClient) GetPluginOptions(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPluginOptionsRequest) (*ConfigToolPluginOptionsResponse, error) {
 	var result ConfigToolPluginOptionsResponse
 	if err := c.postJSON(ctx, endpoint, "/api/v1/plugin/options", req, &result); err != nil {
 		return nil, err
@@ -417,7 +434,7 @@ func (c *DefaultConfigToolClient) GetPluginOptions(ctx context.Context, endpoint
 }
 
 // RenderPluginTemplate calls /api/v1/plugin/template.
-func (c *DefaultConfigToolClient) RenderPluginTemplate(ctx context.Context, endpoint string, req *ConfigToolPluginTemplateRequest) (*ConfigToolPluginTemplateResponse, error) {
+func (c *DefaultConfigToolClient) RenderPluginTemplate(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPluginTemplateRequest) (*ConfigToolPluginTemplateResponse, error) {
 	var result ConfigToolPluginTemplateResponse
 	if err := c.postJSON(ctx, endpoint, "/api/v1/plugin/template", req, &result); err != nil {
 		return nil, err
@@ -426,7 +443,7 @@ func (c *DefaultConfigToolClient) RenderPluginTemplate(ctx context.Context, endp
 }
 
 // PreviewSinkSaveMode calls /api/v1/config/preview/sink-savemode.
-func (c *DefaultConfigToolClient) PreviewSinkSaveMode(ctx context.Context, endpoint string, req *ConfigToolSinkSaveModePreviewRequest) (*ConfigToolSinkSaveModePreviewResponse, error) {
+func (c *DefaultConfigToolClient) PreviewSinkSaveMode(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolSinkSaveModePreviewRequest) (*ConfigToolSinkSaveModePreviewResponse, error) {
 	var result ConfigToolSinkSaveModePreviewResponse
 	if err := c.postJSON(ctx, endpoint, "/api/v1/config/preview/sink-savemode", req, &result); err != nil {
 		return nil, err
@@ -435,7 +452,7 @@ func (c *DefaultConfigToolClient) PreviewSinkSaveMode(ctx context.Context, endpo
 }
 
 // ListPluginEnumValues calls /api/v1/plugin/enum-values.
-func (c *DefaultConfigToolClient) ListPluginEnumValues(ctx context.Context, endpoint string, req *ConfigToolPluginEnumValuesRequest) (*ConfigToolPluginEnumValuesResponse, error) {
+func (c *DefaultConfigToolClient) ListPluginEnumValues(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPluginEnumValuesRequest) (*ConfigToolPluginEnumValuesResponse, error) {
 	var result ConfigToolPluginEnumValuesResponse
 	if err := c.postJSON(ctx, endpoint, "/api/v1/plugin/enum-values", req, &result); err != nil {
 		return nil, err
@@ -443,21 +460,21 @@ func (c *DefaultConfigToolClient) ListPluginEnumValues(ctx context.Context, endp
 	return &result, nil
 }
 
-func (c *DefaultConfigToolClient) postJSON(ctx context.Context, endpoint string, path string, payload interface{}, out interface{}) error {
-	if strings.TrimSpace(endpoint) == "" {
+func (c *DefaultConfigToolClient) postJSON(ctx context.Context, endpoint *ConfigToolEndpoint, path string, payload interface{}, out interface{}) error {
+	if endpoint == nil || strings.TrimSpace(endpoint.BaseURL) == "" {
 		return fmt.Errorf("sync: config tool endpoint is required")
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	targetURL := strings.TrimRight(strings.TrimSpace(endpoint), "/") + path
+	targetURL := strings.TrimRight(strings.TrimSpace(endpoint.BaseURL), "/") + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.clientForEndpoint(endpoint).Do(req)
 	if err != nil {
 		return err
 	}
@@ -562,6 +579,7 @@ func humanizeConfigToolMessage(path string, message string) string {
 // DefaultConfigToolResolver resolves java-proxy endpoint using cluster managed status or task override.
 type DefaultConfigToolResolver struct {
 	clusterService *clusterapp.Service
+	k8sManager     *k8s.ClientManager
 }
 
 // NewDefaultConfigToolResolver creates a config tool resolver.
@@ -570,52 +588,48 @@ func NewDefaultConfigToolResolver(clusterService *clusterapp.Service) *DefaultCo
 }
 
 // ResolveConfigToolEndpoint resolves java-proxy endpoint.
-func (r *DefaultConfigToolResolver) ResolveConfigToolEndpoint(ctx context.Context, clusterID uint, taskDefinition JSONMap) (string, error) {
+func (r *DefaultConfigToolResolver) ResolveConfigToolEndpoint(ctx context.Context, clusterID uint, taskDefinition JSONMap) (*ConfigToolEndpoint, error) {
 	if endpoint := strings.TrimSpace(stringValue(taskDefinition, "proxy_base_url", "java_proxy_base_url", "config_tool_base_url")); endpoint != "" {
-		return endpoint, nil
+		return &ConfigToolEndpoint{BaseURL: endpoint}, nil
 	}
 	if r == nil || r.clusterService == nil {
-		return "", fmt.Errorf("sync: config tool resolver is not configured")
+		return nil, fmt.Errorf("sync: config tool resolver is not configured")
 	}
-	// K8s 集群的伴生 Proxy 经 apiserver_proxy 寻址，并向进程级注册表登记 TLS/认证。
-	// For K8s clusters the companion proxy is addressed through apiserver_proxy, with TLS/auth
-	// registered into the process-wide registry.
+	// K8s 集群的伴生 Proxy 经 apiserver_proxy 寻址，Transport 随端点返回。
+	// For K8s clusters the companion proxy is addressed through apiserver_proxy, with the
+	// transport traveling alongside the endpoint.
 	if clusterObj, err := r.clusterService.Get(ctx, clusterID); err == nil && clusterObj != nil && clusterObj.IsKubernetes() {
-		return resolveK8sConfigToolEndpoint(ctx, clusterObj)
+		return r.resolveK8sConfigToolEndpoint(ctx, clusterObj)
 	}
 	status, err := r.clusterService.GetSTXJavaProxyStatus(ctx, clusterID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if status == nil || strings.TrimSpace(status.Endpoint) == "" {
-		return "", fmt.Errorf("sync: stx-java-proxy endpoint is empty for cluster %d", clusterID)
+		return nil, fmt.Errorf("sync: stx-java-proxy endpoint is empty for cluster %d", clusterID)
 	}
-	return strings.TrimSpace(status.Endpoint), nil
+	return &ConfigToolEndpoint{BaseURL: strings.TrimSpace(status.Endpoint)}, nil
 }
 
-// k8sConfigToolClientManager 由 router 装配期注入（resolver 无构造参数变更，保持调用方兼容）。
-// k8sConfigToolClientManager is injected during router wiring (the resolver keeps its constructor
-// signature for caller compatibility).
-var k8sConfigToolClientManager *k8s.ClientManager
-
-// SetK8sConfigToolClientManager 注入共享 K8sClientManager。
-// SetK8sConfigToolClientManager injects the shared K8sClientManager.
-func SetK8sConfigToolClientManager(mgr *k8s.ClientManager) {
-	k8sConfigToolClientManager = mgr
+// SetK8sManager 注入共享 K8sClientManager（结构体字段注入，替代包级全局变量）。
+// SetK8sManager injects the shared K8sClientManager as a struct field, replacing the former
+// package-level global.
+func (r *DefaultConfigToolResolver) SetK8sManager(mgr *k8s.ClientManager) {
+	r.k8sManager = mgr
 }
 
 // resolveK8sConfigToolEndpoint 解析伴生 Proxy 的 apiserver_proxy 地址并注册 Transport。
 // resolveK8sConfigToolEndpoint resolves the companion proxy's apiserver_proxy address and
 // registers its transport.
-func resolveK8sConfigToolEndpoint(ctx context.Context, clusterObj *clusterapp.Cluster) (string, error) {
-	if k8sConfigToolClientManager == nil {
-		return "", fmt.Errorf("sync: k8s client manager not configured")
+func (r *DefaultConfigToolResolver) resolveK8sConfigToolEndpoint(ctx context.Context, clusterObj *clusterapp.Cluster) (*ConfigToolEndpoint, error) {
+	if r.k8sManager == nil {
+		return nil, fmt.Errorf("sync: k8s client manager not configured")
 	}
 	cfg := clusterObj.K8sSessionConfig()
 	if cfg == nil {
-		return "", fmt.Errorf("sync: cluster %d has invalid kubernetes session config", clusterObj.ID)
+		return nil, fmt.Errorf("sync: cluster %d has invalid kubernetes session config", clusterObj.ID)
 	}
-	transport := k8s.NewTransport(k8sConfigToolClientManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
+	transport := k8s.NewTransport(r.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
 	_, serviceName, _ := k8s.ProxyResourceNames(clusterObj.EffectiveClusterCode())
 	if cfg.JavaProxy.ServiceName != "" {
 		serviceName = cfg.JavaProxy.ServiceName
@@ -626,12 +640,11 @@ func resolveK8sConfigToolEndpoint(ctx context.Context, clusterObj *clusterapp.Cl
 	}
 	base, err := transport.ServiceBaseURL(ctx, serviceName, port)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	rt, err := transport.RoundTripper(ctx)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	k8s.DefaultHostTransportRegistry.Register(base, rt)
-	return base, nil
+	return &ConfigToolEndpoint{BaseURL: base, Transport: rt}, nil
 }

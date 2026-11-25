@@ -34,15 +34,15 @@ interface K8sClusterCreateDialogProps {
 }
 
 interface DiscoveredCluster {
-  name?: string;
-  master_service_name?: string;
-  cluster_service_name?: string;
-  master_workload_name?: string;
-  master_workload_kind?: string;
-  worker_workload_name?: string;
-  worker_workload_kind?: string;
+  base_name?: string;
+  namespace?: string;
+  master?: {kind?: string; name?: string; replicas?: number; ready_replicas?: number; image?: string};
+  worker?: {kind?: string; name?: string; replicas?: number; ready_replicas?: number; image?: string};
+  services?: string[];
   configmap_name?: string;
   label_selector?: string;
+  master_http_port?: number;
+  hazelcast_port?: number;
 }
 
 /**
@@ -123,14 +123,22 @@ export function K8sClusterCreateDialog({open, onOpenChange, onSuccess}: K8sClust
   }, [mode, form.host_id, form.namespace, loadDiscovered]);
 
   const pickDiscovered = (d: DiscoveredCluster) => {
+    // master service 命名通常含 master；cluster service 为 headless 基础名，取剩余候选。
+    // The master service name usually contains master; the cluster service is the headless
+    // base name picked from the remaining candidates.
+    const services = d.services || [];
+    const masterSvc = services.find((s) => s.toLowerCase().includes('master')) || '';
+    const clusterSvc = services.find((s) => s !== masterSvc && !s.toLowerCase().includes('proxy')) || '';
     setForm((f) => ({
       ...f,
-      name: f.name || d.name || '',
-      master_service_name: d.master_service_name || '',
-      cluster_service_name: d.cluster_service_name || '',
-      master_workload_name: d.master_workload_name || '',
-      worker_workload_name: d.worker_workload_name || '',
+      name: f.name || d.base_name || '',
+      master_service_name: masterSvc,
+      cluster_service_name: clusterSvc,
+      master_workload_name: d.master?.name || '',
+      worker_workload_name: d.worker?.name || '',
       configmap_name: d.configmap_name || '',
+      master_http_port: d.master_http_port || f.master_http_port,
+      hazelcast_port: d.hazelcast_port || f.hazelcast_port,
     }));
   };
 
@@ -228,7 +236,7 @@ export function K8sClusterCreateDialog({open, onOpenChange, onSuccess}: K8sClust
               <div className='flex flex-wrap gap-2'>
                 {discovered.map((d, i) => (
                   <Button key={i} size='sm' variant='secondary' onClick={() => pickDiscovered(d)}>
-                    {d.name || d.master_service_name || `cluster-${i + 1}`}
+                    {d.base_name || d.master?.name || `cluster-${i + 1}`}
                   </Button>
                 ))}
               </div>

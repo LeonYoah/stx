@@ -26,6 +26,10 @@ import (
 	"testing"
 )
 
+func testEndpoint(url string) *ConfigToolEndpoint {
+	return &ConfigToolEndpoint{BaseURL: url}
+}
+
 func TestDefaultConfigToolClientInspectDagAndPreview(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/config/dag", func(w http.ResponseWriter, r *http.Request) {
@@ -97,16 +101,16 @@ func TestDefaultConfigToolClientInspectDagAndPreview(t *testing.T) {
 	defer server.Close()
 
 	client := NewDefaultConfigToolClient()
-	if _, err := client.InspectDAG(context.Background(), server.URL, &ConfigToolContentRequest{Content: "env {}", ContentFormat: "hocon"}); err != nil {
+	if _, err := client.InspectDAG(context.Background(), testEndpoint(server.URL), &ConfigToolContentRequest{Content: "env {}", ContentFormat: "hocon"}); err != nil {
 		t.Fatalf("InspectDAG returned error: %v", err)
 	}
-	if _, err := client.InspectWebUIDAG(context.Background(), server.URL, &ConfigToolContentRequest{Content: "env {}", ContentFormat: "hocon"}); err != nil {
+	if _, err := client.InspectWebUIDAG(context.Background(), testEndpoint(server.URL), &ConfigToolContentRequest{Content: "env {}", ContentFormat: "hocon"}); err != nil {
 		t.Fatalf("InspectWebUIDAG returned error: %v", err)
 	}
-	if _, err := client.ValidateConfig(context.Background(), server.URL, &ConfigToolValidateRequest{ConfigToolContentRequest: ConfigToolContentRequest{Content: "env {}", ContentFormat: "hocon"}, TestConnection: true}); err != nil {
+	if _, err := client.ValidateConfig(context.Background(), testEndpoint(server.URL), &ConfigToolValidateRequest{ConfigToolContentRequest: ConfigToolContentRequest{Content: "env {}", ContentFormat: "hocon"}, TestConnection: true}); err != nil {
 		t.Fatalf("ValidateConfig returned error: %v", err)
 	}
-	if _, err := client.DeriveSourcePreview(context.Background(), server.URL, &ConfigToolPreviewRequest{ConfigToolContentRequest: ConfigToolContentRequest{Content: "env {}", ContentFormat: "hocon"}, HttpSink: map[string]interface{}{"url": "https://preview.example.com"}}); err != nil {
+	if _, err := client.DeriveSourcePreview(context.Background(), testEndpoint(server.URL), &ConfigToolPreviewRequest{ConfigToolContentRequest: ConfigToolContentRequest{Content: "env {}", ContentFormat: "hocon"}, HttpSink: map[string]interface{}{"url": "https://preview.example.com"}}); err != nil {
 		t.Fatalf("DeriveSourcePreview returned error: %v", err)
 	}
 }
@@ -122,7 +126,7 @@ func TestDefaultConfigToolClientParsesFriendlyConfigErrors(t *testing.T) {
 	defer server.Close()
 
 	client := NewDefaultConfigToolClient()
-	_, err := client.InspectWebUIDAG(context.Background(), server.URL, &ConfigToolContentRequest{Content: "broken", ContentFormat: "hocon"})
+	_, err := client.InspectWebUIDAG(context.Background(), testEndpoint(server.URL), &ConfigToolContentRequest{Content: "broken", ContentFormat: "hocon"})
 	if err == nil {
 		t.Fatal("expected error")
 	}

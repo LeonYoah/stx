@@ -1,92 +1,40 @@
-# Devin 实施进度记录（工作笔记，非交付物）
+# Review 修复进度（第二轮 — P0/P1/P2）
 
-> 用于上下文压缩后快速恢复现场。分支 `feat/k8s-p1-session-foundation`。
+## 用户最新指令（2026-11-25 18:12）
+修复 PR #208 Review 清单全部 P0/P1/P2 + 补齐 P1 收尾，云端 Minikube 复验推送。远端已同步（设计文档更新：Master HTTP 自 Patch 为 Open Discussion、Session SA 不再授 services:patch、InfraType 上移公共层 size:64、extra_mounts 预留）。
 
-## 已完成
-- go.mod 引入 k8s.io/client-go v0.37.1 + api/apimachinery v0.37.1（prometheus 保持 v0.316.0）
-- `internal/utils/secretbox`（AES-256-GCM，enc:v1: 前缀，明文兼容）+ 单测全绿；`internal/config/config.go` init 中 `secretbox.SetSecret(Config.App.SessionSecret)`
-- `internal/pkg/k8s` 全部实现并单测全绿：
-  - types.go：InfraType/ManagementSource/AccessMode/JavaProxyMode 常量，SessionConfig（ApplyDefaults/Validate 端口契约 1-65535 且互不相同/ParseSessionConfig JSON 往返）
-  - client_manager.go：Credentials/AuthMode(kubeconfig|token|in_cluster)、ClientManager（指纹缓存失效、NewClientManagerWithFactory 可注入 fake）、BuildRESTConfig、PrecheckRBAC（SelfSubjectAccessReview 覆盖 pods/sts/deploy/svc(含patch)/cm/secrets/jobs/pods/proxy/pods/log，纯只读）、ServerVersion、ListNamespaces
-  - transport.go：Transport（ServiceBaseURL/PodBaseURL apiserver_proxy→`{host}/api/v1/namespaces/{ns}/services|pods/http:{name}:{port}/proxy`、in_cluster、external；RoundTripper apiserver_proxy 用 rest.TransportFor；HTTPClient）
-  - discovery.go：Discoverer 配对 master/worker、labels/configmap/services 关联
-  - session_render.go：seatunnel.yaml(http port=master_http_port)/hazelcast-master|worker.yaml(rest-api.enabled:false + kubernetes service-dns 发现)/hazelcast-client/jvm/log4j2 模板
-  - session_deploy.go：SessionManager.Deploy（Namespace/RBAC/ConfigMap/Headless svc×2/Master+Worker StatefulSet PID1 直接 command、terminationGracePeriodSeconds 120、master readiness /overview、worker tcp 5801）幂等 upsert；Uninstall 按确定性命名删除、绝不删 PVC；ResourceNamesFor `<code>-master/-worker/-configs`
-  - session_ops.go：SessionPods/ListPodsByLabel/Scale/GetReplicas/RolloutRestart/UpgradeImage/PatchProxyImage(strategic merge 按第一容器名)/ReadConfigMap/WriteConfigMapFile/PodLogs/GetWorkloadStatus
-  - java_proxy.go：JavaProxyManager.EnsureProxy（jar CM binaryData+sha256 注解、resolveTargetPodTemplate 克隆、cloneProxyVolumes 白名单 `/opt/seatunnel/{connectors,plugins,lib,config,starter}`+checkpoint、跳过 RWO PVC、克隆 RWX/ROX PVC 与插件 initContainers、java command 直接 exec、readiness /healthz）/DeleteProxy/GetProxyStatus；ProxyJarLoader func 注入；ProxyResourceNames `stx-java-proxy-<code>` + `stx-java-proxy-jar-<code>`
-- host model：新增 k8s_auth_mode/k8s_ca_cert/k8s_insecure_skip_tls 列；HostInfo 加 has_k8s_kubeconfig/has_k8s_token（无明文）；Create/Update request 对齐
-- host service：创建加密落库、更新留空保留原值、非空重新加密（secretbox）
+## 已完成（未提交）
+- P0-1: Uninstall 彻底移除 Namespace 删除逻辑（保留打标但不再使用）✅
+- P0-3: RBACRequiredRules 按真实模型拆填 Group/Resource/Subresource/Verb（apps/batch 组、pods/proxy+pods/log+services/proxy 子资源、proxy 加 create、services 去 patch）✅ 单测待补
+- P1-8a: Session SA Role 移除 services:patch ✅
+- P1-8c: upsertService 更新保留已有 ClusterIP + 同步 PublishNotReadyAddresses ✅
+- P1-8d: CreateRBAC 仅当 cfg.ServiceAccount=="" ✅
+- P0-2: 新建 internal/pkg/infra 叶子包（Type 常量 + IsK8s/IsK8sSession/Effective，含 legacy "kubernetes" 兼容）+ infra_test.go ✅；pkg/k8s/types.go InfraType 块已删；model.go size:64 + IsKubernetes 用 infra.IsK8s；k8s.go:214 写 infra.TypeK8sSession；SessionConfig.ExtraMounts（ExtraMount: Name/Kind(configmap|secret)/Source/MountPath/ReadOnly/Env）已加 ✅
+- 前端：ClusterPlugins infra_type 兼容 kubernetes_* 前缀；types.ts 联合类型拓宽 ✅
+- P0-5: K8sClusterCreateDialog 对齐 DiscoveredCluster 真实结构（base_name/master.workload对象/services[]/configmap_name/label_selector/master_http_port/hazelcast_port），pickDiscovered 派生 master svc（含 master 字串）与 cluster svc ✅
+- P0-4a: GetK8sPodLogs 越权校验（SessionPods 名单或伴生 Proxy 前缀，否则拒绝）✅
 
-## 进行中（Step3 剩余）
-- host handler：test-connection（纯只读 RBAC 预检+版本）、GET k8s/namespaces、GET k8s/discover 接口 + 凭据解密 loader 注入 K8sClientManager；host 需要构造全局 ClientManager 供各域复用（建议 router.go 组装，loader 读 host repo + secretbox.Decrypt）
-- cluster model：infra_type/k8s_host_id/auto_registered/parent_cluster_id/source_job_instance_id + migrator + ToClusterInfo + scope 过滤（默认 managed 排除 auto_registered=true）
-- cluster service/handler：K8s 创建（adopted/stx_deployed）+ 伴生 Proxy 自动拉起+healthz 探活、双校验健康、scale/rollout-restart/upgrade-image 接口、删除边界（adopted 只删 Proxy、stx_deployed 勾选才删）、WebUI 代理、Pod 投影节点
+## 进行中（下一个动作）
+- P0-4b: 消除 HostTransportRegistry 进程级全局注册表 + sync/config_tool_client.go:567 包级全局变量
+  方案已定：
+  1. sync 包新增 ConfigToolEndpoint struct{BaseURL string; Transport http.RoundTripper}
+  2. ConfigToolResolver 接口与 DefaultConfigToolResolver 返回 *ConfigToolEndpoint（2 处调用：plan_dag.go:98、plugin_template.go:372）
+  3. ConfigToolClient 接口 11 个方法 endpoint string → *ConfigToolEndpoint（约 17 个调用点，机械替换）；DefaultConfigToolClient.postJSON 内部用 endpoint.BaseURL 拼 URL，按 endpoint.Transport 选 client（nil 用默认）
+  4. DefaultConfigToolResolver 结构体加 k8sManager 字段 + SetK8sManager 方法注入；删包级 k8sConfigToolClientManager 变量与 SetK8sConfigToolClientManager（router.go 调用点改）
+  5. pkg/k8s/transport.go 删除 HostTransportRegistry/DefaultHostTransportRegistry/DelegatingRoundTripper 全部及 sync import；NewDefaultConfigToolClient 不再用 DelegatingRoundTripper
+  注意：字符串 endpoint 来源（task override proxy_base_url）包装为 &ConfigToolEndpoint{BaseURL: s}
 
-## 待办
-- Step4 sync/monitoring/config/plugin 接入；Step5 CLI+前端；Step6 云端 e2e（minikube seatunnel 集群纳管 + seatunnel-stx-e2e 一键部署）；质量检查+推送 PR #208
-- stx-java-proxy jar：需编译 tools/stx-java-proxy 得 v2/v3 jar 放 lib/（无 maven，需安装；e2e 前必须解决）
-- 质量规范：新文件 ASF License 头、注释中英双语中文在前只写 why、不新增「中文 / English」拼接文案、CLI 对齐 internal/cmd、数组字段非 nil
+## 待办（按序）
+- P0 补单测：RBAC 规则逐条断言 Group/Resource/Subresource/Verb
+- P1-6: cloneProxyVolumes 悬空 VolumeMount 修复（按 clonedVolumeNames 反过滤 mounts）+ RWO 跳过单测
+- P1-7: sync 漏点——service.go:1685 submitNewTask K8s local 拦截（已做？验证）；engine_client.go:910 删 /*UNRESOLVED*/ 用 clientForEndpoint；engine_client_realtime.go:178 同改
+- P1-8e: CreateKubernetes 探活改 15-20s 短等待不阻断+proxy_status/PodEvents+cluster.Status 按实际更新；JavaProxyMode 全分支（ReuseCluster/External/Disabled 覆盖 EnsureK8sJavaProxy/UpgradeK8sImage/ListK8sImageConnectors）；ListK8sImageConnectors 查 StatusCode
+- P1-8f: 前端 ClusterPlugins K8s 只读彻底隐藏安装/卸载/复选框+不可变镜像提示；K8sClusterCreateDialog 用 Arc Select+i18n 端口标签+DirtyCloseDialog+proxy_status 不健康展示 PodEvents+一键重试
+- P1-9 后端: health.go 双校验（Pod Ready + /overview 探活）、webui_master.go K8s 代理、availability_evaluator 跳过 agent_offline、config 域 K8s ConfigMap 分支、capabilities.go K8s 能力位、CLI 新操作单测
+- P1-9 前端: EditHostDialog K8s 字段+留空保留提示、test-connection 按钮+RBAC 展示、集群详情 Pod 列表/扩缩容/滚动重启/镜像升级/ConfigMap UI、工作台隐藏 local
+- P2: gofmt+import 分组、host/k8s.go:155,184 HTTP 错误码、删本文件、复验 AC-2/3/4（确认卸载不删 Namespace 且 PVC 完好）、全绿推送
 
-## 关键事实
-- minikube API: https://192.168.49.2:8443，kubeconfig 在 ~/.kube/config（minikube 上下文）
-- 云端 seatunnel ns：sts seatunnel-master(1/1)+seatunnel-worker(2/2)，svc seatunnel(5801 headless)/seatunnel-master(8080 headless)/seatunnel-worker，cm seatunnel-configs，镜像 apache/seatunnel:3.1.0
-- apiserver_proxy 已实测可用：GET /api/v1/namespaces/seatunnel/services/http:seatunnel-master:8080/proxy/overview 200
-- 检查命令：go test ./... ; (cd agent && go test ./...) ; cd frontend && pnpm exec tsc --noEmit && pnpm test
-- STX API：go run main.go api :17800，admin/admin123，前端 pnpm dev :3000
-
-## 追加进度（第二轮）
-- host/k8s.go：K8sCredentialsLoaderFromRepository + TestK8sConnection（版本+RBAC 预检，成功才刷新版本/在线）+ ListK8sNamespaces + DiscoverK8sSeaTunnelClusters；handler 注入 k8sManager
-- router.go：k8sClientManager 唯一实例 + k8sJarLoader（lib/stx-java-proxy-{epoch}.jar）+ k8sHostTypeChecker；host 路由 test-connection/k8s/namespaces/k8s/discover；cluster 路由 POST /clusters/kubernetes + /:id/k8s/{scale,rollout-restart,upgrade-image,pods,pods/:pod/logs,java-proxy/retry,configmap(GET/PUT :file)}
-- cluster model：InfraType/K8sHostID/AutoRegistered/ParentClusterID/SourceJobInstanceID 列 + IsKubernetes/K8sSessionConfig/effectiveInfraType + ClusterFilter.Scope（managed 默认排 auto_registered）；repository scope 过滤；handler Scope 绑定
-- cluster/k8s.go：CreateKubernetes（stx_deployed 先 Deploy 含 CreateRBAC，失败回滚记录）+ EnsureK8sJavaProxy（90s healthz 宽限，失败带 PodEvents 不阻断）+ Delete/Uninstall/Scale/RolloutRestart/UpgradeImage（同步滚动 Proxy+更新 image 落库）+ Pods/PodLogs/ConfigMap 读写 + 全部 HTTP handler
-- cluster Delete：K8s 边界（adopted 仅删 Proxy；stx_deployed 复用 forceRemoveInstallDir 作显式勾选才 Uninstall；失败 log 不阻断）
-- sync engine_client：EngineEndpoint.Transport 字段 + clientForEndpoint（12 个 Do 调用点已换）+ resolver K8s 分支（resolveK8sEndpoints：ServiceBaseURL master service + RoundTripper）+ router 注入 SetK8sClientManager
-- 全部编译通过；go test cluster/host 绿
-
-## 待办（优先级序）
-1. sync GetJobLogs K8s 分支（PodLogs 替代文件日志）+ 工作台拦截 K8s 集群 local 模式
-2. monitoring /metrics 经 K8sTransport（参考 engine_client 同 pattern；availability_evaluator 跳过 agent_offline for k8s）
-3. config 模块：K8s 集群走 ConfigMap（cluster 层已有读写接口，config 域接分支）
-4. plugin 只读：K8s 集群拒绝 install/uninstall 写操作 + 列表走伴生 proxy
-5. seatunnel/capabilities.go K8s 能力位
-6. CLI internal/cmd（host kubernetes 参数 + cluster kubernetes 子命令）+ 单测
-7. 前端（主机 K8s 表单/集群创建向导/详情适配/工作台隐藏 local）
-8. 编译 stx-java-proxy jar → lib/（maven 需装；e2e 必须）
-9. e2e AC-2/3/4 + 全量检查 + 推送
-
-## 追加进度（第三轮 — e2e 验证大部分通过）
-- 已提交 4 个 commit 到 feat/k8s-p1-session-foundation（未推送）
-- 云端实测通过（minikube host id=1）：
-  - AC-2: host test-connection connected=true v1.37.0 RBAC 全绿; namespaces/discover 精确识别
-  - AC-3 纳管: cluster id=1 seatunnel-adopted 创建+伴生 Proxy healthy=true; 插件只读清单 ActiveMQ 等经 Proxy; 写操作拦截报错正确（含 StartInstallPluginAsync/UninstallPluginFromCluster 守卫）; FakeSource BATCH 作业 submit running→reconcile success sync=ok; PodLogs/ConfigMap 读取/scale worker 2→3→2 真实生效
-  - AC-4 一键部署: cluster id=6 stx-e2e-deploy (ns seatunnel-stx-e2e) 1master+1worker 39s 就绪 Members size=2; 作业 submit→success; upgrade-image success
-  - R2 删除确认流验证: 同 Idempotency-Key + X-STX-Confirmation-ID 头两步
-- 修复的缺陷：GetByName ErrClusterNotFound 兼容、stx_deployed 确定性命名回填、headless svc publishNotReadyAddresses+engine-member 标签（组网鸡生蛋）、STS template labels 合并 selector 标签
-- CLI: operation/k8s.go 注册全部新操作（reads 生成式 CLI；writes clusterBody/clusterGenerated）；host create/update 加 k8s 凭据 flags（@文件引用）；已验证命令树生成；stx auth login --server 方式见 docs/内置监控说明.md:167
-- lib/: stx-java-proxy-v2.jar + v3.jar 已编译（maven /opt/apache-maven-3.9.9）注意 lib/ 是否该入库需确认（.gitignore 检查）
-- API 服务：go run main.go api 后台运行 :17800；minikube host id=1 已建
-
-## 剩余待办
-1. AC-4 收尾: cluster 6 勾选清理删除验证无残留（force_delete 参数查证——Delete 用 forceRemoveInstallDir 语义复用）
-2. AC-3 收尾: 解绑删除 cluster 1 验证 seatunnel 原 StatefulSet 无损
-3. 前端（最大块）：host 表单 auth_mode/test-connection/RBAC 展示/编辑留空保留（CreateHostDialog 已有部分 k8s 字段）；cluster 创建向导 K8s（adopt/deploy）；集群详情 pods/scale/upgrade-image/configmap/插件只读；工作台隐藏 local
-4. capabilities.go K8s 能力位（未做）
-5. monitoring availability_evaluator 跳过 agent_offline for k8s（未验证是否需要）
-6. config 域 K8s 分支（ConfigMap 读写接口已在 cluster 层，config 域未接）
-7. WebUI 代理 K8s 适配（webui_master.go 未接）
-8. 全量检查 + 推送 PR #208
-
-## 最终阶段（第四轮）
-- AC-3/AC-4 全部 e2e 验证通过：纳管解绑零损伤、一键部署全链路（组网/作业/升级/卸载无残留）
-- 前端已交付：K8sClusterCreateDialog（纳管/一键部署）、ClusterMain 接线、CreateHostDialog auth_mode/ca_cert/insecure、类型与服务方法、插件批量卸载 K8s 守卫、i18n 双语
-- 修复 main 预存 data race（mockOperationAgentSender 加锁+snapshot）
-- 修复 dialog-width 规范（禁用无前缀 max-w-*）
-
-## 已知遗留（诚实清单）
-- EditHostDialog 编辑态 K8s 字段未加（创建对话框已加）
-- 集群详情页 Pod 列表/扩缩容/镜像升级/ConfigMap 查看 UI 未做（后端 API+CLI 已全）
-- 工作台 K8s 集群 local 模式前端隐藏未做（后端已拒绝拦截）
-- host test-connection 前端按钮未加（后端接口已通）
-- capabilities bits / webui 代理 / config 域 K8s 分支未做
-- CLI 新操作单测未补（命令已生成可用）
-- UserManagement.test 全量并行下偶发失败（main 预存 flaky，孤立运行通过）
+## 环境事实
+- API server 需重启加载新代码：go run main.go api 端口 17800（杀进程按 ss -tlnp 找 pid）
+- minikube host id=1、stx-cookie.txt 在 /tmp
+- 原 seatunnel ns 集群完好；seatunnel-stx-e2e ns 已删（可复用名）

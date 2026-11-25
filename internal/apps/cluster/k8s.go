@@ -30,6 +30,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	pluginapp "github.com/LeonYoah/stx/internal/apps/plugin"
+	"github.com/LeonYoah/stx/internal/pkg/infra"
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
@@ -211,7 +212,7 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 		Version:        req.Version,
 		DeploymentMode: DeploymentModeSeparated,
 		Status:         ClusterStatusCreated,
-		InfraType:      "kubernetes",
+		InfraType:      string(infra.TypeK8sSession),
 		K8sHostID:      &req.HostID,
 		Config:         ClusterConfig{},
 	}
@@ -254,7 +255,7 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 	}
 	if cfg.ManagementSource == k8s.ManagementSourceSTXDeployed {
 		deployer := k8s.NewSessionManager(s.k8sManager)
-		if _, err := deployer.Deploy(ctx, &k8s.DeployOptions{Config: cfg, ClusterCode: cluster.EffectiveClusterCode(), ClusterID: cluster.ID, CreateRBAC: true}); err != nil {
+		if _, err := deployer.Deploy(ctx, &k8s.DeployOptions{Config: cfg, ClusterCode: cluster.EffectiveClusterCode(), ClusterID: cluster.ID, CreateRBAC: cfg.ServiceAccount == ""}); err != nil {
 			_ = s.repo.Delete(ctx, cluster.ID)
 			return nil, fmt.Errorf("deploy kubernetes resources: %w", err)
 		}
@@ -451,6 +452,28 @@ func (s *Service) GetK8sPodLogs(ctx context.Context, cluster *Cluster, podName s
 		return "", err
 	}
 	ops := k8s.NewSessionManager(s.k8sManager)
+	// 越权防护：只允许读取本集群引擎 Pod 或本集群伴生 Proxy Pod 的日志，
+	// 拒绝读取同 Namespace 其他 Pod。
+	// Authorization guard: only engine pods of this cluster or its companion proxy pod
+	// may be read; other pods in the same namespace are rejected.
+	allowed := false
+	if pods, err := ops.SessionPods(ctx, cfg, cluster.EffectiveClusterCode()); err == nil {
+		for _, pod := range pods {
+			if pod.Name == podName {
+				allowed = true
+				break
+			}
+		}
+	}
+	if !allowed {
+		proxyDeployment, _, _ := k8s.ProxyResourceNames(cluster.EffectiveClusterCode())
+		if strings.HasPrefix(podName, proxyDeployment+"-") {
+			allowed = true
+		}
+	}
+	if !allowed {
+		return "", fmt.Errorf("cluster: pod %q does not belong to this cluster", podName)
+	}
 	return ops.PodLogs(ctx, cfg, podName, int64(tailLines), nil)
 }
 

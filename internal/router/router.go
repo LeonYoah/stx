@@ -916,14 +916,15 @@ func Serve() {
 			syncService.SetEngineClient(syncapp.NewSeaTunnelEngineClient())
 			syncRuntimeResolver := syncapp.NewDefaultClusterRuntimeResolver(clusterRepo, hostRepo)
 			syncRuntimeResolver.SetK8sClientManager(k8sClientManager)
-			syncapp.SetK8sConfigToolClientManager(k8sClientManager)
 			syncService.SetRuntimeResolver(syncRuntimeResolver)
 			syncService.SetExecutionTargetResolver(syncapp.NewDefaultExecutionTargetResolver(clusterRepo, hostRepo))
 			syncService.SetClusterLogProvider(clusterService)
 			syncService.SetClusterVersionProvider(clusterService)
 			syncService.SetClusterDiscoveryProvider(clusterService)
 			syncService.SetConfigToolClient(syncapp.NewDefaultConfigToolClient())
-			syncService.SetConfigToolResolver(syncapp.NewDefaultConfigToolResolver(clusterService))
+			configToolResolver := syncapp.NewDefaultConfigToolResolver(clusterService)
+			configToolResolver.SetK8sManager(k8sClientManager)
+			syncService.SetConfigToolResolver(configToolResolver)
 			if agentManager != nil {
 				syncService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 			}

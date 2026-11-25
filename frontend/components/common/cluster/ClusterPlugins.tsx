@@ -112,7 +112,9 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
       const data = await services.plugin.listInstalledPlugins(clusterId);
       try {
         const info = await services.cluster.getCluster(clusterId);
-        setIsK8sCluster(info.infra_type === 'kubernetes');
+        // 兼容历史过渡值 kubernetes；契约值为 kubernetes_session / kubernetes_application_*。
+        // Tolerates the legacy literal kubernetes; contractual values are kubernetes_session / kubernetes_application_*.
+        setIsK8sCluster(info.infra_type === 'kubernetes' || info.infra_type?.startsWith('kubernetes_') === true);
       } catch {
         setIsK8sCluster(false);
       }

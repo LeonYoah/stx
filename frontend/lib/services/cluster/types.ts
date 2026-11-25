@@ -172,7 +172,7 @@ export interface ClusterInfo {
   /** Deployment mode / 部署模式 */
   deployment_mode: DeploymentMode;
   /** Infrastructure type / 基础设施类型 */
-  infra_type?: 'bare_metal' | 'kubernetes';
+  infra_type?: 'bare_metal' | 'kubernetes' | 'kubernetes_session' | 'kubernetes_application_template' | 'kubernetes_application_instance';
   /** K8s host ID / K8s 主机 ID */
   k8s_host_id?: number;
   /** Management source for k8s clusters / K8s 纳管来源 */

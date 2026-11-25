@@ -96,7 +96,7 @@ func (s *Service) getJobPlanDAG(ctx context.Context, job *JobInstance) (*JobPlan
 	}
 	clusterID := clusterIDForJob(ctx, s, job, map[uint]uint{})
 	endpoint, err := s.configToolResolver.ResolveConfigToolEndpoint(ctx, clusterID, definition)
-	if err != nil || strings.TrimSpace(endpoint) == "" {
+	if err != nil || endpoint == nil || strings.TrimSpace(endpoint.BaseURL) == "" {
 		result.Reason = PlanDAGReasonConfigToolUnavailable
 		return result, nil
 	}

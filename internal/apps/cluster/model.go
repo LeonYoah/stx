@@ -19,6 +19,7 @@
 package cluster
 
 import (
+	"github.com/LeonYoah/stx/internal/pkg/infra"
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"database/sql/driver"
 	"encoding/json"
@@ -200,7 +201,7 @@ type Cluster struct {
 	// link to their host via K8sHostID; auto_registered/parent_cluster_id/source_job_instance_id
 	// are reserved for the P2 App submitter — P1 only persists them, while scope queries use
 	// auto_registered to filter derived instances.
-	InfraType           string `json:"infra_type" gorm:"size:20;default:bare_metal;index"`
+	InfraType           string `json:"infra_type" gorm:"size:64;default:bare_metal;index"`
 	K8sHostID           *uint  `json:"k8s_host_id" gorm:"index"`
 	AutoRegistered      bool   `json:"auto_registered" gorm:"default:false;index"`
 	ParentClusterID     *uint  `json:"parent_cluster_id" gorm:"index"`
@@ -318,16 +319,13 @@ func (c *Cluster) ToClusterInfo() *ClusterInfo {
 // effectiveInfraType 兼容旧行：空值按 bare_metal 处理，避免前端分支判断空串。
 // effectiveInfraType treats empty legacy rows as bare_metal so frontends never branch on empty strings.
 func effectiveInfraType(v string) string {
-	if v == "" {
-		return "bare_metal"
-	}
-	return v
+	return infra.Effective(v)
 }
 
 // IsKubernetes 判断集群是否为 K8s 基础设施。
 // IsKubernetes reports whether the cluster runs on Kubernetes infrastructure.
 func (c *Cluster) IsKubernetes() bool {
-	return effectiveInfraType(c.InfraType) == "kubernetes"
+	return infra.IsK8s(c.InfraType)
 }
 
 // K8sSessionConfig 解析 Config["kubernetes"] 为 SessionConfig；非 K8s 集群或解析失败返回 nil。

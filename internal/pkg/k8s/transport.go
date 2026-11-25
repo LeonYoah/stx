@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"k8s.io/client-go/rest"
@@ -150,71 +149,3 @@ func (t *Transport) HTTPClient(ctx context.Context, timeout time.Duration) (*htt
 	return &http.Client{Transport: rt, Timeout: timeout}, nil
 }
 
-// HostTransportRegistry 按 URL host 注册定制 RoundTripper（apiserver_proxy 主机维度），
-// 供只拿到 endpoint 字符串的调用方（如 config tool client）透明继承 TLS/认证。
-// HostTransportRegistry registers custom RoundTrippers by URL host (apiserver_proxy hosts) so
-// callers that only receive an endpoint string (e.g. the config tool client) transparently
-// inherit TLS/auth material.
-type HostTransportRegistry struct {
-	mu sync.RWMutex
-	byHost map[string]http.RoundTripper
-}
-
-// NewHostTransportRegistry 创建空注册表。
-// NewHostTransportRegistry creates an empty registry.
-func NewHostTransportRegistry() *HostTransportRegistry {
-	return &HostTransportRegistry{byHost: map[string]http.RoundTripper{}}
-}
-
-// Register 登记 host（含端口）到 RoundTripper 的映射。
-// Register records the host(including port) → RoundTripper mapping.
-func (r *HostTransportRegistry) Register(rawURL string, rt http.RoundTripper) {
-	if r == nil || rt == nil {
-		return
-	}
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.byHost[u.Host] = rt
-}
-
-// Lookup 返回 host 对应 RoundTripper；未注册返回 nil。
-// Lookup returns the RoundTripper for a host; nil when unregistered.
-func (r *HostTransportRegistry) Lookup(host string) http.RoundTripper {
-	if r == nil {
-		return nil
-	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.byHost[host]
-}
-
-// DefaultHostTransportRegistry 是进程级共享注册表，由 router 装配期写入。
-// DefaultHostTransportRegistry is the process-wide shared registry populated during router wiring.
-var DefaultHostTransportRegistry = NewHostTransportRegistry()
-
-// DelegatingRoundTripper 按请求 host 委托已注册 Transport，未命中回退 base。
-// DelegatingRoundTripper delegates to registered transports by request host, falling back to base.
-type DelegatingRoundTripper struct {
-	Base     http.RoundTripper
-	Registry *HostTransportRegistry
-}
-
-// RoundTrip implements http.RoundTripper.
-func (d *DelegatingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	registry := d.Registry
-	if registry == nil {
-		registry = DefaultHostTransportRegistry
-	}
-	if rt := registry.Lookup(req.URL.Host); rt != nil {
-		return rt.RoundTrip(req)
-	}
-	base := d.Base
-	if base == nil {
-		base = http.DefaultTransport
-	}
-	return base.RoundTrip(req)
-}

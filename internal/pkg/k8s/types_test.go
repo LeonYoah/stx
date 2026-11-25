@@ -141,13 +141,3 @@ func TestSessionConfigValidate_portContract(t *testing.T) {
 	})
 }
 
-func TestInfraTypeIsK8s(t *testing.T) {
-	if InfraTypeBareMetal.IsK8s() {
-		t.Fatal("bare_metal should not be k8s")
-	}
-	for _, infra := range []InfraType{InfraTypeK8sSession, InfraTypeK8sAppTemplate, InfraTypeK8sAppInstance} {
-		if !infra.IsK8s() {
-			t.Fatalf("%q should be k8s", infra)
-		}
-	}
-}

@@ -499,3 +499,76 @@ func TestTransport_baseURLs(t *testing.T) {
 		t.Fatalf("unexpected external url %q", svcExternal)
 	}
 }
+
+// TestRBACRequiredRulesFollowRealModel 逐条断言预检规则遵循真实 K8s RBAC 模型，
+// 防止非 cluster-admin 集群上的假阴性回归。
+// TestRBACRequiredRulesFollowRealModel asserts every precheck rule follows the real K8s RBAC
+// model, guarding against false negatives on non-cluster-admin clusters.
+func TestRBACRequiredRulesFollowRealModel(t *testing.T) {
+	expect := map[string]struct {
+		group       string
+		resource    string
+		subresource string
+	}{
+		"pods":         {"", "pods", ""},
+		"statefulsets": {"apps", "statefulsets", ""},
+		"deployments":  {"apps", "deployments", ""},
+		"jobs":         {"batch", "jobs", ""},
+		"services":     {"", "services", ""},
+		"configmaps":   {"", "configmaps", ""},
+		"secrets":      {"", "secrets", ""},
+	}
+	seen := map[string]bool{}
+	for _, rule := range RBACRequiredRules {
+		key := rule.Resource
+		if rule.Subresource != "" {
+			key = rule.Resource + "/" + rule.Subresource
+		}
+		seen[key] = true
+		if rule.Subresource == "" {
+			want, ok := expect[rule.Resource]
+			if !ok {
+				t.Fatalf("unexpected resource %q in rules", rule.Resource)
+			}
+			if rule.Group != want.group {
+				t.Fatalf("resource %q: group=%q want %q", rule.Resource, rule.Group, want.group)
+			}
+		} else {
+			if rule.Group != "" {
+				t.Fatalf("subresource rule %q: core group must be empty, got %q", key, rule.Group)
+			}
+			switch key {
+			case "pods/proxy", "pods/log", "services/proxy":
+			default:
+				t.Fatalf("unexpected subresource rule %q", key)
+			}
+		}
+	}
+	// proxy 子资源必须覆盖 create（REST 代理提交作业与伴生 Proxy 调用都是 POST 语义）。
+	// Proxy subresources must cover create since proxied job submission and companion proxy
+	// calls are POST semantics.
+	proxyCreate := map[string]bool{}
+	for _, rule := range RBACRequiredRules {
+		if rule.Verb == "create" && rule.Subresource != "" {
+			proxyCreate[rule.Resource+"/"+rule.Subresource] = true
+		}
+	}
+	for _, key := range []string{"pods/proxy", "services/proxy"} {
+		if !proxyCreate[key] {
+			t.Fatalf("%s must include create verb", key)
+		}
+	}
+	// services 不再包含 patch（Session 最小权限，Master HTTP 自发布仍为 Open Discussion）。
+	// services no longer carries patch (session least privilege; master HTTP self-publish is
+	// still an open discussion).
+	for _, rule := range RBACRequiredRules {
+		if rule.Resource == "services" && rule.Subresource == "" && rule.Verb == "patch" {
+			t.Fatal("services patch must not be required for session mode")
+		}
+	}
+	for _, key := range []string{"pods/log", "services/proxy", "pods/proxy"} {
+		if !seen[key] {
+			t.Fatalf("missing required subresource rule %q", key)
+		}
+	}
+}

@@ -247,52 +247,59 @@ type RBACCheckItem struct {
 }
 
 // RBACRequiredRules 测试连接必须覆盖的资源与动作；与伴生 Proxy、常驻集群运维、日志读取的
-// 最小权限集一一对应（services 需要 patch 以支持 App Master HTTP 自发布契约）。
-// RBACRequiredRules lists resource/verb pairs the connection test must cover, matching the
-// minimal permission set for companion proxy, session-cluster ops and log reading (services
-// need patch for the App master HTTP self-publish contract).
+// 按真实 K8s RBAC 模型拆填 Group/Resource/Subresource/Verb；services 不含 patch
+//（Session 模式最小权限，Master HTTP 自发布归属尚为 Open Discussion）；services/proxy 与
+// pods/proxy 需要 create，因为 REST 代理提交作业与伴生 Proxy 调用都是 POST 语义。
+// RBACRequiredRules follows the real K8s RBAC model with Group/Resource/Subresource/Verb split;
+// services drops patch (session-mode least privilege, master HTTP self-publish ownership still an
+// open discussion); services/proxy and pods/proxy need create because proxied job submission and
+// companion proxy calls are POST semantics.
 var RBACRequiredRules = []struct {
-	Resource string
-	Verb     string
+	Group       string
+	Resource    string
+	Subresource string
+	Verb        string
 }{
-	{"pods", "get"},
-	{"pods", "list"},
-	{"pods", "watch"},
-	{"pods", "create"},
-	{"pods", "delete"},
-	{"pods/proxy", "get"},
-	{"pods/log", "get"},
-	{"statefulsets", "get"},
-	{"statefulsets", "list"},
-	{"statefulsets", "create"},
-	{"statefulsets", "update"},
-	{"statefulsets", "patch"},
-	{"statefulsets", "delete"},
-	{"deployments", "get"},
-	{"deployments", "list"},
-	{"deployments", "create"},
-	{"deployments", "update"},
-	{"deployments", "patch"},
-	{"deployments", "delete"},
-	{"services", "get"},
-	{"services", "list"},
-	{"services", "create"},
-	{"services", "update"},
-	{"services", "patch"},
-	{"services", "delete"},
-	{"configmaps", "get"},
-	{"configmaps", "list"},
-	{"configmaps", "create"},
-	{"configmaps", "update"},
-	{"configmaps", "patch"},
-	{"configmaps", "delete"},
-	{"secrets", "get"},
-	{"secrets", "list"},
-	{"secrets", "create"},
-	{"jobs", "get"},
-	{"jobs", "list"},
-	{"jobs", "create"},
-	{"jobs", "delete"},
+	{"", "pods", "", "get"},
+	{"", "pods", "", "list"},
+	{"", "pods", "", "watch"},
+	{"", "pods", "", "create"},
+	{"", "pods", "", "delete"},
+	{"", "pods", "proxy", "get"},
+	{"", "pods", "proxy", "create"},
+	{"", "pods", "log", "get"},
+	{"apps", "statefulsets", "", "get"},
+	{"apps", "statefulsets", "", "list"},
+	{"apps", "statefulsets", "", "create"},
+	{"apps", "statefulsets", "", "update"},
+	{"apps", "statefulsets", "", "patch"},
+	{"apps", "statefulsets", "", "delete"},
+	{"apps", "deployments", "", "get"},
+	{"apps", "deployments", "", "list"},
+	{"apps", "deployments", "", "create"},
+	{"apps", "deployments", "", "update"},
+	{"apps", "deployments", "", "patch"},
+	{"apps", "deployments", "", "delete"},
+	{"", "services", "", "get"},
+	{"", "services", "", "list"},
+	{"", "services", "", "create"},
+	{"", "services", "", "update"},
+	{"", "services", "", "delete"},
+	{"", "services", "proxy", "get"},
+	{"", "services", "proxy", "create"},
+	{"", "configmaps", "", "get"},
+	{"", "configmaps", "", "list"},
+	{"", "configmaps", "", "create"},
+	{"", "configmaps", "", "update"},
+	{"", "configmaps", "", "patch"},
+	{"", "configmaps", "", "delete"},
+	{"", "secrets", "", "get"},
+	{"", "secrets", "", "list"},
+	{"", "secrets", "", "create"},
+	{"batch", "jobs", "", "get"},
+	{"batch", "jobs", "", "list"},
+	{"batch", "jobs", "", "create"},
+	{"batch", "jobs", "", "delete"},
 }
 
 // PrecheckRBAC 对目标 Namespace 执行只读 SelfSubjectAccessReview 预检，不写入任何 K8s 对象。
@@ -311,14 +318,19 @@ func (m *ClientManager) PrecheckRBAC(ctx context.Context, hostID uint, namespace
 		review := &authv1.SelfSubjectAccessReview{
 			Spec: authv1.SelfSubjectAccessReviewSpec{
 				ResourceAttributes: &authv1.ResourceAttributes{
-					Namespace: namespace,
-					Resource:  rule.Resource,
-					Verb:      rule.Verb,
+					Namespace:   namespace,
+					Group:       rule.Group,
+					Resource:    rule.Resource,
+					Subresource: rule.Subresource,
+					Verb:        rule.Verb,
 				},
 			},
 		}
 		resp, err := clientset.AuthorizationV1().SelfSubjectAccessReviews().Create(ctx, review, metav1.CreateOptions{})
 		item := RBACCheckItem{Resource: rule.Resource, Verb: rule.Verb}
+		if rule.Subresource != "" {
+			item.Resource = rule.Resource + "/" + rule.Subresource
+		}
 		if err != nil {
 			item.Allowed = false
 			item.Reason = fmt.Sprintf("review failed: %v", err)

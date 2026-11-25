@@ -189,9 +189,9 @@ func ensureNamespace(ctx context.Context, clientset kubernetes.Interface, ns str
 	if !apierrors.IsNotFound(err) {
 		return fmt.Errorf("k8s: get namespace %q failed: %w", ns, err)
 	}
-	// STX 创建的 Namespace 打标，卸载时仅删除带标 Namespace；用户预建的无标 Namespace 永不删除。
-	// STX-created namespaces are labeled so uninstall only removes labeled ones; pre-existing
-	// user namespaces are never deleted.
+	// Namespace 只做标记永不删除：卸载仅回收本集群确定性命名资源，防止级联抹掉外部 PVC 或同 Namespace 其他集群。
+	// The namespace is only labeled and never deleted: uninstall reclaims solely this cluster's
+	// deterministically named resources, preventing cascading loss of external PVCs or sibling clusters.
 	if _, err := clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: ns, Labels: map[string]string{LabelManagedByKey: LabelManagedByValue}},
 	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -209,9 +209,11 @@ func ensureRBAC(ctx context.Context, clientset kubernetes.Interface, ns string, 
 		return fmt.Errorf("k8s: create serviceaccount failed: %w", err)
 	}
 
-	// Hazelcast K8s 发现的 DNS 模式只需要 endpoints/pods 只读；services patch 预留给 App Master HTTP 自发布（P2）。
-	// Hazelcast DNS discovery only needs read access to endpoints/pods; services patch is reserved
-	// for the App master HTTP self-publish flow (P2).
+	// Session 模式 SA 保持最小权限：Hazelcast DNS 发现只需 endpoints/pods/services 只读，
+	// Master HTTP 自发布归属仍为 Open Discussion，不预授 services patch。
+	// Session-mode SA keeps least privilege: Hazelcast DNS discovery only needs read access to
+	// endpoints/pods/services; master HTTP self-publish ownership is still an open discussion,
+	// so services patch is not granted.
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{Name: names.Role, Namespace: ns, Labels: labels},
 		Rules: []rbacv1.PolicyRule{
@@ -219,11 +221,6 @@ func ensureRBAC(ctx context.Context, clientset kubernetes.Interface, ns string, 
 				APIGroups: []string{""},
 				Resources: []string{"endpoints", "pods", "services"},
 				Verbs:     []string{"get", "list", "watch"},
-			},
-			{
-				APIGroups: []string{""},
-				Resources: []string{"services"},
-				Verbs:     []string{"patch"},
 			},
 		},
 	}
@@ -337,7 +334,10 @@ func upsertService(ctx context.Context, clientset kubernetes.Interface, ns strin
 	}
 	existing.Spec.Ports = svc.Spec.Ports
 	existing.Spec.Selector = svc.Spec.Selector
-	existing.Spec.ClusterIP = svc.Spec.ClusterIP
+	// ClusterIP 分配后不可变，更新必须保留已有值；仅新建 Headless 时才写 None。
+	// ClusterIP is immutable once allocated, so updates must keep the existing value;
+	// only freshly created headless services carry None.
+	existing.Spec.PublishNotReadyAddresses = svc.Spec.PublishNotReadyAddresses
 	if existing.Labels == nil {
 		existing.Labels = map[string]string{}
 	}
@@ -606,13 +606,6 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 	deleteOne("configmap/"+proxyJarCM, func() error {
 		return clientset.CoreV1().ConfigMaps(ns).Delete(ctx, proxyJarCM, metav1.DeleteOptions{})
 	})
-	if nsObj, getErr := clientset.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{}); getErr == nil {
-		if nsObj.Labels[LabelManagedByKey] == LabelManagedByValue {
-			deleteOne("namespace/"+ns, func() error {
-				return clientset.CoreV1().Namespaces().Delete(ctx, ns, metav1.DeleteOptions{})
-			})
-		}
-	}
 	if len(errs) > 0 {
 		return fmt.Errorf("k8s: uninstall partially failed: %s", strings.Join(errs, "; "))
 	}

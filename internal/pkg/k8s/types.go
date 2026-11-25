@@ -28,31 +28,6 @@ import (
 	"strings"
 )
 
-// InfraType 集群基础设施类型，与 clusters.infra_type 列一一对应。
-// InfraType enumerates cluster infrastructure types matching the clusters.infra_type column.
-type InfraType string
-
-const (
-	// InfraTypeBareMetal 物理机/虚拟机集群（存量默认）。
-	// InfraTypeBareMetal is the legacy bare-metal/VM cluster (default for existing rows).
-	InfraTypeBareMetal InfraType = "bare_metal"
-	// InfraTypeK8sSession K8s 常驻容器集群（纳管 adopted 或一键部署 stx_deployed）。
-	// InfraTypeK8sSession is a K8s long-running session cluster (adopted or stx_deployed).
-	InfraTypeK8sSession InfraType = "kubernetes_session"
-	// InfraTypeK8sAppTemplate K8s App 模板（P2 预留）。
-	// InfraTypeK8sAppTemplate is a K8s application template (reserved for P2).
-	InfraTypeK8sAppTemplate InfraType = "kubernetes_application_template"
-	// InfraTypeK8sAppInstance K8s App 临时实例（P2 预留，自动登记）。
-	// InfraTypeK8sAppInstance is a K8s application ephemeral instance (reserved for P2, auto-registered).
-	InfraTypeK8sAppInstance InfraType = "kubernetes_application_instance"
-)
-
-// IsK8s 判断集群基础设施类型是否为 K8s 系。
-// IsK8s reports whether the infra type belongs to the Kubernetes family.
-func (t InfraType) IsK8s() bool {
-	return t == InfraTypeK8sSession || t == InfraTypeK8sAppTemplate || t == InfraTypeK8sAppInstance
-}
-
 // ManagementSource 常驻集群的来源：纳管已有集群或 STX 一键部署。
 // ManagementSource distinguishes adopted clusters from STX-deployed ones.
 type ManagementSource string
@@ -172,6 +147,23 @@ type SessionConfig struct {
 	Resources SessionResources `json:"resources"`
 	Storage   SessionStorage   `json:"storage"`
 	JavaProxy JavaProxyConfig  `json:"java_proxy"`
+
+	// ExtraMounts 预留多条 ConfigMap/Secret 挂载与伴随环境变量，供后续 Hadoop/Kerberos
+	// 挂载包平滑衔接；P1 仅落库不渲染。
+	// ExtraMounts reserves additional ConfigMap/Secret mounts with companion env vars for
+	// future Hadoop/Kerberos mount packs; P1 persists them without rendering.
+	ExtraMounts []ExtraMount `json:"extra_mounts,omitempty"`
+}
+
+// ExtraMount 描述一条附加挂载：来源（ConfigMap/Secret）+ 挂载路径 + 可选环境变量。
+// ExtraMount describes one additional mount: source (ConfigMap/Secret) + mount path + optional env vars.
+type ExtraMount struct {
+	Name      string            `json:"name"`
+	Kind      string            `json:"kind"` // configmap / secret
+	Source    string            `json:"source"`
+	MountPath string            `json:"mount_path"`
+	ReadOnly  bool              `json:"read_only"`
+	Env       map[string]string `json:"env,omitempty"`
 }
 
 // ApplyDefaults 填充默认值；只覆盖零值字段，不覆盖用户显式配置。

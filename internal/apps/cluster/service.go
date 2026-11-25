@@ -3300,3 +3300,14 @@ func (s *Service) ListExternalDiscoveryClusterIDs(ctx context.Context) ([]uint, 
 	}
 	return ids, nil
 }
+
+// IsKubernetesCluster 报告集群是否 K8s 基础设施（plugin/config 等域的可选能力断言用）。
+// IsKubernetesCluster reports whether the cluster is K8s infra (used by optional-capability
+// assertions in the plugin/config domains).
+func (s *Service) IsKubernetesCluster(ctx context.Context, clusterID uint) bool {
+	c, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil || c == nil {
+		return false
+	}
+	return c.IsKubernetes()
+}

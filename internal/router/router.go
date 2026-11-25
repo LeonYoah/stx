@@ -916,6 +916,7 @@ func Serve() {
 			syncService.SetEngineClient(syncapp.NewSeaTunnelEngineClient())
 			syncRuntimeResolver := syncapp.NewDefaultClusterRuntimeResolver(clusterRepo, hostRepo)
 			syncRuntimeResolver.SetK8sClientManager(k8sClientManager)
+			syncapp.SetK8sConfigToolClientManager(k8sClientManager)
 			syncService.SetRuntimeResolver(syncRuntimeResolver)
 			syncService.SetExecutionTargetResolver(syncapp.NewDefaultExecutionTargetResolver(clusterRepo, hostRepo))
 			syncService.SetClusterLogProvider(clusterService)

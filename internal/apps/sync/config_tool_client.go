@@ -18,6 +18,7 @@
 package sync
 
 import (
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -344,7 +345,11 @@ type DefaultConfigToolClient struct {
 // NewDefaultConfigToolClient creates a config tool client.
 func NewDefaultConfigToolClient() *DefaultConfigToolClient {
 	return &DefaultConfigToolClient{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		// K8s apiserver_proxy 端点经 DelegatingRoundTripper 按 host 继承 TLS/认证；
+		// 裸金属 proxy 未注册，零行为变化。
+		// K8s apiserver_proxy endpoints inherit TLS/auth per host through the delegating
+		// RoundTripper; bare-metal proxies are never registered so behavior is unchanged.
+		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: &k8s.DelegatingRoundTripper{}},
 	}
 }
 
@@ -572,6 +577,12 @@ func (r *DefaultConfigToolResolver) ResolveConfigToolEndpoint(ctx context.Contex
 	if r == nil || r.clusterService == nil {
 		return "", fmt.Errorf("sync: config tool resolver is not configured")
 	}
+	// K8s 集群的伴生 Proxy 经 apiserver_proxy 寻址，并向进程级注册表登记 TLS/认证。
+	// For K8s clusters the companion proxy is addressed through apiserver_proxy, with TLS/auth
+	// registered into the process-wide registry.
+	if clusterObj, err := r.clusterService.Get(ctx, clusterID); err == nil && clusterObj != nil && clusterObj.IsKubernetes() {
+		return resolveK8sConfigToolEndpoint(ctx, clusterObj)
+	}
 	status, err := r.clusterService.GetSTXJavaProxyStatus(ctx, clusterID)
 	if err != nil {
 		return "", err
@@ -580,4 +591,47 @@ func (r *DefaultConfigToolResolver) ResolveConfigToolEndpoint(ctx context.Contex
 		return "", fmt.Errorf("sync: stx-java-proxy endpoint is empty for cluster %d", clusterID)
 	}
 	return strings.TrimSpace(status.Endpoint), nil
+}
+
+// k8sConfigToolClientManager 由 router 装配期注入（resolver 无构造参数变更，保持调用方兼容）。
+// k8sConfigToolClientManager is injected during router wiring (the resolver keeps its constructor
+// signature for caller compatibility).
+var k8sConfigToolClientManager *k8s.ClientManager
+
+// SetK8sConfigToolClientManager 注入共享 K8sClientManager。
+// SetK8sConfigToolClientManager injects the shared K8sClientManager.
+func SetK8sConfigToolClientManager(mgr *k8s.ClientManager) {
+	k8sConfigToolClientManager = mgr
+}
+
+// resolveK8sConfigToolEndpoint 解析伴生 Proxy 的 apiserver_proxy 地址并注册 Transport。
+// resolveK8sConfigToolEndpoint resolves the companion proxy's apiserver_proxy address and
+// registers its transport.
+func resolveK8sConfigToolEndpoint(ctx context.Context, clusterObj *clusterapp.Cluster) (string, error) {
+	if k8sConfigToolClientManager == nil {
+		return "", fmt.Errorf("sync: k8s client manager not configured")
+	}
+	cfg := clusterObj.K8sSessionConfig()
+	if cfg == nil {
+		return "", fmt.Errorf("sync: cluster %d has invalid kubernetes session config", clusterObj.ID)
+	}
+	transport := k8s.NewTransport(k8sConfigToolClientManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
+	_, serviceName, _ := k8s.ProxyResourceNames(clusterObj.EffectiveClusterCode())
+	if cfg.JavaProxy.ServiceName != "" {
+		serviceName = cfg.JavaProxy.ServiceName
+	}
+	port := cfg.JavaProxy.Port
+	if port <= 0 {
+		port = 18080
+	}
+	base, err := transport.ServiceBaseURL(ctx, serviceName, port)
+	if err != nil {
+		return "", err
+	}
+	rt, err := transport.RoundTripper(ctx)
+	if err != nil {
+		return "", err
+	}
+	k8s.DefaultHostTransportRegistry.Register(base, rt)
+	return base, nil
 }

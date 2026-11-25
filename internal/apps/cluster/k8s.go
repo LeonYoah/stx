@@ -18,15 +18,18 @@
 package cluster
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	pluginapp "github.com/LeonYoah/stx/internal/apps/plugin"
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
@@ -645,4 +648,74 @@ func (h *Handler) UpdateK8sConfigMapFile(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": gin.H{"success": true}})
+}
+
+// ListK8sImageConnectors 经伴生 Proxy 读取镜像内置连接器清单（source/sink/transform 三类合并去重）。
+// 插件页只读边界的数据源；Proxy 不可达时返回错误由调用方降级为空。
+// ListK8sImageConnectors reads image-bundled connectors through the companion proxy (merging
+// source/sink/transform with dedupe). It backs the read-only plugin page; proxy-unreachable
+// errors are returned so callers can degrade to empty.
+func (s *Service) ListK8sImageConnectors(ctx context.Context, clusterID uint) ([]*pluginapp.ImageConnector, error) {
+	cluster, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return nil, err
+	}
+	if cluster == nil || !cluster.IsKubernetes() {
+		return nil, errors.New("cluster: not a kubernetes cluster")
+	}
+	cfg := cluster.K8sSessionConfig()
+	if cfg == nil || s.k8sManager == nil {
+		return nil, errors.New("cluster: k8s session config or dependencies missing")
+	}
+	transport := k8s.NewTransport(s.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
+	_, serviceName, _ := k8s.ProxyResourceNames(cluster.EffectiveClusterCode())
+	if cfg.JavaProxy.ServiceName != "" {
+		serviceName = cfg.JavaProxy.ServiceName
+	}
+	port := cfg.JavaProxy.Port
+	if port <= 0 {
+		port = 18080
+	}
+	base, err := transport.ServiceBaseURL(ctx, serviceName, port)
+	if err != nil {
+		return nil, err
+	}
+	client, err := transport.HTTPClient(ctx, 15*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
+	type pluginListResponse struct {
+		OK      bool `json:"ok"`
+		Plugins []struct {
+			FactoryIdentifier string `json:"factoryIdentifier"`
+		} `json:"plugins"`
+	}
+	seen := map[string]struct{}{}
+	out := []*pluginapp.ImageConnector{}
+	for _, pluginType := range []string{"source", "sink", "transform"} {
+		body := []byte(fmt.Sprintf(`{"pluginType":%q}`, pluginType))
+		resp, err := client.Post(base+"/api/v1/plugin/list", "application/json", bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		var parsed pluginListResponse
+		decodeErr := json.NewDecoder(resp.Body).Decode(&parsed)
+		resp.Body.Close()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		for _, item := range parsed.Plugins {
+			name := strings.TrimSpace(item.FactoryIdentifier)
+			if name == "" {
+				continue
+			}
+			if _, dup := seen[strings.ToLower(name)]; dup {
+				continue
+			}
+			seen[strings.ToLower(name)] = struct{}{}
+			out = append(out, &pluginapp.ImageConnector{Name: name, Category: pluginType})
+		}
+	}
+	return out, nil
 }

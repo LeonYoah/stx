@@ -1049,6 +1049,9 @@ func (s *Service) ValidateTask(ctx context.Context, id uint, draft *TaskDraftPay
 	if task.ClusterID == 0 && taskExecutionMode(task) != "local" {
 		warnings = append(warnings, "cluster_id is empty, runtime submission will fail until a target cluster is selected")
 	}
+	if taskExecutionMode(task) == "local" && s.clusterIsKubernetes(ctx, task.ClusterID) {
+		errorsList = append(errorsList, "local execution mode is not supported for kubernetes clusters")
+	}
 	if s.configToolClient != nil && s.configToolResolver != nil && len(errorsList) == 0 {
 		endpoint, endpointErr := s.configToolResolver.ResolveConfigToolEndpoint(ctx, task.ClusterID, task.Definition)
 		if endpointErr == nil {
@@ -3178,4 +3181,21 @@ func (s *Service) ensureSiblingTaskNameAvailable(ctx context.Context, parentID *
 		return ErrTaskNameDuplicate
 	}
 	return nil
+}
+
+// clusterIsKubernetes 经可选接口断言判断集群基础设施类型；查询失败按非 K8s 处理，
+// 避免误伤裸金属集群的 local 调试路径。
+// clusterIsKubernetes reports cluster infra type through an optional interface assertion;
+// lookup failures are treated as non-K8s so bare-metal local debug paths are never blocked by mistake.
+func (s *Service) clusterIsKubernetes(ctx context.Context, clusterID uint) bool {
+	if clusterID == 0 {
+		return false
+	}
+	checker, ok := s.clusterVersionProvider.(interface {
+		IsKubernetesCluster(ctx context.Context, clusterID uint) bool
+	})
+	if !ok || checker == nil {
+		return false
+	}
+	return checker.IsKubernetesCluster(ctx, clusterID)
 }

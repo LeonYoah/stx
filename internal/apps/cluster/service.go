@@ -3311,3 +3311,17 @@ func (s *Service) IsKubernetesCluster(ctx context.Context, clusterID uint) bool 
 	}
 	return c.IsKubernetes()
 }
+
+// ReadK8sConfigMapByID 按集群 ID 读取 ConfigMap（config 域可选能力断言用）。
+// ReadK8sConfigMapByID reads the ConfigMap by cluster ID (used by the config domain's
+// optional capability assertion).
+func (s *Service) ReadK8sConfigMapByID(ctx context.Context, clusterID uint) (map[string]string, error) {
+	c, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, ErrClusterNotFound
+	}
+	return s.ReadK8sConfigMap(ctx, c)
+}

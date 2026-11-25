@@ -28,6 +28,9 @@ import (
 
 	"github.com/LeonYoah/stx/internal/seatunnel"
 	"github.com/gin-gonic/gin"
+	"net/url"
+	"net/http/httputil"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 )
 
 const (
@@ -209,13 +212,17 @@ func (h *Handler) GetWebUIEndpoints(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), WebUIEndpointsResponse{ErrorMsg: err.Error()})
 		return
 	}
+	if clusterInfo.IsKubernetes() {
+		c.JSON(http.StatusOK, WebUIEndpointsResponse{Data: k8sWebUIEndpoints(uint(clusterID))})
+		return
+	}
 	nodes, err := h.service.GetNodes(c.Request.Context(), uint(clusterID))
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), WebUIEndpointsResponse{ErrorMsg: err.Error()})
 		return
 	}
 	result := &WebUIEndpoints{
-		ProxyBaseURL:    "/api/v1/clusters/" + strconv.FormatUint(clusterID, 10) + "/webui/",
+		ProxyBaseURL:    "/api/v1/clusters/" + strconv.FormatUint(uint64(clusterID), 10) + "/webui/",
 		JobPathTemplate: "#/jobs/{job_id}",
 	}
 	if !seatunnel.CapabilitiesForVersion(clusterInfo.Version).SupportsHTTPService {
@@ -243,4 +250,76 @@ func (h *Handler) GetWebUIEndpoints(c *gin.Context) {
 		result.HostName = target.HostName
 	}
 	c.JSON(http.StatusOK, WebUIEndpointsResponse{Data: result})
+}
+
+// proxyK8sWebUI K8s 集群 WebUI 代理：经 K8sTransport 反向代理到 master Service（apiserver_proxy
+// 已指向 active master 由 Service 负载均衡语义承载，单 master session 模式无需选主）。
+// proxyK8sWebUI proxies the WebUI of a K8s cluster to the master service through K8sTransport.
+func (h *Handler) proxyK8sWebUI(c *gin.Context, clusterObj *Cluster, clusterID uint) {
+	cfg := clusterObj.K8sSessionConfig()
+	if cfg == nil || h.service.k8sManager == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": locale.Pick(c.Request.Context(), "K8s 会话配置缺失", "K8s session config missing")})
+		return
+	}
+	transport := k8s.NewTransport(h.service.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
+	port := cfg.MasterHTTPPort
+	if port <= 0 {
+		port = 8080
+	}
+	base, err := transport.ServiceBaseURL(c.Request.Context(), cfg.MasterServiceName, port)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error_msg": err.Error()})
+		return
+	}
+	rt, err := transport.RoundTripper(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error_msg": err.Error()})
+		return
+	}
+	target, err := url.Parse(base)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error_msg": err.Error()})
+		return
+	}
+
+	prefix := "/api/v1/clusters/" + strconv.FormatUint(uint64(clusterID), 10) + "/webui"
+	proxyPath := c.Param("proxyPath")
+	if proxyPath == "" {
+		proxyPath = "/"
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = rt
+	originalDirector := proxy.Director
+	// apiserver_proxy 的 base URL 已含 /proxy 前缀路径，重写时需要保留 base 路径再拼接业务路径。
+	// The apiserver_proxy base URL already carries the /proxy prefix path, so rewriting must
+	// keep the base path before appending the business path.
+	basePath := strings.TrimRight(target.Path, "/")
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		if proxyPath == "/" {
+			req.URL.Path = basePath + "/"
+		} else {
+			req.URL.Path = basePath + proxyPath
+		}
+		req.URL.RawPath = req.URL.EscapedPath()
+		req.Host = target.Host
+		req.Header.Set("X-Forwarded-Prefix", prefix)
+		req.Header.Set("X-Forwarded-Host", c.Request.Host)
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		c.JSON(http.StatusBadGateway, gin.H{"error_msg": err.Error()})
+	}
+	proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+// k8sWebUIEndpoints K8s 集群观测地址：无裸金属节点概念，代理即真相。
+// k8sWebUIEndpoints reports observability endpoints for a K8s cluster: no bare-metal node
+// concept, the proxy is the source of truth.
+func k8sWebUIEndpoints(clusterID uint) *WebUIEndpoints {
+	return &WebUIEndpoints{
+		Available:       true,
+		ProxyBaseURL:    "/api/v1/clusters/" + strconv.FormatUint(uint64(clusterID), 10) + "/webui/",
+		JobPathTemplate: "#/jobs/{job_id}",
+	}
 }

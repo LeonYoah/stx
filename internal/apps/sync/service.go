@@ -1683,6 +1683,12 @@ func (s *Service) submitNewTask(ctx context.Context, id uint, createdBy uint, op
 	}
 	runtime := buildTaskVariableRuntimeWithOptions(task, jobID, opts, binding)
 	if taskExecutionMode(task) == "local" {
+		// K8s 集群无本地进程语义，local 模式必须在这里硬拦截（校验层之外的双保险）。
+		// K8s clusters have no local process semantics, so local mode is hard-blocked here as
+		// a second line of defense beyond the validation layer.
+		if s.clusterIsKubernetes(ctx, task.ClusterID) {
+			return nil, fmt.Errorf("sync: local execution mode is not supported for kubernetes clusters")
+		}
 		body, format, jobName, buildErr := s.buildSubmitPayload(ctx, task, runtime)
 		if buildErr != nil {
 			return nil, buildErr

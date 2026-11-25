@@ -252,3 +252,51 @@ func TestSplitJVMOpts(t *testing.T) {
 		t.Fatal("empty opts should yield no parts")
 	}
 }
+
+// TestCloneProxyVolumesDropsDanglingMounts 覆盖 RWO PVC 跳过与 volumeClaimTemplate 场景：
+// 对应 mount 必须被反向过滤，不得悬空。
+// TestCloneProxyVolumesDropsDanglingMounts covers RWO PVC skipping and volumeClaimTemplate
+// cases: their mounts must be back-filtered instead of dangling.
+func TestCloneProxyVolumesDropsDanglingMounts(t *testing.T) {
+	clientset := fake.NewSimpleClientset(&corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "data-rwo", Namespace: "ns"},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+		},
+	})
+	template := &corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name: "seatunnel",
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "plugins", MountPath: "/opt/seatunnel/plugins/custom"},
+				{Name: "data", MountPath: "/opt/seatunnel/data"},
+				{Name: "checkpoint", MountPath: "/tmp/seatunnel"},
+			},
+		}},
+		Volumes: []corev1.Volume{
+			{Name: "plugins", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+			{Name: "data", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data-rwo"}}},
+			// checkpoint 对应 volumeClaimTemplate，Volumes 中无此卷（StatefulSet 场景）。
+			// checkpoint belongs to a volumeClaimTemplate and never appears in Volumes.
+		},
+	}
+	volumes, mounts, _ := cloneProxyVolumes(context.Background(), clientset, "ns", template)
+	volNames := map[string]bool{}
+	for _, v := range volumes {
+		volNames[v.Name] = true
+	}
+	if !volNames["plugins"] {
+		t.Fatal("emptyDir plugins volume must be cloned")
+	}
+	if volNames["data"] {
+		t.Fatal("RWO pvc volume must be skipped")
+	}
+	for _, m := range mounts {
+		if !volNames[m.Name] {
+			t.Fatalf("dangling mount %q survived filtering", m.Name)
+		}
+	}
+	if len(mounts) != 1 || mounts[0].Name != "plugins" {
+		t.Fatalf("expected only plugins mount to survive, got %+v", mounts)
+	}
+}

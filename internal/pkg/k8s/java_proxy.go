@@ -260,6 +260,18 @@ func cloneProxyVolumes(ctx context.Context, clientset kubernetes.Interface, ns s
 	for _, vol := range volumes {
 		clonedVolumeNames[vol.Name] = true
 	}
+	// 反向过滤悬空挂载：RWO PVC 被跳过或 volumeClaimTemplate 卷根本不在 template.Volumes 中时，
+	// 其 mount 在 Proxy Pod 里无对应卷，必须剔除否则 Pod 创建即失败。
+	// Back-filter dangling mounts: when an RWO PVC is skipped or a volumeClaimTemplate volume
+	// never appears in template.Volumes, its mount has no backing volume in the proxy pod and
+	// must be dropped or pod creation fails outright.
+	keptMounts := mounts[:0]
+	for _, mount := range mounts {
+		if clonedVolumeNames[mount.Name] {
+			keptMounts = append(keptMounts, mount)
+		}
+	}
+	mounts = keptMounts
 	// 只有引用了被克隆卷的 initContainers 才需要复制（典型场景：插件安装器把 jar 写进共享 emptyDir）。
 	// Only initContainers referencing cloned volumes are copied (the typical case is a plugin
 	// installer writing jars into a shared emptyDir).

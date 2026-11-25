@@ -892,7 +892,7 @@ func (c *SeaTunnelEngineClient) resolveJobLogPayload(ctx context.Context, endpoi
 	if !ok {
 		return formatLogPayload(body), nil
 	}
-	content, err := c.fetchPlainLog(ctx, logURL)
+	content, err := c.fetchPlainLog(ctx, endpoint, logURL)
 	if err != nil {
 		return "", err
 	}
@@ -902,12 +902,12 @@ func (c *SeaTunnelEngineClient) resolveJobLogPayload(ctx context.Context, endpoi
 	return content, nil
 }
 
-func (c *SeaTunnelEngineClient) fetchPlainLog(ctx context.Context, targetURL string) (string, error) {
+func (c *SeaTunnelEngineClient) fetchPlainLog(ctx context.Context, endpoint *EngineEndpoint, targetURL string) (string, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return "", err
 	}
-	resp, err := c.httpClient.Do(httpReq) /*UNRESOLVED*/
+	resp, err := c.clientForEndpoint(endpoint).Do(httpReq)
 	if err != nil {
 		return "", err
 	}

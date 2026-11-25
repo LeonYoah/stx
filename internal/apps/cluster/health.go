@@ -21,6 +21,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"strconv"
 	"strings"
@@ -125,6 +127,10 @@ func clusterExpectsRunning(status ClusterStatus) bool {
 func (s *Service) evaluateClusterHealth(ctx context.Context, cluster *Cluster, statusInfo *ClusterStatusInfo) {
 	statusInfo.HealthReasons = nil
 	statusInfo.HealthReasonDetails = nil
+	if cluster != nil && cluster.IsKubernetes() {
+		s.evaluateK8sClusterHealth(ctx, cluster, statusInfo)
+		return
+	}
 	if statusInfo.TotalNodes == 0 {
 		statusInfo.HealthStatus = HealthStatusUnknown
 		return
@@ -383,4 +389,78 @@ func nodeLabel(node *NodeStatusInfo) string {
 		return node.HostIP
 	}
 	return fmt.Sprintf("#%d", node.NodeID)
+}
+
+// evaluateK8sClusterHealth K8s 双校验健康：Pod Ready 计数 + 经 K8sTransport 探 master /overview。
+// evaluateK8sClusterHealth performs the K8s dual health check: ready pod counts plus an
+// /overview probe of the master service through K8sTransport.
+func (s *Service) evaluateK8sClusterHealth(ctx context.Context, cluster *Cluster, statusInfo *ClusterStatusInfo) {
+	if s.k8sManager == nil {
+		statusInfo.HealthStatus = HealthStatusUnknown
+		return
+	}
+	cfg := cluster.K8sSessionConfig()
+	if cfg == nil {
+		statusInfo.HealthStatus = HealthStatusUnknown
+		return
+	}
+	reasons := make([]string, 0)
+	details := make([]ClusterHealthReason, 0)
+	expectRunning := clusterExpectsRunning(cluster.Status)
+
+	ops := k8s.NewSessionManager(s.k8sManager)
+	pods, err := ops.SessionPods(ctx, cfg, cluster.EffectiveClusterCode())
+	if err != nil {
+		statusInfo.HealthStatus = HealthStatusUnknown
+		statusInfo.HealthReasons = append(statusInfo.HealthReasons, err.Error())
+		return
+	}
+	ready := 0
+	for _, pod := range pods {
+		if pod != nil && pod.Ready {
+			ready++
+		}
+	}
+	statusInfo.RunningNodes = ready
+	if expectRunning {
+		want := cfg.MasterReplicas + cfg.WorkerReplicas
+		if want <= 0 {
+			want = len(pods)
+		}
+		if ready < want {
+			reasons = append(reasons, locale.Pick(ctx, fmt.Sprintf("Pod 就绪 %d/%d", ready, want), fmt.Sprintf("pods ready %d/%d", ready, want)))
+			details = append(details, ClusterHealthReason{Code: ClusterHealthReasonProcessNotRunning, Status: fmt.Sprintf("%d/%d", ready, want)})
+		}
+	}
+
+	if expectRunning && ready > 0 {
+		transport := k8s.NewTransport(s.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
+		port := cfg.MasterHTTPPort
+		if port <= 0 {
+			port = 8080
+		}
+		if base, err := transport.ServiceBaseURL(ctx, cfg.MasterServiceName, port); err == nil {
+			if client, err := transport.HTTPClient(ctx, 8*time.Second); err == nil {
+				resp, err := client.Get(strings.TrimRight(base, "/") + "/overview")
+				if err != nil {
+					reasons = append(reasons, locale.Pick(ctx, "引擎 /overview 探活失败", "engine /overview probe failed"))
+					details = append(details, ClusterHealthReason{Code: ClusterHealthReasonEngineNotReady})
+				} else {
+					resp.Body.Close()
+					if resp.StatusCode != http.StatusOK {
+						reasons = append(reasons, locale.Pick(ctx, fmt.Sprintf("引擎 /overview 返回 %d", resp.StatusCode), fmt.Sprintf("engine /overview returned %d", resp.StatusCode)))
+						details = append(details, ClusterHealthReason{Code: ClusterHealthReasonEngineNotReady, Status: fmt.Sprintf("%d", resp.StatusCode)})
+					}
+				}
+			}
+		}
+	}
+
+	statusInfo.HealthReasons = append(statusInfo.HealthReasons, reasons...)
+	statusInfo.HealthReasonDetails = append(statusInfo.HealthReasonDetails, details...)
+	if len(reasons) > 0 {
+		statusInfo.HealthStatus = HealthStatusUnhealthy
+		return
+	}
+	statusInfo.HealthStatus = HealthStatusHealthy
 }

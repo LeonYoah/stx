@@ -1245,6 +1245,7 @@ func Serve() {
 					log.Printf("[Config] re-pushed %d pending config(s) to host %d after agent reconnect", committed, hostID)
 				}
 			})
+			configService.SetK8sConfigMapSource(clusterService)
 			configHandler := appconfig.NewHandler(configService)
 			configHandler.SetExecutionService(executionService)
 			// 事件通道开关通过 config 应用改写 seatunnel.yaml。

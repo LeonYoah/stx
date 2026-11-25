@@ -271,6 +271,17 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 	}
 
 	proxyStatus := s.EnsureK8sJavaProxy(ctx, cluster)
+	// 按实际状态回写集群状态：引擎资源就绪且伴生 Proxy 健康才算 running，否则保持 created
+	// 让前端按 proxy_status 引导重试。
+	// Cluster status reflects reality: running only when engine resources are up and the
+	// companion proxy is healthy; otherwise it stays created so the UI can guide retries
+	// from proxy_status.
+	if proxyStatus != nil && proxyStatus.Healthy {
+		cluster.Status = ClusterStatusRunning
+		if err := s.repo.Update(ctx, cluster); err != nil {
+			return nil, err
+		}
+	}
 	return &CreateKubernetesResult{Cluster: cluster, ProxyStatus: proxyStatus}, nil
 }
 
@@ -284,23 +295,47 @@ func (s *Service) EnsureK8sJavaProxy(ctx context.Context, cluster *Cluster) *K8s
 		status.Message = "k8s session config or dependencies missing"
 		return status
 	}
-	if cfg.JavaProxy.Mode == k8s.JavaProxyModeDisabled {
+	mode := cfg.JavaProxy.Mode
+	if mode == "" {
+		mode = k8s.JavaProxyModeManaged
+	}
+	if mode == k8s.JavaProxyModeDisabled {
 		status.Message = "java proxy disabled"
 		return status
 	}
 
-	proxyMgr := k8s.NewJavaProxyManager(s.k8sManager, s.k8sJarLoader)
 	code := cluster.EffectiveClusterCode()
-	epoch := seatunnel.ProxyEpochForVersion(cluster.Version)
-	if _, err := proxyMgr.EnsureProxy(ctx, cfg, code, cluster.ID, epoch); err != nil {
-		status.Message = err.Error()
-		return status
+	proxyMgr := k8s.NewJavaProxyManager(s.k8sManager, s.k8sJarLoader)
+	if mode == k8s.JavaProxyModeManaged {
+		epoch := seatunnel.ProxyEpochForVersion(cluster.Version)
+		if _, err := proxyMgr.EnsureProxy(ctx, cfg, code, cluster.ID, epoch); err != nil {
+			status.Message = err.Error()
+			return status
+		}
 	}
 
+	// external 模式直连用户自备 Proxy；reuse/managed 都走 Namespace 内 Service 寻址。
+	// External mode probes the user-provided proxy directly; reuse/managed resolve the
+	// in-namespace service.
+	if mode == k8s.JavaProxyModeExternal {
+		if cfg.JavaProxy.ExternalURL == "" {
+			status.Message = "java proxy external_url is empty"
+			return status
+		}
+		status.ServiceURL = strings.TrimRight(cfg.JavaProxy.ExternalURL, "/")
+		probeExternalProxy(status, status.ServiceURL)
+		return status
+	}
 	transport := k8s.NewTransport(s.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
 	_, serviceName, _ := k8s.ProxyResourceNames(code)
 	if cfg.JavaProxy.ServiceName != "" {
 		serviceName = cfg.JavaProxy.ServiceName
+	}
+	if mode == k8s.JavaProxyModeReuseCluster && cfg.JavaProxy.ReuseClusterID > 0 {
+		if reuse, err := s.repo.GetByID(ctx, cfg.JavaProxy.ReuseClusterID, false); err == nil && reuse != nil {
+			_, reuseSvc, _ := k8s.ProxyResourceNames(reuse.EffectiveClusterCode())
+			serviceName = reuseSvc
+		}
 	}
 	port := cfg.JavaProxy.Port
 	if port <= 0 {
@@ -319,10 +354,10 @@ func (s *Service) EnsureK8sJavaProxy(ctx context.Context, cluster *Cluster) *K8s
 		return status
 	}
 
-	// 伴生 Proxy 启动需加载引擎 jar，首轮探活给足宽限再判定。
-	// The companion proxy loads engine jars on boot, so the first health probe gets a generous
-	// grace window before being judged failed.
-	deadline := time.Now().Add(90 * time.Second)
+	// 探活采用短等待（就绪即返回），超时不阻断保存：前端展示 proxy_status 与 PodEvents 并可一键重试。
+	// The probe uses a short wait (returning as soon as ready); timeout never blocks saving —
+	// the UI shows proxy_status with pod events and offers one-click retry.
+	deadline := time.Now().Add(18 * time.Second)
 	for {
 		resp, err := client.Get(baseURL + "/healthz")
 		if err == nil && resp.StatusCode == http.StatusOK {
@@ -348,6 +383,25 @@ func (s *Service) EnsureK8sJavaProxy(ctx context.Context, cluster *Cluster) *K8s
 		}
 	}
 	return status
+}
+
+
+// probeExternalProxy 对外部 Proxy 做一次短探活；失败仅落状态不报错。
+// probeExternalProxy runs one short health probe against an external proxy; failures only
+// land in the status without erroring.
+func probeExternalProxy(status *K8sProxyStatus, baseURL string) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(baseURL + "/healthz")
+	if err != nil {
+		status.Message = err.Error()
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		status.Healthy = true
+		return
+	}
+	status.Message = fmt.Sprintf("external proxy healthz status %d", resp.StatusCode)
 }
 
 // DeleteK8sJavaProxy 仅清理伴生 Proxy（adopted 删除边界内唯一允许触碰的 K8s 资源）。
@@ -417,12 +471,18 @@ func (s *Service) UpgradeK8sImage(ctx context.Context, cluster *Cluster, image s
 	// 伴生 Proxy 与集群同镜像，升级需同步滚动否则插件清单版本漂移。
 	// The companion proxy shares the cluster image, so it must roll in sync or the plugin
 	// inventory version would drift.
-	proxyDeployment, _, _ := k8s.ProxyResourceNames(cluster.EffectiveClusterCode())
-	if cfg.JavaProxy.DeploymentName != "" {
-		proxyDeployment = cfg.JavaProxy.DeploymentName
-	}
-	if err := ops.PatchProxyImage(ctx, cfg, proxyDeployment, image); err != nil {
-		return err
+	// 仅 managed 模式存在 STX 托管的伴生 Deployment 需要同步滚动；reuse/external/disabled
+	// 的 Proxy 生命周期不归本集群管。
+	// Only managed mode owns an STX-hosted companion deployment that must roll in sync;
+	// reuse/external/disabled proxies have lifecycles outside this cluster.
+	if mode := cfg.JavaProxy.Mode; mode == "" || mode == k8s.JavaProxyModeManaged {
+		proxyDeployment, _, _ := k8s.ProxyResourceNames(cluster.EffectiveClusterCode())
+		if cfg.JavaProxy.DeploymentName != "" {
+			proxyDeployment = cfg.JavaProxy.DeploymentName
+		}
+		if err := ops.PatchProxyImage(ctx, cfg, proxyDeployment, image); err != nil {
+			return err
+		}
 	}
 	cfg.Image = image
 	k8sJSON, err := k8sConfigJSON(cfg)
@@ -716,22 +776,47 @@ func (s *Service) ListK8sImageConnectors(ctx context.Context, clusterID uint) ([
 	if cfg == nil || s.k8sManager == nil {
 		return nil, errors.New("cluster: k8s session config or dependencies missing")
 	}
-	transport := k8s.NewTransport(s.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
-	_, serviceName, _ := k8s.ProxyResourceNames(cluster.EffectiveClusterCode())
-	if cfg.JavaProxy.ServiceName != "" {
-		serviceName = cfg.JavaProxy.ServiceName
+	mode := cfg.JavaProxy.Mode
+	if mode == "" {
+		mode = k8s.JavaProxyModeManaged
 	}
-	port := cfg.JavaProxy.Port
-	if port <= 0 {
-		port = 18080
+	if mode == k8s.JavaProxyModeDisabled {
+		return nil, errors.New("cluster: java proxy disabled, image connectors unavailable")
 	}
-	base, err := transport.ServiceBaseURL(ctx, serviceName, port)
-	if err != nil {
-		return nil, err
-	}
-	client, err := transport.HTTPClient(ctx, 15*time.Second)
-	if err != nil {
-		return nil, err
+	var base string
+	var client *http.Client
+	if mode == k8s.JavaProxyModeExternal {
+		if cfg.JavaProxy.ExternalURL == "" {
+			return nil, errors.New("cluster: java proxy external_url is empty")
+		}
+		base = strings.TrimRight(cfg.JavaProxy.ExternalURL, "/")
+		client = &http.Client{Timeout: 15 * time.Second}
+	} else {
+		transport := k8s.NewTransport(s.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
+		_, serviceName, _ := k8s.ProxyResourceNames(cluster.EffectiveClusterCode())
+		if cfg.JavaProxy.ServiceName != "" {
+			serviceName = cfg.JavaProxy.ServiceName
+		}
+		if mode == k8s.JavaProxyModeReuseCluster && cfg.JavaProxy.ReuseClusterID > 0 {
+			if reuse, err := s.repo.GetByID(ctx, cfg.JavaProxy.ReuseClusterID, false); err == nil && reuse != nil {
+				_, reuseSvc, _ := k8s.ProxyResourceNames(reuse.EffectiveClusterCode())
+				serviceName = reuseSvc
+			}
+		}
+		port := cfg.JavaProxy.Port
+		if port <= 0 {
+			port = 18080
+		}
+		baseURL, err := transport.ServiceBaseURL(ctx, serviceName, port)
+		if err != nil {
+			return nil, err
+		}
+		base = baseURL
+		httpClient, err := transport.HTTPClient(ctx, 15*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		client = httpClient
 	}
 
 	type pluginListResponse struct {
@@ -747,6 +832,10 @@ func (s *Service) ListK8sImageConnectors(ctx context.Context, clusterID uint) ([
 		resp, err := client.Post(base+"/api/v1/plugin/list", "application/json", bytes.NewReader(body))
 		if err != nil {
 			return nil, err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			resp.Body.Close()
+			return nil, fmt.Errorf("cluster: proxy plugin list returned status %d", resp.StatusCode)
 		}
 		var parsed pluginListResponse
 		decodeErr := json.NewDecoder(resp.Body).Decode(&parsed)

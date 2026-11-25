@@ -431,7 +431,7 @@ export function HostInstallGuideContent({
           ) : (
             <CopyButton
               value={installCommand}
-              label={t('host.installGuide.installAgent')}
+              label={t('host.installGuide.copyInstallCommand')}
               copiedLabel={t('common.copied')}
               failedLabel={t('common.copyFailed')}
               disabled={loadingCommand || !installCommand}

@@ -1153,7 +1153,8 @@
       "done": "Done & Close",
       "viewHostDetail": "View Host Details",
       "installLater": "Run on Host Later",
-      "pendingAlert": "This host does not have an Agent installed yet, preventing resource monitoring or task dispatch. Please copy and run the command below on the target machine."
+      "pendingAlert": "This host does not have an Agent installed yet, preventing resource monitoring or task dispatch. Please copy and run the command below on the target machine.",
+      "copyInstallCommand": "Copy install command"
     },
     "types": {
       "bareMetal": "Physical/VM",

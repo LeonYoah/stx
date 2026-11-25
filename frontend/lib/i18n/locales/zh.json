@@ -1153,7 +1153,8 @@
       "done": "完成并关闭",
       "viewHostDetail": "查看主机详情",
       "installLater": "稍后在主机运行",
-      "pendingAlert": "该主机尚未安装 Agent 探针，无法采集资源监控或下发任务。请在目标机器上复制并运行以下命令完成接入。"
+      "pendingAlert": "该主机尚未安装 Agent 探针，无法采集资源监控或下发任务。请在目标机器上复制并运行以下命令完成接入。",
+      "copyInstallCommand": "复制安装命令"
     },
     "types": {
       "bareMetal": "物理机/虚拟机",

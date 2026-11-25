@@ -403,6 +403,7 @@ export function RuntimeStorageFileExplorer({
                     failedLabel={tCommon('copyFailed')}
                     variant='plain'
                     iconOnly
+                    disabled={!effectiveCurrentPath}
                   />
                 </span>
               </TooltipTrigger>

@@ -434,6 +434,7 @@ export function HostInstallGuideContent({
               label={t('host.installGuide.installAgent')}
               copiedLabel={t('common.copied')}
               failedLabel={t('common.copyFailed')}
+              disabled={loadingCommand || !installCommand}
               className='h-8 text-xs'
             />
           )}

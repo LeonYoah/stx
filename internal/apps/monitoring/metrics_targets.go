@@ -60,7 +60,8 @@ func (s *Service) ScrapeTargets(ctx context.Context) ([]embedts.ScrapeTarget, er
 			clusterID = "static"
 		}
 		out = append(out, embedts.ScrapeTarget{
-			URL: item.ProbeURL,
+			URL:       item.ProbeURL,
+			Transport: item.Transport,
 			Labels: map[string]string{
 				"job":          scrapeJobName,
 				"instance":     item.Target,

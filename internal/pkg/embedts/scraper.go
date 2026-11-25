@@ -72,6 +72,11 @@ type ScrapeTarget struct {
 	// Labels 是注入标签集：job/instance/cluster/cluster_id/cluster_name/env 等。
 	// Labels is the injected label set: job/instance/cluster/cluster_id/cluster_name/env etc.
 	Labels map[string]string
+	// Transport 可选的按目标定制 RoundTripper（K8s apiserver_proxy 目标需要注入 API
+	// Server 的 TLS/认证）；为空时走共享 HTTPClient。
+	// Transport optionally customizes the RoundTripper per target (K8s apiserver_proxy targets
+	// require the API server's TLS/auth); empty means the shared HTTPClient.
+	Transport http.RoundTripper
 }
 
 // MetricsTargetProvider 提供抓取目标集；由 internal/apps 侧实现（embedts 不反向依赖应用层）。
@@ -442,7 +447,14 @@ func (s *scraper) scrapeTarget(ctx context.Context, target ScrapeTarget) scrapeR
 	if err != nil {
 		return scrapeResult{err: err}
 	}
-	resp, err := s.opts.HTTPClient.Do(req)
+	// 定制 Transport 的目标用独立 client（继承统一超时），其余走共享 client。
+	// Targets with a custom Transport use a dedicated client (inheriting the shared timeout);
+	// everything else uses the shared client.
+	httpClient := s.opts.HTTPClient
+	if target.Transport != nil {
+		httpClient = &http.Client{Transport: target.Transport, Timeout: s.opts.scrapeTimeout()}
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return scrapeResult{err: err}
 	}

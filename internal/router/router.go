@@ -515,6 +515,7 @@ func Serve() {
 			// The platform snapshot merges metrics onto the hosts table (offline / legacy
 			// agents still appear).
 			monitoringService.SetPlatformHostLister(hostService)
+			monitoringService.SetK8sClientManager(k8sClientManager)
 			monitoringService.StartNodeHealthEvaluator(ctx)
 			clusterHandler.SetOnOperationExecuted(func(ctx context.Context, event *cluster.OperationEvent) error {
 				if event == nil {

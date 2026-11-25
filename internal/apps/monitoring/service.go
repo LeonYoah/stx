@@ -18,6 +18,8 @@
 package monitoring
 
 import (
+	"net/http"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"context"
 	"fmt"
 	"log"
@@ -47,6 +49,7 @@ const (
 // Service provides monitoring center data for UI.
 // Service 为 UI 提供监控中心数据。
 type Service struct {
+	k8sManager *k8s.ClientManager
 	clusterService *cluster.Service
 	monitorService *monitor.Service
 	repo           *Repository
@@ -511,6 +514,9 @@ type managedMetricsTarget struct {
 	Env         string
 	Target      string
 	ProbeURL    string
+	// Transport K8s apiserver_proxy 目标的定制 RoundTripper；裸金属为空。
+	// Transport is the custom RoundTripper for K8s apiserver_proxy targets; empty for bare metal.
+	Transport http.RoundTripper
 }
 
 // collectManagedMetricsTargets 计算受管 SeaTunnel 抓取目标集（cluster → 在线节点 → host:hazelcastPort + metrics path），
@@ -529,6 +535,10 @@ func (s *Service) collectManagedMetricsTargets(ctx context.Context) ([]*managedM
 	seen := make(map[string]struct{})
 
 	for _, c := range clusters {
+		if c.IsKubernetes() {
+			results = append(results, s.collectK8sMetricsTargets(ctx, c, metricsPath)...)
+			continue
+		}
 		nodes, err := s.clusterService.GetNodes(ctx, c.ID)
 		if err != nil {
 			continue
@@ -927,4 +937,62 @@ func isDuplicateKeyError(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique constraint")
+}
+
+// SetK8sClientManager 注入 K8sClientManager 供 K8s 集群指标抓取（apiserver_proxy）。
+// SetK8sClientManager injects the K8sClientManager for K8s cluster metrics scraping (apiserver_proxy).
+func (s *Service) SetK8sClientManager(mgr *k8s.ClientManager) {
+	s.k8sManager = mgr
+}
+
+// collectK8sMetricsTargets 为 K8s 集群生成逐 Pod 抓取目标：URL 走 apiserver_proxy pod 代理，
+// Transport 注入 API Server TLS/认证；失败静默降级为空集，不拖垮整体抓取面。
+// collectK8sMetricsTargets builds per-pod scrape targets for K8s clusters: URLs go through the
+// apiserver_proxy pod proxy and the Transport carries API server TLS/auth; failures degrade
+// silently to an empty set rather than breaking the whole scrape surface.
+func (s *Service) collectK8sMetricsTargets(ctx context.Context, c *cluster.Cluster, metricsPath string) []*managedMetricsTarget {
+	out := []*managedMetricsTarget{}
+	if s.k8sManager == nil {
+		return out
+	}
+	cfg := c.K8sSessionConfig()
+	if cfg == nil {
+		return out
+	}
+	transport := k8s.NewTransport(s.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
+	rt, err := transport.RoundTripper(ctx)
+	if err != nil {
+		return out
+	}
+	ops := k8s.NewSessionManager(s.k8sManager)
+	pods, err := ops.SessionPods(ctx, cfg, c.EffectiveClusterCode())
+	if err != nil {
+		return out
+	}
+	port := cfg.MetricsPort
+	if port <= 0 {
+		port = cfg.MasterHTTPPort
+	}
+	path := cfg.MetricsPath
+	if path == "" {
+		path = metricsPath
+	}
+	for _, pod := range pods {
+		if pod == nil || pod.PodIP == "" {
+			continue
+		}
+		base, err := transport.PodBaseURL(ctx, pod.Name, pod.PodIP, port)
+		if err != nil {
+			continue
+		}
+		out = append(out, &managedMetricsTarget{
+			ClusterID:   c.ID,
+			ClusterName: strings.TrimSpace(c.Name),
+			Env:         resolveClusterEnvLabel(c),
+			Target:      pod.Name,
+			ProbeURL:    base + ensureLeadingSlash(path),
+			Transport:   rt,
+		})
+	}
+	return out
 }

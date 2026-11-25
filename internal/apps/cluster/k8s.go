@@ -266,22 +266,17 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 		return nil, err
 	}
 	cluster.Config["kubernetes"] = k8sJSON
+	// K8s 常驻集群在纳管或部署完成后即进入运行态（健康检查随后按真实 Pod 与 /overview 判定），
+	// 不与伴生 Proxy 是否启用或首轮探活结果耦合，避免 disabled 模式或慢启动永久卡在 created。
+	// K8s session clusters become running once adopted or deployed (health checks then evaluate
+	// real pods and /overview), decoupled from companion proxy mode or first-probe timing so
+	// disabled mode or slow boots never stall in created forever.
+	cluster.Status = ClusterStatusRunning
 	if err := s.repo.Update(ctx, cluster); err != nil {
 		return nil, err
 	}
 
 	proxyStatus := s.EnsureK8sJavaProxy(ctx, cluster)
-	// 按实际状态回写集群状态：引擎资源就绪且伴生 Proxy 健康才算 running，否则保持 created
-	// 让前端按 proxy_status 引导重试。
-	// Cluster status reflects reality: running only when engine resources are up and the
-	// companion proxy is healthy; otherwise it stays created so the UI can guide retries
-	// from proxy_status.
-	if proxyStatus != nil && proxyStatus.Healthy {
-		cluster.Status = ClusterStatusRunning
-		if err := s.repo.Update(ctx, cluster); err != nil {
-			return nil, err
-		}
-	}
 	return &CreateKubernetesResult{Cluster: cluster, ProxyStatus: proxyStatus}, nil
 }
 
@@ -326,21 +321,31 @@ func (s *Service) EnsureK8sJavaProxy(ctx context.Context, cluster *Cluster) *K8s
 		probeExternalProxy(status, status.ServiceURL)
 		return status
 	}
-	transport := k8s.NewTransport(s.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
+	targetCfg := cfg
 	_, serviceName, _ := k8s.ProxyResourceNames(code)
 	if cfg.JavaProxy.ServiceName != "" {
 		serviceName = cfg.JavaProxy.ServiceName
 	}
+	port := cfg.JavaProxy.Port
 	if mode == k8s.JavaProxyModeReuseCluster && cfg.JavaProxy.ReuseClusterID > 0 {
 		if reuse, err := s.repo.GetByID(ctx, cfg.JavaProxy.ReuseClusterID, false); err == nil && reuse != nil {
 			_, reuseSvc, _ := k8s.ProxyResourceNames(reuse.EffectiveClusterCode())
 			serviceName = reuseSvc
+			if reuseCfg := reuse.K8sSessionConfig(); reuseCfg != nil {
+				targetCfg = reuseCfg
+				if reuseCfg.JavaProxy.ServiceName != "" {
+					serviceName = reuseCfg.JavaProxy.ServiceName
+				}
+				if reuseCfg.JavaProxy.Port > 0 {
+					port = reuseCfg.JavaProxy.Port
+				}
+			}
 		}
 	}
-	port := cfg.JavaProxy.Port
 	if port <= 0 {
 		port = 18080
 	}
+	transport := k8s.NewTransport(s.k8sManager, targetCfg.HostID, targetCfg.Namespace, targetCfg.AccessMode, targetCfg.ExternalBaseURL)
 	baseURL, err := transport.ServiceBaseURL(ctx, serviceName, port)
 	if err != nil {
 		status.Message = err.Error()
@@ -716,6 +721,10 @@ func (h *Handler) RetryK8sJavaProxy(c *gin.Context) {
 		return
 	}
 	status := h.service.EnsureK8sJavaProxy(c.Request.Context(), cluster)
+	if status != nil && status.Healthy && cluster.Status == ClusterStatusCreated {
+		cluster.Status = ClusterStatusRunning
+		_ = h.service.repo.Update(c.Request.Context(), cluster)
+	}
 	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": status})
 }
 
@@ -791,21 +800,31 @@ func (s *Service) ListK8sImageConnectors(ctx context.Context, clusterID uint) ([
 		base = strings.TrimRight(cfg.JavaProxy.ExternalURL, "/")
 		client = &http.Client{Timeout: 15 * time.Second}
 	} else {
-		transport := k8s.NewTransport(s.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
+		targetCfg := cfg
 		_, serviceName, _ := k8s.ProxyResourceNames(cluster.EffectiveClusterCode())
 		if cfg.JavaProxy.ServiceName != "" {
 			serviceName = cfg.JavaProxy.ServiceName
 		}
+		port := cfg.JavaProxy.Port
 		if mode == k8s.JavaProxyModeReuseCluster && cfg.JavaProxy.ReuseClusterID > 0 {
 			if reuse, err := s.repo.GetByID(ctx, cfg.JavaProxy.ReuseClusterID, false); err == nil && reuse != nil {
 				_, reuseSvc, _ := k8s.ProxyResourceNames(reuse.EffectiveClusterCode())
 				serviceName = reuseSvc
+				if reuseCfg := reuse.K8sSessionConfig(); reuseCfg != nil {
+					targetCfg = reuseCfg
+					if reuseCfg.JavaProxy.ServiceName != "" {
+						serviceName = reuseCfg.JavaProxy.ServiceName
+					}
+					if reuseCfg.JavaProxy.Port > 0 {
+						port = reuseCfg.JavaProxy.Port
+					}
+				}
 			}
 		}
-		port := cfg.JavaProxy.Port
 		if port <= 0 {
 			port = 18080
 		}
+		transport := k8s.NewTransport(s.k8sManager, targetCfg.HostID, targetCfg.Namespace, targetCfg.AccessMode, targetCfg.ExternalBaseURL)
 		baseURL, err := transport.ServiceBaseURL(ctx, serviceName, port)
 		if err != nil {
 			return nil, err

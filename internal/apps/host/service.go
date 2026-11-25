@@ -389,7 +389,10 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 	if req.K8sAuthMode != nil {
 		host.K8sAuthMode = *req.K8sAuthMode
 	}
-	if req.K8sCACert != nil {
+	// CA 证书与编辑弹窗"留空保留原值"提示保持一致，空串不覆盖已有证书。
+	// Keep CA cert aligned with the edit dialog's "leave empty to keep" hint so empty input
+	// never clears an existing certificate.
+	if req.K8sCACert != nil && strings.TrimSpace(*req.K8sCACert) != "" {
 		host.K8sCACert = *req.K8sCACert
 	}
 	if req.K8sInsecureSkipTLS != nil {

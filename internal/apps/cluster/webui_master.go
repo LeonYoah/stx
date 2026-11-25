@@ -266,7 +266,11 @@ func (h *Handler) proxyK8sWebUI(c *gin.Context, clusterObj *Cluster, clusterID u
 	if port <= 0 {
 		port = 8080
 	}
-	base, err := transport.ServiceBaseURL(c.Request.Context(), cfg.MasterServiceName, port)
+	serviceName := cfg.MasterServiceName
+	if serviceName == "" {
+		serviceName = cfg.ClusterServiceName
+	}
+	base, err := transport.ServiceBaseURL(c.Request.Context(), serviceName, port)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error_msg": err.Error()})
 		return

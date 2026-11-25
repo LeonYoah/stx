@@ -2082,7 +2082,9 @@
       "immutablePluginHint": "K8s 集群遵循不可变镜像原则：插件清单为只读镜像内置连接器，安装/卸载请通过升级镜像 Tag 完成",
       "masterHttpPort": "Master HTTP 端口",
       "hazelcastPort": "Hazelcast 端口",
-      "proxyUnhealthy": "伴生 Proxy 未就绪（已自动重试拉起）"
+      "proxyUnhealthy": "伴生 Proxy 尚未就绪（可在集群详情页一键重试）",
+      "podLogs": "日志",
+      "retryProxy": "重试伴生 Proxy"
     }
   },
   "audit": {

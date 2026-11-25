@@ -2082,7 +2082,9 @@
       "immutablePluginHint": "K8s clusters follow the immutable-image principle: this is the read-only image-bundled connector inventory; install/uninstall by upgrading the image tag",
       "masterHttpPort": "Master HTTP Port",
       "hazelcastPort": "Hazelcast Port",
-      "proxyUnhealthy": "Companion proxy not ready (auto-retried)"
+      "proxyUnhealthy": "Companion proxy not ready yet (retry on the cluster detail page)",
+      "podLogs": "Logs",
+      "retryProxy": "Retry Proxy"
     }
   },
   "audit": {

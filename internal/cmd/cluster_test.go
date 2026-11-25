@@ -164,6 +164,56 @@ func TestClusterLogModeUpdateSendsBodyAndRestartHint(t *testing.T) {
 	}
 }
 
+// TestClusterKubernetesCreateUsesK8sNamespaceFlag 验证 --k8s-namespace 独立传递目标 K8s Namespace，
+// 不与 CLI 凭据库 --namespace 冲突，且缺省时报错。
+// TestClusterKubernetesCreateUsesK8sNamespaceFlag verifies --k8s-namespace sends the target K8s
+// namespace without colliding with the CLI auth store's --namespace flag and fails when omitted.
+func TestClusterKubernetesCreateUsesK8sNamespaceFlag(t *testing.T) {
+	var gotBody map[string]any
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeClusterCapabilities(t, writer, "cluster.kubernetes-create", "R1")
+			return
+		}
+		calls++
+		if request.Method != http.MethodPost || request.URL.Path != "/api/v1/clusters/kubernetes" {
+			t.Fatalf("K8s 创建集群请求错误: method=%s path=%s", request.Method, request.URL.Path)
+		}
+		if err := json.NewDecoder(request.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("读取 K8s 创建集群请求失败: %v", err)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"cluster": map[string]any{"id": 12, "name": gotBody["name"]}}})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	stdout, stderr, exitCode := runClusterCommand(t, store,
+		"cluster", "kubernetes-create",
+		"--namespace", "default",
+		"--name", "k8s-prod",
+		"--k8s-namespace", "seatunnel",
+		"--management-source", "adopted",
+		"--host-id", "2",
+		"--confirm")
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("K8s 创建集群命令失败: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	if calls != 1 || gotBody["namespace"] != "seatunnel" || gotBody["name"] != "k8s-prod" || gotBody["management_source"] != "adopted" || gotBody["host_id"] != float64(2) {
+		t.Fatalf("K8s 创建集群正文错误: calls=%d body=%#v", calls, gotBody)
+	}
+
+	_, stderr, exitCode = runClusterCommand(t, store,
+		"cluster", "kubernetes-create",
+		"--name", "k8s-missing-ns",
+		"--management-source", "adopted",
+		"--host-id", "2",
+		"--confirm")
+	if exitCode != int(clioutput.ExitUsage) || !strings.Contains(stderr, "--k8s-namespace") || calls != 1 {
+		t.Fatalf("缺少 --k8s-namespace 时未按预期报错: code=%d calls=%d stderr=%s", exitCode, calls, stderr)
+	}
+}
+
 func runClusterCommand(t *testing.T, store *cliConfig.Store, args ...string) (string, string, int) {
 	t.Helper()
 	storeProvider := func() (*cliConfig.Store, error) { return store, nil }

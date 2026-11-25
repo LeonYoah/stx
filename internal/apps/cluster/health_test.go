@@ -20,9 +20,20 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
+
+	"github.com/LeonYoah/stx/internal/pkg/infra"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 )
 
 type healthHostProvider struct{}
@@ -302,5 +313,108 @@ func TestEvaluateClusterHealth_MemberGraceSuppressesSplitBrain(t *testing.T) {
 	svc.evaluateClusterHealth(context.Background(), cluster, info)
 	if info.HealthStatus != HealthStatusUnhealthy || len(info.HealthReasons) != 3 {
 		t.Fatalf("expired grace must report split brain again, got %s %v", info.HealthStatus, info.HealthReasons)
+	}
+}
+
+// TestEvaluateK8sClusterHealth_NonRunningZeroPodsAndServiceFallback 验证 K8s 健康检查在非运行态返回 unknown、
+// 运行态 0 Pod 返回 unhealthy，且缺少 MasterServiceName 时自动回落 ClusterServiceName 探活 /overview。
+// TestEvaluateK8sClusterHealth_NonRunningZeroPodsAndServiceFallback verifies K8s health returns unknown
+// when not expecting running, unhealthy when running with 0 pods, and falls back to ClusterServiceName
+// for the /overview probe when MasterServiceName is empty.
+func TestEvaluateK8sClusterHealth_NonRunningZeroPodsAndServiceFallback(t *testing.T) {
+	var overviewPaths []string
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		overviewPaths = append(overviewPaths, r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"projectVersion":"3.1.0"}`))
+	}))
+	defer apiServer.Close()
+
+	newK8sSvc := func(pods ...*corev1.Pod) *Service {
+		objs := make([]*corev1.Pod, 0, len(pods))
+		objs = append(objs, pods...)
+		client := fake.NewSimpleClientset()
+		for _, p := range objs {
+			_, _ = client.CoreV1().Pods(p.Namespace).Create(context.Background(), p, metav1.CreateOptions{})
+		}
+		mgr := k8s.NewClientManagerWithFactory(
+			func(_ context.Context, _ uint) (*k8s.Credentials, error) {
+				return &k8s.Credentials{
+					AuthMode: k8s.AuthModeToken,
+					APIURL:   apiServer.URL,
+					Token:    "test-token",
+				}, nil
+			},
+			func(_ *rest.Config) (kubernetes.Interface, error) {
+				return client, nil
+			},
+		)
+		return &Service{k8sManager: mgr}
+	}
+
+	makeCluster := func(status ClusterStatus, masterReplicas, workerReplicas int) *Cluster {
+		return &Cluster{
+			ID:          7,
+			ClusterCode: "demo",
+			Status:      status,
+			InfraType:   string(infra.TypeK8sSession),
+			Config: ClusterConfig{
+				"kubernetes": map[string]interface{}{
+					"host_id":              1,
+					"namespace":            "seatunnel",
+					"access_mode":          "apiserver_proxy",
+					"cluster_service_name": "adopted-svc",
+					"master_http_port":     8080,
+					"master_replicas":      masterReplicas,
+					"worker_replicas":      workerReplicas,
+					"label_selector":       "app=seatunnel",
+				},
+			},
+		}
+	}
+
+	// 1. 非运行态 + 0 Pod 必须是 unknown，不能误报 healthy。
+	// 1. Non-running status with 0 pods must be unknown, never falsely healthy.
+	infoCreated := &ClusterStatusInfo{ClusterID: 7}
+	newK8sSvc().evaluateClusterHealth(context.Background(), makeCluster(ClusterStatusCreated, 1, 2), infoCreated)
+	if infoCreated.HealthStatus != HealthStatusUnknown {
+		t.Fatalf("created k8s cluster with 0 pods must be unknown, got %s %v", infoCreated.HealthStatus, infoCreated.HealthReasons)
+	}
+
+	// 2. 运行态 + 0 Pod 必须是 unhealthy（0/3）。
+	// 2. Running status with 0 pods must be unhealthy (0/3).
+	infoZero := &ClusterStatusInfo{ClusterID: 7}
+	newK8sSvc().evaluateClusterHealth(context.Background(), makeCluster(ClusterStatusRunning, 1, 2), infoZero)
+	if infoZero.HealthStatus != HealthStatusUnhealthy || len(infoZero.HealthReasonDetails) != 1 ||
+		infoZero.HealthReasonDetails[0].Code != ClusterHealthReasonProcessNotRunning || infoZero.HealthReasonDetails[0].Status != "0/3" {
+		t.Fatalf("running k8s cluster with 0 pods must be unhealthy (0/3), got %s %+v", infoZero.HealthStatus, infoZero.HealthReasonDetails)
+	}
+
+	// 3. 运行态 + 就绪 Pod 满足副本数 + MasterServiceName 为空时回落 ClusterServiceName 探活 /overview。
+	// 3. Running status with ready pods matching replicas and empty MasterServiceName falls back to ClusterServiceName for /overview.
+	readyPod := func(name string) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: "seatunnel",
+				Labels:    map[string]string{"app": "seatunnel"},
+			},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				Conditions: []corev1.PodCondition{
+					{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+				},
+			},
+		}
+	}
+	infoHealthy := &ClusterStatusInfo{ClusterID: 7}
+	newK8sSvc(readyPod("seatunnel-master-0"), readyPod("seatunnel-worker-0")).
+		evaluateClusterHealth(context.Background(), makeCluster(ClusterStatusRunning, 1, 1), infoHealthy)
+	if infoHealthy.HealthStatus != HealthStatusHealthy || infoHealthy.RunningNodes != 2 {
+		t.Fatalf("expected healthy with 2 ready pods, got %s running=%d reasons=%v", infoHealthy.HealthStatus, infoHealthy.RunningNodes, infoHealthy.HealthReasons)
+	}
+	wantPath := "/api/v1/namespaces/seatunnel/services/http:adopted-svc:8080/proxy/overview"
+	if len(overviewPaths) != 1 || overviewPaths[0] != wantPath {
+		t.Fatalf("expected /overview probe via ClusterServiceName %q, got %v", wantPath, overviewPaths)
 	}
 }

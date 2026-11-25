@@ -21,13 +21,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/LeonYoah/stx/internal/pkg/k8s"
-	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 )
 
 // memberProbeTTL 控制成员探测结果的缓存时间，避免每次状态查询都打到所有 Agent。
@@ -422,24 +423,33 @@ func (s *Service) evaluateK8sClusterHealth(ctx context.Context, cluster *Cluster
 		}
 	}
 	statusInfo.RunningNodes = ready
-	if expectRunning {
-		want := cfg.MasterReplicas + cfg.WorkerReplicas
-		if want <= 0 {
-			want = len(pods)
-		}
-		if ready < want {
-			reasons = append(reasons, locale.Pick(ctx, fmt.Sprintf("Pod 就绪 %d/%d", ready, want), fmt.Sprintf("pods ready %d/%d", ready, want)))
-			details = append(details, ClusterHealthReason{Code: ClusterHealthReasonProcessNotRunning, Status: fmt.Sprintf("%d/%d", ready, want)})
-		}
+	if !expectRunning {
+		statusInfo.HealthStatus = HealthStatusUnknown
+		return
+	}
+	want := cfg.MasterReplicas + cfg.WorkerReplicas
+	if want <= 0 {
+		want = len(pods)
+	}
+	if want == 0 {
+		reasons = append(reasons, locale.Pick(ctx, "未发现运行中的引擎 Pod", "no engine pods found"))
+		details = append(details, ClusterHealthReason{Code: ClusterHealthReasonProcessNotRunning, Status: "0/0"})
+	} else if ready < want {
+		reasons = append(reasons, locale.Pick(ctx, fmt.Sprintf("Pod 就绪 %d/%d", ready, want), fmt.Sprintf("pods ready %d/%d", ready, want)))
+		details = append(details, ClusterHealthReason{Code: ClusterHealthReasonProcessNotRunning, Status: fmt.Sprintf("%d/%d", ready, want)})
 	}
 
-	if expectRunning && ready > 0 {
+	if ready > 0 {
 		transport := k8s.NewTransport(s.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
 		port := cfg.MasterHTTPPort
 		if port <= 0 {
 			port = 8080
 		}
-		if base, err := transport.ServiceBaseURL(ctx, cfg.MasterServiceName, port); err == nil {
+		serviceName := cfg.MasterServiceName
+		if serviceName == "" {
+			serviceName = cfg.ClusterServiceName
+		}
+		if base, err := transport.ServiceBaseURL(ctx, serviceName, port); err == nil {
 			if client, err := transport.HTTPClient(ctx, 8*time.Second); err == nil {
 				resp, err := client.Get(strings.TrimRight(base, "/") + "/overview")
 				if err != nil {

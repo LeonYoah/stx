@@ -24,6 +24,17 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
+
+	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/pkg/infra"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 )
 
 func testEndpoint(url string) *ConfigToolEndpoint {
@@ -183,5 +194,140 @@ func TestDefaultConfigToolClientHumanizesResolutionErrors(t *testing.T) {
 				t.Fatalf("expected error to contain %q, but got %q", tc.expectedSub, humanized)
 			}
 		})
+	}
+}
+
+// TestDefaultConfigToolResolverK8sProxyModes 验证 K8s 伴生 Proxy 四种模式（disabled/external/managed/reuse_cluster）
+// 的端点与 Transport 解析行为。
+// TestDefaultConfigToolResolverK8sProxyModes verifies endpoint and transport resolution across all four
+// K8s companion proxy modes (disabled, external, managed, and reuse_cluster).
+func TestDefaultConfigToolResolverK8sProxyModes(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&clusterapp.Cluster{}, &clusterapp.ClusterNode{}); err != nil {
+		t.Fatalf("automigrate: %v", err)
+	}
+	repo := clusterapp.NewRepository(db)
+	clusterSvc := clusterapp.NewService(repo, nil, nil)
+	ctx := context.Background()
+
+	mustCreate := func(c *clusterapp.Cluster) *clusterapp.Cluster {
+		t.Helper()
+		if err := repo.Create(ctx, c); err != nil {
+			t.Fatalf("create cluster %s: %v", c.Name, err)
+		}
+		return c
+	}
+
+	disabledCluster := mustCreate(&clusterapp.Cluster{
+		Name:           "k8s-disabled",
+		ClusterCode:    "disabled",
+		DeploymentMode: clusterapp.DeploymentModeSeparated,
+		InfraType:      string(infra.TypeK8sSession),
+		Config: clusterapp.ClusterConfig{
+			"kubernetes": map[string]interface{}{
+				"host_id":    1,
+				"namespace":  "ns-a",
+				"java_proxy": map[string]interface{}{"mode": "disabled"},
+			},
+		},
+	})
+	externalCluster := mustCreate(&clusterapp.Cluster{
+		Name:           "k8s-external",
+		ClusterCode:    "ext",
+		DeploymentMode: clusterapp.DeploymentModeSeparated,
+		InfraType:      string(infra.TypeK8sSession),
+		Config: clusterapp.ClusterConfig{
+			"kubernetes": map[string]interface{}{
+				"host_id":   1,
+				"namespace": "ns-a",
+				"java_proxy": map[string]interface{}{
+					"mode":         "external",
+					"external_url": "http://proxy.example.com:18080/",
+				},
+			},
+		},
+	})
+	sharedCluster := mustCreate(&clusterapp.Cluster{
+		Name:           "k8s-shared",
+		ClusterCode:    "shared",
+		DeploymentMode: clusterapp.DeploymentModeSeparated,
+		InfraType:      string(infra.TypeK8sSession),
+		Config: clusterapp.ClusterConfig{
+			"kubernetes": map[string]interface{}{
+				"host_id":     1,
+				"namespace":   "shared-ns",
+				"access_mode": "apiserver_proxy",
+				"java_proxy": map[string]interface{}{
+					"mode": "managed",
+					"port": 19090,
+				},
+			},
+		},
+	})
+	reuseCluster := mustCreate(&clusterapp.Cluster{
+		Name:           "k8s-reuse",
+		ClusterCode:    "app",
+		DeploymentMode: clusterapp.DeploymentModeSeparated,
+		InfraType:      string(infra.TypeK8sSession),
+		Config: clusterapp.ClusterConfig{
+			"kubernetes": map[string]interface{}{
+				"host_id":     1,
+				"namespace":   "app-ns",
+				"access_mode": "apiserver_proxy",
+				"java_proxy": map[string]interface{}{
+					"mode":             "reuse_cluster",
+					"reuse_cluster_id": sharedCluster.ID,
+				},
+			},
+		},
+	})
+
+	resolverNoK8s := NewDefaultConfigToolResolver(clusterSvc)
+	if _, err := resolverNoK8s.ResolveConfigToolEndpoint(ctx, disabledCluster.ID, nil); err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("disabled mode must error without k8sManager, got %v", err)
+	}
+	extEP, err := resolverNoK8s.ResolveConfigToolEndpoint(ctx, externalCluster.ID, nil)
+	if err != nil {
+		t.Fatalf("external mode failed: %v", err)
+	}
+	if extEP.BaseURL != "http://proxy.example.com:18080" || extEP.Transport != nil {
+		t.Fatalf("unexpected external endpoint: %+v", extEP)
+	}
+
+	k8sMgr := k8s.NewClientManagerWithFactory(
+		func(_ context.Context, _ uint) (*k8s.Credentials, error) {
+			return &k8s.Credentials{
+				AuthMode: k8s.AuthModeToken,
+				APIURL:   "http://127.0.0.1:6443",
+				Token:    "test-token",
+			}, nil
+		},
+		func(_ *rest.Config) (kubernetes.Interface, error) {
+			return fake.NewSimpleClientset(), nil
+		},
+	)
+	resolver := NewDefaultConfigToolResolver(clusterSvc)
+	resolver.SetK8sManager(k8sMgr)
+
+	managedEP, err := resolver.ResolveConfigToolEndpoint(ctx, sharedCluster.ID, nil)
+	if err != nil {
+		t.Fatalf("managed mode failed: %v", err)
+	}
+	wantManaged := "http://127.0.0.1:6443/api/v1/namespaces/shared-ns/services/http:stx-java-proxy-shared:19090/proxy"
+	if managedEP.BaseURL != wantManaged || managedEP.Transport == nil {
+		t.Fatalf("unexpected managed endpoint: base=%q transport=%v", managedEP.BaseURL, managedEP.Transport)
+	}
+
+	reuseEP, err := resolver.ResolveConfigToolEndpoint(ctx, reuseCluster.ID, nil)
+	if err != nil {
+		t.Fatalf("reuse_cluster mode failed: %v", err)
+	}
+	if reuseEP.BaseURL != wantManaged || reuseEP.Transport == nil {
+		t.Fatalf("reuse_cluster must target reused cluster namespace/service/port: got %q want %q", reuseEP.BaseURL, wantManaged)
 	}
 }

@@ -427,7 +427,7 @@ func setChangedInt(command *cobra.Command, body map[string]any, flagName string,
 // flags for the common fields.
 func newClusterKubernetesCreateCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
-	var name, managementSource, image, version, requestFile string
+	var name, k8sNamespace, managementSource, image, version, requestFile string
 	var hostID int64
 	command := &cobra.Command{
 		Use:     "kubernetes-create",
@@ -441,12 +441,14 @@ func newClusterKubernetesCreateCommand(storeProvider authStoreProvider) *cobra.C
 				return err
 			}
 			if body == nil {
-				if strings.TrimSpace(name) == "" || strings.TrimSpace(options.namespace) == "" || strings.TrimSpace(managementSource) == "" || hostID <= 0 {
-					return clioutput.NewError(clioutput.CodeUsage, "--name, --namespace, --management-source, and --host-id are required", clioutput.ExitUsage, false)
+				// 目标 K8s Namespace 使用独立旗标，避免覆盖 STX CLI 本地凭据库的 --namespace。
+				// Target K8s namespace uses its own flag so it never collides with the STX CLI auth store's --namespace.
+				if strings.TrimSpace(name) == "" || strings.TrimSpace(k8sNamespace) == "" || strings.TrimSpace(managementSource) == "" || hostID <= 0 {
+					return clioutput.NewError(clioutput.CodeUsage, "--name, --k8s-namespace, --management-source, and --host-id are required", clioutput.ExitUsage, false)
 				}
 				body = map[string]any{
 					"name":              strings.TrimSpace(name),
-					"namespace":         strings.TrimSpace(options.namespace),
+					"namespace":         strings.TrimSpace(k8sNamespace),
 					"management_source": strings.TrimSpace(managementSource),
 					"host_id":           hostID,
 				}
@@ -458,6 +460,7 @@ func newClusterKubernetesCreateCommand(storeProvider authStoreProvider) *cobra.C
 	}
 	addSecureWriteFlags(command, &options)
 	command.Flags().StringVar(&name, "name", "", "Cluster name")
+	command.Flags().StringVar(&k8sNamespace, "k8s-namespace", "", "Target Kubernetes namespace")
 	command.Flags().StringVar(&managementSource, "management-source", "", "adopted or stx_deployed")
 	command.Flags().Int64Var(&hostID, "host-id", 0, "Kubernetes host ID")
 	command.Flags().StringVar(&image, "image", "", "SeaTunnel image")

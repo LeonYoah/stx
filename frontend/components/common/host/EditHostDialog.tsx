@@ -28,8 +28,10 @@
 import {useState, useEffect} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/arc/input/input';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Switch} from '@/components/arc/switch/switch';
 import {Label} from '@/components/ui/label';
 import {Textarea} from '@/components/ui/textarea';
@@ -263,23 +265,23 @@ export function EditHostDialog({
                 }
                 placeholder='https://kubernetes.default.svc:6443'
               />
-              <div className='space-y-2'>
-                <Label htmlFor='edit-k8s_auth_mode'>{t('host.k8sAuthMode')}</Label>
-                <select
-                  id='edit-k8s_auth_mode'
-                  className='w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm'
+              <div className='space-y-1.5'>
+                <Label>{t('host.k8sAuthMode')}</Label>
+                <SegmentedControl
+                  label={t('host.k8sAuthMode')}
                   value={formData.k8s_auth_mode || 'kubeconfig'}
-                  onChange={(e) =>
+                  onValueChange={(v) =>
                     setFormData({
                       ...formData,
-                      k8s_auth_mode: e.target.value as 'kubeconfig' | 'token' | 'in_cluster',
+                      k8s_auth_mode: v as 'kubeconfig' | 'token' | 'in_cluster',
                     })
                   }
-                >
-                  <option value='kubeconfig'>kubeconfig</option>
-                  <option value='token'>token</option>
-                  <option value='in_cluster'>in_cluster</option>
-                </select>
+                  options={[
+                    {value: 'kubeconfig', label: 'kubeconfig'},
+                    {value: 'token', label: 'token'},
+                    {value: 'in_cluster', label: 'in_cluster'},
+                  ]}
+                />
               </div>
               <Input
                 id='edit-k8s_namespace'
@@ -337,16 +339,18 @@ export function EditHostDialog({
                   </p>
                 </div>
               ) : null}
-              <label className='flex items-center gap-2 text-sm'>
-                <input
-                  type='checkbox'
+              <div className='flex items-center gap-2 text-sm'>
+                <Checkbox
+                  id='edit-k8s_insecure_skip_tls'
                   checked={formData.k8s_insecure_skip_tls || false}
-                  onChange={(e) =>
-                    setFormData({...formData, k8s_insecure_skip_tls: e.target.checked})
+                  onCheckedChange={(checked) =>
+                    setFormData({...formData, k8s_insecure_skip_tls: Boolean(checked)})
                   }
                 />
-                {t('host.k8sInsecureSkipTLS')}
-              </label>
+                <Label htmlFor='edit-k8s_insecure_skip_tls' className='font-normal'>
+                  {t('host.k8sInsecureSkipTLS')}
+                </Label>
+              </div>
             </>
           ) : null}
         </div>

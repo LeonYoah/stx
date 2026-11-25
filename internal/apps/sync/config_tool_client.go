@@ -22,13 +22,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 )
 
 // ConfigToolClient talks to stx-java-proxy config APIs.
@@ -618,26 +618,56 @@ func (r *DefaultConfigToolResolver) SetK8sManager(mgr *k8s.ClientManager) {
 	r.k8sManager = mgr
 }
 
-// resolveK8sConfigToolEndpoint 解析伴生 Proxy 的 apiserver_proxy 地址并注册 Transport。
-// resolveK8sConfigToolEndpoint resolves the companion proxy's apiserver_proxy address and
-// registers its transport.
+// resolveK8sConfigToolEndpoint 按伴生 Proxy 模式解析端点与 Transport（对齐 managed/reuse/external/disabled）。
+// resolveK8sConfigToolEndpoint resolves the companion proxy endpoint and transport across all
+// proxy modes (managed/reuse/external/disabled).
 func (r *DefaultConfigToolResolver) resolveK8sConfigToolEndpoint(ctx context.Context, clusterObj *clusterapp.Cluster) (*ConfigToolEndpoint, error) {
-	if r.k8sManager == nil {
-		return nil, fmt.Errorf("sync: k8s client manager not configured")
-	}
 	cfg := clusterObj.K8sSessionConfig()
 	if cfg == nil {
 		return nil, fmt.Errorf("sync: cluster %d has invalid kubernetes session config", clusterObj.ID)
 	}
-	transport := k8s.NewTransport(r.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
+	mode := cfg.JavaProxy.Mode
+	if mode == "" {
+		mode = k8s.JavaProxyModeManaged
+	}
+	switch mode {
+	case k8s.JavaProxyModeDisabled:
+		return nil, fmt.Errorf("sync: stx-java-proxy is disabled for kubernetes cluster %d", clusterObj.ID)
+	case k8s.JavaProxyModeExternal:
+		ext := strings.TrimRight(strings.TrimSpace(cfg.JavaProxy.ExternalURL), "/")
+		if ext == "" {
+			return nil, fmt.Errorf("sync: java proxy external_url is empty for cluster %d", clusterObj.ID)
+		}
+		return &ConfigToolEndpoint{BaseURL: ext}, nil
+	}
+	if r.k8sManager == nil {
+		return nil, fmt.Errorf("sync: k8s client manager not configured")
+	}
+	targetCfg := cfg
 	_, serviceName, _ := k8s.ProxyResourceNames(clusterObj.EffectiveClusterCode())
 	if cfg.JavaProxy.ServiceName != "" {
 		serviceName = cfg.JavaProxy.ServiceName
 	}
 	port := cfg.JavaProxy.Port
+	if mode == k8s.JavaProxyModeReuseCluster && cfg.JavaProxy.ReuseClusterID > 0 && r.clusterService != nil {
+		if reuse, err := r.clusterService.Get(ctx, cfg.JavaProxy.ReuseClusterID); err == nil && reuse != nil {
+			_, reuseSvc, _ := k8s.ProxyResourceNames(reuse.EffectiveClusterCode())
+			serviceName = reuseSvc
+			if reuseCfg := reuse.K8sSessionConfig(); reuseCfg != nil {
+				targetCfg = reuseCfg
+				if reuseCfg.JavaProxy.ServiceName != "" {
+					serviceName = reuseCfg.JavaProxy.ServiceName
+				}
+				if reuseCfg.JavaProxy.Port > 0 {
+					port = reuseCfg.JavaProxy.Port
+				}
+			}
+		}
+	}
 	if port <= 0 {
 		port = 18080
 	}
+	transport := k8s.NewTransport(r.k8sManager, targetCfg.HostID, targetCfg.Namespace, targetCfg.AccessMode, targetCfg.ExternalBaseURL)
 	base, err := transport.ServiceBaseURL(ctx, serviceName, port)
 	if err != nil {
 		return nil, err

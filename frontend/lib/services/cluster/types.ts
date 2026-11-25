@@ -1100,3 +1100,15 @@ export interface K8sPodInfo {
   workload_kind: string;
   workload_name: string;
 }
+
+/**
+ * Companion java-proxy status returned by create/retry endpoints
+ * 创建或重试接口返回的伴生 Proxy 状态
+ */
+export interface K8sProxyStatus {
+  healthy: boolean;
+  message?: string;
+  pod_phase?: string;
+  pod_events?: string[];
+  service_url?: string;
+}

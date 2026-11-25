@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/utils/secretbox"
 	"github.com/glebarez/sqlite"
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
@@ -1145,5 +1146,51 @@ func TestDeleteRejectsHostWithRunningNode(t *testing.T) {
 	}
 	if err := svc.Delete(ctx, host.ID); err != ErrHostHasRunningNode {
 		t.Fatalf("expected ErrHostHasRunningNode, got %v", err)
+	}
+}
+
+// TestUpdateK8sHostPreservesCACertWhenEmpty 验证 K8s 主机更新时传入空 CA 证书不会清空原值，
+// 仅在显式提供非空证书时覆盖。
+// TestUpdateK8sHostPreservesCACertWhenEmpty verifies updating a K8s host with an empty CA cert
+// preserves the existing value and only overwrites when non-empty.
+func TestUpdateK8sHostPreservesCACertWhenEmpty(t *testing.T) {
+	secretbox.SetSecret("test-secret-k8s-ca-preserve")
+	t.Cleanup(func() { secretbox.SetSecret("") })
+
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	svc := NewService(NewRepository(db), cluster.NewRepository(db), nil)
+	ctx := context.Background()
+
+	origCA := "-----BEGIN CERTIFICATE-----\nORIG\n-----END CERTIFICATE-----"
+	created, err := svc.Create(ctx, &CreateHostRequest{
+		Name:        "k8s-ca-preserve",
+		HostType:    HostTypeKubernetes,
+		K8sAPIURL:   "https://10.0.0.10:6443",
+		K8sAuthMode: "token",
+		K8sToken:    "secret-token",
+		K8sCACert:   origCA,
+	})
+	if err != nil {
+		t.Fatalf("create k8s host: %v", err)
+	}
+
+	empty := "   "
+	updated, err := svc.Update(ctx, created.ID, &UpdateHostRequest{K8sCACert: &empty})
+	if err != nil {
+		t.Fatalf("update with empty ca cert: %v", err)
+	}
+	if updated.K8sCACert != origCA {
+		t.Fatalf("empty ca cert must preserve original, got %q", updated.K8sCACert)
+	}
+
+	newCA := "-----BEGIN CERTIFICATE-----\nNEW\n-----END CERTIFICATE-----"
+	updated, err = svc.Update(ctx, created.ID, &UpdateHostRequest{K8sCACert: &newCA})
+	if err != nil {
+		t.Fatalf("update with new ca cert: %v", err)
+	}
+	if updated.K8sCACert != newCA {
+		t.Fatalf("expected new ca cert %q, got %q", newCA, updated.K8sCACert)
 	}
 }

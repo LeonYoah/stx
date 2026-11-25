@@ -176,18 +176,11 @@ export function K8sClusterCreateDialog({open, onOpenChange, onSuccess}: K8sClust
       } | undefined;
       const proxyStatus = created?.proxy_status;
       if (proxyStatus && !proxyStatus.healthy) {
-        // 探活失败不阻断保存：展示事件与一键重试入口。
-        // Probe failure never blocks saving: show events plus a one-click retry entry.
-        const events = (proxyStatus.pod_events || []).slice(0, 3).join('；');
+        // 探活超时或失败不阻断保存，直接提示事件并引导用户在集群详情页重试，避免二次静默等待。
+        // Probe timeout/failure never blocks saving; surface pod events so the user can retry from
+        // the cluster detail page without blocking another probe window here.
+        const events = (proxyStatus.pod_events || []).slice(0, 3).join(' · ');
         toast.error(`${t('cluster.k8s.proxyUnhealthy')}: ${proxyStatus.message || ''}${events ? ` · ${events}` : ''}`);
-        if (created?.cluster?.id) {
-          try {
-            await services.cluster.retryK8sJavaProxy(created.cluster.id);
-          } catch {
-            // 重试结果交由详情页状态呈现，这里不再二次报错。
-            // Retry outcome is surfaced on the detail page; no duplicate error here.
-          }
-        }
       } else {
         toast.success(t('common.success'));
       }

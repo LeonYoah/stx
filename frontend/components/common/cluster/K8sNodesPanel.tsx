@@ -22,6 +22,7 @@ import {useTranslations} from 'next-intl';
 import {Button} from '@/components/arc/button/button';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/arc/input/input';
+import {Select} from '@/components/arc/select/select';
 import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import type {K8sPodInfo} from '@/lib/services/cluster/types';
@@ -48,6 +49,9 @@ export function K8sNodesPanel({clusterId}: K8sNodesPanelProps) {
   const [cmSelected, setCmSelected] = useState('');
   const [cmContent, setCmContent] = useState('');
   const [cmDirty, setCmDirty] = useState(false);
+  const [logPod, setLogPod] = useState<string | null>(null);
+  const [logText, setLogText] = useState('');
+  const [logLoading, setLogLoading] = useState(false);
   const [operating, setOperating] = useState(false);
 
   const loadPods = useCallback(async () => {
@@ -123,7 +127,36 @@ export function K8sNodesPanel({clusterId}: K8sNodesPanelProps) {
     }
   };
 
-  const sel = 'rounded-md border border-input bg-transparent px-2 py-1.5 text-sm';
+  const openPodLogs = async (podName: string) => {
+    setLogPod(podName);
+    setLogText('');
+    setLogLoading(true);
+    try {
+      const content = await services.cluster.getK8sPodLogs(clusterId, podName);
+      setLogText(content);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setLogLoading(false);
+    }
+  };
+
+  const retryProxy = async () => {
+    setOperating(true);
+    try {
+      const status = await services.cluster.retryK8sJavaProxy(clusterId);
+      if (status?.healthy) {
+        toast.success(t('common.success'));
+      } else {
+        const events = (status?.pod_events || []).slice(0, 3).join(' · ');
+        toast.error(`${t('cluster.k8s.proxyUnhealthy')}: ${status?.message || ''}${events ? ` · ${events}` : ''}`);
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setOperating(false);
+    }
+  };
 
   return (
     <div className='space-y-3'>
@@ -146,6 +179,9 @@ export function K8sNodesPanel({clusterId}: K8sNodesPanelProps) {
         <Button size='sm' variant='secondary' onClick={() => void openConfigMap()}>
           ConfigMap
         </Button>
+        <Button size='sm' variant='secondary' disabled={operating} onClick={() => void retryProxy()}>
+          {t('cluster.k8s.retryProxy')}
+        </Button>
         <Button size='sm' variant='secondary' disabled={loading} onClick={() => void loadPods()}>
           {t('common.refresh')}
         </Button>
@@ -161,6 +197,7 @@ export function K8sNodesPanel({clusterId}: K8sNodesPanelProps) {
               <th className='px-3 py-2'>{t('cluster.k8s.podPhase')}</th>
               <th className='px-3 py-2'>IP</th>
               <th className='px-3 py-2'>{t('cluster.k8s.podRestarts')}</th>
+              <th className='px-3 py-2 text-right'>{t('common.actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -170,12 +207,17 @@ export function K8sNodesPanel({clusterId}: K8sNodesPanelProps) {
                 <td className='px-3 py-2'>{pod.role}</td>
                 <td className='px-3 py-2'>{pod.ready ? '✓' : '—'}</td>
                 <td className='px-3 py-2'>{pod.phase}</td>
-                <td className='px-3 py-2 font-mono text-xs'>{pod.pod_ip}</td>
-                <td className='px-3 py-2'>{pod.restarts}</td>
+                <td className='px-3 py-2 font-mono text-xs tabular-nums'>{pod.pod_ip}</td>
+                <td className='px-3 py-2 tabular-nums'>{pod.restarts}</td>
+                <td className='px-3 py-2 text-right'>
+                  <Button size='sm' variant='secondary' onClick={() => void openPodLogs(pod.name)}>
+                    {t('cluster.k8s.podLogs')}
+                  </Button>
+                </td>
               </tr>
             ))}
             {pods.length === 0 && !loading ? (
-              <tr><td colSpan={6} className='px-3 py-6 text-center text-muted-foreground'>{t('common.noData')}</td></tr>
+              <tr><td colSpan={7} className='px-3 py-6 text-center text-muted-foreground'>{t('common.noData')}</td></tr>
             ) : null}
           </tbody>
         </table>
@@ -220,19 +262,15 @@ export function K8sNodesPanel({clusterId}: K8sNodesPanelProps) {
         <Dialog open onOpenChange={() => setCmOpen(false)}>
           <DialogContent title='ConfigMap' className='arc-compact w-[min(94vw,720px)]!'>
             <div className='space-y-2'>
-              <select
-                className={sel}
+              <Select
                 value={cmSelected}
-                onChange={(e) => {
-                  setCmSelected(e.target.value);
-                  setCmContent(cmFiles[e.target.value] || '');
+                options={Object.keys(cmFiles).sort().map((k) => ({value: k, label: k}))}
+                onValueChange={(v) => {
+                  setCmSelected(v);
+                  setCmContent(cmFiles[v] || '');
                   setCmDirty(false);
                 }}
-              >
-                {Object.keys(cmFiles).sort().map((k) => (
-                  <option key={k} value={k}>{k}</option>
-                ))}
-              </select>
+              />
               <textarea
                 className='h-72 w-full rounded-md border border-input bg-transparent p-2 font-mono text-xs'
                 value={cmContent}
@@ -253,6 +291,24 @@ export function K8sNodesPanel({clusterId}: K8sNodesPanelProps) {
                 }}
               >
                 {t('cluster.k8s.saveAndRestart')}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+
+      {logPod ? (
+        <Dialog open onOpenChange={() => setLogPod(null)}>
+          <DialogContent title={`${t('cluster.k8s.podLogs')} · ${logPod}`} className='arc-compact w-[min(94vw,820px)]!'>
+            <pre className='h-96 overflow-auto rounded-md border border-border/60 bg-muted/30 p-3 font-mono text-xs whitespace-pre-wrap'>
+              {logLoading ? t('common.loading') : (logText || t('common.noData'))}
+            </pre>
+            <div className='mt-4 flex justify-end gap-2'>
+              <Button size='sm' variant='secondary' disabled={logLoading} onClick={() => void openPodLogs(logPod)}>
+                {t('common.refresh')}
+              </Button>
+              <Button size='sm' variant='secondary' onClick={() => setLogPod(null)}>
+                {t('common.close')}
               </Button>
             </div>
           </DialogContent>

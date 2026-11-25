@@ -377,7 +377,7 @@ export class HostService extends BaseService {
    */
   static async discoverK8sClusters(hostId: number, namespace: string): Promise<unknown[]> {
     const response = await apiClient.get<{error_msg: string; data: unknown[]}>(
-      `${this.basePath}/${hostId}/k8s-discover?namespace=${encodeURIComponent(namespace)}`,
+      `${this.basePath}/${hostId}/k8s/discover?namespace=${encodeURIComponent(namespace)}`,
     );
     if (response.data.error_msg) {
       throw new Error(response.data.error_msg);

@@ -74,6 +74,7 @@ import {
   ClusterWebUIEndpoints,
   UpdateStxJavaProxyConfigRequest,
   K8sPodInfo,
+  K8sProxyStatus,
 } from './types';
 
 /**
@@ -1625,12 +1626,12 @@ export class ClusterService extends BaseService {
   }
 
   /**
-   * Scale a K8s workload role / 扩缩容 K8s 工作负载
+   * Scale a K8s workload component / 扩缩容 K8s 工作负载
    */
-  static async scaleK8s(clusterId: number, role: string, replicas: number): Promise<void> {
+  static async scaleK8s(clusterId: number, component: string, replicas: number): Promise<void> {
     const response = await apiClient.post<{error_msg: string}>(
       `${this.basePath}/${clusterId}/k8s/scale`,
-      {role, replicas},
+      {component, replicas},
     );
     if (response.data.error_msg) {
       throw new Error(response.data.error_msg);
@@ -1638,12 +1639,12 @@ export class ClusterService extends BaseService {
   }
 
   /**
-   * Rollout restart a K8s workload role / 滚动重启 K8s 工作负载
+   * Rollout restart a K8s workload component / 滚动重启 K8s 工作负载
    */
-  static async rolloutRestartK8s(clusterId: number, role: string): Promise<void> {
+  static async rolloutRestartK8s(clusterId: number, component: string): Promise<void> {
     const response = await apiClient.post<{error_msg: string}>(
       `${this.basePath}/${clusterId}/k8s/rollout-restart`,
-      {role},
+      {component},
     );
     if (response.data.error_msg) {
       throw new Error(response.data.error_msg);
@@ -1677,6 +1678,20 @@ export class ClusterService extends BaseService {
   }
 
   /**
+   * Read K8s pod logs / 读取 K8s Pod 日志
+   */
+  static async getK8sPodLogs(clusterId: number, podName: string, tailLines = 500): Promise<string> {
+    const response = await apiClient.get<{error_msg: string; data: {logs?: string}}>(
+      `${this.basePath}/${clusterId}/k8s/pods/${encodeURIComponent(podName)}/logs`,
+      {params: {tail_lines: tailLines}},
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data?.logs || '';
+  }
+
+  /**
    * Read K8s ConfigMap files / 读取 ConfigMap 配置文件
    */
   static async getK8sConfigMap(clusterId: number): Promise<Record<string, string>> {
@@ -1705,14 +1720,15 @@ export class ClusterService extends BaseService {
   /**
    * Retry companion java proxy start / 重试拉起伴生 Proxy
    */
-  static async retryK8sJavaProxy(clusterId: number): Promise<void> {
-    const response = await apiClient.post<{error_msg: string}>(
+  static async retryK8sJavaProxy(clusterId: number): Promise<K8sProxyStatus> {
+    const response = await apiClient.post<{error_msg: string; data: K8sProxyStatus}>(
       `${this.basePath}/${clusterId}/k8s/java-proxy/retry`,
       {},
     );
     if (response.data.error_msg) {
       throw new Error(response.data.error_msg);
     }
+    return response.data.data;
   }
 
 }

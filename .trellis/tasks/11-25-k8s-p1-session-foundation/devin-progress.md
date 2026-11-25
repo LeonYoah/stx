@@ -75,3 +75,18 @@
 6. config 域 K8s 分支（ConfigMap 读写接口已在 cluster 层，config 域未接）
 7. WebUI 代理 K8s 适配（webui_master.go 未接）
 8. 全量检查 + 推送 PR #208
+
+## 最终阶段（第四轮）
+- AC-3/AC-4 全部 e2e 验证通过：纳管解绑零损伤、一键部署全链路（组网/作业/升级/卸载无残留）
+- 前端已交付：K8sClusterCreateDialog（纳管/一键部署）、ClusterMain 接线、CreateHostDialog auth_mode/ca_cert/insecure、类型与服务方法、插件批量卸载 K8s 守卫、i18n 双语
+- 修复 main 预存 data race（mockOperationAgentSender 加锁+snapshot）
+- 修复 dialog-width 规范（禁用无前缀 max-w-*）
+
+## 已知遗留（诚实清单）
+- EditHostDialog 编辑态 K8s 字段未加（创建对话框已加）
+- 集群详情页 Pod 列表/扩缩容/镜像升级/ConfigMap 查看 UI 未做（后端 API+CLI 已全）
+- 工作台 K8s 集群 local 模式前端隐藏未做（后端已拒绝拦截）
+- host test-connection 前端按钮未加（后端接口已通）
+- capabilities bits / webui 代理 / config 域 K8s 分支未做
+- CLI 新操作单测未补（命令已生成可用）
+- UserManagement.test 全量并行下偶发失败（main 预存 flaky，孤立运行通过）

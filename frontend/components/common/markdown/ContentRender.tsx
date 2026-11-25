@@ -60,8 +60,6 @@ function CodeBlockCopyButton({content}: {content: string}) {
     <CopyButton
       value={content}
       label={t('copy')}
-      copiedLabel={t('copied')}
-      failedLabel={t('copyFailed')}
       variant='plain'
       className='h-7 min-h-0 px-2 text-xs'
     />

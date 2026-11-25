@@ -203,8 +203,6 @@ export function ClusterNodeLogDialog({
             <CopyButton
               value={logContent}
               label={t('cluster.copyLog')}
-              copiedLabel={t('common.copied')}
-              failedLabel={t('common.copyFailed')}
               className='h-[var(--control-height-sm)]'
               disabled={!logContent}
             />

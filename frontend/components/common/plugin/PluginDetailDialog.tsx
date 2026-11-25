@@ -575,16 +575,12 @@ export function PluginDetailDialog({
                       <CopyButton
                         value={mavenCoordText}
                         label={t('plugin.copyCoordinates')}
-                        copiedLabel={t('common.copied')}
-                        failedLabel={t('common.copyFailed')}
                         variant='plain'
                         className='h-6 text-xs px-2'
                       />
                       <CopyButton
                         value={mavenXmlText}
                         label={t('plugin.copyXml')}
-                        copiedLabel={t('common.copied')}
-                        failedLabel={t('common.copyFailed')}
                         variant='plain'
                         className='h-6 text-xs px-2'
                       />

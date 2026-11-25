@@ -623,8 +623,6 @@ export function TokenManagement() {
                 <CopyButton
                   value={issuedToken.token || ''}
                   label={t('common.copy')}
-                  copiedLabel={t('common.copied')}
-                  failedLabel={t('common.copyFailed')}
                   iconOnly
                 />
               </div>

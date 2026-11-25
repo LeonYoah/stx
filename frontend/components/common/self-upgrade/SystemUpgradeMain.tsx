@@ -241,7 +241,6 @@ function assetStatusLabel(
 
 export function SystemUpgradeMain() {
   const t = useTranslations('selfUpgrade');
-  const tc = useTranslations('common');
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -656,8 +655,6 @@ export function SystemUpgradeMain() {
               <CopyButton
                 value={status.docker_compose_upgrade_cmd || 'docker compose pull && docker compose up -d'}
                 label={t('dockerNoticeCopy')}
-                copiedLabel={tc('copied')}
-                failedLabel={tc('copyFailed')}
                 variant='plain'
                 className='h-7 shrink-0 px-2 text-xs hover:bg-background'
               />

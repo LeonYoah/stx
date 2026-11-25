@@ -306,8 +306,6 @@ export function ClusterOverviewTab({
                   <CopyButton
                     value={cluster.install_dir}
                     label={t('common.copy')}
-                    copiedLabel={t('common.copied')}
-                    failedLabel={t('common.copyFailed')}
                     variant='plain'
                     iconOnly
                     className='h-5 w-5 min-h-0 shrink-0'
@@ -331,8 +329,6 @@ export function ClusterOverviewTab({
                   <CopyButton
                     value={cluster.cluster_code}
                     label={t('common.copy')}
-                    copiedLabel={t('common.copied')}
-                    failedLabel={t('common.copyFailed')}
                     variant='plain'
                     iconOnly
                     className='h-5 w-5 min-h-0 shrink-0'

@@ -658,8 +658,6 @@ export function CuratedTemplatesManagePanel({
                   <CopyButton
                     value={item.content || ''}
                     label={t('curatedCopyScript')}
-                    copiedLabel={t('curatedScriptCopied')}
-                    failedLabel={t('curatedCopyScriptFailed')}
                     variant='plain'
                     disabled={!item.content}
                     className='h-6 min-h-0 px-1.5 text-[10px]'
@@ -744,8 +742,6 @@ export function CuratedTemplatesManagePanel({
                         <CopyButton
                           value={item.content || ''}
                           label={t('curatedCopyScript')}
-                          copiedLabel={t('curatedScriptCopied')}
-                          failedLabel={t('curatedCopyScriptFailed')}
                           variant='plain'
                           disabled={!item.content}
                           className='h-5 min-h-0 px-1.5 text-[10px]'
@@ -832,8 +828,6 @@ export function CuratedTemplatesManagePanel({
               <CopyButton
                 value={previewContent || ''}
                 label={t('curatedCopyScript')}
-                copiedLabel={t('curatedScriptCopied')}
-                failedLabel={t('curatedCopyScriptFailed')}
                 variant='outline'
                 disabled={!previewContent}
                 className='h-7 px-2.5 text-xs'
@@ -864,8 +858,6 @@ export function CuratedTemplatesManagePanel({
               <CopyButton
                 value={previewContent || ''}
                 label={t('curatedCopyScript')}
-                copiedLabel={t('curatedScriptCopied')}
-                failedLabel={t('curatedCopyScriptFailed')}
                 variant='outline'
                 disabled={!previewContent}
               />
@@ -1026,8 +1018,6 @@ export function CuratedTemplatesManagePanel({
                   <CopyButton
                     value={editContent}
                     label={t('curatedCopyScript')}
-                    copiedLabel={t('curatedScriptCopied')}
-                    failedLabel={t('curatedCopyScriptFailed')}
                     variant='outline'
                     disabled={!editContent.trim()}
                     className='h-6 px-2 text-[11px]'

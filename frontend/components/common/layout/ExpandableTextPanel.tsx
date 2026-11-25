@@ -128,7 +128,6 @@ export function ExpandableTextPanel({
   const resolvedEmpty = emptyLabel ?? t('noContent');
   const resolvedCopyLabel = copyLabel ?? t('copyFullText');
   const resolvedExpandLabel = expandLabel ?? t('expandView');
-  const resolvedCopiedLabel = copiedLabel ?? t('copied');
   const displayText = useMemo(() => {
     const raw = typeof content === 'string' ? content : '';
     return raw.length > 0 ? raw : resolvedEmpty;
@@ -255,8 +254,7 @@ export function ExpandableTextPanel({
           <CopyButton
             value={content as string}
             label={resolvedCopyLabel}
-            copiedLabel={resolvedCopiedLabel}
-            failedLabel={t('copyFailed')}
+            copiedLabel={copiedLabel}
             variant='plain'
             className='h-7 px-2 text-xs border border-border'
           />
@@ -334,8 +332,7 @@ export function ExpandableTextPanel({
                     <CopyButton
                       value={content as string}
                       label={resolvedCopyLabel}
-                      copiedLabel={resolvedCopiedLabel}
-                      failedLabel={t('copyFailed')}
+                      copiedLabel={copiedLabel}
                       variant='plain'
                       className='h-7 px-2 text-xs border border-border'
                     />

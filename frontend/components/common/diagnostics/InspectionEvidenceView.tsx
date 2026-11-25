@@ -165,8 +165,6 @@ export function InspectionFindingCard({
                           <CopyButton
                             value={recommendation}
                             label={t('evidence.copy')}
-                            copiedLabel={t('evidence.copied')}
-                            failedLabel={t('evidence.copyFailed')}
                             variant='plain'
                             className='h-7 px-2 text-xs'
                           />

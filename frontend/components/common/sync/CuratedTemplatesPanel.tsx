@@ -286,8 +286,6 @@ export function CuratedTemplatesPanel({
             <CopyButton
               value={preview || ''}
               label={t('curatedCopyScript')}
-              copiedLabel={t('curatedScriptCopied')}
-              failedLabel={t('curatedCopyScriptFailed')}
               variant='plain'
               disabled={!selected || !preview}
               className='h-6 min-h-0 px-1.5 text-[11px]'

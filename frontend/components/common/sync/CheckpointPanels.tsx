@@ -1062,8 +1062,6 @@ function QuickCopyButton({text}: {text: string}) {
     <CopyButton
       value={text}
       label={t('copyCheckpoint')}
-      copiedLabel={t('copied')}
-      failedLabel={t('copyFailed')}
       variant='plain'
       iconOnly
       className='size-6 min-h-0'
@@ -2356,8 +2354,6 @@ export function CheckpointInspectDialog({
               <CopyButton
                 value={activeResult?.path ?? ''}
                 label={t('copyPath')}
-                copiedLabel={t('copied')}
-                failedLabel={t('copyFailed')}
                 variant='plain'
                 className='h-6 px-2 text-[11px]'
                 disabled={!activeResult?.path}
@@ -2365,8 +2361,6 @@ export function CheckpointInspectDialog({
               <CopyButton
                 value={activeResult ? JSON.stringify(activeResult, null, 2) : ''}
                 label={t('copyJson')}
-                copiedLabel={t('copied')}
-                failedLabel={t('copyFailed')}
                 variant='plain'
                 className='h-6 px-2 text-[11px]'
                 disabled={!activeResult}

@@ -2820,8 +2820,6 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 <CopyButton
                   value={runtimeStoragePreview.path}
                   label={t('cluster.runtimeStorage.copyPath')}
-                  copiedLabel={t('common.copied')}
-                  failedLabel={t('common.copyFailed')}
                   variant='plain'
                   iconOnly
                   className='h-5 w-5 min-h-0'

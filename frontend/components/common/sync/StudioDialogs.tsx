@@ -130,8 +130,6 @@ export function StudioErrorDiagnosticsView({
         <CopyButton
           value={copyText}
           label={t('copyError')}
-          copiedLabel={t('copied')}
-          failedLabel={t('copyFailed')}
           variant='plain'
           className='h-7 px-2 text-xs'
         />

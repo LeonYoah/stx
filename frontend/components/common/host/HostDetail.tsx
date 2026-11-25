@@ -391,8 +391,6 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
                       <CopyButton
                         value={installCommand}
                         label={t('common.copy')}
-                        copiedLabel={t('common.copied')}
-                        failedLabel={t('common.copyFailed')}
                         variant='plain'
                         className='h-7 px-2 text-xs'
                       />
@@ -411,8 +409,6 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
                       <CopyButton
                         value={getUninstallCommand(installCommand)}
                         label={t('common.copy')}
-                        copiedLabel={t('common.copied')}
-                        failedLabel={t('common.copyFailed')}
                         variant='plain'
                         className='h-7 px-2 text-xs'
                       />

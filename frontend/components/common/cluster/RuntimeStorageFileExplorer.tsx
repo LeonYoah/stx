@@ -399,8 +399,6 @@ export function RuntimeStorageFileExplorer({
                   <CopyButton
                     value={effectiveCurrentPath}
                     label={t('copyPath')}
-                    copiedLabel={tCommon('copied')}
-                    failedLabel={tCommon('copyFailed')}
                     variant='plain'
                     iconOnly
                     disabled={!effectiveCurrentPath}

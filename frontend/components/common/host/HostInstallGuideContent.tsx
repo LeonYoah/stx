@@ -284,8 +284,6 @@ export function HostInstallGuideContent({
             <CopyButton
               value={installCommand}
               label={t('common.copy')}
-              copiedLabel={t('common.copied')}
-              failedLabel={t('common.copyFailed')}
               variant='plain'
               disabled={loadingCommand || !installCommand}
               className='h-6 px-2 text-[11px] text-zinc-300 hover:text-white hover:bg-zinc-800'
@@ -432,8 +430,6 @@ export function HostInstallGuideContent({
             <CopyButton
               value={installCommand}
               label={t('host.installGuide.copyInstallCommand')}
-              copiedLabel={t('common.copied')}
-              failedLabel={t('common.copyFailed')}
               disabled={loadingCommand || !installCommand}
               className='h-8 text-xs'
             />

@@ -82,8 +82,6 @@ function CopyValueButton({
     <CopyButton
       value={value}
       label={label}
-      copiedLabel={t('common.copied')}
-      failedLabel={t('common.copyFailed')}
       variant='plain'
       iconOnly
       className='h-6 w-6 min-h-0 shrink-0'

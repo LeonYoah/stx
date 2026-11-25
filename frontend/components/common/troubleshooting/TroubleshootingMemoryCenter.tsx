@@ -478,8 +478,6 @@ export function TroubleshootingMemoryCenter({
                       <CopyButton
                         value={entry.solution}
                         label={t('copySolution')}
-                        copiedLabel={commonT('copied')}
-                        failedLabel={commonT('copyFailed')}
                         variant='plain'
                         iconOnly
                         className='size-7 min-h-0'
@@ -744,8 +742,6 @@ export function TroubleshootingMemoryCenter({
                         <CopyButton
                           value={detail.solution}
                           label={t('copySolution')}
-                          copiedLabel={commonT('copied')}
-                          failedLabel={commonT('copyFailed')}
                           className='h-6 text-[11px] px-2 border-emerald-500/30 hover:bg-emerald-500/10'
                         />
                       </div>
@@ -843,8 +839,6 @@ export function TroubleshootingMemoryCenter({
                     <CopyButton
                       value={detail.solution}
                       label={t('copySolution')}
-                      copiedLabel={commonT('copied')}
-                      failedLabel={commonT('copyFailed')}
                       className='h-8 text-xs'
                     />
                   </div>

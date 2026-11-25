@@ -176,7 +176,7 @@ export function K8sClusterCreateDialog({open, onOpenChange, onSuccess}: K8sClust
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title={t('cluster.k8s.createTitle')} className='arc-compact max-w-lg'>
+      <DialogContent title={t('cluster.k8s.createTitle')} className='arc-compact w-[min(94vw,560px)]!'>
         <h3 className='text-base font-semibold'>{t('cluster.k8s.createTitle')}</h3>
         <div className='mt-3 space-y-3'>
           <SegmentedControl

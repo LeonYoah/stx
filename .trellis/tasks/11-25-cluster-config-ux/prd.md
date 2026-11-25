@@ -33,13 +33,18 @@
 - 用户在 K8s 集群或 App 模板中一键「载入镜像默认配置」即可拿到当前镜像真实基线（天然适配任意 SeaTunnel 版本与企业定制镜像，STX 无需硬编码维护多版本模板）。
 - 支持 **「与镜像默认值对比 Diff」**；K8s 落地时仅将发生变更的文件写入 ConfigMap 并按 `subPath` 挂载，未改动文件继续沿用镜像内置版本。
 
-### 2.3 快捷片段、从已有集群导入与「配置集（Config Profile）」复用
+### 2.3 快捷片段、从已有集群导入与「配置挂载包（Config Bundle / Profile）」跨基础设施复用
 - **快捷片段（Snippet）**：源码编辑器内置一键插入常用配置块（S3/OSS/HDFS Checkpoint、Basic Auth、Metrics、K8s Hazelcast DNS 发现）。
 - **从已有集群复制**：支持选择任意同类已有集群，一键拉取其配置文件进行对比导入（借鉴 StreamPark 历史模板抽屉）。
-- **配置集（Config Profile / Preset）**：
-  - 新增 `cluster_config_profiles` 表，支持保存一组标准化配置文件（可只包含部分覆盖文件，如仅 `seatunnel.yaml` + `log4j2.properties`）；
-  - 内置 3 套官方只读 Preset（开发快速上手 / 生产 K8s 标准 / App 模式轻量化）；
-  - 任意已调优集群支持「另存为配置集」；新建物理机集群、一键部署 K8s Session 集群、创建 K8s App 模板时支持直接套用或派生。
+- **统一配置挂载包（Config Bundle / External Ref，覆盖 SeaTunnel + Hadoop/Hive + Kerberos + 未来 YARN）**：
+  - 支持两类来源：
+    1. **STX 托管配置包（`cluster_config_profiles` / Bundle）**：一组文件（支持批量上传 `.xml`/`.yaml`/`.properties`/`.conf`/`.keytab`/`.crt` 或在线编辑）+ 默认挂载目录（如 `/etc/hadoop/conf`）+ 伴随环境变量（如 `HADOOP_CONF_DIR=/etc/hadoop/conf`、`HIVE_CONF_DIR`）。标记 `sensitive=true` 的敏感包（如 `krb5.conf`、`*.keytab`、TLS 证书）走 `secretbox` AES-GCM 加密落库；
+    2. **外部原生引用（External Ref，面向 K8s GitOps）**：直接引用目标 Namespace 已有的 `ConfigMap` / `Secret`（只做提交前校验与预览，绝不拷贝或修改）。
+  - **跨基础设施原生落地**：
+    - **K8s 常驻 / App 模式**：普通包同步为 ConfigMap（`subPath` 挂载）、敏感包同步为 `0400` K8s Secret（绝不进 ConfigMap），**且伴生 `stx-java-proxy` 同步挂载同一批 Hadoop/Hive/Kerberos 卷与环境变量**（保证工作台测试 HDFS/Hive 连接、Catalog 探测与 Checkpoint 检查可用）；
+    - **物理机**：经 Agent 同步落盘到节点目标目录并注入 `seatunnel-env.sh`；
+    - **未来 YARN 模式**：提交时物化 `hadoop-conf`（含 `yarn-site.xml`/`core-site.xml`/`hdfs-site.xml`）与 Kerberos 凭据到提交目录并随 LocalResources 分发。
+  - 内置 3 套官方只读 Preset（开发快速上手 / 生产 K8s 标准 / App 模式轻量化），任意已调优集群支持「另存为配置包」。
 
 ### 2.4 `${VAR}` 占位符识别、明文凭据防呆与 K8s Secret 绑定
 - 编辑器自动扫描配置文件中的 `${ENV_VAR}` 占位符并展示绑定状态（已绑定 K8s Secret / 环境变量 / 未定义）。

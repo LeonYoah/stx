@@ -83,7 +83,7 @@ flowchart TB
 | 表 / 模型 | 新增列或字段语义 | 索引 / 默认值 | 兼容与安全契约 |
 | --- | --- | --- | --- |
 | `hosts` (`host.Host`) | `k8s_auth_mode` (`kubeconfig` \| `token` \| `in_cluster`)；`k8s_ca_cert` (text, 可选)；`k8s_insecure_skip_tls` (bool)；复用已有 `k8s_api_url` / `k8s_namespace` / `k8s_kubeconfig` / `k8s_token` / `k8s_version` | `k8s_auth_mode` 默认 `kubeconfig` | `k8s_kubeconfig` 与 `k8s_token` 统一走 `internal/utils/secretbox`（AES-256-GCM，密钥派生自 `app.session_secret`）加密落库；`HostInfo` 永不返回明文，仅返回 `has_k8s_kubeconfig` / `has_k8s_token`；更新传空字符串保留原值（跨层指南错误九） |
-| `clusters` (`cluster.Cluster`) | `infra_type` (`bare_metal` \| `kubernetes_session` \| `kubernetes_application_template` \| `kubernetes_application_instance`)；<br>`k8s_host_id` (`*uint`)；<br>`auto_registered` (`bool`)；<br>`parent_cluster_id` (`*uint`)；<br>`source_job_instance_id` (`*uint`) | `infra_type` 默认 `bare_metal` + index；`k8s_host_id` / `parent_cluster_id` / `auto_registered` 建索引 | 存量行自动为 `bare_metal`、`auto_registered=false`；工作台选择器、`/clusters` 列表、告警评估器全部按 `infra_type` 显式路由 |
+| `clusters` (`cluster.Cluster`) | `infra_type`（`size:64`，归属公共层不反向依赖 `pkg/k8s`：`bare_metal` \| `kubernetes_session` \| `kubernetes_application_template` \| `kubernetes_application_instance`，并预留未来 `yarn_session` / `yarn_application_*`）；<br>`k8s_host_id` (`*uint`，未来可泛化或与 `config["yarn"]` 并行)；<br>`auto_registered` (`bool`)；<br>`parent_cluster_id` (`*uint`)；<br>`source_job_instance_id` (`*uint`) | `infra_type` 默认 `bare_metal` + index（`size:64` 避免 MySQL/PG 截断）；`k8s_host_id` / `parent_cluster_id` / `auto_registered` 建索引 | 存量行自动为 `bare_metal`、`auto_registered=false`；工作台选择器、`/clusters` 列表、告警评估器全部按 `infra_type` 显式路由 |
 | `sync_tasks` (`sync.Task`) | 不新增列；`definition["k8s_application"]` 存 App 任务级覆盖（`worker_count`、`worker_slots`、`master_cpu_cores`、`master_memory_mb`、`worker_cpu_cores`、`worker_memory_mb`、`image`、`active_deadline_seconds`、`node_selector`、`tolerations`、`env`、`secret_ref`） | — | 校验限制 `task.cluster_id` 禁止指向 `kubernetes_application_instance`；覆盖参数自动跟随 `TaskVersion` 快照发布 |
 | `sync_job_instances` (`sync.JobInstance`) | 不新增列；**`cluster_id` 始终锚定父 App 模板 ID**；`submit_spec` 持久化：`execution_backend` (`k8s_session` \| `k8s_application`)、`ephemeral_cluster_id`、`k8s_host_id`、`k8s_namespace`、`k8s_application_id`、`k8s_service_name`、`k8s_master_port`、`k8s_master_http_port`（`>0` 表示通过 `application.master.http-port` 发布 HTTP Service 端口）、`restore_from_engine_job_id` | 沿用现有索引 | 满足跨层指南「错误六」；临时集群清理后 `sync_job_instances` 与大盘统计、作业列表筛选、告警记录零断链 |
 
@@ -125,6 +125,14 @@ flowchart TB
     "data_storage_class": "",
     "data_size": "10Gi"
   },
+  "extra_mounts": [
+    {
+      "kind": "configmap",
+      "name": "hadoop-conf",
+      "mount_path": "/etc/hadoop/conf",
+      "env_vars": { "HADOOP_CONF_DIR": "/etc/hadoop/conf" }
+    }
+  ],
   "java_proxy": {
     "mode": "managed",
     "reuse_cluster_id": 0,
@@ -248,12 +256,12 @@ sequenceDiagram
     Sync->>Sync: 创建 JobInstance(cluster_id=父模板ID, submit_spec.ephemeral_cluster_id=临时集群ID)
     Sync-->>User: 200 OK
 
-    Note over Master,K8s: 若设 application.master.http-port，Master Jetty 绑定后自 Patch Service<br/>追加 http 端口 (port=http-port, targetPort=实际绑定端口；需 Master SA services:patch)
+    Note over Master,K8s: Master HTTP 暴露（待定讨论）：① 上游可选 Master 自 Patch Service<br/>或 ② STX 控制面侧声明/Patch Service 或直连 pods/http:<masterPod>:<port>/proxy（Master SA 免 services:patch）
 
     loop JobReconciler (按 k8s_host+namespace 批量对账)
         Sync->>App: ListJobs + ListPods (label=application-id)
-        alt master_http_port > 0 且 Service 已发布 http 端口
-            App->>Master: GET /job-info/{jobId} (via K8sTransport Service Proxy)
+        alt master_http_port > 0 且 Master HTTP 可达
+            App->>Master: GET /job-info/{jobId} (via K8sTransport Pod/Service Proxy)
             Master-->>App: DAG / 吞吐 / Checkpoint / 状态
         end
         Sync->>Sync: 更新 JobInstance 状态、指标与临时集群状态 (deploying/running/stopped/error)
@@ -271,6 +279,11 @@ sequenceDiagram
   1. `image_default`（默认，零配置）：不挂载额外 ConfigMap，直接使用镜像内置 `/opt/seatunnel/config/*`；
   2. `stx_managed`（STX 托管，推荐）：经伴生 Proxy 拉取镜像默认文件为基线，在 STX 内编辑 `seatunnel.yaml` / `jvm_options` / `log4j2.properties`（支持 `${VAR}` + `secretKeyRef` 零明文），保存模板时 STX 在目标 Namespace 自动同步专属 ConfigMap（`stx-app-cfg-<code>`），提交时仅对已修改文件按 `subPath` 挂载（不遮蔽镜像其余默认文件）；单作业特殊覆写支持生成带 `OwnerReference -> Job` 的临时 ConfigMap，作业结束自动 GC；
   3. `external_ref`（引用外部 ConfigMap）：面向 Helm/GitOps 团队，STX 仅做提交前存在性/key 校验与只读预览，绝不篡改外部对象。
+- **平台无关扩展口子（为未来 YARN 预留）**：
+  - `sync` 层在 P2 抽象统一 `ApplicationBackend` 接口（`Submit` / `ReconcileBatch` / `Cancel` / `StopWithSavepoint` / `GetLogs` / `GetEvents` / `Cleanup`），K8s 实现为 `K8sApplicationBackend`；未来接入 YARN 时只需新增 `YarnApplicationBackend` 注册实现，主提交流程与 `JobReconciler` 无需重写。
+- **Open Discussion · App 模式 Master HTTP Service 发布归属（待 P2 启动前拍板）**：
+  - **方案 1（上游 `LeonYoah/seatunnel#6` Master 自 Patch）**：Master Pod 绑定 Jetty 后自行 Patch Headless Service 追加 `http` 端口；**风险**：需要额外授予工作负载 Master SA `services: patch` RBAC，可能不符合上游最小权限与职责分离规范、未必会被 SeaTunnel 主干合并。
+  - **方案 2（第三方控制面 STX 侧承接，推荐默认）**：Master Pod SA 保持最小权限（**不需要 `services: patch`**），HTTP 端口访问由 STX 控制面负责——① 对账/观测/WebUI/Savepoint 默认优先走 `K8sTransport.PodBaseURL`（`/api/v1/namespaces/{ns}/pods/http:<masterPod>:<port>/proxy/...`，零 Service 依赖，即使未发布 HTTP Service 也能用）；② 若外部需要通过 Service 访问，由拥有控制面权限的 STX 侧统一创建或 Patch OwnerRef Service（而非让 Master Pod 自己 Patch）。两套方案可平滑兼容，互不阻塞。
 
 ### 4.3 无 `stx agent` 替代边界（P3 补齐诊断增强）
 - **P1 完整替代**：进程拉活（Kubelet）、扩缩容与滚动重启（Scale/Rollout）、配置读写（ConfigMap）、引擎探活与成员探测（`K8sTransport` + `/overview` 双校验）、作业与节点日志（`PodLogs`）、伴生 `stx-java-proxy`、8080 `/metrics` 采集（支持自定义端口/路径）、Web UI 代理（按 Master Pod 探测 Active Master）。

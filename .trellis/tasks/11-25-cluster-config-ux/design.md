@@ -19,21 +19,26 @@
 - `tools/stx-java-proxy` 新增只读端点 `GET /api/v1/config/defaults`：按白名单读取 `$SEATUNNEL_HOME/config/` 下存在的标准配置文件原文（单文件大小上限 256 KB，拒绝路径穿越）。
 - STX 后端暴露 `GET /api/v1/clusters/:id/configs/defaults`：K8s 集群经 `K8sTransport` 调伴生 Proxy 获取；物理机集群可按需从节点或内置版本基线回退。
 
-### 1.3 配置集（`cluster_config_profiles`）
+### 1.3 配置挂载包（`cluster_config_profiles` / Bundle，兼顾 SeaTunnel、Hadoop/Hive 与未来 YARN）
 ```go
 type ConfigProfile struct {
     ID             uint          `gorm:"primaryKey;autoIncrement"`
     Name           string        `gorm:"size:120;uniqueIndex;not null"`
     Description    string        `gorm:"size:500"`
+    BundleKind     string        `gorm:"size:32;default:'seatunnel'"` // seatunnel | hadoop | kerberos | custom
     DeploymentMode string        `gorm:"size:20;default:'separated'"` // hybrid | separated
-    InfraScope     string        `gorm:"size:32;default:'all'"`       // all | bare_metal | kubernetes_session | kubernetes_application_template
+    InfraScope     string        `gorm:"size:32;default:'all'"`       // all | bare_metal | kubernetes_session | kubernetes_application_template | yarn
+    MountPath      string        `gorm:"size:255"`                    // 默认挂载目录，如 /etc/hadoop/conf
+    EnvVarsJSON    db.ScriptText // 伴随环境变量，如 {"HADOOP_CONF_DIR":"/etc/hadoop/conf"}
+    Sensitive      bool          `gorm:"default:false"`               // true 时内容经 secretbox AES-GCM 加密，K8s 落地为 0400 Secret
     Builtin        bool          `gorm:"default:false"`
-    FilesJSON      db.ScriptText // map[ConfigType]string，仅存用户覆盖的文件
+    FilesJSON      db.ScriptText // map[fileName]string（普通文本或 base64/enc:v1: 密文）
     CreatedBy      uint
     CreatedAt      time.Time
     UpdatedAt      time.Time
 }
 ```
+- **伴生 `stx-java-proxy` 同步挂载契约**：集群或 App 模板绑定的所有非 RWO 配置挂载包（`hadoop` / `kerberos` / 外部 ConfigMap/Secret）及伴随环境变量，必须一并注入伴生 `stx-java-proxy` Deployment，确保工作台对 HDFS / Hive / Iceberg / Kerberos 的连通性测试与 Catalog/Checkpoint 探测与引擎视角完全一致。
 - API & CLI 对齐：
   - `GET/POST/PUT/DELETE /api/v1/config-profiles`、`POST /api/v1/clusters/:id/configs/save-as-profile`、`POST /api/v1/clusters/:id/configs/apply-profile`
   - 对应 `stx config-profile list|get|create|update|delete|apply`

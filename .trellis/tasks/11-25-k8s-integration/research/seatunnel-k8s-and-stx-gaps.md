@@ -53,8 +53,9 @@
     1. 提交端创建的初始 Headless Service **只包含 Hazelcast 端口（`application.master.port`，默认 `5801`）**，Job Master Pod 也不预先声明 HTTP `containerPort`；
     2. Master 启动且 Jetty 完成绑定后，读取真实绑定监听端口并直接以 `application/json-patch+json` Patch Headless Service（`PATCH /api/v1/namespaces/{ns}/services/{appId}`），追加 `{"name":"http","port":<application.master.http-port>,"targetPort":<boundListenerPort>,"protocol":"TCP"}`（Service `port` 与真实监听 `targetPort` 允许不同，例如 `28080 -> 18080`）；
     3. 若配置了 `application.master.http-port` 但 `seatunnel.yaml` 未开启明文 HTTP，Application 启动直接快速失败。
-  - **RBAC 与安全边界**：
+  - **RBAC 与安全边界（开放讨论点）**：
     - 仅当配置了 `application.master.http-port` 时，**Master ServiceAccount 需要对 `services` 具备 `patch` 权限**（除常规 `pods: create/list/watch/delete/deletecollection`、`jobs: get` 之外）；
+    - **⚠️ 待定讨论（Open Discussion）**：让工作负载 Pod（Master）持有 `services: patch` 权限自 Patch Service 在上游社区可能因违背最小权限与职责分离规范而不被接受。但该扩展口子完全可以由**第三方控制面（如 STX）**实现：STX 自身作为控制面已具备 K8s API 权限，既可由 STX 在提交或观察到 Master 启动后按需声明/Patch Service，也可直接复用 `K8sTransport.PodBaseURL`（`pods/http:<masterPod>:<port>/proxy`）直达 Master HTTP 端口，**使 Master Pod ServiceAccount 彻底免除 `services: patch` RBAC**。
     - 注意：即使未设置 `application.master.http-port`，使用发行包默认 `seatunnel.yaml` 时 Master Pod 内 Jetty 仍会监听明文 HTTP，生产环境需结合 `seatunnel.yaml` 鉴权或 NetworkPolicy 管控 Pod IP 直连访问。
 
 ---

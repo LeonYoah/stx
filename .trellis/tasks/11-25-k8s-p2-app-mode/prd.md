@@ -16,10 +16,12 @@
      - `image_default`（默认，零配置）：直接沿用镜像内置 `/opt/seatunnel/config/*`；
      - `stx_managed`（STX 托管，推荐）：伴生 `stx-java-proxy` 暴露只读 `GET /api/v1/config/defaults` 读取当前镜像内真实默认文件作基线，用户按需定制 `seatunnel.yaml` / `jvm_options` / `log4j2.properties`（支持 `${VAR}` 占位符 + `secretKeyRef` 注入实现 ConfigMap 零明文）；保存模板时 STX 自动在目标 Namespace 维护专属 ConfigMap（`stx-app-cfg-<code>`），提交时仅对已修改文件按 `subPath` 挂载（不遮蔽镜像其余默认文件）；单作业特殊微调支持创建带 `OwnerReference -> Job` 的作业级临时 ConfigMap，结束自动 GC；
      - `external_ref`（引用外部 ConfigMap）：供 Helm/GitOps 团队复用已有 ConfigMap，STX 仅做提交前存在性/key 校验与只读预览，绝不修改外部对象。
-2. **纯 Go STIP-41 原生提交器（`K8sApplicationRunner`）**
-   - 原子顺序：校验引用 ConfigMap/SA → 建 `suspend: true, backoffLimit: 0, ttlSecondsAfterFinished` 的 owner Job（Pod 不预声明 HTTP port）→ 建 OwnerRef Headless Service（**初始仅声明 Hazelcast 端口 `5801`**）+ Application Secret（承载 `job.conf` 防凭据泄露与 96KB 限制）→ 解除挂起；任一步失败原地回滚补偿。
-   - 序列化 `SEATUNNEL_APPLICATION_SPECIFICATION` 为 `Base64(UTF-8 Properties)`；当模板/任务配置了 `master_http_port` 时写入 `application.master.http-port`（绝不覆盖 `seatunnel.yaml`，Master 启动绑定 Jetty 后自行 JSON Patch Service 追加 `http` 端口并将 `port -> targetPort` 映射至真实监听端口）；完整持久化元数据到 `JobInstance.SubmitSpec`。
-   - 支持工作台 `Task.Definition["k8s_application"]` 任务级参数覆盖（Worker 数、Slot、CPU/Mem、独立镜像、超时、NodeSelector、Tolerations、Env/SecretRef）。
+2. **平台无关 `ApplicationBackend` 接口 + 纯 Go STIP-41 提交器（`K8sApplicationBackend`）**
+   - 先在 `internal/apps/sync` 定义平台无关 `ApplicationBackend` 接口（`Submit` / `ReconcileBatch` / `Cancel` / `StopWithSavepoint` / `GetLogs` / `GetEvents` / `Cleanup`），由 `K8sApplicationBackend` 实现，**为未来 YARN Application 模式保留标准扩展口子**。
+   - 原子顺序：校验引用 ConfigMap/SA → 建 `suspend: true, backoffLimit: 0, ttlSecondsAfterFinished` 的 owner Job → 建 OwnerRef Headless Service（初始含 Hazelcast 端口 `5801`）+ Application Secret（承载 `job.conf` 防凭据泄露与 96KB 限制）→ 解除挂起；任一步失败原地回滚补偿。
+   - 序列化 `SEATUNNEL_APPLICATION_SPECIFICATION` 为 `Base64(UTF-8 Properties)`；完整持久化元数据到 `JobInstance.SubmitSpec`。
+   - **Open Discussion（Master HTTP 发布机制）**：上游 `LeonYoah/seatunnel#6` 由 Master Pod 自 Patch Service 需额外给 Master SA 开 `services: patch` RBAC，上游可能不接受；STX 默认支持控制面侧承接（优先经 `K8sTransport.PodBaseURL` 直达 Master Pod HTTP 端口，或由 STX 控制面侧创建/Patch Service，**Master SA 保持最小权限无需 `services: patch`**），并保留对上游 `application.master.http-port` 的可选兼容。
+   - 支持工作台 `Task.Definition["k8s_application"]` 任务级参数覆盖（Worker 数、Slot、CPU/Mem、独立镜像、超时、NodeSelector、Tolerations、Env/SecretRef、额外 ConfigMap/Secret 挂载如 Hadoop/Hive XML）。
 3. **自动登记临时集群（`kubernetes_application_instance`, `auto_registered=true`）与 4 条硬隔离边界**
    - 每次提交 App 作业自动登记临时集群（`parent_cluster_id` 指向模板、`source_job_instance_id` 指向作业），共享父模板的常驻 Proxy；
    - `/clusters` 视图隔离：默认只看受管集群与模板，独立分段「App 运行实例」展示临时集群（优先运行中/实时任务）并支持进入 `/clusters/[id]` 完整控制台；

@@ -38,6 +38,7 @@ func addClusterWriteCommands(root *cobra.Command, storeProvider authStoreProvide
 		panic("generated cluster command is missing")
 	}
 	clusterCommand.AddCommand(newClusterCreateCommand(storeProvider), newClusterUpdateCommand(storeProvider))
+	clusterCommand.AddCommand(newClusterKubernetesCreateCommand(storeProvider), newClusterK8sConfigmapUpdateCommand(storeProvider))
 
 	logModeCommand := &cobra.Command{
 		Use:   "log-mode",
@@ -417,4 +418,88 @@ func setChangedInt(command *cobra.Command, body map[string]any, flagName string,
 	if command.Flags().Changed(flagName) {
 		body[strings.ReplaceAll(flagName, "-", "_")] = value
 	}
+}
+
+// newClusterKubernetesCreateCommand 创建 K8s 集群（纳管或一键部署）。
+// 正文字段多且嵌套深，主路径是 --request-file，常用字段提供便捷 flag。
+// newClusterKubernetesCreateCommand creates a kubernetes cluster (adopt or deploy).
+// The body is deep and wide, so --request-file is the primary path with convenience
+// flags for the common fields.
+func newClusterKubernetesCreateCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	var name, managementSource, image, version, requestFile string
+	var hostID int64
+	command := &cobra.Command{
+		Use:     "kubernetes-create",
+		Short:   "Create a kubernetes cluster (adopt or deploy)",
+		Long:    "Create a kubernetes cluster by adopting an existing SeaTunnel workload or deploying a new one.",
+		Example: "stx cluster kubernetes-create --request-file cluster.json --confirm",
+		Args:    usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, _ []string) error {
+			body, err := requestBodyFromFile(requestFile)
+			if err != nil {
+				return err
+			}
+			if body == nil {
+				if strings.TrimSpace(name) == "" || strings.TrimSpace(options.namespace) == "" || strings.TrimSpace(managementSource) == "" || hostID <= 0 {
+					return clioutput.NewError(clioutput.CodeUsage, "--name, --namespace, --management-source, and --host-id are required", clioutput.ExitUsage, false)
+				}
+				body = map[string]any{
+					"name":              strings.TrimSpace(name),
+					"namespace":         strings.TrimSpace(options.namespace),
+					"management_source": strings.TrimSpace(managementSource),
+					"host_id":           hostID,
+				}
+				setChangedString(command, body, "image", image)
+				setChangedString(command, body, "version", version)
+			}
+			return executeClusterWrite(command, storeProvider, "cluster.kubernetes-create", &options, http.MethodPost, "/api/v1/clusters/kubernetes", body)
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	command.Flags().StringVar(&name, "name", "", "Cluster name")
+	command.Flags().StringVar(&managementSource, "management-source", "", "adopted or stx_deployed")
+	command.Flags().Int64Var(&hostID, "host-id", 0, "Kubernetes host ID")
+	command.Flags().StringVar(&image, "image", "", "SeaTunnel image")
+	command.Flags().StringVar(&version, "version", "", "SeaTunnel version")
+	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
+	return command
+}
+
+// newClusterK8sConfigmapUpdateCommand 更新 K8s 集群 ConfigMap 单个文件并可滚动重启。
+// newClusterK8sConfigmapUpdateCommand updates one configmap file of a kubernetes
+// cluster with optional rolling restart.
+func newClusterK8sConfigmapUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	var contentFile, requestFile string
+	var restart bool
+	command := &cobra.Command{
+		Use:     "k8s-configmap-update <cluster-id> <file>",
+		Short:   "Update one configmap file with optional rolling restart",
+		Example: "stx cluster k8s-configmap-update 1 seatunnel.yaml --content-file seatunnel.yaml --restart --confirm",
+		Args:    usageArgs(cobra.ExactArgs(2)),
+		RunE: func(command *cobra.Command, args []string) error {
+			body, err := requestBodyFromFile(requestFile)
+			if err != nil {
+				return err
+			}
+			if body == nil {
+				if strings.TrimSpace(contentFile) == "" {
+					return clioutput.NewError(clioutput.CodeUsage, "--content-file or --request-file is required", clioutput.ExitUsage, false)
+				}
+				raw, err := os.ReadFile(contentFile)
+				if err != nil {
+					return err
+				}
+				body = map[string]any{"content": string(raw), "restart": restart}
+			}
+			route := "/api/v1/clusters/" + url.PathEscape(args[0]) + "/k8s/configmap/" + url.PathEscape(args[1])
+			return executeClusterWrite(command, storeProvider, "cluster.k8s-configmap-update", &options, http.MethodPut, route, body)
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	command.Flags().StringVar(&contentFile, "content-file", "", "File whose content replaces the configmap entry")
+	command.Flags().BoolVar(&restart, "restart", false, "Roll restart master/worker after the update")
+	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
+	return command
 }

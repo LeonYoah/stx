@@ -5415,7 +5415,7 @@ export function DataSyncStudio() {
                     <Loader2 className='size-3.5 animate-spin' />
                     <span>{t('loading')}</span>
                   </div>
-                ) : filteredTree.length === 0 ? (
+                ) : filteredTree.length === 0 && !creatingNode ? (
                   <div className='flex flex-col items-start gap-2 p-3'>
                     <p className='text-xs text-muted-foreground'>
                       {t('emptyWorkspace')}

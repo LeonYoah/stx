@@ -25,6 +25,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"log"
 	"net/http"
 	"sort"
@@ -60,6 +62,8 @@ import (
 	"github.com/LeonYoah/stx/internal/db"
 	grpcServer "github.com/LeonYoah/stx/internal/grpc"
 	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 	"github.com/LeonYoah/stx/internal/otel_trace"
 	"github.com/LeonYoah/stx/internal/pkg/debugpprof"
 	"github.com/LeonYoah/stx/internal/pkg/embedts"
@@ -300,6 +304,38 @@ func Serve() {
 			hostHandler := host.NewHandler(hostService, auditRepo)
 			hostHandler.SetExecutionService(executionService)
 
+			// 共享 K8sClientManager 全应用唯一实例：host/cluster/sync/monitoring 复用同一套
+			// 指纹缓存与 clientset 连接池，避免每个域各自重复建连。
+			// The shared K8sClientManager is a single application-wide instance reused by the
+			// host/cluster/sync/monitoring domains so fingerprint caching and clientset pooling
+			// are shared instead of each domain connecting independently.
+			k8sClientManager := k8s.NewClientManager(host.K8sCredentialsLoaderFromRepository(hostRepo))
+			hostHandler.SetK8sClientManager(k8sClientManager)
+
+			// 伴生 Proxy jar 加载器：按代际从 lib/ 读取本地资产；缺失时返回错误并在
+			// Proxy 状态中可见，绝不静默跳过。
+			// The companion proxy jar loader reads epoch-specific local assets from lib/;
+			// missing assets surface as errors visible in proxy status rather than being
+			// silently skipped.
+			k8sJarLoader := func(epoch string) ([]byte, error) {
+				path := filepath.Join("lib", seatunnel.STXJavaProxyJarFileName(epoch))
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return nil, fmt.Errorf("read java proxy jar %s: %w", path, err)
+				}
+				return data, nil
+			}
+			k8sHostTypeChecker := func(ctx context.Context, hostID uint) (bool, error) {
+				h, err := hostRepo.GetByID(ctx, hostID)
+				if err != nil {
+					return false, err
+				}
+				if h == nil {
+					return false, nil
+				}
+				return h.HostType == host.HostTypeKubernetes, nil
+			}
+
 			hostRouter := apiV1Router.Group("/hosts")
 			hostRouter.Use(auth.LoginRequired())
 			{
@@ -309,6 +345,9 @@ func Serve() {
 				hostRouter.PUT("/:id", hostHandler.UpdateHost)
 				hostRouter.DELETE("/:id", hostHandler.DeleteHost)
 				hostRouter.GET("/:id/install-command", hostHandler.GetInstallCommand)
+				hostRouter.POST("/:id/test-connection", hostHandler.TestK8sConnection)
+				hostRouter.GET("/:id/k8s/namespaces", hostHandler.ListK8sNamespaces)
+				hostRouter.GET("/:id/k8s/discover", hostHandler.DiscoverK8sSeaTunnelClusters)
 			}
 
 			// Dashboard Overview 仪表盘概览
@@ -336,6 +375,7 @@ func Serve() {
 				// Agents may pull script/jar from this base when starting java-proxy (DEF-R2-1).
 				AssetBaseURL: strings.TrimRight(config.GetExternalURL(), "/") + "/api/v1/agent/assets",
 			})
+			clusterService.SetK8sDependencies(k8sClientManager, k8sJarLoader, k8sHostTypeChecker)
 			bindEngineLocationLookup(clusterService)
 
 			// Inject agent command sender if agent manager is available
@@ -369,6 +409,15 @@ func Serve() {
 			{
 				// Cluster CRUD 集群增删改查
 				clusterRouter.POST("", clusterHandler.CreateCluster)
+				clusterRouter.POST("/kubernetes", clusterHandler.CreateKubernetesCluster)
+				clusterRouter.POST("/:id/k8s/scale", clusterHandler.ScaleK8s)
+				clusterRouter.POST("/:id/k8s/rollout-restart", clusterHandler.RolloutRestartK8s)
+				clusterRouter.POST("/:id/k8s/upgrade-image", clusterHandler.UpgradeK8sImage)
+				clusterRouter.GET("/:id/k8s/pods", clusterHandler.GetK8sPodsHandler)
+				clusterRouter.GET("/:id/k8s/pods/:pod/logs", clusterHandler.GetK8sPodLogsHandler)
+				clusterRouter.POST("/:id/k8s/java-proxy/retry", clusterHandler.RetryK8sJavaProxy)
+				clusterRouter.GET("/:id/k8s/configmap", clusterHandler.GetK8sConfigMap)
+				clusterRouter.PUT("/:id/k8s/configmap/:file", clusterHandler.UpdateK8sConfigMapFile)
 				clusterRouter.GET("", clusterHandler.ListClusters)
 				clusterRouter.GET("/:id", clusterHandler.GetCluster)
 				clusterRouter.PUT("/:id", clusterHandler.UpdateCluster)
@@ -864,7 +913,9 @@ func Serve() {
 			syncService.SetExecutionService(executionService)
 			executionProviders.Register("sync", syncService)
 			syncService.SetEngineClient(syncapp.NewSeaTunnelEngineClient())
-			syncService.SetRuntimeResolver(syncapp.NewDefaultClusterRuntimeResolver(clusterRepo, hostRepo))
+			syncRuntimeResolver := syncapp.NewDefaultClusterRuntimeResolver(clusterRepo, hostRepo)
+			syncRuntimeResolver.SetK8sClientManager(k8sClientManager)
+			syncService.SetRuntimeResolver(syncRuntimeResolver)
 			syncService.SetExecutionTargetResolver(syncapp.NewDefaultExecutionTargetResolver(clusterRepo, hostRepo))
 			syncService.SetClusterLogProvider(clusterService)
 			syncService.SetClusterVersionProvider(clusterService)

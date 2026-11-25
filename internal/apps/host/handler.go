@@ -29,6 +29,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/gin-gonic/gin"
 )
 
@@ -38,6 +39,7 @@ type Handler struct {
 	service          *Service
 	auditRepo        *audit.Repository
 	executionService *executionapp.Service
+	k8sManager       *k8s.ClientManager
 }
 
 // NewHandler creates a new Handler instance.

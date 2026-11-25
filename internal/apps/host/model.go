@@ -158,6 +158,15 @@ type Host struct {
 	K8sKubeconfig string `json:"k8s_kubeconfig" gorm:"type:text"`
 	K8sToken      string `json:"k8s_token" gorm:"type:text"`
 	K8sVersion    string `json:"k8s_version" gorm:"size:20"`
+	// K8sAuthMode 认证模式：kubeconfig / token / in_cluster。
+	// K8sAuthMode is the auth mode: kubeconfig / token / in_cluster.
+	K8sAuthMode string `json:"k8s_auth_mode" gorm:"size:20;default:kubeconfig"`
+	// K8sCACert 是 token 模式下可选的 CA 证书（PEM 原文，非密级信息）。
+	// K8sCACert is the optional CA certificate for token mode (PEM, not secret-grade).
+	K8sCACert string `json:"k8s_ca_cert" gorm:"type:text"`
+	// K8sInsecureSkipTLS 跳过 TLS 校验（仅测试环境）。
+	// K8sInsecureSkipTLS skips TLS verification (test environments only).
+	K8sInsecureSkipTLS bool `json:"k8s_insecure_skip_tls" gorm:"default:false"`
 
 	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt time.Time `json:"updated_at" gorm:"autoUpdateTime"`
@@ -247,9 +256,15 @@ type HostInfo struct {
 	DockerVersion    string `json:"docker_version,omitempty"`
 
 	// kubernetes fields / Kubernetes 字段
-	K8sAPIURL    string `json:"k8s_api_url,omitempty"`
-	K8sNamespace string `json:"k8s_namespace,omitempty"`
-	K8sVersion   string `json:"k8s_version,omitempty"`
+	K8sAPIURL          string `json:"k8s_api_url,omitempty"`
+	K8sNamespace       string `json:"k8s_namespace,omitempty"`
+	K8sVersion         string `json:"k8s_version,omitempty"`
+	K8sAuthMode        string `json:"k8s_auth_mode,omitempty"`
+	K8sInsecureSkipTLS bool   `json:"k8s_insecure_skip_tls,omitempty"`
+	// HasK8sKubeconfig / HasK8sToken 仅表达「已配置凭据」，明文永不出库。
+	// HasK8sKubeconfig / HasK8sToken only indicate credentials exist; plaintext never leaves the server.
+	HasK8sKubeconfig bool `json:"has_k8s_kubeconfig,omitempty"`
+	HasK8sToken      bool `json:"has_k8s_token,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -306,6 +321,10 @@ func (h *Host) ToHostInfo(heartbeatTimeout time.Duration, since time.Time) *Host
 		info.K8sAPIURL = h.K8sAPIURL
 		info.K8sNamespace = h.K8sNamespace
 		info.K8sVersion = h.K8sVersion
+		info.K8sAuthMode = h.K8sAuthMode
+		info.K8sInsecureSkipTLS = h.K8sInsecureSkipTLS
+		info.HasK8sKubeconfig = strings.TrimSpace(h.K8sKubeconfig) != ""
+		info.HasK8sToken = strings.TrimSpace(h.K8sToken) != ""
 	default:
 		info.IsOnline = h.IsOnlineWithSince(heartbeatTimeout, since)
 		info.IPAddress = h.IPAddress
@@ -355,10 +374,13 @@ type CreateHostRequest struct {
 	DockerCertPath   string `json:"docker_cert_path"`
 
 	// kubernetes fields / Kubernetes 字段
-	K8sAPIURL     string `json:"k8s_api_url"`
-	K8sNamespace  string `json:"k8s_namespace"`
-	K8sKubeconfig string `json:"k8s_kubeconfig"`
-	K8sToken      string `json:"k8s_token"`
+	K8sAPIURL          string `json:"k8s_api_url"`
+	K8sNamespace       string `json:"k8s_namespace"`
+	K8sKubeconfig      string `json:"k8s_kubeconfig"`
+	K8sToken           string `json:"k8s_token"`
+	K8sAuthMode        string `json:"k8s_auth_mode"`
+	K8sCACert          string `json:"k8s_ca_cert"`
+	K8sInsecureSkipTLS bool   `json:"k8s_insecure_skip_tls"`
 }
 
 // UpdateHostRequest represents a request to update an existing host.
@@ -377,10 +399,13 @@ type UpdateHostRequest struct {
 	DockerCertPath   *string `json:"docker_cert_path"`
 
 	// kubernetes fields / Kubernetes 字段
-	K8sAPIURL     *string `json:"k8s_api_url"`
-	K8sNamespace  *string `json:"k8s_namespace"`
-	K8sKubeconfig *string `json:"k8s_kubeconfig"`
-	K8sToken      *string `json:"k8s_token"`
+	K8sAPIURL          *string `json:"k8s_api_url"`
+	K8sNamespace       *string `json:"k8s_namespace"`
+	K8sKubeconfig      *string `json:"k8s_kubeconfig"`
+	K8sToken           *string `json:"k8s_token"`
+	K8sAuthMode        *string `json:"k8s_auth_mode"`
+	K8sCACert          *string `json:"k8s_ca_cert"`
+	K8sInsecureSkipTLS *bool   `json:"k8s_insecure_skip_tls"`
 }
 
 // ValidateDockerAPIURL validates the Docker API URL format.

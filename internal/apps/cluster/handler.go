@@ -143,6 +143,7 @@ type ListClustersRequest struct {
 	Name           string         `json:"name" form:"name"`
 	Status         ClusterStatus  `json:"status" form:"status"`
 	DeploymentMode DeploymentMode `json:"deployment_mode" form:"deployment_mode"`
+	Scope          string         `json:"scope" form:"scope"`
 }
 
 // ListClustersResponse represents the response for listing clusters.
@@ -443,6 +444,7 @@ func (h *Handler) ListClusters(c *gin.Context) {
 		Name:           req.Name,
 		Status:         req.Status,
 		DeploymentMode: req.DeploymentMode,
+		Scope:          req.Scope,
 		Page:           req.Current,
 		PageSize:       req.Size,
 	}

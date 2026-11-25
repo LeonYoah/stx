@@ -22,6 +22,9 @@ import "errors"
 // Error definitions for host management operations.
 // 主机管理操作的错误定义。
 var (
+	// errK8sManagerNotConfigured 表示共享 K8sClientManager 尚未注入（router 组装缺漏）。
+	// errK8sManagerNotConfigured means the shared K8sClientManager was not injected (router wiring gap).
+	errK8sManagerNotConfigured = errors.New("host: k8s client manager not configured")
 	// ErrHostNotFound indicates the requested host does not exist.
 	// ErrHostNotFound 表示请求的主机不存在。
 	ErrHostNotFound = errors.New("host: host not found")

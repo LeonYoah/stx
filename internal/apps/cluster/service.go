@@ -20,6 +20,8 @@
 package cluster
 
 import (
+	"log"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"context"
 	"encoding/json"
 	"errors"
@@ -247,6 +249,11 @@ type Service struct {
 	// memberGraceUntil 记录每个集群最近一次启动/重启受理后的成员一致性宽限截止（clusterID -> time.Time）。
 	// memberGraceUntil stores each cluster's member-agreement grace deadline after an accepted start/restart (clusterID -> time.Time).
 	memberGraceUntil sync.Map
+	// k8s 依赖三件套：仅 K8s 集群路径消费，裸金属路径零开销。
+	// The k8s dependency trio is only consumed by K8s cluster paths; bare-metal paths carry zero cost.
+	k8sManager         *k8s.ClientManager
+	k8sJarLoader       k8s.ProxyJarLoader
+	k8sHostTypeChecker K8sHostTypeChecker
 }
 
 // ServiceConfig holds configuration for the Cluster Service.
@@ -782,6 +789,26 @@ func (s *Service) Delete(ctx context.Context, id uint, forceRemoveInstallDir boo
 	// 可选钩子（如删除该集群的监控配置与事件）
 	if s.onBeforeClusterDelete != nil {
 		s.onBeforeClusterDelete(ctx, id)
+	}
+
+	// K8s 删除边界：adopted 只清理伴生 Proxy，绝不触碰用户原有 SeaTunnel 资源；
+	// stx_deployed 仅在显式勾选（复用 forceRemoveInstallDir 语义）时卸载 STX 创建的资源，
+	// 外部 PVC 永不删除。清理失败不阻断记录删除但写入日志，避免残留不可见资源。
+	// K8s deletion boundary: adopted clusters only clean up the companion proxy and never
+	// touch user-owned SeaTunnel resources; stx_deployed clusters uninstall STX-created
+	// resources only when explicitly confirmed (reusing forceRemoveInstallDir semantics);
+	// external PVCs are never deleted. Cleanup failures do not block record deletion but
+	// are logged, avoiding invisible leftovers.
+	if cluster.IsKubernetes() {
+		if err := s.DeleteK8sJavaProxy(ctx, cluster); err != nil {
+			log.Printf("[cluster] delete k8s java proxy for cluster %d failed: %v\n", id, err)
+		}
+		cfg := cluster.K8sSessionConfig()
+		if cfg != nil && cfg.ManagementSource == k8s.ManagementSourceSTXDeployed && forceRemoveInstallDir {
+			if err := s.UninstallK8sSession(ctx, cluster); err != nil {
+				log.Printf("[cluster] uninstall k8s session for cluster %d failed: %v\n", id, err)
+			}
+		}
 	}
 
 	if err := s.repo.Delete(ctx, id); err != nil {

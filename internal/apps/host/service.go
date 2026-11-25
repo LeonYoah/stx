@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/utils/secretbox"
 )
 
 // DefaultHeartbeatTimeout is the default timeout for considering a host offline.
@@ -203,8 +204,25 @@ func (s *Service) validateK8sHost(req *CreateHostRequest, host *Host) error {
 	if host.K8sNamespace == "" {
 		host.K8sNamespace = "default"
 	}
-	host.K8sKubeconfig = req.K8sKubeconfig
-	host.K8sToken = req.K8sToken
+	host.K8sAuthMode = req.K8sAuthMode
+	if host.K8sAuthMode == "" {
+		host.K8sAuthMode = "kubeconfig"
+	}
+	host.K8sCACert = req.K8sCACert
+	host.K8sInsecureSkipTLS = req.K8sInsecureSkipTLS
+	// 凭据加密落库（enc:v1: 前缀）；加密失败直接报错，绝不静默降级明文。
+	// Credentials are encrypted at rest (enc:v1: prefix); encryption failures surface as
+	// errors and never silently degrade to plaintext storage.
+	kubeconfigEnc, err := secretbox.Encrypt(req.K8sKubeconfig)
+	if err != nil {
+		return err
+	}
+	tokenEnc, err := secretbox.Encrypt(req.K8sToken)
+	if err != nil {
+		return err
+	}
+	host.K8sKubeconfig = kubeconfigEnc
+	host.K8sToken = tokenEnc
 	// K8s hosts don't need Agent, status will be updated after API connection test
 	// K8s 主机不需要 Agent，状态将在 API 连接测试后更新
 	return nil
@@ -349,12 +367,33 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 		host.K8sNamespace = *req.K8sNamespace
 	}
 
-	if req.K8sKubeconfig != nil {
-		host.K8sKubeconfig = *req.K8sKubeconfig
+	// 留空保留原值（跨层指南错误九）；仅显式传入非空新值时重新加密覆盖。
+	// Empty input preserves the stored credential (cross-layer pitfall #9); only explicit
+	// non-empty new values are re-encrypted and overwritten.
+	if req.K8sKubeconfig != nil && strings.TrimSpace(*req.K8sKubeconfig) != "" {
+		enc, err := secretbox.Encrypt(*req.K8sKubeconfig)
+		if err != nil {
+			return err
+		}
+		host.K8sKubeconfig = enc
 	}
 
-	if req.K8sToken != nil {
-		host.K8sToken = *req.K8sToken
+	if req.K8sToken != nil && strings.TrimSpace(*req.K8sToken) != "" {
+		enc, err := secretbox.Encrypt(*req.K8sToken)
+		if err != nil {
+			return err
+		}
+		host.K8sToken = enc
+	}
+
+	if req.K8sAuthMode != nil {
+		host.K8sAuthMode = *req.K8sAuthMode
+	}
+	if req.K8sCACert != nil {
+		host.K8sCACert = *req.K8sCACert
+	}
+	if req.K8sInsecureSkipTLS != nil {
+		host.K8sInsecureSkipTLS = *req.K8sInsecureSkipTLS
 	}
 	return nil
 }
@@ -795,4 +834,29 @@ func (s *Service) UpdateResourceUsage(ctx context.Context, hostID uint, cpuUsage
 	host.LastCheck = &now
 
 	return s.repo.Update(ctx, host)
+}
+
+// defaultK8sNamespace 读取 Host 的默认 Namespace（空则 default）。
+// defaultK8sNamespace returns the host's default namespace (or "default" when empty).
+func (s *Service) defaultK8sNamespace(ctx context.Context, hostID uint) string {
+	h, err := s.repo.GetByID(ctx, hostID)
+	if err != nil || h == nil {
+		return "default"
+	}
+	if h.K8sNamespace == "" {
+		return "default"
+	}
+	return h.K8sNamespace
+}
+
+// updateK8sVersionAfterProbe 连通成功后刷新版本号并标记在线。
+// updateK8sVersionAfterProbe refreshes the server version and marks the host online after a successful probe.
+func (s *Service) updateK8sVersionAfterProbe(ctx context.Context, hostID uint, version string) {
+	h, err := s.repo.GetByID(ctx, hostID)
+	if err != nil || h == nil {
+		return
+	}
+	h.K8sVersion = version
+	h.Status = HostStatusConnected
+	_ = s.repo.Update(ctx, h)
 }

@@ -85,7 +85,7 @@ flowchart TB
 | `hosts` (`host.Host`) | `k8s_auth_mode` (`kubeconfig` \| `token` \| `in_cluster`)；`k8s_ca_cert` (text, 可选)；`k8s_insecure_skip_tls` (bool)；复用已有 `k8s_api_url` / `k8s_namespace` / `k8s_kubeconfig` / `k8s_token` / `k8s_version` | `k8s_auth_mode` 默认 `kubeconfig` | `k8s_kubeconfig` 与 `k8s_token` 统一走 `internal/utils/secretbox`（AES-256-GCM，密钥派生自 `app.session_secret`）加密落库；`HostInfo` 永不返回明文，仅返回 `has_k8s_kubeconfig` / `has_k8s_token`；更新传空字符串保留原值（跨层指南错误九） |
 | `clusters` (`cluster.Cluster`) | `infra_type` (`bare_metal` \| `kubernetes_session` \| `kubernetes_application_template` \| `kubernetes_application_instance`)；<br>`k8s_host_id` (`*uint`)；<br>`auto_registered` (`bool`)；<br>`parent_cluster_id` (`*uint`)；<br>`source_job_instance_id` (`*uint`) | `infra_type` 默认 `bare_metal` + index；`k8s_host_id` / `parent_cluster_id` / `auto_registered` 建索引 | 存量行自动为 `bare_metal`、`auto_registered=false`；工作台选择器、`/clusters` 列表、告警评估器全部按 `infra_type` 显式路由 |
 | `sync_tasks` (`sync.Task`) | 不新增列；`definition["k8s_application"]` 存 App 任务级覆盖（`worker_count`、`worker_slots`、`master_cpu_cores`、`master_memory_mb`、`worker_cpu_cores`、`worker_memory_mb`、`image`、`active_deadline_seconds`、`node_selector`、`tolerations`、`env`、`secret_ref`） | — | 校验限制 `task.cluster_id` 禁止指向 `kubernetes_application_instance`；覆盖参数自动跟随 `TaskVersion` 快照发布 |
-| `sync_job_instances` (`sync.JobInstance`) | 不新增列；**`cluster_id` 始终锚定父 App 模板 ID**；`submit_spec` 持久化：`execution_backend` (`k8s_session` \| `k8s_application`)、`ephemeral_cluster_id`、`k8s_host_id`、`k8s_namespace`、`k8s_application_id`、`k8s_service_name`、`k8s_http_enabled`、`k8s_http_port`、`restore_from_engine_job_id` | 沿用现有索引 | 满足跨层指南「错误六」；临时集群清理后 `sync_job_instances` 与大盘统计、作业列表筛选、告警记录零断链 |
+| `sync_job_instances` (`sync.JobInstance`) | 不新增列；**`cluster_id` 始终锚定父 App 模板 ID**；`submit_spec` 持久化：`execution_backend` (`k8s_session` \| `k8s_application`)、`ephemeral_cluster_id`、`k8s_host_id`、`k8s_namespace`、`k8s_application_id`、`k8s_service_name`、`k8s_master_port`、`k8s_master_http_port`（`>0` 表示通过 `application.master.http-port` 发布 HTTP Service 端口）、`restore_from_engine_job_id` | 沿用现有索引 | 满足跨层指南「错误六」；临时集群清理后 `sync_job_instances` 与大盘统计、作业列表筛选、告警记录零断链 |
 
 ### 2.2 统一 `Cluster.Config["kubernetes"]` 契约
 
@@ -150,7 +150,7 @@ flowchart TB
   "service_account": "seatunnel-application",
   "seatunnel_home": "/opt/seatunnel",
   "runtime_configmap_ref": "seatunnel-app-runtime",
-  "enable_master_http": true,
+  "master_port": 5801,
   "master_http_port": 8080,
   "checkpoint_pvc": "",
   "finished_job_retention_seconds": 86400,
@@ -234,17 +234,19 @@ sequenceDiagram
 
     User->>Sync: SubmitTask(taskID -> App 模板ID)
     Sync->>Sync: 生成 PlatformJobID + 合并模板默认与任务覆盖
-    Sync->>App: Submit(STIP-41: Job(suspend) -> Svc + Secret(job.conf) -> Unsuspend)
-    App->>K8s: 原子创建（失败原地补偿回滚）
-    App-->>Sync: application_id + http 元数据
+    Sync->>App: Submit(STIP-41: Job(suspend) -> Svc(:5801) + Secret(job.conf) -> Unsuspend)
+    App->>K8s: 原子创建（可选写 application.master.http-port；失败原地补偿回滚）
+    App-->>Sync: application_id + service/http 端口元数据
     Sync->>Cluster: 自动登记临时集群 clusters(infra_type=k8s_app_instance, auto_registered=true, parent_cluster_id=模板ID)
     Sync->>Sync: 创建 JobInstance(cluster_id=父模板ID, submit_spec.ephemeral_cluster_id=临时集群ID)
     Sync-->>User: 200 OK
 
+    Note over Master,K8s: 若设 application.master.http-port，Master Jetty 绑定后自 Patch Service<br/>追加 http 端口 (port=http-port, targetPort=实际绑定端口；需 Master SA services:patch)
+
     loop JobReconciler (按 k8s_host+namespace 批量对账)
         Sync->>App: ListJobs + ListPods (label=application-id)
-        alt Master HTTP 开启 且 Master Ready
-            App->>Master: GET /job-info/{jobId} (via K8sTransport)
+        alt master_http_port > 0 且 Service 已发布 http 端口
+            App->>Master: GET /job-info/{jobId} (via K8sTransport Service Proxy)
             Master-->>App: DAG / 吞吐 / Checkpoint / 状态
         end
         Sync->>Sync: 更新 JobInstance 状态、指标与临时集群状态 (deploying/running/stopped/error)

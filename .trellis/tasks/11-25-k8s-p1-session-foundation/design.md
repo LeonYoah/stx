@@ -49,4 +49,5 @@ internal/
 ### 2.4 跨层兼容契约
 - `Cluster.ToClusterInfo()` 新增 `infra_type`、`k8s_host_id`、`auto_registered`、`parent_cluster_id`、`source_job_instance_id`，所有数组字段保证非 `nil`（序列化为 `[]`）。
 - `GET /api/v1/clusters` 新增可选查询参数 `scope`（默认 `managed`，过滤 `auto_registered=false`；为 P2 预留 `app_instances` 与 `all`）。
+- 端口校验契约：`hazelcast_port`（默认 `5801`）与 `master_http_port`（默认 `8080`）均须在 `1–65535` 范围内且互不相同；`stx_deployed` 严格保持 `seatunnel.yaml` 负责 HTTP 监听、Headless Service 映射 `master_http_port`，Hazelcast `5801` 关闭 REST v1（与 SeaTunnel 3.x 及 `LeonYoah/seatunnel#6` 职责解耦一致）。
 - `internal/apps/host/handler.go` 响应强制走脱敏转换，绝不输出 `k8s_kubeconfig` / `k8s_token` 原文。

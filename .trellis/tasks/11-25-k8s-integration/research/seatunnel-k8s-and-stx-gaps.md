@@ -2,7 +2,7 @@
 
 > 调研日期：2026-11-25
 > 调研对象：
-> - 本地 SeaTunnel 源码（已更新 `dev` 至 `upstream/dev @ f08c722acb`，并核对 `feature/application-master-http-enable` 分支）
+> - 本地 SeaTunnel 源码（已更新 `dev` 至 `upstream/dev @ f08c722acb`，并核对最新 Master HTTP 发布设计 `LeonYoah/seatunnel#6`）
 > - STX 本地代码库（`internal/apps/{host,cluster,sync,monitoring,config,plugin,diagnostics}`、`internal/seatunnel`、`internal/router`）
 > - 云端 Devin Minikube 实测环境（`devin-01566d0d871141b9841e24249d7b6701`，Kubernetes v1.37.0，SeaTunnel 3.1.0）
 
@@ -46,10 +46,16 @@
 - **取消与恢复契约**：
   - 官方 `cancel` 删除 owner Job，触发 OwnerReference 级联清理，**不做 Savepoint**；引用的外部 ConfigMap/Secret/Checkpoint PVC 不受影响。
   - **恢复强约束**：`ApplicationSpecification` 构造器强制校验 `restoreJobId != jobId`（`IllegalArgumentException`）。因此 App 模式恢复必须生成全新正整数 `application.job-id`，并将历史作业 ID 填入 `application.restore-job-id`。
-- **Master HTTP 扩展（`feature/application-master-http-enable`）**：
-  - Master 不再强制关闭 HTTP，改为跟随 `seatunnel.yaml`（默认 `enable-http: true, port: 8080`），headless Service 同步暴露 `http` 端口；Worker 不提供 HTTP。
-  - 支持 `kubernetes.master.enable-http` 与 `kubernetes.master.http-port` 独立覆盖。
-  - **关键边界**：若 `seatunnel.yaml` 来自引用的外部 ConfigMap（`ref`），提交端读不到内容，**必须同时显式配置 `kubernetes.master.enable-http=true` 与 `kubernetes.master.http-port=<port>`**，Service 才会声明 `http` 端口。
+- **Master HTTP 发布机制（最新方案：`LeonYoah/seatunnel#6`，替代旧 `apache/seatunnel#13277`）**：
+  - **职责彻底解耦**：Master 是否开启 HTTP 及实际绑定端口，**只由 Master Pod 内加载的 `seatunnel.yaml` 决定**（发行包默认 `enable-http: true, port: 8080`；Worker 不提供 HTTP）。**已移除**旧的 `kubernetes.master.enable-http` 与 `kubernetes.master.http-port` 引擎覆盖项，提交端也无需解析 `seatunnel.yaml`（即使来自外部 referenced ConfigMap 也完全成立）。
+  - **新配置项 `application.master.http-port`**：位于 `ApplicationSpecification`（整数 `1..65535`，**强制校验不能与 `application.master.port` 默认 `5801` 相同**）。它**只控制 Kubernetes Service 对外发布的 `port`**，绝不修改引擎监听配置；不设置则不发布 HTTP Service 端口。
+  - **两阶段 Service 发布（Master 自 Patch）**：
+    1. 提交端创建的初始 Headless Service **只包含 Hazelcast 端口（`application.master.port`，默认 `5801`）**，Job Master Pod 也不预先声明 HTTP `containerPort`；
+    2. Master 启动且 Jetty 完成绑定后，读取真实绑定监听端口并直接以 `application/json-patch+json` Patch Headless Service（`PATCH /api/v1/namespaces/{ns}/services/{appId}`），追加 `{"name":"http","port":<application.master.http-port>,"targetPort":<boundListenerPort>,"protocol":"TCP"}`（Service `port` 与真实监听 `targetPort` 允许不同，例如 `28080 -> 18080`）；
+    3. 若配置了 `application.master.http-port` 但 `seatunnel.yaml` 未开启明文 HTTP，Application 启动直接快速失败。
+  - **RBAC 与安全边界**：
+    - 仅当配置了 `application.master.http-port` 时，**Master ServiceAccount 需要对 `services` 具备 `patch` 权限**（除常规 `pods: create/list/watch/delete/deletecollection`、`jobs: get` 之外）；
+    - 注意：即使未设置 `application.master.http-port`，使用发行包默认 `seatunnel.yaml` 时 Master Pod 内 Jetty 仍会监听明文 HTTP，生产环境需结合 `seatunnel.yaml` 鉴权或 NetworkPolicy 管控 Pod IP 直连访问。
 
 ---
 

@@ -39,6 +39,9 @@ const (
 	LabelManagedByKey   = "app.kubernetes.io/managed-by"
 	LabelManagedByValue = "stx"
 	LabelClusterCodeKey = "stx.seatunnel.apache.org/cluster-code"
+	// LabelEngineMemberKey 标记真正的引擎成员 Pod（master/worker），伴生 Proxy 不带此标签。
+	// LabelEngineMemberKey marks real engine member pods (master/worker); the companion proxy never carries it.
+	LabelEngineMemberKey = "stx.seatunnel.apache.org/engine-member"
 	LabelClusterIDKey   = "stx.seatunnel.apache.org/cluster-id"
 	LabelComponentKey   = "app.kubernetes.io/component"
 )
@@ -69,8 +72,9 @@ func sessionLabels(clusterCode string, clusterID uint, component string) map[str
 
 func podSelectorLabels(clusterCode, component string) map[string]string {
 	return map[string]string{
-		LabelClusterCodeKey: clusterCode,
-		LabelComponentKey:   component,
+		LabelClusterCodeKey:  clusterCode,
+		LabelComponentKey:    component,
+		LabelEngineMemberKey: "true",
 	}
 }
 
@@ -283,7 +287,15 @@ func ensureHeadlessServices(ctx context.Context, clientset kubernetes.Interface,
 		},
 		Spec: corev1.ServiceSpec{
 			ClusterIP: corev1.ClusterIPNone,
-			Selector:  map[string]string{LabelClusterCodeKey: code},
+			// Hazelcast 组网依赖 service-dns 在启动即解析全部成员：未就绪地址必须提前发布，
+			// 否则 master 就绪前 worker 的 DNS 查询持续失败并耗尽 join 超时（鸡生蛋问题）。
+			// selector 追加 engine-member 标签排除伴生 Proxy（5801 上的死地址会拖慢发现）。
+			// Hazelcast clustering needs service-dns to resolve every member at startup: not-ready
+			// addresses must be published early, or worker DNS lookups keep failing until the join
+			// timeout is exhausted (chicken-and-egg). The selector adds the engine-member label to
+			// exclude the companion proxy (a dead 5801 address would slow discovery).
+			PublishNotReadyAddresses: true,
+			Selector:                 map[string]string{LabelClusterCodeKey: code, LabelEngineMemberKey: "true"},
 			Ports: []corev1.ServicePort{
 				{Name: "hazelcast-port", Port: int32(cfg.HazelcastPort), TargetPort: intstrPort(cfg.HazelcastPort)},
 			},

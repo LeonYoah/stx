@@ -226,6 +226,32 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 		_ = s.repo.Delete(ctx, cluster.ID)
 		return nil, err
 	}
+	// stx_deployed 采用确定性命名回填工作负载/服务/ConfigMap，保证伴生 Proxy 克隆与
+	// 后续运维（scale/rollout/logs）不依赖用户显式输入；adopted 必须保留用户输入的既有命名。
+	// stx_deployed backfills workload/service/ConfigMap names with deterministic naming so
+	// proxy cloning and later operations (scale/rollout/logs) don't depend on explicit input;
+	// adopted clusters must keep the user-supplied existing names.
+	if cfg.ManagementSource == k8s.ManagementSourceSTXDeployed {
+		names := k8s.ResourceNamesFor(cluster.EffectiveClusterCode())
+		if cfg.MasterWorkloadName == "" {
+			cfg.MasterWorkloadName = names.MasterSTS
+		}
+		if cfg.WorkerWorkloadName == "" {
+			cfg.WorkerWorkloadName = names.WorkerSTS
+		}
+		if cfg.MasterServiceName == "" {
+			cfg.MasterServiceName = names.MasterSvc
+		}
+		if cfg.ClusterServiceName == "" {
+			cfg.ClusterServiceName = names.ClusterSvc
+		}
+		if cfg.ConfigMapName == "" {
+			cfg.ConfigMapName = names.ConfigMap
+		}
+		if cfg.LabelSelector == "" {
+			cfg.LabelSelector = k8s.LabelClusterCodeKey + "=" + cluster.EffectiveClusterCode()
+		}
+	}
 	if cfg.ManagementSource == k8s.ManagementSourceSTXDeployed {
 		deployer := k8s.NewSessionManager(s.k8sManager)
 		if _, err := deployer.Deploy(ctx, &k8s.DeployOptions{Config: cfg, ClusterCode: cluster.EffectiveClusterCode(), ClusterID: cluster.ID, CreateRBAC: true}); err != nil {

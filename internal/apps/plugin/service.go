@@ -1553,6 +1553,9 @@ func (s *Service) SetHostInfoGetter(getter HostInfoGetter) {
 // HTTP 请求立即返回任务进度；即使客户端断开（例如 Next.js 默认 proxyTimeout ~30s）传输仍继续。
 // Worker 使用与请求分离的 context，避免客户端取消导致安装中断。
 func (s *Service) StartInstallPluginAsync(ctx context.Context, clusterID uint, req *InstallPluginRequest) (*PluginInstallStatus, error) {
+	if err := s.guardK8sPluginWrite(ctx, clusterID); err != nil {
+		return nil, err
+	}
 	if req == nil {
 		return nil, fmt.Errorf("install request is required")
 	}
@@ -1857,6 +1860,9 @@ func (s *Service) recordAttachedConnectorPlugins(ctx context.Context, clusterID 
 // UninstallPluginFromCluster uninstalls a plugin from all nodes in a cluster.
 // UninstallPluginFromCluster 从集群中的所有节点卸载插件。
 func (s *Service) UninstallPluginFromCluster(ctx context.Context, clusterID uint, pluginName string) error {
+	if err := s.guardK8sPluginWrite(ctx, clusterID); err != nil {
+		return err
+	}
 	// Check if plugin exists / 检查插件是否存在
 	plugin, err := s.repo.GetByClusterAndName(ctx, clusterID, pluginName)
 	if err != nil {

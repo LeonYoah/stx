@@ -192,7 +192,7 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 	}
 
 	exists, err := s.repo.GetByName(ctx, req.Name)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrClusterNotFound) {
 		return nil, err
 	}
 	if exists != nil {

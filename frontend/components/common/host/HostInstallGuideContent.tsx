@@ -32,7 +32,6 @@ import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
 import {toast} from '@/lib/toast';
 import {
-  Copy,
   Check,
   Terminal,
   RefreshCw,
@@ -46,7 +45,7 @@ import {
 import services from '@/lib/services';
 import {AgentStatus, HostInfo, HostStatus} from '@/lib/services/host/types';
 import {formatTimeTz} from '@/lib/timezone';
-import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 interface HostInstallGuideContentProps {
   // 目标主机信息
@@ -106,7 +105,6 @@ export function HostInstallGuideContent({
   const t = useTranslations();
   const [installCommand, setInstallCommand] = useState<string>('');
   const [loadingCommand, setLoadingCommand] = useState<boolean>(true);
-  const [copied, setCopied] = useState<boolean>(false);
   const [currentHost, setCurrentHost] = useState<HostInfo>(host);
   const [checkingHeartbeat, setCheckingHeartbeat] = useState<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
@@ -172,26 +170,6 @@ export function HostInstallGuideContent({
       isMountedRef.current = false;
     };
   }, [loadInstallCommand]);
-
-  // 复制命令到剪贴板
-  // Copy command to clipboard
-  const handleCopy = async () => {
-    if (!installCommand) {
-      return;
-    }
-    try {
-      await writeClipboard(installCommand);
-      setCopied(true);
-      toast.success(t('host.commandCopied'));
-      setTimeout(() => {
-        if (isMountedRef.current) {
-          setCopied(false);
-        }
-      }, 2000);
-    } catch {
-      toast.error(t('host.copyFailed'));
-    }
-  };
 
   const isConnected = isHostAgentConnected(currentHost);
 
@@ -303,25 +281,15 @@ export function HostInstallGuideContent({
                 stx-agent-install.sh
               </span>
             </div>
-            <Button
-              variant='ghost'
-              size='sm'
+            <CopyButton
+              value={installCommand}
+              label={t('common.copy')}
+              copiedLabel={t('common.copied')}
+              failedLabel={t('common.copyFailed')}
+              variant='plain'
               disabled={loadingCommand || !installCommand}
-              onClick={handleCopy}
-              className='h-6 px-2 text-[11px] text-zinc-300 hover:text-white hover:bg-zinc-800 gap-1'
-            >
-              {copied ? (
-                <>
-                  <Check className='h-3 w-3 text-emerald-400' />
-                  <span className='text-emerald-400'>{t('common.copied')}</span>
-                </>
-              ) : (
-                <>
-                  <Copy className='h-3 w-3' />
-                  <span>{t('common.copy')}</span>
-                </>
-              )}
-            </Button>
+              className='h-6 px-2 text-[11px] text-zinc-300 hover:text-white hover:bg-zinc-800'
+            />
           </div>
 
           {/* Terminal Script Line */}
@@ -461,15 +429,13 @@ export function HostInstallGuideContent({
               {t('host.installGuide.done')}
             </Button>
           ) : (
-            <Button
-              type='button'
-              size='sm'
-              onClick={handleCopy}
+            <CopyButton
+              value={installCommand}
+              label={t('host.installGuide.installAgent')}
+              copiedLabel={t('common.copied')}
+              failedLabel={t('common.copyFailed')}
               className='h-8 text-xs'
-            >
-              <Copy className='h-3.5 w-3.5 mr-1.5' />
-              {t('host.installGuide.installAgent')}
-            </Button>
+            />
           )}
         </div>
       </div>

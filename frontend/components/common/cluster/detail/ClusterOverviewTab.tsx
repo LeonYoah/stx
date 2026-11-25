@@ -25,7 +25,7 @@
  */
 import {useState} from 'react';
 import {useLocale, useTranslations} from 'next-intl';
-import {Activity, ArrowRight, Check, Copy} from 'lucide-react';
+import {Activity, ArrowRight} from 'lucide-react';
 import {Alert as ArcAlert} from '@/components/arc/alert/alert';
 import {Button} from '@/components/arc/button/button';
 import {Select} from '@/components/arc/select/select';
@@ -53,10 +53,9 @@ import type {
   SyncEventChannelStatus,
 } from '@/lib/services/sync/types';
 import {formatDateTimeMinuteTz} from '@/lib/timezone';
-import {toast} from '@/lib/toast';
 import {NodeStatusChip} from '../ClusterStatusChip';
 import type {RuntimeSubView} from './cluster-detail-tabs';
-import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 export interface ClusterOverviewTabProps {
   cluster: ClusterInfo;
@@ -121,9 +120,9 @@ const CJK_RE = /[\u3400-\u9fff\uf900-\ufaff]/;
 // only when the right side contains CJK, so paths/URLs are never split accidentally.
 function localizeLegacyHealthReason(reason: string, locale: string): string {
   const idx = reason.indexOf(' / ');
-  if (idx < 0) return reason;
+  if (idx < 0) {return reason;}
   const right = reason.slice(idx + 3);
-  if (!CJK_RE.test(right)) return reason;
+  if (!CJK_RE.test(right)) {return reason;}
   const left = reason.slice(0, idx);
   return locale.startsWith('zh') ? right.trim() : left.trim();
 }
@@ -154,23 +153,12 @@ export function ClusterOverviewTab({
 }: ClusterOverviewTabProps) {
   const t = useTranslations();
   const locale = useLocale();
-  const [copiedField, setCopiedField] = useState<'dir' | 'code' | null>(null);
   const [pendingLogMode, setPendingLogMode] = useState<
     'per_job' | 'mixed' | null
   >(null);
   const currentLogMode: 'per_job' | 'mixed' =
     jobLogMode === 'per_job' ? 'per_job' : 'mixed';
 
-  const handleCopy = async (value: string, field: 'dir' | 'code') => {
-    try {
-      await writeClipboard(value);
-      setCopiedField(field);
-      toast.success(t('cluster.logCopied'));
-      window.setTimeout(() => setCopiedField(null), 1800);
-    } catch {
-      // 剪贴板不可用时静默忽略 / Ignore clipboard errors
-    }
-  };
 
   const hazelcastPort =
     nodes.find((node) => node.hazelcast_port > 0)?.hazelcast_port || '-';
@@ -315,22 +303,15 @@ export function ClusterOverviewTab({
                   {cluster.install_dir || '-'}
                 </span>
                 {cluster.install_dir ? (
-                  <button
-                    type='button'
-                    onClick={() => void handleCopy(cluster.install_dir, 'dir')}
-                    className='shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground'
-                    aria-label={t('common.copy')}
-                    title={t('common.copy')}
-                  >
-                    {copiedField === 'dir' ? (
-                      <Check
-                        className='size-3.5 text-emerald-500'
-                        aria-hidden
-                      />
-                    ) : (
-                      <Copy className='size-3.5' aria-hidden />
-                    )}
-                  </button>
+                  <CopyButton
+                    value={cluster.install_dir}
+                    label={t('common.copy')}
+                    copiedLabel={t('common.copied')}
+                    failedLabel={t('common.copyFailed')}
+                    variant='plain'
+                    iconOnly
+                    className='h-5 w-5 min-h-0 shrink-0'
+                  />
                 ) : null}
               </div>
             </div>
@@ -347,24 +328,15 @@ export function ClusterOverviewTab({
                   {cluster.cluster_code || '-'}
                 </span>
                 {cluster.cluster_code ? (
-                  <button
-                    type='button'
-                    onClick={() =>
-                      void handleCopy(cluster.cluster_code || '', 'code')
-                    }
-                    className='shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground'
-                    aria-label={t('common.copy')}
-                    title={t('common.copy')}
-                  >
-                    {copiedField === 'code' ? (
-                      <Check
-                        className='size-3.5 text-emerald-500'
-                        aria-hidden
-                      />
-                    ) : (
-                      <Copy className='size-3.5' aria-hidden />
-                    )}
-                  </button>
+                  <CopyButton
+                    value={cluster.cluster_code}
+                    label={t('common.copy')}
+                    copiedLabel={t('common.copied')}
+                    failedLabel={t('common.copyFailed')}
+                    variant='plain'
+                    iconOnly
+                    className='h-5 w-5 min-h-0 shrink-0'
+                  />
                 ) : null}
               </div>
             </div>

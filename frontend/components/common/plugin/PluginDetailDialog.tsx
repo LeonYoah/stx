@@ -43,8 +43,6 @@ import {
 import {
   Ban,
   BookOpen,
-  Check,
-  Copy,
   Download,
   ExternalLink,
   FolderOpen,
@@ -80,7 +78,7 @@ import {
   generateConnectorDocUrls,
   getConnectorSemanticIcon,
 } from './connector-quick-helper';
-import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 interface PluginDetailDialogProps {
   open: boolean;
@@ -162,8 +160,6 @@ export function PluginDetailDialog({
     'overview' | 'dependencies' | 'custom'
   >(initialTab);
   const [profileFilter, setProfileFilter] = useState('');
-  const [copiedCoord, setCopiedCoord] = useState(false);
-  const [copiedXml, setCopiedXml] = useState(false);
   // Tab 内容区滚动容器：切 Tab 时复位到顶部，避免继承上一 Tab 的 scrollTop。
   // Body scroll container: reset to top on tab change so prior scroll does not carry over.
   const bodyScrollRef = useRef<HTMLDivElement | null>(null);
@@ -351,23 +347,6 @@ export function PluginDetailDialog({
       toast.error(errorMsg);
     } finally {
       setOperatingDependencyKey(null);
-    }
-  };
-
-  // Copy to clipboard helper / 复制到剪贴板辅助方法
-  const handleCopyText = async (text: string, kind: 'coord' | 'xml') => {
-    try {
-      await writeClipboard(text);
-      toast.success(t('plugin.copied'));
-      if (kind === 'coord') {
-        setCopiedCoord(true);
-        setTimeout(() => setCopiedCoord(false), 2000);
-      } else {
-        setCopiedXml(true);
-        setTimeout(() => setCopiedXml(false), 2000);
-      }
-    } catch {
-      toast.error('Copy failed');
     }
   };
 
@@ -593,32 +572,22 @@ export function PluginDetailDialog({
                       {t('plugin.mavenCoordinates')}
                     </span>
                     <div className='flex items-center gap-1.5'>
-                      <Button
-                        variant='ghost'
-                        size='sm'
+                      <CopyButton
+                        value={mavenCoordText}
+                        label={t('plugin.copyCoordinates')}
+                        copiedLabel={t('common.copied')}
+                        failedLabel={t('common.copyFailed')}
+                        variant='plain'
                         className='h-6 text-xs px-2'
-                        onClick={() => handleCopyText(mavenCoordText, 'coord')}
-                      >
-                        {copiedCoord ? (
-                          <Check className='h-3 w-3 mr-1 text-green-600' />
-                        ) : (
-                          <Copy className='h-3 w-3 mr-1' />
-                        )}
-                        {t('plugin.copyCoordinates')}
-                      </Button>
-                      <Button
-                        variant='ghost'
-                        size='sm'
+                      />
+                      <CopyButton
+                        value={mavenXmlText}
+                        label={t('plugin.copyXml')}
+                        copiedLabel={t('common.copied')}
+                        failedLabel={t('common.copyFailed')}
+                        variant='plain'
                         className='h-6 text-xs px-2'
-                        onClick={() => handleCopyText(mavenXmlText, 'xml')}
-                      >
-                        {copiedXml ? (
-                          <Check className='h-3 w-3 mr-1 text-green-600' />
-                        ) : (
-                          <Copy className='h-3 w-3 mr-1' />
-                        )}
-                        {t('plugin.copyXml')}
-                      </Button>
+                      />
                     </div>
                   </div>
                   {/* 单行横向 GAV 坐标条，彻底避免折行 / Single-row GAV bar preventing line breaks */}

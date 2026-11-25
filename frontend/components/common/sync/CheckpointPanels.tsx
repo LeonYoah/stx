@@ -25,11 +25,9 @@ import {jobWorkbenchHref} from './job-table/job-table-format';
 import {
   Activity,
   AlertTriangle,
-  Check,
   CheckCheck,
   ChevronRight,
   Clock,
-  Copy,
   Database,
   Eye,
   FileCode,
@@ -107,7 +105,7 @@ import {
   summarizeCheckpointSubtaskMetrics,
 } from './sync-studio-utils';
 import {formatDateTimeTz} from '@/lib/timezone';
-import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
@@ -1056,29 +1054,20 @@ function CheckpointInspectObjectSection({
 }
 
 function QuickCopyButton({text}: {text: string}) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    if (!text) {
-      return;
-    }
-    void writeClipboard(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
+  const t = useTranslations('workbenchStudio');
+  if (!text) {
+    return null;
+  }
   return (
-    <Button
-      variant='ghost'
-      size='icon'
-      className='size-6 text-muted-foreground hover:text-foreground'
-      onClick={handleCopy}
-      title='复制位点'
-    >
-      {copied ? (
-        <Check className='size-3 text-emerald-500' />
-      ) : (
-        <Copy className='size-3' />
-      )}
-    </Button>
+    <CopyButton
+      value={text}
+      label={t('copyCheckpoint')}
+      copiedLabel={t('copied')}
+      failedLabel={t('copyFailed')}
+      variant='plain'
+      iconOnly
+      className='size-6 min-h-0'
+    />
   );
 }
 
@@ -2174,8 +2163,6 @@ export function CheckpointInspectDialog({
   t: (key: string) => string;
   onResultUpdate?: (newResult: RuntimeStorageCheckpointInspectResult) => void;
 }) {
-  const [copiedPath, setCopiedPath] = useState(false);
-  const [copiedJson, setCopiedJson] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
 
   // 本地快照解析结果状态（支持手动指定连接器后就地局部刷新）
@@ -2316,24 +2303,6 @@ export function CheckpointInspectDialog({
         ? String(completed.stateSize)
         : '-';
 
-  const handleCopyPath = useCallback(() => {
-    if (!activeResult?.path) {
-      return;
-    }
-    void writeClipboard(activeResult.path);
-    setCopiedPath(true);
-    setTimeout(() => setCopiedPath(false), 2000);
-  }, [activeResult?.path]);
-
-  const handleCopyJson = useCallback(() => {
-    if (!activeResult) {
-      return;
-    }
-    void writeClipboard(JSON.stringify(activeResult, null, 2));
-    setCopiedJson(true);
-    setTimeout(() => setCopiedJson(false), 2000);
-  }, [activeResult]);
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -2384,48 +2353,24 @@ export function CheckpointInspectDialog({
               </span>
             </div>
             <div className='flex shrink-0 items-center gap-1'>
-              <Button
-                variant='ghost'
-                size='sm'
-                className='h-6 gap-1 px-2 text-[11px]'
-                onClick={handleCopyPath}
-                title={t('copyPath')}
-              >
-                {copiedPath ? (
-                  <>
-                    <Check className='size-3 text-emerald-500' />
-                    <span className='font-medium text-emerald-600 dark:text-emerald-400'>
-                      {t('copied')}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className='size-3 text-muted-foreground' />
-                    <span>{t('copyPath')}</span>
-                  </>
-                )}
-              </Button>
-              <Button
-                variant='ghost'
-                size='sm'
-                className='h-6 gap-1 px-2 text-[11px]'
-                onClick={handleCopyJson}
-                title={t('copyJson')}
-              >
-                {copiedJson ? (
-                  <>
-                    <Check className='size-3 text-emerald-500' />
-                    <span className='font-medium text-emerald-600 dark:text-emerald-400'>
-                      {t('copied')}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <FileCode className='size-3 text-muted-foreground' />
-                    <span>{t('copyJson')}</span>
-                  </>
-                )}
-              </Button>
+              <CopyButton
+                value={activeResult?.path ?? ''}
+                label={t('copyPath')}
+                copiedLabel={t('copied')}
+                failedLabel={t('copyFailed')}
+                variant='plain'
+                className='h-6 px-2 text-[11px]'
+                disabled={!activeResult?.path}
+              />
+              <CopyButton
+                value={activeResult ? JSON.stringify(activeResult, null, 2) : ''}
+                label={t('copyJson')}
+                copiedLabel={t('copied')}
+                failedLabel={t('copyFailed')}
+                variant='plain'
+                className='h-6 px-2 text-[11px]'
+                disabled={!activeResult}
+              />
             </div>
           </div>
         </div>

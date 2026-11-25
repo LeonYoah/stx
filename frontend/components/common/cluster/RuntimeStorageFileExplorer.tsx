@@ -30,7 +30,6 @@ import {
   Home,
   RefreshCw,
   Copy,
-  Check,
   Eye,
   HardDrive,
   MoreHorizontal,
@@ -68,6 +67,7 @@ import type {
   RuntimeStorageSpec,
 } from '@/lib/services/cluster/types';
 import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 /**
  * 格式化字节大小
@@ -204,7 +204,6 @@ export function RuntimeStorageFileExplorer({
 
   const [searchKeyword, setSearchKeyword] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [copied, setCopied] = useState(false);
   const pageSize = 20;
 
   const effectiveCurrentPath = currentPath || spec.namespace || '';
@@ -221,15 +220,6 @@ export function RuntimeStorageFileExplorer({
     if (isAtRoot) {return spec.namespace || '';}
     return breadcrumbs[breadcrumbs.length - 2]?.path || spec.namespace || '';
   }, [breadcrumbs, isAtRoot, spec.namespace]);
-
-  // 复制当前完整路径 / Copy current full path
-  const handleCopyCurrentPath = useCallback(() => {
-    if (!effectiveCurrentPath) {return;}
-    void writeClipboard(effectiveCurrentPath);
-    setCopied(true);
-    toast.success(t('copyPathSuccess'));
-    setTimeout(() => setCopied(false), 2000);
-  }, [effectiveCurrentPath, t]);
 
   // 复制指定项路径 / Copy item path
   const handleCopyItemPath = useCallback(
@@ -405,21 +395,16 @@ export function RuntimeStorageFileExplorer({
             {/* 复制当前路径按钮 / Copy current path */}
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  type='button'
-                  variant='ghost'
-                  size='sm'
-                  iconOnly
-                  className='ml-auto shrink-0'
-                  onClick={handleCopyCurrentPath}
-                  aria-label={t('copyPath')}
-                >
-                  {copied ? (
-                    <Check className='size-3.5 text-emerald-500' aria-hidden />
-                  ) : (
-                    <Copy className='size-3.5' aria-hidden />
-                  )}
-                </Button>
+                <span className='ml-auto shrink-0 inline-flex'>
+                  <CopyButton
+                    value={effectiveCurrentPath}
+                    label={t('copyPath')}
+                    copiedLabel={tCommon('copied')}
+                    failedLabel={tCommon('copyFailed')}
+                    variant='plain'
+                    iconOnly
+                  />
+                </span>
               </TooltipTrigger>
               <TooltipContent side='top'>{t('copyPath')}</TooltipContent>
             </Tooltip>

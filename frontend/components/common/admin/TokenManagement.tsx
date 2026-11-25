@@ -26,7 +26,7 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Check, Copy, KeyRound, Plus, RefreshCw, ShieldOff} from 'lucide-react';
+import {KeyRound, Plus, RefreshCw, ShieldOff} from 'lucide-react';
 import {toast} from '@/lib/toast';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
@@ -65,7 +65,7 @@ import type {
 import {formatDateTimeMinuteTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {AccountsNavTabs} from './AccountsNavTabs';
-import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 type ExpiresPreset = '7d' | '30d' | '90d' | 'never' | 'custom';
 
@@ -106,7 +106,6 @@ export function TokenManagement() {
   const [issuedToken, setIssuedToken] = useState<CreateCLITokenResult | null>(
     null,
   );
-  const [copied, setCopied] = useState(false);
   const [formName, setFormName] = useState('');
   const [formUserId, setFormUserId] = useState('');
   const [expiresPreset, setExpiresPreset] = useState<ExpiresPreset>('never');
@@ -177,7 +176,6 @@ export function TokenManagement() {
     setExpiresPreset('never');
     setCustomDays('60');
     setIssuedToken(null);
-    setCopied(false);
     try {
       const response = await services.adminUser.listUsers({
         current: 1,
@@ -235,16 +233,6 @@ export function TokenManagement() {
           ? err.message
           : t('admin.tokenManagement.createError'),
       );
-    }
-  };
-
-  const handleCopy = async (value: string) => {
-    try {
-      await writeClipboard(value);
-      setCopied(true);
-      toast.success(t('admin.tokenManagement.copied'));
-    } catch {
-      toast.error(t('admin.tokenManagement.copyFailed'));
     }
   };
 
@@ -606,8 +594,7 @@ export function TokenManagement() {
           setIsCreateOpen(open);
           if (!open) {
             setIssuedToken(null);
-            setCopied(false);
-          }
+                  }
         }}
       >
         <DialogContent
@@ -633,20 +620,13 @@ export function TokenManagement() {
                     className='font-mono'
                   />
                 </div>
-                <Button
-                  type='button'
-                  variant='secondary'
-                  size='sm'
+                <CopyButton
+                  value={issuedToken.token || ''}
+                  label={t('common.copy')}
+                  copiedLabel={t('common.copied')}
+                  failedLabel={t('common.copyFailed')}
                   iconOnly
-                  onClick={() => void handleCopy(issuedToken.token || '')}
-                  aria-label={t('common.copy')}
-                >
-                  {copied ? (
-                    <Check className='size-4' aria-hidden />
-                  ) : (
-                    <Copy className='size-4' aria-hidden />
-                  )}
-                </Button>
+                />
               </div>
               <p className='overflow-x-auto text-xs font-mono text-muted-foreground whitespace-nowrap'>
                 stx login --server &lt;url&gt; --token-stdin

@@ -24,16 +24,13 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowRight,
-  Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Copy,
   ExternalLink,
   Lightbulb,
   Search,
 } from 'lucide-react';
-import {toast} from '@/lib/toast';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {
@@ -74,7 +71,7 @@ import {
   type UserFacingErrorState,
 } from './sync-studio-utils';
 import {useWriteRateSparkline} from './job-detail/metric-timeseries';
-import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
@@ -92,26 +89,15 @@ export function StudioErrorDiagnosticsView({
   className?: string;
 }) {
   const t = useTranslations('workbenchStudio');
-  const [copied, setCopied] = useState(false);
   const [rawExpanded, setRawExpanded] = useState(false);
 
   if (!error) {
     return null;
   }
 
-  const handleCopy = async () => {
-    const textToCopy = error.raw
-      ? `${error.title}\n${error.description}\n\n[Details]\n${error.raw}`
-      : `${error.title}\n${error.description}`;
-    try {
-      await writeClipboard(textToCopy);
-      setCopied(true);
-      toast.success(t('variableValueCopied') || '已复制错误信息');
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error('复制失败');
-    }
-  };
+  const copyText = error.raw
+    ? `${error.title}\n${error.description}\n\n[Details]\n${error.raw}`
+    : `${error.title}\n${error.description}`;
 
   const getCategoryBadge = () => {
     switch (error.category) {
@@ -141,15 +127,14 @@ export function StudioErrorDiagnosticsView({
           <span className='text-sm font-semibold text-foreground'>{error.title}</span>
           {getCategoryBadge()}
         </div>
-        <Button
-          size='sm'
-          variant='ghost'
-          className='h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground'
-          onClick={handleCopy}
-        >
-          {copied ? <Check className='size-3.5 text-emerald-500' /> : <Copy className='size-3.5' />}
-          <span>{copied ? '已复制' : '复制错误'}</span>
-        </Button>
+        <CopyButton
+          value={copyText}
+          label={t('copyError')}
+          copiedLabel={t('copied')}
+          failedLabel={t('copyFailed')}
+          variant='plain'
+          className='h-7 px-2 text-xs'
+        />
       </div>
 
       {/* 核心错误描述：限高内滚，避免长堆栈把弹窗撑出视口 */}

@@ -32,7 +32,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import {useTranslations} from 'next-intl';
-import {Check, Copy, FileText, RefreshCw} from 'lucide-react';
+import {FileText, RefreshCw} from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/arc/input/input';
@@ -40,8 +40,7 @@ import SegmentedControl from '@/components/arc/segmented-control/segmented-contr
 import {NeutralChip, TableLoadingBar} from '@/components/common/layout';
 import services from '@/lib/services';
 import type {NodeInfo} from '@/lib/services/cluster/types';
-import {toast} from '@/lib/toast';
-import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 interface ClusterNodeLogDialogProps {
   open: boolean;
@@ -66,7 +65,6 @@ export function ClusterNodeLogDialog({
   const [logContent, setLogContent] = useState<string>('');
   const [logLoading, setLogLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const reqSeqRef = useRef(0);
 
   const fetchLogs = useCallback(async () => {
@@ -113,7 +111,6 @@ export function ClusterNodeLogDialog({
     } else {
       setLogContent('');
       setError(null);
-      setCopied(false);
     }
   }, [open, node, fetchLogs]);
 
@@ -121,20 +118,6 @@ export function ClusterNodeLogDialog({
     if (e.key === 'Enter') {
       e.preventDefault();
       void fetchLogs();
-    }
-  };
-
-  const handleCopy = async () => {
-    if (!logContent) {
-      return;
-    }
-    try {
-      await writeClipboard(logContent);
-      setCopied(true);
-      toast.success(t('cluster.logCopied'));
-      window.setTimeout(() => setCopied(false), 1800);
-    } catch {
-      // 忽略剪贴板权限错误 / Ignore clipboard errors
     }
   };
 
@@ -217,20 +200,14 @@ export function ClusterNodeLogDialog({
           </div>
 
           <div className='flex shrink-0 items-center gap-1.5'>
-            <Button
-              type='button'
-              variant='secondary'
-              size='sm'
-              onClick={() => void handleCopy()}
+            <CopyButton
+              value={logContent}
+              label={t('cluster.copyLog')}
+              copiedLabel={t('common.copied')}
+              failedLabel={t('common.copyFailed')}
+              className='h-[var(--control-height-sm)]'
               disabled={!logContent}
-            >
-              {copied ? (
-                <Check className='size-3.5 text-emerald-500' aria-hidden />
-              ) : (
-                <Copy className='size-3.5' aria-hidden />
-              )}
-              {t('cluster.copyLog')}
-            </Button>
+            />
             <Button
               type='button'
               variant='secondary'

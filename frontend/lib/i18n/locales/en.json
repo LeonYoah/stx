@@ -6096,7 +6096,9 @@
     "metricFlowZeroTitle": "All-zero metrics",
     "metricFlowItemCount": "{count} items",
     "metricFlowEndpoints": "{count} endpoints",
-    "metricFlowSearchEmpty": "No links match \"{query}\""
+    "metricFlowSearchEmpty": "No links match \"{query}\"",
+    "copyCheckpoint": "Copy checkpoint",
+    "copyError": "Copy error"
   },
   "troubleshooting": {
     "title": "Playbooks",

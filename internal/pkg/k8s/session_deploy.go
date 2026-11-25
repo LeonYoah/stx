@@ -70,6 +70,22 @@ func sessionLabels(clusterCode string, clusterID uint, component string) map[str
 	return labels
 }
 
+// isOwnedByCluster 校验资源是否归属本 STX 集群：必须同时携带 managed-by=stx 与匹配的 cluster-code。
+// 缺少任一标签即视为用户自有资源，upsert 不得覆盖、uninstall 不得删除。
+// isOwnedByCluster reports whether a resource belongs to this STX cluster: it must carry
+// both managed-by=stx and the matching cluster-code. Missing either label means the resource
+// is user-owned and must neither be overwritten by upserts nor deleted by uninstall.
+func isOwnedByCluster(labels map[string]string, clusterCode string) bool {
+	if labels == nil {
+		return false
+	}
+	return labels[LabelManagedByKey] == LabelManagedByValue && labels[LabelClusterCodeKey] == clusterCode
+}
+
+func errResourceConflict(kind, name string) error {
+	return fmt.Errorf("k8s: %s %q already exists and is not owned by this cluster; refusing to overwrite", kind, name)
+}
+
 func podSelectorLabels(clusterCode, component string) map[string]string {
 	return map[string]string{
 		LabelClusterCodeKey:  clusterCode,
@@ -205,8 +221,17 @@ func ensureRBAC(ctx context.Context, clientset kubernetes.Interface, ns string, 
 	sa := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{Name: names.ServiceAccount, Namespace: ns, Labels: labels},
 	}
-	if _, err := clientset.CoreV1().ServiceAccounts(ns).Create(ctx, sa, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("k8s: create serviceaccount failed: %w", err)
+	if _, err := clientset.CoreV1().ServiceAccounts(ns).Create(ctx, sa, metav1.CreateOptions{}); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("k8s: create serviceaccount failed: %w", err)
+		}
+		existing, getErr := clientset.CoreV1().ServiceAccounts(ns).Get(ctx, names.ServiceAccount, metav1.GetOptions{})
+		if getErr != nil {
+			return fmt.Errorf("k8s: get serviceaccount failed: %w", getErr)
+		}
+		if !isOwnedByCluster(existing.Labels, code) {
+			return errResourceConflict("serviceaccount", names.ServiceAccount)
+		}
 	}
 
 	// Session 模式 SA 保持最小权限：Hazelcast DNS 发现只需 endpoints/pods/services 只读，
@@ -224,8 +249,17 @@ func ensureRBAC(ctx context.Context, clientset kubernetes.Interface, ns string, 
 			},
 		},
 	}
-	if _, err := clientset.RbacV1().Roles(ns).Create(ctx, role, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("k8s: create role failed: %w", err)
+	if _, err := clientset.RbacV1().Roles(ns).Create(ctx, role, metav1.CreateOptions{}); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("k8s: create role failed: %w", err)
+		}
+		existing, getErr := clientset.RbacV1().Roles(ns).Get(ctx, names.Role, metav1.GetOptions{})
+		if getErr != nil {
+			return fmt.Errorf("k8s: get role failed: %w", getErr)
+		}
+		if !isOwnedByCluster(existing.Labels, code) {
+			return errResourceConflict("role", names.Role)
+		}
 	}
 
 	binding := &rbacv1.RoleBinding{
@@ -239,8 +273,17 @@ func ensureRBAC(ctx context.Context, clientset kubernetes.Interface, ns string, 
 			{Kind: rbacv1.ServiceAccountKind, Name: names.ServiceAccount, Namespace: ns},
 		},
 	}
-	if _, err := clientset.RbacV1().RoleBindings(ns).Create(ctx, binding, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("k8s: create rolebinding failed: %w", err)
+	if _, err := clientset.RbacV1().RoleBindings(ns).Create(ctx, binding, metav1.CreateOptions{}); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("k8s: create rolebinding failed: %w", err)
+		}
+		existing, getErr := clientset.RbacV1().RoleBindings(ns).Get(ctx, names.RoleBinding, metav1.GetOptions{})
+		if getErr != nil {
+			return fmt.Errorf("k8s: get rolebinding failed: %w", getErr)
+		}
+		if !isOwnedByCluster(existing.Labels, code) {
+			return errResourceConflict("rolebinding", names.RoleBinding)
+		}
 	}
 	return nil
 }
@@ -264,6 +307,9 @@ func ensureSessionConfigMap(ctx context.Context, clientset kubernetes.Interface,
 	}
 	if err != nil {
 		return fmt.Errorf("k8s: get configmap failed: %w", err)
+	}
+	if !isOwnedByCluster(existing.Labels, code) {
+		return errResourceConflict("configmap", names.ConfigMap)
 	}
 	existing.Data = files
 	if existing.Labels == nil {
@@ -331,6 +377,9 @@ func upsertService(ctx context.Context, clientset kubernetes.Interface, ns strin
 	}
 	if err != nil {
 		return fmt.Errorf("k8s: get service %q failed: %w", svc.Name, err)
+	}
+	if !isOwnedByCluster(existing.Labels, svc.Labels[LabelClusterCodeKey]) {
+		return errResourceConflict("service", svc.Name)
 	}
 	existing.Spec.Ports = svc.Spec.Ports
 	existing.Spec.Selector = svc.Spec.Selector
@@ -536,6 +585,9 @@ func ensureSessionStatefulSet(ctx context.Context, clientset kubernetes.Interfac
 	if err != nil {
 		return fmt.Errorf("k8s: get statefulset %q failed: %w", stsName, err)
 	}
+	if !isOwnedByCluster(existing.Labels, code) {
+		return errResourceConflict("statefulset", stsName)
+	}
 	existing.Spec.Replicas = sts.Spec.Replicas
 	existing.Spec.Template = sts.Spec.Template
 	existing.Spec.ServiceName = sts.Spec.ServiceName
@@ -570,40 +622,120 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 		}
 	}
 	policy := metav1.DeletePropagationBackground
+	// 删除前一律先 Get 校验归属标签：同名但非本集群创建的用户资源绝不删除。
+	// Every delete first Gets the object and verifies ownership labels: a same-named
+	// user resource not created by this cluster is never deleted.
 	deleteOne("statefulset/"+names.MasterSTS, func() error {
+		obj, err := clientset.AppsV1().StatefulSets(ns).Get(ctx, names.MasterSTS, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.AppsV1().StatefulSets(ns).Delete(ctx, names.MasterSTS, metav1.DeleteOptions{PropagationPolicy: &policy})
 	})
 	deleteOne("statefulset/"+names.WorkerSTS, func() error {
+		obj, err := clientset.AppsV1().StatefulSets(ns).Get(ctx, names.WorkerSTS, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.AppsV1().StatefulSets(ns).Delete(ctx, names.WorkerSTS, metav1.DeleteOptions{PropagationPolicy: &policy})
 	})
 	deleteOne("service/"+names.ClusterSvc, func() error {
+		obj, err := clientset.CoreV1().Services(ns).Get(ctx, names.ClusterSvc, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.CoreV1().Services(ns).Delete(ctx, names.ClusterSvc, metav1.DeleteOptions{})
 	})
 	deleteOne("service/"+names.MasterSvc, func() error {
+		obj, err := clientset.CoreV1().Services(ns).Get(ctx, names.MasterSvc, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.CoreV1().Services(ns).Delete(ctx, names.MasterSvc, metav1.DeleteOptions{})
 	})
 	deleteOne("configmap/"+names.ConfigMap, func() error {
+		obj, err := clientset.CoreV1().ConfigMaps(ns).Get(ctx, names.ConfigMap, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.CoreV1().ConfigMaps(ns).Delete(ctx, names.ConfigMap, metav1.DeleteOptions{})
 	})
 	deleteOne("serviceaccount/"+names.ServiceAccount, func() error {
+		obj, err := clientset.CoreV1().ServiceAccounts(ns).Get(ctx, names.ServiceAccount, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.CoreV1().ServiceAccounts(ns).Delete(ctx, names.ServiceAccount, metav1.DeleteOptions{})
 	})
 	deleteOne("role/"+names.Role, func() error {
+		obj, err := clientset.RbacV1().Roles(ns).Get(ctx, names.Role, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.RbacV1().Roles(ns).Delete(ctx, names.Role, metav1.DeleteOptions{})
 	})
 	deleteOne("rolebinding/"+names.RoleBinding, func() error {
+		obj, err := clientset.RbacV1().RoleBindings(ns).Get(ctx, names.RoleBinding, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.RbacV1().RoleBindings(ns).Delete(ctx, names.RoleBinding, metav1.DeleteOptions{})
 	})
 	// 伴生 Proxy 残留一并清理（uninstall 语义是全量回收 STX 资源）。
 	// Companion proxy leftovers are cleaned up too (uninstall means full reclamation of STX resources).
 	proxyDeployment, proxyService, proxyJarCM := ProxyResourceNames(clusterCode)
 	deleteOne("deployment/"+proxyDeployment, func() error {
+		obj, err := clientset.AppsV1().Deployments(ns).Get(ctx, proxyDeployment, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.AppsV1().Deployments(ns).Delete(ctx, proxyDeployment, metav1.DeleteOptions{PropagationPolicy: &policy})
 	})
 	deleteOne("service/"+proxyService, func() error {
+		obj, err := clientset.CoreV1().Services(ns).Get(ctx, proxyService, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.CoreV1().Services(ns).Delete(ctx, proxyService, metav1.DeleteOptions{})
 	})
 	deleteOne("configmap/"+proxyJarCM, func() error {
+		obj, err := clientset.CoreV1().ConfigMaps(ns).Get(ctx, proxyJarCM, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.CoreV1().ConfigMaps(ns).Delete(ctx, proxyJarCM, metav1.DeleteOptions{})
 	})
 	if len(errs) > 0 {

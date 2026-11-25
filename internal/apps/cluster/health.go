@@ -427,7 +427,19 @@ func (s *Service) evaluateK8sClusterHealth(ctx context.Context, cluster *Cluster
 		statusInfo.HealthStatus = HealthStatusUnknown
 		return
 	}
-	want := cfg.MasterReplicas + cfg.WorkerReplicas
+	// 期望副本数优先取 Workload 实时 spec.replicas 之和：外部 kubectl scale 或
+	// 缩容后持久化配置可能过期，按旧值比对会误报不健康；读取失败才回落持久化配置。
+	// The expected replica count prefers the live sum of workload spec.replicas: after an
+	// external kubectl scale or a downscale the persisted config can be stale and would
+	// false-positive unhealthy; the persisted value is only a fallback.
+	want := 0
+	masterLive, masterErr := ops.GetReplicas(ctx, cfg, "master")
+	workerLive, workerErr := ops.GetReplicas(ctx, cfg, "worker")
+	if masterErr == nil && workerErr == nil {
+		want = masterLive + workerLive
+	} else {
+		want = cfg.MasterReplicas + cfg.WorkerReplicas
+	}
 	if want <= 0 {
 		want = len(pods)
 	}

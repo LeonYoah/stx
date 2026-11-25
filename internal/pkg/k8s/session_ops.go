@@ -121,9 +121,32 @@ func (s *SessionManager) SessionPods(ctx context.Context, cfg *SessionConfig, cl
 		if err != nil {
 			return nil, fmt.Errorf("k8s: list pods failed: %w", err)
 		}
+		// Deployment 集群中 Pod 的直接 owner 是 ReplicaSet（<deploy>-<hash>），
+		// 必须先建立 ReplicaSet→Deployment 映射才能正确归属。
+		// In Deployment clusters the pod's direct owner is a ReplicaSet (<deploy>-<hash>),
+		// so a ReplicaSet→Deployment map is required for correct attribution.
+		rsToDeploy := map[string]string{}
+		rsList, rsErr := clientset.AppsV1().ReplicaSets(cfg.Namespace).List(ctx, metav1.ListOptions{})
+		if rsErr == nil {
+			for i := range rsList.Items {
+				rs := &rsList.Items[i]
+				for _, ref := range rs.OwnerReferences {
+					if ref.Kind == "Deployment" {
+						rsToDeploy[rs.Name] = ref.Name
+						break
+					}
+				}
+			}
+		}
 		for i := range list.Items {
 			pod := &list.Items[i]
 			info := podToInfo(pod)
+			if info.WorkloadKind == "ReplicaSet" {
+				if deployName, ok := rsToDeploy[info.WorkloadName]; ok {
+					info.WorkloadKind = "Deployment"
+					info.WorkloadName = deployName
+				}
+			}
 			if info.WorkloadName == cfg.MasterWorkloadName || info.WorkloadName == cfg.WorkerWorkloadName {
 				pods = append(pods, info)
 			}

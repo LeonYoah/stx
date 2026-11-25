@@ -187,16 +187,39 @@ func (s *Service) validateDockerHost(req *CreateHostRequest, host *Host) error {
 // validateK8sHost validates and sets fields for kubernetes host type.
 // validateK8sHost 验证并设置 Kubernetes 类型的字段。
 func (s *Service) validateK8sHost(req *CreateHostRequest, host *Host) error {
-	// Validate K8s API URL format
-	// 验证 K8s API URL 格式
-	if !ValidateK8sAPIURL(req.K8sAPIURL) {
-		return ErrK8sAPIURLInvalid
+	// 先规范化 auth_mode 再按模式校验凭据：in_cluster 无需任何凭据，
+	// kubeconfig 必须给 kubeconfig（仅 token 无法 BuildRESTConfig），token 必须 URL+token 齐全。
+	// Normalize auth_mode first, then validate credentials per mode: in_cluster needs
+	// none, kubeconfig requires the kubeconfig itself (a bare token cannot build a
+	// REST config), token requires both the API URL and the token.
+	authMode := strings.TrimSpace(req.K8sAuthMode)
+	if authMode == "" {
+		authMode = "kubeconfig"
 	}
-
-	// Must have either kubeconfig or token
-	// 必须有 kubeconfig 或 token
-	if req.K8sKubeconfig == "" && req.K8sToken == "" {
-		return ErrK8sCredentialsRequired
+	switch authMode {
+	case "in_cluster":
+		// in_cluster 从 Pod 内 ServiceAccount 自动装配，外部 URL 与凭据均可为空。
+		// in_cluster assembles credentials from the in-pod ServiceAccount, so both the
+		// external URL and credentials may be empty.
+		if req.K8sAPIURL != "" && !ValidateK8sAPIURL(req.K8sAPIURL) {
+			return ErrK8sAPIURLInvalid
+		}
+	case "kubeconfig":
+		if !ValidateK8sAPIURL(req.K8sAPIURL) {
+			return ErrK8sAPIURLInvalid
+		}
+		if strings.TrimSpace(req.K8sKubeconfig) == "" {
+			return ErrK8sCredentialsRequired
+		}
+	case "token":
+		if !ValidateK8sAPIURL(req.K8sAPIURL) || strings.TrimSpace(req.K8sAPIURL) == "" {
+			return ErrK8sAPIURLInvalid
+		}
+		if strings.TrimSpace(req.K8sToken) == "" {
+			return ErrK8sCredentialsRequired
+		}
+	default:
+		return fmt.Errorf("host: unsupported k8s auth_mode %q", authMode)
 	}
 
 	host.K8sAPIURL = req.K8sAPIURL
@@ -204,10 +227,7 @@ func (s *Service) validateK8sHost(req *CreateHostRequest, host *Host) error {
 	if host.K8sNamespace == "" {
 		host.K8sNamespace = "default"
 	}
-	host.K8sAuthMode = req.K8sAuthMode
-	if host.K8sAuthMode == "" {
-		host.K8sAuthMode = "kubeconfig"
-	}
+	host.K8sAuthMode = authMode
 	host.K8sCACert = req.K8sCACert
 	host.K8sInsecureSkipTLS = req.K8sInsecureSkipTLS
 	// 凭据加密落库（enc:v1: 前缀）；加密失败直接报错，绝不静默降级明文。
@@ -397,6 +417,31 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 	}
 	if req.K8sInsecureSkipTLS != nil {
 		host.K8sInsecureSkipTLS = *req.K8sInsecureSkipTLS
+	}
+	// 切换 auth_mode 后的合并校验：新模式所需凭据既未传入且库中也为空时拒绝保存，
+	// 防止保存出一个永远连不上的主机。
+	// Post-merge validation after an auth_mode switch: reject the save when the new
+	// mode's required credential was neither provided nor already stored, so a host
+	// that can never connect is never persisted.
+	authMode := host.K8sAuthMode
+	if authMode == "" {
+		authMode = "kubeconfig"
+	}
+	switch authMode {
+	case "in_cluster":
+	case "kubeconfig":
+		if strings.TrimSpace(host.K8sKubeconfig) == "" {
+			return ErrK8sCredentialsRequired
+		}
+	case "token":
+		if strings.TrimSpace(host.K8sToken) == "" {
+			return ErrK8sCredentialsRequired
+		}
+		if strings.TrimSpace(host.K8sAPIURL) == "" {
+			return ErrK8sAPIURLInvalid
+		}
+	default:
+		return fmt.Errorf("host: unsupported k8s auth_mode %q", authMode)
 	}
 	return nil
 }

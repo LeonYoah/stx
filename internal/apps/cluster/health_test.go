@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -416,5 +417,156 @@ func TestEvaluateK8sClusterHealth_NonRunningZeroPodsAndServiceFallback(t *testin
 	wantPath := "/api/v1/namespaces/seatunnel/services/http:adopted-svc:8080/proxy/overview"
 	if len(overviewPaths) != 1 || overviewPaths[0] != wantPath {
 		t.Fatalf("expected /overview probe via ClusterServiceName %q, got %v", wantPath, overviewPaths)
+	}
+}
+
+// TestEvaluateK8sClusterHealth_UsesLiveWorkloadReplicas 验证缩容后健康检查按实时
+// Workload spec.replicas 判定：持久化配置仍是旧副本数，但全部当前 Pod 就绪时必须 healthy。
+// TestEvaluateK8sClusterHealth_UsesLiveWorkloadReplicas verifies health uses live workload
+// spec.replicas after a downscale: the persisted config still holds the old replica count,
+// yet all current pods being ready must yield healthy.
+func TestEvaluateK8sClusterHealth_UsesLiveWorkloadReplicas(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"projectVersion":"3.1.0"}`))
+	}))
+	defer apiServer.Close()
+
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	one := int32(1)
+	for _, name := range []string{"demo-master", "demo-worker"} {
+		sts := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "seatunnel"},
+			Spec:       appsv1.StatefulSetSpec{Replicas: &one},
+		}
+		if _, err := client.AppsV1().StatefulSets("seatunnel").Create(ctx, sts, metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readyPod := func(name string) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: "seatunnel",
+				Labels:    map[string]string{"app": "seatunnel"},
+			},
+			Status: corev1.PodStatus{
+				Phase:      corev1.PodRunning,
+				Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+			},
+		}
+	}
+	for _, name := range []string{"demo-master-0", "demo-worker-0"} {
+		if _, err := client.CoreV1().Pods("seatunnel").Create(ctx, readyPod(name), metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr := k8s.NewClientManagerWithFactory(
+		func(_ context.Context, _ uint) (*k8s.Credentials, error) {
+			return &k8s.Credentials{AuthMode: k8s.AuthModeToken, APIURL: apiServer.URL, Token: "test-token"}, nil
+		},
+		func(_ *rest.Config) (kubernetes.Interface, error) {
+			return client, nil
+		},
+	)
+	svc := &Service{k8sManager: mgr}
+
+	// 持久化配置停留在缩容前的 1 master + 2 worker，实时 Workload 已缩到 1+1。
+	// The persisted config still holds the pre-downscale 1 master + 2 workers while the
+	// live workloads are already scaled to 1+1.
+	cluster := &Cluster{
+		ID:          9,
+		ClusterCode: "demo",
+		Status:      ClusterStatusRunning,
+		InfraType:   string(infra.TypeK8sSession),
+		Config: ClusterConfig{
+			"kubernetes": map[string]interface{}{
+				"host_id":              1,
+				"namespace":            "seatunnel",
+				"access_mode":          "apiserver_proxy",
+				"cluster_service_name": "demo",
+				"master_http_port":     8080,
+				"master_replicas":      1,
+				"worker_replicas":      2,
+				"label_selector":       "app=seatunnel",
+				"master_workload_name": "demo-master",
+				"worker_workload_name": "demo-worker",
+			},
+		},
+	}
+	info := &ClusterStatusInfo{ClusterID: 9}
+	svc.evaluateClusterHealth(ctx, cluster, info)
+	if info.HealthStatus != HealthStatusHealthy {
+		t.Fatalf("scaled-down cluster with all live pods ready must be healthy, got %s %v", info.HealthStatus, info.HealthReasons)
+	}
+}
+
+// TestScaleK8sComponentPersistsReplicas 验证扩缩容成功后持久化副本数同步更新。
+// TestScaleK8sComponentPersistsReplicas verifies scaling persists the new replica count.
+func TestScaleK8sComponentPersistsReplicas(t *testing.T) {
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	three := int32(3)
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo-worker", Namespace: "seatunnel"},
+		Spec:       appsv1.StatefulSetSpec{Replicas: &three},
+	}
+	if _, err := client.AppsV1().StatefulSets("seatunnel").Create(ctx, sts, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	mgr := k8s.NewClientManagerWithFactory(
+		func(_ context.Context, _ uint) (*k8s.Credentials, error) {
+			return &k8s.Credentials{AuthMode: k8s.AuthModeToken, APIURL: "https://unused", Token: "test-token"}, nil
+		},
+		func(_ *rest.Config) (kubernetes.Interface, error) {
+			return client, nil
+		},
+	)
+
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+	repo := NewRepository(db)
+	svc := &Service{k8sManager: mgr, repo: repo}
+
+	cluster := &Cluster{
+		Name:        "scale-persist",
+		ClusterCode: "demo",
+		Status:      ClusterStatusRunning,
+		InfraType:   string(infra.TypeK8sSession),
+		Config: ClusterConfig{
+			"kubernetes": map[string]interface{}{
+				"host_id":              1,
+				"namespace":            "seatunnel",
+				"access_mode":          "apiserver_proxy",
+				"management_source":    "stx_deployed",
+				"image":                "apache/seatunnel:3.1.0",
+				"master_replicas":      1,
+				"worker_replicas":      3,
+				"master_workload_name": "demo-master",
+				"worker_workload_name": "demo-worker",
+			},
+		},
+	}
+	if err := repo.Create(ctx, cluster); err != nil {
+		t.Fatalf("create cluster: %v", err)
+	}
+
+	if err := svc.ScaleK8sComponent(ctx, cluster, "worker", 1); err != nil {
+		t.Fatalf("scale: %v", err)
+	}
+	reloaded, err := repo.GetByID(ctx, cluster.ID, false)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	cfg := reloaded.K8sSessionConfig()
+	if cfg == nil {
+		t.Fatal("missing k8s session config after scale")
+	}
+	if cfg.WorkerReplicas != 1 {
+		t.Fatalf("persisted worker replicas must be 1 after downscale, got %d", cfg.WorkerReplicas)
+	}
+	if cfg.MasterReplicas != 1 {
+		t.Fatalf("master replicas must stay 1, got %d", cfg.MasterReplicas)
 	}
 }

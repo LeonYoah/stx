@@ -107,11 +107,19 @@ func TestSessionConfigValidate_portContract(t *testing.T) {
 			t.Fatal("expected error for missing host_id")
 		}
 	})
-	t.Run("image required", func(t *testing.T) {
+	t.Run("image required for stx_deployed but optional for adopted", func(t *testing.T) {
 		cfg := base()
+		cfg.ManagementSource = ManagementSourceSTXDeployed
 		cfg.Image = ""
 		if err := cfg.Validate(); err == nil {
-			t.Fatal("expected error for empty image")
+			t.Fatal("expected error for empty image in stx_deployed")
+		}
+		// 纳管模式允许空镜像：伴生 Proxy 从目标 Workload Pod 模板提取镜像。
+		// Adopted mode permits an empty image since the companion proxy clones
+		// it from the target workload pod template.
+		cfg.ManagementSource = ManagementSourceAdopted
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("unexpected error for adopted without image: %v", err)
 		}
 	})
 	t.Run("external mode requires base url", func(t *testing.T) {

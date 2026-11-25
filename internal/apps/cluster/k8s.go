@@ -446,7 +446,27 @@ func (s *Service) ScaleK8sComponent(ctx context.Context, cluster *Cluster, compo
 		return errors.New("cluster: replicas out of range")
 	}
 	ops := k8s.NewSessionManager(s.k8sManager)
-	return ops.Scale(ctx, cfg, component, replicas)
+	if err := ops.Scale(ctx, cfg, component, replicas); err != nil {
+		return err
+	}
+	// 扩缩容成功后同步持久化期望副本数：健康检查与停止/启动恢复都读这份配置，
+	// 不落库会在缩容后按旧副本数误报不健康。
+	// Persist the desired replicas after scaling: health checks and stop/start restore
+	// both read this config, and skipping the write would false-positive unhealthy
+	// after a downscale.
+	if component == "master" {
+		cfg.MasterReplicas = replicas
+	} else if component == "worker" {
+		cfg.WorkerReplicas = replicas
+	} else {
+		return nil
+	}
+	k8sJSON, err := k8sConfigJSON(cfg)
+	if err != nil {
+		return err
+	}
+	cluster.Config["kubernetes"] = k8sJSON
+	return s.repo.Update(ctx, cluster)
 }
 
 // RolloutRestartK8s 滚动重启 master/worker。

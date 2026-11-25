@@ -237,13 +237,16 @@ func (c *SessionConfig) Validate() error {
 	if c.HostID == 0 {
 		return fmt.Errorf("k8s: host_id is required")
 	}
-	if strings.TrimSpace(c.Image) == "" {
-		return fmt.Errorf("k8s: image is required")
-	}
 	switch c.ManagementSource {
 	case ManagementSourceAdopted, ManagementSourceSTXDeployed:
 	default:
 		return fmt.Errorf("k8s: unsupported management_source %q", c.ManagementSource)
+	}
+	// 仅一键部署强制要求镜像：纳管模式下伴生 Proxy 从目标 Workload Pod 模板提取镜像。
+	// Only stx_deployed requires an explicit image: in adopted mode the companion
+	// proxy clones the image from the target workload pod template.
+	if c.ManagementSource == ManagementSourceSTXDeployed && strings.TrimSpace(c.Image) == "" {
+		return fmt.Errorf("k8s: image is required")
 	}
 	switch c.AccessMode {
 	case AccessModeAPIServerProxy, AccessModeInCluster, AccessModeExternal:

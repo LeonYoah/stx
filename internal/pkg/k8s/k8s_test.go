@@ -19,11 +19,13 @@ package k8s
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -570,5 +572,264 @@ func TestRBACRequiredRulesFollowRealModel(t *testing.T) {
 		if !seen[key] {
 			t.Fatalf("missing required subresource rule %q", key)
 		}
+	}
+}
+
+func TestDeploy_refusesForeignResources(t *testing.T) {
+	// 同名但非本集群拥有的资源（无标签或 cluster-code 不匹配）必须拒绝覆盖且保持原样。
+	// Same-named resources not owned by this cluster (no labels or a different
+	// cluster-code) must be rejected and left untouched.
+	foreignLabels := []map[string]string{
+		nil,
+		{LabelManagedByKey: LabelManagedByValue, LabelClusterCodeKey: "other-cluster"},
+		{LabelManagedByKey: "helm"},
+	}
+	for idx, labels := range foreignLabels {
+		t.Run(fmt.Sprintf("case-%d", idx), func(t *testing.T) {
+			client := fake.NewSimpleClientset()
+			mgr := newTestManager(client)
+			sm := NewSessionManager(mgr)
+			cfg := testSessionConfig()
+			ctx := context.Background()
+
+			foreignCM := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "e2e-configs", Namespace: "e2e-ns", Labels: labels},
+				Data:       map[string]string{"user-key": "user-data"},
+			}
+			if _, err := client.CoreV1().ConfigMaps("e2e-ns").Create(ctx, foreignCM, metav1.CreateOptions{}); err != nil {
+				t.Fatalf("seed foreign configmap: %v", err)
+			}
+
+			_, err := sm.Deploy(ctx, &DeployOptions{Config: cfg, ClusterCode: "e2e", ClusterID: 42})
+			if err == nil || !strings.Contains(err.Error(), "not owned by this cluster") {
+				t.Fatalf("expected ownership conflict, got: %v", err)
+			}
+			after, getErr := client.CoreV1().ConfigMaps("e2e-ns").Get(ctx, "e2e-configs", metav1.GetOptions{})
+			if getErr != nil {
+				t.Fatalf("foreign configmap missing after refused deploy: %v", getErr)
+			}
+			if after.Data["user-key"] != "user-data" {
+				t.Fatal("foreign configmap content was modified")
+			}
+		})
+	}
+
+	t.Run("foreign service rejected", func(t *testing.T) {
+		client := fake.NewSimpleClientset()
+		mgr := newTestManager(client)
+		sm := NewSessionManager(mgr)
+		cfg := testSessionConfig()
+		ctx := context.Background()
+		foreignSvc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "e2e", Namespace: "e2e-ns"},
+			Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 9999}}},
+		}
+		if _, err := client.CoreV1().Services("e2e-ns").Create(ctx, foreignSvc, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("seed foreign service: %v", err)
+		}
+		_, err := sm.Deploy(ctx, &DeployOptions{Config: cfg, ClusterCode: "e2e", ClusterID: 42})
+		if err == nil || !strings.Contains(err.Error(), "not owned by this cluster") {
+			t.Fatalf("expected ownership conflict, got: %v", err)
+		}
+		after, _ := client.CoreV1().Services("e2e-ns").Get(ctx, "e2e", metav1.GetOptions{})
+		if after.Spec.Ports[0].Port != 9999 {
+			t.Fatal("foreign service was modified")
+		}
+	})
+
+	t.Run("foreign statefulset rejected", func(t *testing.T) {
+		client := fake.NewSimpleClientset()
+		mgr := newTestManager(client)
+		sm := NewSessionManager(mgr)
+		cfg := testSessionConfig()
+		ctx := context.Background()
+		replicas := int32(7)
+		foreignSTS := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "e2e-master", Namespace: "e2e-ns"},
+			Spec:       appsv1.StatefulSetSpec{Replicas: &replicas},
+		}
+		if _, err := client.AppsV1().StatefulSets("e2e-ns").Create(ctx, foreignSTS, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("seed foreign statefulset: %v", err)
+		}
+		_, err := sm.Deploy(ctx, &DeployOptions{Config: cfg, ClusterCode: "e2e", ClusterID: 42})
+		if err == nil || !strings.Contains(err.Error(), "not owned by this cluster") {
+			t.Fatalf("expected ownership conflict, got: %v", err)
+		}
+		after, _ := client.AppsV1().StatefulSets("e2e-ns").Get(ctx, "e2e-master", metav1.GetOptions{})
+		if *after.Spec.Replicas != 7 {
+			t.Fatal("foreign statefulset was modified")
+		}
+	})
+
+	t.Run("foreign rbac rejected", func(t *testing.T) {
+		client := fake.NewSimpleClientset()
+		mgr := newTestManager(client)
+		sm := NewSessionManager(mgr)
+		cfg := testSessionConfig()
+		ctx := context.Background()
+		foreignSA := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "e2e", Namespace: "e2e-ns"}}
+		if _, err := client.CoreV1().ServiceAccounts("e2e-ns").Create(ctx, foreignSA, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("seed foreign sa: %v", err)
+		}
+		_, err := sm.Deploy(ctx, &DeployOptions{Config: cfg, ClusterCode: "e2e", ClusterID: 42, CreateRBAC: true})
+		if err == nil || !strings.Contains(err.Error(), "not owned by this cluster") {
+			t.Fatalf("expected ownership conflict, got: %v", err)
+		}
+	})
+}
+
+func TestUninstall_skipsForeignResources(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	mgr := newTestManager(client)
+	sm := NewSessionManager(mgr)
+	cfg := testSessionConfig()
+	ctx := context.Background()
+
+	// 先正常部署一套本集群资源，再植入同名异集群资源验证跳过语义。
+	// Deploy own resources first, then plant same-named foreign resources to verify
+	// the skip semantics.
+	if _, err := sm.Deploy(ctx, &DeployOptions{Config: cfg, ClusterCode: "e2e", ClusterID: 42, CreateRBAC: true}); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+
+	foreignSvc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "unrelated-svc", Namespace: "e2e-ns"},
+		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 1234}}},
+	}
+	if _, err := client.CoreV1().Services("e2e-ns").Create(ctx, foreignSvc, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("seed foreign service: %v", err)
+	}
+
+	if err := sm.Uninstall(ctx, cfg, "e2e"); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	names := ResourceNamesFor("e2e")
+	if _, err := client.AppsV1().StatefulSets("e2e-ns").Get(ctx, names.MasterSTS, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatal("owned master statefulset should be deleted")
+	}
+	if _, err := client.CoreV1().ConfigMaps("e2e-ns").Get(ctx, names.ConfigMap, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatal("owned configmap should be deleted")
+	}
+	if _, err := client.CoreV1().Services("e2e-ns").Get(ctx, "unrelated-svc", metav1.GetOptions{}); err != nil {
+		t.Fatal("foreign service must survive uninstall")
+	}
+	if _, err := client.CoreV1().Namespaces().Get(ctx, "e2e-ns", metav1.GetOptions{}); err != nil {
+		t.Fatal("namespace must never be deleted")
+	}
+}
+
+func TestUninstall_neverDeletesForeignSameNamedResources(t *testing.T) {
+	// 构造恶意场景：同名资源存在但属于其他 cluster-code，Uninstall 必须跳过。
+	// Adversarial case: same-named resources owned by a different cluster-code must
+	// be skipped by Uninstall.
+	client := fake.NewSimpleClientset()
+	mgr := newTestManager(client)
+	sm := NewSessionManager(mgr)
+	cfg := testSessionConfig()
+	ctx := context.Background()
+	names := ResourceNamesFor("e2e")
+	foreignLabels := map[string]string{LabelManagedByKey: LabelManagedByValue, LabelClusterCodeKey: "another"}
+	replicas := int32(3)
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: names.MasterSTS, Namespace: "e2e-ns", Labels: foreignLabels},
+		Spec:       appsv1.StatefulSetSpec{Replicas: &replicas},
+	}
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: names.ConfigMap, Namespace: "e2e-ns", Labels: foreignLabels},
+		Data:       map[string]string{"k": "v"},
+	}
+	if _, err := client.AppsV1().StatefulSets("e2e-ns").Create(ctx, sts, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CoreV1().ConfigMaps("e2e-ns").Create(ctx, cm, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sm.Uninstall(ctx, cfg, "e2e"); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if _, err := client.AppsV1().StatefulSets("e2e-ns").Get(ctx, names.MasterSTS, metav1.GetOptions{}); err != nil {
+		t.Fatal("foreign statefulset of another cluster must survive")
+	}
+	if _, err := client.CoreV1().ConfigMaps("e2e-ns").Get(ctx, names.ConfigMap, metav1.GetOptions{}); err != nil {
+		t.Fatal("foreign configmap of another cluster must survive")
+	}
+}
+
+func TestSessionPods_tracesDeploymentThroughReplicaSet(t *testing.T) {
+	// 纳管 Deployment 且 LabelSelector 为空时，Pod 的直接 owner 是 ReplicaSet；
+	// 必须追溯到上层 Deployment 才能正确列出并标记 master/worker 角色。
+	// When adopting Deployments with an empty LabelSelector, the pod's direct owner is
+	// a ReplicaSet; tracing up to the owning Deployment is required for correct listing
+	// and master/worker role attribution.
+	client := fake.NewSimpleClientset()
+	mgr := newTestManager(client)
+	sm := NewSessionManager(mgr)
+	ctx := context.Background()
+
+	trueVal := true
+	mkChain := func(deployName, rsName, podName string) {
+		deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: deployName, Namespace: "e2e-ns"}}
+		if _, err := client.AppsV1().Deployments("e2e-ns").Create(ctx, deploy, metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		rs := &appsv1.ReplicaSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      rsName,
+				Namespace: "e2e-ns",
+				OwnerReferences: []metav1.OwnerReference{
+					{Kind: "Deployment", Name: deployName, Controller: &trueVal},
+				},
+			},
+		}
+		if _, err := client.AppsV1().ReplicaSets("e2e-ns").Create(ctx, rs, metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      podName,
+				Namespace: "e2e-ns",
+				OwnerReferences: []metav1.OwnerReference{
+					{Kind: "ReplicaSet", Name: rsName, Controller: &trueVal},
+				},
+			},
+			Status: corev1.PodStatus{
+				Phase:      corev1.PodRunning,
+				Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+			},
+		}
+		if _, err := client.CoreV1().Pods("e2e-ns").Create(ctx, pod, metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mkChain("e2e-master", "e2e-master-5d9c8f7b6", "e2e-master-5d9c8f7b6-abcde")
+	mkChain("e2e-worker", "e2e-worker-7c4d6f8b9d", "e2e-worker-7c4d6f8b9d-fghij")
+
+	cfg := testSessionConfig()
+	cfg.ManagementSource = ManagementSourceAdopted
+	cfg.LabelSelector = ""
+	cfg.MasterWorkloadKind = "Deployment"
+	cfg.WorkerWorkloadKind = "Deployment"
+	cfg.MasterWorkloadName = "e2e-master"
+	cfg.WorkerWorkloadName = "e2e-worker"
+
+	pods, err := sm.SessionPods(ctx, cfg, "nonexistent-code")
+	if err != nil {
+		t.Fatalf("SessionPods: %v", err)
+	}
+	if len(pods) != 2 {
+		t.Fatalf("expected 2 pods, got %d", len(pods))
+	}
+	roles := map[string]string{}
+	for _, p := range pods {
+		if p.WorkloadKind != "Deployment" {
+			t.Fatalf("pod %q workload kind=%q, want Deployment", p.Name, p.WorkloadKind)
+		}
+		roles[p.WorkloadName] = p.Role
+	}
+	if roles["e2e-master"] != "master" {
+		t.Fatalf("master role mismatch: %v", roles)
+	}
+	if roles["e2e-worker"] != "worker" {
+		t.Fatalf("worker role mismatch: %v", roles)
 	}
 }

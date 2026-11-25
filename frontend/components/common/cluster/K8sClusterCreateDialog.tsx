@@ -69,6 +69,8 @@ export function K8sClusterCreateDialog({open, onOpenChange, onSuccess}: K8sClust
     cluster_service_name: '',
     master_workload_name: '',
     worker_workload_name: '',
+    master_workload_kind: '',
+    worker_workload_kind: '',
     configmap_name: '',
     master_http_port: 8080,
     hazelcast_port: 5801,
@@ -137,9 +139,15 @@ export function K8sClusterCreateDialog({open, onOpenChange, onSuccess}: K8sClust
       cluster_service_name: clusterSvc,
       master_workload_name: d.master?.name || '',
       worker_workload_name: d.worker?.name || '',
+      master_workload_kind: d.master?.kind || '',
+      worker_workload_kind: d.worker?.kind || '',
       configmap_name: d.configmap_name || '',
       master_http_port: d.master_http_port || f.master_http_port,
       hazelcast_port: d.hazelcast_port || f.hazelcast_port,
+      // 发现到的镜像一并回填：纳管 Deployment 集群时后端需要它兜底伴生 Proxy 镜像。
+      // The discovered image is backfilled too: adopting a Deployment cluster needs it
+      // as the companion proxy image fallback.
+      image: d.master?.image || d.worker?.image || f.image,
     }));
   };
 
@@ -168,7 +176,14 @@ export function K8sClusterCreateDialog({open, onOpenChange, onSuccess}: K8sClust
         payload.cluster_service_name = form.cluster_service_name;
         payload.master_workload_name = form.master_workload_name;
         payload.worker_workload_name = form.worker_workload_name;
+        if (form.master_workload_kind) {
+          payload.master_workload_kind = form.master_workload_kind;
+        }
+        if (form.worker_workload_kind) {
+          payload.worker_workload_kind = form.worker_workload_kind;
+        }
         payload.configmap_name = form.configmap_name;
+        payload.image = form.image;
       }
       const created = await services.cluster.createKubernetesCluster(payload) as {
         cluster?: {id?: number};

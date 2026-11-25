@@ -144,6 +144,9 @@ func (p *JavaProxyManager) ensureJarConfigMap(ctx context.Context, clientset kub
 	if existing.Annotations[proxySHAAnnotation] == sha256Hex && len(existing.BinaryData[proxyJarFileKey]) == len(jarBytes) {
 		return nil
 	}
+	if !isOwnedByCluster(existing.Labels, labels[LabelClusterCodeKey]) {
+		return errResourceConflict("configmap", name)
+	}
 	if existing.BinaryData == nil {
 		existing.BinaryData = map[string][]byte{}
 	}
@@ -342,6 +345,14 @@ func (p *JavaProxyManager) ensureProxyDeployment(ctx context.Context, clientset 
 		if len(template.Containers) > 0 && template.Containers[0].Image != "" {
 			image = template.Containers[0].Image
 		}
+	}
+	// 纳管模式允许 cfg.Image 为空，完全依赖目标 Workload 模板提取；两边都空说明目标不可克隆。
+	// Adopted mode permits an empty cfg.Image and relies on the target workload
+	// template; when both are empty the target is not cloneable.
+	if strings.TrimSpace(image) == "" {
+		return fmt.Errorf("k8s: cannot resolve proxy image from config or target workload template")
+	}
+	if template != nil {
 		pullSecrets = template.ImagePullSecrets
 		if len(template.Containers) > 0 {
 			env = template.Containers[0].Env
@@ -420,6 +431,9 @@ func (p *JavaProxyManager) ensureProxyDeployment(ctx context.Context, clientset 
 	if err != nil {
 		return fmt.Errorf("k8s: get proxy deployment failed: %w", err)
 	}
+	if !isOwnedByCluster(existing.Labels, labels[LabelClusterCodeKey]) {
+		return errResourceConflict("deployment", deploymentName)
+	}
 	existing.Spec.Template = deployment.Spec.Template
 	existing.Spec.Replicas = deployment.Spec.Replicas
 	if existing.Labels == nil {
@@ -474,12 +488,33 @@ func (p *JavaProxyManager) DeleteProxy(ctx context.Context, cfg *SessionConfig, 
 	}
 	policy := metav1.DeletePropagationBackground
 	deleteOne("deployment/"+deploymentName, func() error {
+		obj, err := clientset.AppsV1().Deployments(ns).Get(ctx, deploymentName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.AppsV1().Deployments(ns).Delete(ctx, deploymentName, metav1.DeleteOptions{PropagationPolicy: &policy})
 	})
 	deleteOne("service/"+serviceName, func() error {
+		obj, err := clientset.CoreV1().Services(ns).Get(ctx, serviceName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.CoreV1().Services(ns).Delete(ctx, serviceName, metav1.DeleteOptions{})
 	})
 	deleteOne("configmap/"+jarCMName, func() error {
+		obj, err := clientset.CoreV1().ConfigMaps(ns).Get(ctx, jarCMName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
 		return clientset.CoreV1().ConfigMaps(ns).Delete(ctx, jarCMName, metav1.DeleteOptions{})
 	})
 	if len(errs) > 0 {

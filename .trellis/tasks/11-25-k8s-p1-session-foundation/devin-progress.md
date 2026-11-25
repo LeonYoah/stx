@@ -24,6 +24,11 @@
   5. pkg/k8s/transport.go 删除 HostTransportRegistry/DefaultHostTransportRegistry/DelegatingRoundTripper 全部及 sync import；NewDefaultConfigToolClient 不再用 DelegatingRoundTripper
   注意：字符串 endpoint 来源（task override proxy_base_url）包装为 &ConfigToolEndpoint{BaseURL: s}
 
+## 第二轮已完成（已提交 45ddf97a + 679e6f15）
+- P0 全部 + P0 单测（RBAC 规则断言、cloneProxyVolumes 悬空挂载）
+- P0-4b ConfigToolEndpoint 重构完成：registry 全删、resolver 结构体注入、17 调用点机械迁移、测试全绿
+- P1-6/7/8abcde/9 后端完成：探活 18s、JavaProxy 四模式分支、StatusCode 检查、cluster.Status 按健康回写、health.go K8s 双校验、webui K8s 代理（proxyK8sWebUI + endpoints 分支）、availability 跳过 agent_offline、seatunnel.InfraCapabilitiesFor、config 域 K8sConfigMapSource 可选接口合成只读视图 + router 接线
+
 ## 待办（按序）
 - P0 补单测：RBAC 规则逐条断言 Group/Resource/Subresource/Verb
 - P1-6: cloneProxyVolumes 悬空 VolumeMount 修复（按 clonedVolumeNames 反过滤 mounts）+ RWO 跳过单测

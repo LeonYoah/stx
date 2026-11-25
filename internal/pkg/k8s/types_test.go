@@ -23,8 +23,8 @@ import (
 
 func TestParseSessionConfig_defaultsApplied(t *testing.T) {
 	cfg, err := ParseSessionConfig(map[string]interface{}{
-		"host_id":  7,
-		"image":    "apache/seatunnel:3.1.0",
+		"host_id":   7,
+		"image":     "apache/seatunnel:3.1.0",
 		"namespace": "seatunnel",
 	})
 	if err != nil {
@@ -140,4 +140,3 @@ func TestSessionConfigValidate_portContract(t *testing.T) {
 		}
 	})
 }
-

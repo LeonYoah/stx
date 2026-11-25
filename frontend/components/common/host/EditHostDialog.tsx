@@ -73,6 +73,8 @@ export function EditHostDialog({
         docker_tls_enabled: host.docker_tls_enabled,
         k8s_api_url: host.k8s_api_url,
         k8s_namespace: host.k8s_namespace,
+        k8s_auth_mode: host.k8s_auth_mode,
+        k8s_insecure_skip_tls: host.k8s_insecure_skip_tls,
       });
     }
   }, [host]);
@@ -261,6 +263,24 @@ export function EditHostDialog({
                 }
                 placeholder='https://kubernetes.default.svc:6443'
               />
+              <div className='space-y-2'>
+                <Label htmlFor='edit-k8s_auth_mode'>{t('host.k8sAuthMode')}</Label>
+                <select
+                  id='edit-k8s_auth_mode'
+                  className='w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm'
+                  value={formData.k8s_auth_mode || 'kubeconfig'}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      k8s_auth_mode: e.target.value as 'kubeconfig' | 'token' | 'in_cluster',
+                    })
+                  }
+                >
+                  <option value='kubeconfig'>kubeconfig</option>
+                  <option value='token'>token</option>
+                  <option value='in_cluster'>in_cluster</option>
+                </select>
+              </div>
               <Input
                 id='edit-k8s_namespace'
                 label={t('host.namespace')}
@@ -300,6 +320,33 @@ export function EditHostDialog({
                   {t('host.leaveEmptyToKeep')}
                 </p>
               </div>
+              {formData.k8s_auth_mode !== 'in_cluster' ? (
+                <div className='space-y-2'>
+                  <Label htmlFor='edit-k8s_ca_cert'>{t('host.k8sCaCert')}</Label>
+                  <Textarea
+                    id='edit-k8s_ca_cert'
+                    value={formData.k8s_ca_cert || ''}
+                    onChange={(e) =>
+                      setFormData({...formData, k8s_ca_cert: e.target.value})
+                    }
+                    placeholder={t('host.k8sCaCertPlaceholder')}
+                    rows={2}
+                  />
+                  <p className='text-xs text-muted-foreground'>
+                    {t('host.leaveEmptyToKeep')}
+                  </p>
+                </div>
+              ) : null}
+              <label className='flex items-center gap-2 text-sm'>
+                <input
+                  type='checkbox'
+                  checked={formData.k8s_insecure_skip_tls || false}
+                  onChange={(e) =>
+                    setFormData({...formData, k8s_insecure_skip_tls: e.target.checked})
+                  }
+                />
+                {t('host.k8sInsecureSkipTLS')}
+              </label>
             </>
           ) : null}
         </div>

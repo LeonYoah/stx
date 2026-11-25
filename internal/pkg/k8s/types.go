@@ -108,20 +108,20 @@ type SessionResources struct {
 // SessionStorage 常驻集群存储配置。
 // SessionStorage holds session-cluster storage options.
 type SessionStorage struct {
-	CheckpointPVC   string `json:"checkpoint_pvc"`
+	CheckpointPVC    string `json:"checkpoint_pvc"`
 	DataStorageClass string `json:"data_storage_class"`
-	DataSize        string `json:"data_size"`
+	DataSize         string `json:"data_size"`
 }
 
 // SessionConfig 常驻 K8s 集群配置，与 Cluster.Config["kubernetes"] 一一对应。
 // SessionConfig is the session-cluster configuration mirroring Cluster.Config["kubernetes"].
 type SessionConfig struct {
-	HostID          uint           `json:"host_id"`
-	Namespace       string         `json:"namespace"`
+	HostID           uint             `json:"host_id"`
+	Namespace        string           `json:"namespace"`
 	ManagementSource ManagementSource `json:"management_source"`
-	AccessMode      AccessMode     `json:"access_mode"`
-	ExternalBaseURL string         `json:"external_base_url"`
-	STXCallbackURL  string         `json:"stx_callback_url"`
+	AccessMode       AccessMode       `json:"access_mode"`
+	ExternalBaseURL  string           `json:"external_base_url"`
+	STXCallbackURL   string           `json:"stx_callback_url"`
 
 	Image            string   `json:"image"`
 	ImagePullPolicy  string   `json:"image_pull_policy"`

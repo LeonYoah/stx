@@ -18,11 +18,11 @@
 package sync
 
 import (
-	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"io"
 	"net/http"
 	"strings"

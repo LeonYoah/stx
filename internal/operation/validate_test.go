@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 285)
+	require.Len(t, Registry(), 297)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -153,6 +153,9 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"sync.scheduler.connection.list": {}, "sync.scheduler.connection.projects": {},
 		"sync.scheduler.connection.workflows": {}, "sync.scheduler.connection.workflow.get": {},
 		"audit.command.list": {}, "audit.command.get": {}, "audit.log.list": {}, "audit.log.get": {},
+		"host.test-connection": {}, "host.k8s-namespaces": {}, "host.k8s-discover": {},
+		"cluster.k8s-scale": {}, "cluster.k8s-rollout-restart": {}, "cluster.k8s-upgrade-image": {},
+		"cluster.k8s-java-proxy-retry": {}, "cluster.k8s-pods": {}, "cluster.k8s-pod-logs": {}, "cluster.k8s-configmap": {},
 	}
 	actual := make(map[string]struct{})
 	for _, spec := range Registry() {
@@ -497,4 +500,48 @@ func TestValidateRejectsNormalRouteException(t *testing.T) {
 
 	err := Validate(nil, exceptions)
 	require.ErrorContains(t, err, "invalid exception mode")
+}
+
+// TestK8sOperationsRegistered 锁定 K8s 会话底座全部新增操作的路由/方法/风险等级契约，
+// 防止 CLI 对齐漂移。
+// TestK8sOperationsRegistered pins the route/method/risk contract of every new K8s
+// session-foundation operation, guarding against CLI alignment drift.
+func TestK8sOperationsRegistered(t *testing.T) {
+	expect := map[string]struct {
+		method string
+		route  string
+		risk   RiskLevel
+	}{
+		"host.test-connection":          {"POST", "/api/v1/hosts/:id/test-connection", RiskR0},
+		"host.k8s-namespaces":           {"GET", "/api/v1/hosts/:id/k8s/namespaces", RiskR0},
+		"host.k8s-discover":             {"GET", "/api/v1/hosts/:id/k8s/discover", RiskR0},
+		"cluster.kubernetes-create":     {"POST", "/api/v1/clusters/kubernetes", RiskR1},
+		"cluster.k8s-scale":             {"POST", "/api/v1/clusters/:id/k8s/scale", RiskR1},
+		"cluster.k8s-rollout-restart":   {"POST", "/api/v1/clusters/:id/k8s/rollout-restart", RiskR1},
+		"cluster.k8s-upgrade-image":     {"POST", "/api/v1/clusters/:id/k8s/upgrade-image", RiskR1},
+		"cluster.k8s-pods":              {"GET", "/api/v1/clusters/:id/k8s/pods", RiskR0},
+		"cluster.k8s-pod-logs":          {"GET", "/api/v1/clusters/:id/k8s/pods/:pod/logs", RiskR0},
+		"cluster.k8s-java-proxy-retry":  {"POST", "/api/v1/clusters/:id/k8s/java-proxy/retry", RiskR1},
+		"cluster.k8s-configmap":         {"GET", "/api/v1/clusters/:id/k8s/configmap", RiskR0},
+		"cluster.k8s-configmap-update":  {"PUT", "/api/v1/clusters/:id/k8s/configmap/:file", RiskR1},
+	}
+	byID := map[string]OperationSpec{}
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+	for id, want := range expect {
+		spec, ok := byID[id]
+		if !ok {
+			t.Fatalf("operation %q not registered", id)
+		}
+		if spec.Method != want.method {
+			t.Fatalf("%s: method=%s want %s", id, spec.Method, want.method)
+		}
+		if spec.Route != want.route {
+			t.Fatalf("%s: route=%s want %s", id, spec.Route, want.route)
+		}
+		if spec.Risk != want.risk {
+			t.Fatalf("%s: risk=%v want %v", id, spec.Risk, want.risk)
+		}
+	}
 }

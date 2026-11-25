@@ -373,6 +373,11 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
       {/* List + persistent DetailHost rail (#178 linked motion + name fly-in + J/K nav) */}
       <div className={layout.split}>
         <div className={layout.listCol} data-mcols='cluster-plugins'>
+          {isK8sCluster ? (
+            <p className='mb-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground'>
+              {t('cluster.k8s.immutablePluginHint')}
+            </p>
+          ) : null}
           <TableCard
             loading={loading}
             hasData={filteredPlugins.length > 0}
@@ -414,14 +419,16 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
             }
           >
             <div className={layout.rowHead}>
-              <div className='flex items-center'>
-                <Checkbox
-                  checked={headerCheckState}
-                  disabled={selectablePlugins.length === 0 || operating}
-                  onCheckedChange={toggleSelectAll}
-                  aria-label={t('config.filterAll')}
-                />
-              </div>
+              {!isK8sCluster ? (
+                <div className='flex items-center'>
+                  <Checkbox
+                    checked={headerCheckState}
+                    disabled={selectablePlugins.length === 0 || operating}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label={t('config.filterAll')}
+                  />
+                </div>
+              ) : null}
               <span>{t('plugin.name')}</span>
               <span>{t('plugin.category.label')}</span>
               <span>{t('plugin.version')}</span>
@@ -440,7 +447,7 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
                     icon: <Eye className='size-3.5' aria-hidden />,
                     onSelect: () => openPluginDetail(plugin),
                   },
-                  ...(!plugin.bundled
+                  ...(!plugin.bundled && !isK8sCluster
                     ? [
                         {
                           label: t('plugin.uninstall'),
@@ -479,22 +486,24 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
                     }}
                   >
                     {/* 多选框 / Multi-select checkbox */}
-                    <div
-                      className='flex items-center'
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <Checkbox
-                        checked={isSelected}
-                        disabled={Boolean(plugin.bundled) || operating}
-                        onCheckedChange={() =>
-                          toggleSelectOne(plugin.plugin_name)
-                        }
-                        aria-label={plugin.plugin_name}
-                        title={
-                          plugin.bundled ? t('plugin.bundled') : undefined
-                        }
-                      />
-                    </div>
+                    {!isK8sCluster ? (
+                      <div
+                        className='flex items-center'
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <Checkbox
+                          checked={isSelected}
+                          disabled={Boolean(plugin.bundled) || operating}
+                          onCheckedChange={() =>
+                            toggleSelectOne(plugin.plugin_name)
+                          }
+                          aria-label={plugin.plugin_name}
+                          title={
+                            plugin.bundled ? t('plugin.bundled') : undefined
+                          }
+                        />
+                      </div>
+                    ) : null}
 
                     {/* 插件名与状态标签（同时保留 E2E view 锚点）/ Name & chips (preserves E2E view anchor) */}
                     <div className='flex min-w-0 items-center gap-1.5'>

@@ -125,6 +125,7 @@ import {RuntimeStorageEditor} from './RuntimeStorageEditor';
 import {RuntimeStorageFileExplorer} from './RuntimeStorageFileExplorer';
 import {ClusterActions} from './ClusterActions';
 import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
+import {K8sNodesPanel} from './K8sNodesPanel';
 import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
 import {
   baselinePidsFromNodes,
@@ -2089,7 +2090,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         </ArcTabsContent>
 
         <ArcTabsContent value='nodes'>
-          {activeTab === 'nodes' ? (
+          {activeTab === 'nodes' && cluster?.infra_type && cluster.infra_type !== 'bare_metal' ? (
+            <div className='px-1 py-2'>
+              <K8sNodesPanel clusterId={clusterId} />
+            </div>
+          ) : null}
+          {activeTab === 'nodes' && (!cluster?.infra_type || cluster.infra_type === 'bare_metal') ? (
             <ClusterNodesTab
               clusterId={clusterId}
               nodes={nodes}

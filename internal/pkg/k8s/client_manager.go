@@ -52,12 +52,12 @@ const (
 // Credentials 是构建 K8s 客户端所需的明文凭据（已解密）。
 // Credentials holds decrypted plaintext credential material for building K8s clients.
 type Credentials struct {
-	AuthMode       AuthMode
-	APIURL         string
-	Namespace      string
-	Kubeconfig     string
-	Token          string
-	CACert         string
+	AuthMode        AuthMode
+	APIURL          string
+	Namespace       string
+	Kubeconfig      string
+	Token           string
+	CACert          string
 	InsecureSkipTLS bool
 }
 
@@ -248,7 +248,7 @@ type RBACCheckItem struct {
 
 // RBACRequiredRules 测试连接必须覆盖的资源与动作；与伴生 Proxy、常驻集群运维、日志读取的
 // 按真实 K8s RBAC 模型拆填 Group/Resource/Subresource/Verb；services 不含 patch
-//（Session 模式最小权限，Master HTTP 自发布归属尚为 Open Discussion）；services/proxy 与
+// （Session 模式最小权限，Master HTTP 自发布归属尚为 Open Discussion）；services/proxy 与
 // pods/proxy 需要 create，因为 REST 代理提交作业与伴生 Proxy 调用都是 POST 语义。
 // RBACRequiredRules follows the real K8s RBAC model with Group/Resource/Subresource/Verb split;
 // services drops patch (session-mode least privilege, master HTTP self-publish ownership still an

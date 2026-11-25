@@ -37,14 +37,14 @@ import (
 // Companion proxy constants: the in-image SeaTunnel home and the proxy jar mount path are
 // part of the launch command contract.
 const (
-	proxyJarMountPath   = "/opt/stx-proxy/stx-java-proxy.jar"
-	proxyJarFileKey     = "stx-java-proxy.jar"
-	proxyJarCMNameTmpl  = "stx-java-proxy-jar-%s"
-	proxySHAAnnotation  = "stx.seatunnel.apache.org/jar-sha256"
-	proxyHealthPath     = "/healthz"
-	proxyMainClass      = "io.github.leonyoah.stx.proxy.StxJavaProxyApplication"
-	proxyStartupCP      = "/opt/seatunnel/lib/*:/opt/seatunnel/starter/seatunnel-starter.jar:/opt/stx-proxy/stx-java-proxy.jar"
-	seaTunnelHomeInPod  = "/opt/seatunnel"
+	proxyJarMountPath  = "/opt/stx-proxy/stx-java-proxy.jar"
+	proxyJarFileKey    = "stx-java-proxy.jar"
+	proxyJarCMNameTmpl = "stx-java-proxy-jar-%s"
+	proxySHAAnnotation = "stx.seatunnel.apache.org/jar-sha256"
+	proxyHealthPath    = "/healthz"
+	proxyMainClass     = "io.github.leonyoah.stx.proxy.StxJavaProxyApplication"
+	proxyStartupCP     = "/opt/seatunnel/lib/*:/opt/seatunnel/starter/seatunnel-starter.jar:/opt/stx-proxy/stx-java-proxy.jar"
+	seaTunnelHomeInPod = "/opt/seatunnel"
 )
 
 // ProxyJarLoader 按代际加载本地 stx-java-proxy jar 字节；由上层注入（读 lib/ 目录），

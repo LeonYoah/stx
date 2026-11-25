@@ -18,11 +18,11 @@
 package sync
 
 import (
-	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"io"
 	"net"
 	"net/http"
@@ -609,6 +609,7 @@ type DefaultClusterRuntimeResolver struct {
 func NewDefaultClusterRuntimeResolver(clusterRepo *clusterapp.Repository, hostRepo *hostapp.Repository) *DefaultClusterRuntimeResolver {
 	return &DefaultClusterRuntimeResolver{clusterRepo: clusterRepo, hostRepo: hostRepo}
 }
+
 // SetK8sClientManager 注入 K8sClientManager；K8s 集群的引擎端点经 apiserver_proxy 解析。
 // SetK8sClientManager injects the K8sClientManager; K8s cluster engine endpoints resolve
 // through apiserver_proxy.

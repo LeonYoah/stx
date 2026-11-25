@@ -26,11 +26,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 	"github.com/gin-gonic/gin"
-	"net/url"
 	"net/http/httputil"
-	"github.com/LeonYoah/stx/internal/pkg/k8s"
+	"net/url"
 )
 
 const (
@@ -179,12 +179,12 @@ func (s *webUIMasterSelector) probe(ctx context.Context, node *NodeInfo) bool {
 }
 
 type WebUIEndpoints struct {
-	Available     bool   `json:"available"`
-	Reason        string `json:"reason,omitempty"`
-	ProxyBaseURL  string `json:"proxy_base_url"`
-	NativeBaseURL string `json:"native_base_url"`
-	NodeID        uint   `json:"node_id,omitempty"`
-	HostName      string `json:"host_name,omitempty"`
+	Available       bool   `json:"available"`
+	Reason          string `json:"reason,omitempty"`
+	ProxyBaseURL    string `json:"proxy_base_url"`
+	NativeBaseURL   string `json:"native_base_url"`
+	NodeID          uint   `json:"node_id,omitempty"`
+	HostName        string `json:"host_name,omitempty"`
 	JobPathTemplate string `json:"job_path_template"`
 }
 

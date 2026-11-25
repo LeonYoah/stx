@@ -18,12 +18,12 @@
 package monitoring
 
 import (
-	"net/http"
-	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"context"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"log"
 	"net"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,7 +49,7 @@ const (
 // Service provides monitoring center data for UI.
 // Service 为 UI 提供监控中心数据。
 type Service struct {
-	k8sManager *k8s.ClientManager
+	k8sManager     *k8s.ClientManager
 	clusterService *cluster.Service
 	monitorService *monitor.Service
 	repo           *Repository

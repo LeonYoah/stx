@@ -23,6 +23,7 @@ import {Button} from '@/components/arc/button/button';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/arc/input/input';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {Select} from '@/components/arc/select/select';
 import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {HostInfo, HostType} from '@/lib/services/host/types';
@@ -169,8 +170,27 @@ export function K8sClusterCreateDialog({open, onOpenChange, onSuccess}: K8sClust
         payload.worker_workload_name = form.worker_workload_name;
         payload.configmap_name = form.configmap_name;
       }
-      await services.cluster.createKubernetesCluster(payload);
-      toast.success(t('common.success'));
+      const created = await services.cluster.createKubernetesCluster(payload) as {
+        cluster?: {id?: number};
+        proxy_status?: {healthy?: boolean; message?: string; pod_events?: string[]};
+      } | undefined;
+      const proxyStatus = created?.proxy_status;
+      if (proxyStatus && !proxyStatus.healthy) {
+        // 探活失败不阻断保存：展示事件与一键重试入口。
+        // Probe failure never blocks saving: show events plus a one-click retry entry.
+        const events = (proxyStatus.pod_events || []).slice(0, 3).join('；');
+        toast.error(`${t('cluster.k8s.proxyUnhealthy')}: ${proxyStatus.message || ''}${events ? ` · ${events}` : ''}`);
+        if (created?.cluster?.id) {
+          try {
+            await services.cluster.retryK8sJavaProxy(created.cluster.id);
+          } catch {
+            // 重试结果交由详情页状态呈现，这里不再二次报错。
+            // Retry outcome is surfaced on the detail page; no duplicate error here.
+          }
+        }
+      } else {
+        toast.success(t('common.success'));
+      }
       onOpenChange(false);
       onSuccess();
     } catch (e) {
@@ -198,29 +218,21 @@ export function K8sClusterCreateDialog({open, onOpenChange, onSuccess}: K8sClust
           />
           <div className='space-y-1'>
             <label className='text-xs text-muted-foreground'>{t('cluster.k8s.host')} *</label>
-            <select
-              className={sel}
-              value={form.host_id || ''}
-              onChange={(e) => setForm({...form, host_id: Number(e.target.value) || 0})}
-            >
-              <option value=''>{t('common.pleaseSelect')}</option>
-              {k8sHosts.map((h) => (
-                <option key={h.id} value={h.id}>{h.name}</option>
-              ))}
-            </select>
+            <Select
+              value={form.host_id ? String(form.host_id) : ''}
+              placeholder={t('common.pleaseSelect')}
+              options={k8sHosts.map((h) => ({value: String(h.id), label: h.name}))}
+              onValueChange={(v) => setForm({...form, host_id: Number(v) || 0})}
+            />
           </div>
           <div className='space-y-1'>
             <label className='text-xs text-muted-foreground'>Namespace *</label>
             {namespaces.length > 0 ? (
-              <select
-                className={sel}
+              <Select
                 value={form.namespace}
-                onChange={(e) => setForm({...form, namespace: e.target.value})}
-              >
-                {namespaces.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
+                options={namespaces.map((n) => ({value: n, label: n}))}
+                onValueChange={(v) => setForm({...form, namespace: v})}
+              />
             ) : (
               <Input
                 label='Namespace'
@@ -285,13 +297,13 @@ export function K8sClusterCreateDialog({open, onOpenChange, onSuccess}: K8sClust
           )}
           <div className='grid grid-cols-2 gap-3'>
             <Input
-              label='master_http_port'
+              label={t('cluster.k8s.masterHttpPort')}
               type='number'
               value={String(form.master_http_port)}
               onChange={(e) => setForm({...form, master_http_port: Number(e.target.value) || 8080})}
             />
             <Input
-              label='hazelcast_port'
+              label={t('cluster.k8s.hazelcastPort')}
               type='number'
               value={String(form.hazelcast_port)}
               onChange={(e) => setForm({...form, hazelcast_port: Number(e.target.value) || 5801})}

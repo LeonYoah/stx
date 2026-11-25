@@ -60,6 +60,7 @@ interface Cluster {
   id: number;
   name: string;
   version: string;
+  infra_type?: string;
 }
 
 interface BatchInstallDialogProps {
@@ -104,8 +105,10 @@ export function BatchInstallDialog({
 
       if (result.success && result.data) {
         // Filter clusters with matching version / 过滤版本匹配的集群
+        // K8s 集群遵循不可变镜像原则，不提供动态安装入口。
+        // K8s clusters follow the immutable-image principle and are excluded.
         const matchingClusters = (result.data.clusters || []).filter(
-          (c: Cluster) => c.version === version,
+          (c: Cluster) => c.version === version && !(c.infra_type && c.infra_type !== 'bare_metal'),
         );
         setClusters(matchingClusters);
         // 唯一匹配或已记住偏好时自动选中，免再手选。

@@ -61,7 +61,7 @@ type K8sClusterCreateRequest struct {
 	Version     string `json:"version"`
 	HostID      uint   `json:"host_id" binding:"required"`
 	// management_source: adopted / stx_deployed
-	ManagementSource string `json:"management_source" binding:"required"`
+	ManagementSource   string `json:"management_source" binding:"required"`
 	Namespace          string `json:"namespace" binding:"required"`
 	AccessMode         string `json:"access_mode"`
 	ExternalBaseURL    string `json:"external_base_url"`
@@ -84,16 +84,16 @@ type K8sClusterCreateRequest struct {
 	LabelSelector      string `json:"label_selector"`
 	// JavaProxy 伴生代理配置；缺省独立部署模式。
 	// JavaProxy holds companion proxy settings; standalone deployment is the default.
-	JavaProxyMode         string `json:"java_proxy_mode"`
-	JavaProxyJVMOpts      string `json:"java_proxy_jvm_opts"`
-	JavaProxyExternalURL  string `json:"java_proxy_external_url"`
-	MasterCPU             string `json:"master_cpu"`
-	MasterMemory          string `json:"master_memory"`
-	WorkerCPU             string `json:"worker_cpu"`
-	WorkerMemory          string `json:"worker_memory"`
-	CheckpointPVC         string `json:"checkpoint_pvc"`
-	DataStorageClass      string `json:"data_storage_class"`
-	DataSize              string `json:"data_size"`
+	JavaProxyMode        string `json:"java_proxy_mode"`
+	JavaProxyJVMOpts     string `json:"java_proxy_jvm_opts"`
+	JavaProxyExternalURL string `json:"java_proxy_external_url"`
+	MasterCPU            string `json:"master_cpu"`
+	MasterMemory         string `json:"master_memory"`
+	WorkerCPU            string `json:"worker_cpu"`
+	WorkerMemory         string `json:"worker_memory"`
+	CheckpointPVC        string `json:"checkpoint_pvc"`
+	DataStorageClass     string `json:"data_storage_class"`
+	DataSize             string `json:"data_size"`
 }
 
 // sessionConfigFromRequest 将请求映射为 SessionConfig 并应用默认值与端口契约校验。
@@ -158,11 +158,11 @@ func k8sConfigJSON(cfg *k8s.SessionConfig) (map[string]interface{}, error) {
 // K8sProxyStatus 伴生 Proxy 健康视图，保存接口一并返回给前端展示。
 // K8sProxyStatus is the companion proxy health view returned alongside save responses.
 type K8sProxyStatus struct {
-	Healthy     bool     `json:"healthy"`
-	Message     string   `json:"message,omitempty"`
-	PodPhase    string   `json:"pod_phase,omitempty"`
-	PodEvents   []string `json:"pod_events,omitempty"`
-	ServiceURL  string   `json:"service_url,omitempty"`
+	Healthy    bool     `json:"healthy"`
+	Message    string   `json:"message,omitempty"`
+	PodPhase   string   `json:"pod_phase,omitempty"`
+	PodEvents  []string `json:"pod_events,omitempty"`
+	ServiceURL string   `json:"service_url,omitempty"`
 }
 
 // CreateKubernetesResult 创建结果：集群实体 + 伴生 Proxy 状态（失败不阻断保存）。
@@ -384,7 +384,6 @@ func (s *Service) EnsureK8sJavaProxy(ctx context.Context, cluster *Cluster) *K8s
 	}
 	return status
 }
-
 
 // probeExternalProxy 对外部 Proxy 做一次短探活；失败仅落状态不报错。
 // probeExternalProxy runs one short health probe against an external proxy; failures only

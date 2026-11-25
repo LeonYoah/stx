@@ -56,11 +56,11 @@ func K8sCredentialsLoaderFromRepository(repo *Repository) k8s.CredentialsLoader 
 			authMode = k8s.AuthModeKubeconfig
 		}
 		return &k8s.Credentials{
-			APIURL:             h.K8sAPIURL,
-			AuthMode:           authMode,
-			Kubeconfig:         kubeconfig,
-			Token:              token,
-			CACert:             h.K8sCACert,
+			APIURL:          h.K8sAPIURL,
+			AuthMode:        authMode,
+			Kubeconfig:      kubeconfig,
+			Token:           token,
+			CACert:          h.K8sCACert,
 			InsecureSkipTLS: h.K8sInsecureSkipTLS,
 		}, nil
 	}
@@ -152,7 +152,7 @@ func (h *Handler) ListK8sNamespaces(c *gin.Context) {
 	}
 	namespaces, err := mgr.ListNamespaces(c.Request.Context(), uint(id))
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"error_msg": err.Error(), "data": []string{}})
+		c.JSON(http.StatusBadGateway, gin.H{"error_msg": err.Error(), "data": []string{}})
 		return
 	}
 	if namespaces == nil {
@@ -181,7 +181,7 @@ func (h *Handler) DiscoverK8sSeaTunnelClusters(c *gin.Context) {
 	discoverer := k8s.NewDiscoverer(mgr)
 	clusters, err := discoverer.Discover(c.Request.Context(), uint(id), namespace)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"error_msg": err.Error(), "data": []*k8s.DiscoveredCluster{}})
+		c.JSON(http.StatusBadGateway, gin.H{"error_msg": err.Error(), "data": []*k8s.DiscoveredCluster{}})
 		return
 	}
 	if clusters == nil {

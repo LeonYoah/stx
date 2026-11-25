@@ -18,12 +18,12 @@
 package cluster
 
 import (
-	"sync"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 

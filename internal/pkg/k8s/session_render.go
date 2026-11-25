@@ -173,14 +173,14 @@ rootLogger.appenderRef.stdout.ref = LogToConsole
 // sessionConfigFiles returns the file name to content mapping for the ConfigMap.
 func sessionConfigFiles(cfg *SessionConfig, clusterCode string) map[string]string {
 	return map[string]string{
-		"seatunnel.yaml":       renderSeatunnelYAML(cfg),
+		"seatunnel.yaml":        renderSeatunnelYAML(cfg),
 		"hazelcast-master.yaml": renderHazelcastMemberYAML(cfg, clusterCode, "master"),
 		"hazelcast-worker.yaml": renderHazelcastMemberYAML(cfg, clusterCode, "worker"),
 		"hazelcast-client.yaml": renderHazelcastClientYAML(cfg, clusterCode),
-		"jvm_master_options":   renderJVMOptions(),
-		"jvm_worker_options":   renderJVMOptions(),
-		"jvm_client_options":   renderJVMOptions(),
-		"log4j2.properties":    renderLog4j2(),
+		"jvm_master_options":    renderJVMOptions(),
+		"jvm_worker_options":    renderJVMOptions(),
+		"jvm_client_options":    renderJVMOptions(),
+		"log4j2.properties":     renderLog4j2(),
 	}
 }
 

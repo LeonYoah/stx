@@ -103,7 +103,8 @@
     },
     "searchClear": "清除搜索",
     "dragToReorder": "拖动排序",
-    "pleaseSelect": "请选择"
+    "pleaseSelect": "请选择",
+    "noData": "暂无数据"
   },
   "apiErrors": {
     "network": {
@@ -2063,7 +2064,25 @@
       "masterService": "Master Service 名称",
       "clusterService": "集群 Service 名称",
       "requiredFields": "请填写名称、主机与 Namespace",
-      "createK8s": "创建 K8s 集群"
+      "createK8s": "创建 K8s 集群",
+      "scaleWorker": "扩缩容 Worker",
+      "scaleMaster": "扩缩容 Master",
+      "restartWorker": "滚动重启 Worker",
+      "restartMaster": "滚动重启 Master",
+      "upgradeImage": "升级镜像",
+      "upgradeHint": "按不可变镜像原则滚动升级 master/worker 及伴生 Proxy 至新 Tag",
+      "scaleTitle": "调整副本数",
+      "replicas": "副本数",
+      "podName": "Pod 名称",
+      "podRole": "角色",
+      "podReady": "就绪",
+      "podPhase": "阶段",
+      "podRestarts": "重启次数",
+      "saveAndRestart": "保存并滚动生效",
+      "immutablePluginHint": "K8s 集群遵循不可变镜像原则：插件清单为只读镜像内置连接器，安装/卸载请通过升级镜像 Tag 完成",
+      "masterHttpPort": "Master HTTP 端口",
+      "hazelcastPort": "Hazelcast 端口",
+      "proxyUnhealthy": "伴生 Proxy 未就绪（已自动重试拉起）"
     }
   },
   "audit": {

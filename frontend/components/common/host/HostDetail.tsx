@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
 import services from '@/lib/services';
-import {HostInfo, HostStatus, HostType} from '@/lib/services/host/types';
+import {HostInfo, HostStatus, HostType, K8sTestConnectionResult} from '@/lib/services/host/types';
 import {formatDateTimeTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import layout from '@/components/common/layout/list-detail.module.css';
@@ -106,6 +106,8 @@ function getUninstallCommand(installCmd: string): string {
 
 export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
   const t = useTranslations();
+  const [k8sTesting, setK8sTesting] = useState(false);
+  const [k8sTestResult, setK8sTestResult] = useState<K8sTestConnectionResult | null>(null);
   const [installCommand, setInstallCommand] = useState<string>('');
   const [loadingCommand, setLoadingCommand] = useState(false);
   const [copiedInstall, setCopiedInstall] = useState(false);
@@ -158,6 +160,19 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
       toast.success(t('host.commandCopied'));
     } catch {
       toast.error(t('host.copyFailed'));
+    }
+  };
+
+  const runK8sTest = async () => {
+    if (!host) return;
+    setK8sTesting(true);
+    try {
+      const result = await services.host.testK8sConnection(host.id);
+      setK8sTestResult(result);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setK8sTesting(false);
     }
   };
 
@@ -392,6 +407,56 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
                 </dl>
               ) : null}
             </section>
+
+            {host.host_type === HostType.KUBERNETES ? (
+              <section className={layout.detailSection}>
+                <h3 className={layout.sectionTitle}>{t('host.testK8sConnection')}</h3>
+                <div className='space-y-2'>
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='secondary'
+                    disabled={k8sTesting}
+                    onClick={() => void runK8sTest()}
+                  >
+                    {k8sTesting ? t('common.loading') : t('host.testK8sConnection')}
+                  </Button>
+                  {k8sTestResult ? (
+                    <div className='space-y-2 text-xs'>
+                      <p className={k8sTestResult.connected ? 'text-emerald-600' : 'text-rose-600'}>
+                        {k8sTestResult.connected
+                          ? `${t('host.k8sConnected')} · ${k8sTestResult.server_version || ''} · ${k8sTestResult.elapsed_ms}ms`
+                          : `${t('host.k8sConnectFailed')}: ${k8sTestResult.message || ''}`}
+                      </p>
+                      {k8sTestResult.rbac && k8sTestResult.rbac.length > 0 ? (
+                        <div className='overflow-x-auto rounded-md border border-border/60'>
+                          <table className='w-full'>
+                            <thead>
+                              <tr className='border-b border-border/60 text-left text-muted-foreground'>
+                                <th className='px-2 py-1'>{t('host.k8sRbacResource')}</th>
+                                <th className='px-2 py-1'>{t('host.k8sRbacVerb')}</th>
+                                <th className='px-2 py-1'>{t('host.k8sRbacPrecheck')}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {k8sTestResult.rbac.map((item: {resource: string; verb: string; allowed: boolean}, i: number) => (
+                                <tr key={i} className='border-b border-border/30 last:border-0'>
+                                  <td className='px-2 py-1 font-mono'>{item.resource}</td>
+                                  <td className='px-2 py-1'>{item.verb}</td>
+                                  <td className={`px-2 py-1 ${item.allowed ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                    {item.allowed ? t('host.k8sRbacAllowed') : t('host.k8sRbacDenied')}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+            ) : null}
 
             {host.host_type === HostType.BARE_METAL ? (
               <section className={layout.detailSection}>

@@ -309,19 +309,19 @@ func InfraCapabilitiesFor(infraType string) InfraCapabilities {
 	switch {
 	case infraType == "kubernetes" || len(infraType) > len("kubernetes_") && infraType[:len("kubernetes_")] == "kubernetes_":
 		return InfraCapabilities{
-			SupportsLocalExecution:          false,
-			SupportsDynamicPluginInstall:    false,
-			SupportsImmutableImageUpgrade:   true,
-			SupportsPodLogRead:              true,
-			SupportsWebUIProxy:              true,
+			SupportsLocalExecution:        false,
+			SupportsDynamicPluginInstall:  false,
+			SupportsImmutableImageUpgrade: true,
+			SupportsPodLogRead:            true,
+			SupportsWebUIProxy:            true,
 		}
 	default:
 		return InfraCapabilities{
-			SupportsLocalExecution:          true,
-			SupportsDynamicPluginInstall:    true,
-			SupportsImmutableImageUpgrade:   false,
-			SupportsPodLogRead:              false,
-			SupportsWebUIProxy:              true,
+			SupportsLocalExecution:        true,
+			SupportsDynamicPluginInstall:  true,
+			SupportsImmutableImageUpgrade: false,
+			SupportsPodLogRead:            false,
+			SupportsWebUIProxy:            true,
 		}
 	}
 }

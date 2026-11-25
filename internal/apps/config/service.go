@@ -18,11 +18,11 @@
 package config
 
 import (
-	"sort"
 	"context"
 	"errors"
 	"fmt"
 	"github.com/LeonYoah/stx/internal/pkg/locale"
+	"sort"
 	"strconv"
 	"strings"
 	"time"

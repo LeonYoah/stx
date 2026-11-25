@@ -148,4 +148,3 @@ func (t *Transport) HTTPClient(ctx context.Context, timeout time.Duration) (*htt
 	}
 	return &http.Client{Transport: rt, Timeout: timeout}, nil
 }
-

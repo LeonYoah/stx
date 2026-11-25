@@ -1690,6 +1690,19 @@ export class ClusterService extends BaseService {
   }
 
   /**
+   * Update one ConfigMap file with optional rolling restart / 更新 ConfigMap 单文件并可选滚动重启
+   */
+  static async updateK8sConfigMapFile(clusterId: number, fileName: string, content: string, restart: boolean): Promise<void> {
+    const response = await apiClient.put<{error_msg: string}>(
+      `${this.basePath}/${clusterId}/k8s/configmap/${encodeURIComponent(fileName)}`,
+      {content, restart},
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+  }
+
+  /**
    * Retry companion java proxy start / 重试拉起伴生 Proxy
    */
   static async retryK8sJavaProxy(clusterId: number): Promise<void> {

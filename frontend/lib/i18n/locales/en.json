@@ -103,7 +103,8 @@
     },
     "searchClear": "Clear search",
     "dragToReorder": "Drag to reorder",
-    "pleaseSelect": "Please select"
+    "pleaseSelect": "Please select",
+    "noData": "No data"
   },
   "apiErrors": {
     "network": {
@@ -2063,7 +2064,25 @@
       "masterService": "Master Service Name",
       "clusterService": "Cluster Service Name",
       "requiredFields": "Name, host and namespace are required",
-      "createK8s": "Create K8s Cluster"
+      "createK8s": "Create K8s Cluster",
+      "scaleWorker": "Scale Worker",
+      "scaleMaster": "Scale Master",
+      "restartWorker": "Restart Worker",
+      "restartMaster": "Restart Master",
+      "upgradeImage": "Upgrade Image",
+      "upgradeHint": "Rolls master/worker and the companion proxy to the new tag under the immutable-image principle",
+      "scaleTitle": "Adjust replicas",
+      "replicas": "Replicas",
+      "podName": "Pod",
+      "podRole": "Role",
+      "podReady": "Ready",
+      "podPhase": "Phase",
+      "podRestarts": "Restarts",
+      "saveAndRestart": "Save & rolling apply",
+      "immutablePluginHint": "K8s clusters follow the immutable-image principle: this is the read-only image-bundled connector inventory; install/uninstall by upgrading the image tag",
+      "masterHttpPort": "Master HTTP Port",
+      "hazelcastPort": "Hazelcast Port",
+      "proxyUnhealthy": "Companion proxy not ready (auto-retried)"
     }
   },
   "audit": {

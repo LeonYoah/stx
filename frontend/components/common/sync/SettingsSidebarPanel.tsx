@@ -352,10 +352,18 @@ export function SettingsSidebarPanel({
                 onValueChange={(value) =>
                   onExecutionModeChange(value as ExecutionMode)
                 }
-                options={[
-                  {value: 'cluster', label: t('clusterMode')},
-                  {value: 'local', label: t('localMode')},
-                ]}
+                options={(() => {
+                  // K8s 集群无本地进程语义：选中 K8s 集群时隐藏 local 模式（后端亦硬拦截）。
+                  // K8s clusters have no local process semantics: hide local mode when a K8s
+                  // cluster is selected (the backend hard-blocks it too).
+                  const selected = clusters.find((c) => String(c.id) === String(clusterId));
+                  const isK8s = selected?.infra_type && selected.infra_type !== 'bare_metal';
+                  const opts = [{value: 'cluster', label: t('clusterMode')}];
+                  if (!isK8s) {
+                    opts.push({value: 'local', label: t('localMode')});
+                  }
+                  return opts;
+                })()}
               />
             </div>
 

@@ -19,8 +19,8 @@ package cmd
 
 import (
 	"net/http"
-	"os"
 	"net/url"
+	"os"
 	"strings"
 
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"

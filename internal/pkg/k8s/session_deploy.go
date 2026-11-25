@@ -42,8 +42,8 @@ const (
 	// LabelEngineMemberKey 标记真正的引擎成员 Pod（master/worker），伴生 Proxy 不带此标签。
 	// LabelEngineMemberKey marks real engine member pods (master/worker); the companion proxy never carries it.
 	LabelEngineMemberKey = "stx.seatunnel.apache.org/engine-member"
-	LabelClusterIDKey   = "stx.seatunnel.apache.org/cluster-id"
-	LabelComponentKey   = "app.kubernetes.io/component"
+	LabelClusterIDKey    = "stx.seatunnel.apache.org/cluster-id"
+	LabelComponentKey    = "app.kubernetes.io/component"
 )
 
 // SessionManager 负责常驻集群的一键部署、安全卸载与运维操作。

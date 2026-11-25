@@ -41,15 +41,15 @@ type WorkloadSummary struct {
 // DiscoveredCluster 命名空间中发现的一套 SeaTunnel 常驻集群候选。
 // DiscoveredCluster is one adoptable SeaTunnel session cluster candidate in a namespace.
 type DiscoveredCluster struct {
-	BaseName          string          `json:"base_name"`
-	Namespace         string          `json:"namespace"`
-	Master            *WorkloadSummary `json:"master,omitempty"`
-	Worker            *WorkloadSummary `json:"worker,omitempty"`
-	Services          []string        `json:"services"`
-	ConfigMapName     string          `json:"configmap_name,omitempty"`
-	LabelSelector     string          `json:"label_selector,omitempty"`
-	MasterHTTPPort    int             `json:"master_http_port"`
-	HazelcastPort     int             `json:"hazelcast_port"`
+	BaseName       string           `json:"base_name"`
+	Namespace      string           `json:"namespace"`
+	Master         *WorkloadSummary `json:"master,omitempty"`
+	Worker         *WorkloadSummary `json:"worker,omitempty"`
+	Services       []string         `json:"services"`
+	ConfigMapName  string           `json:"configmap_name,omitempty"`
+	LabelSelector  string           `json:"label_selector,omitempty"`
+	MasterHTTPPort int              `json:"master_http_port"`
+	HazelcastPort  int              `json:"hazelcast_port"`
 }
 
 // Discoverer 在命名空间中扫描已有 SeaTunnel 集群（StatefulSet/Deployment/Service/ConfigMap）。

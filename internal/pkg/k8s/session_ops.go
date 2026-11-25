@@ -35,16 +35,16 @@ import (
 // PodInfo 一个受管 Pod 的投影信息，用于节点表与健康判定。
 // PodInfo is the projection of one managed pod for node tables and health checks.
 type PodInfo struct {
-	Name      string    `json:"name"`
-	Role      string    `json:"role"`
-	Ready     bool      `json:"ready"`
-	Phase     string    `json:"phase"`
-	PodIP     string    `json:"pod_ip"`
-	NodeName  string    `json:"node_name"`
-	StartedAt time.Time `json:"started_at,omitempty"`
-	Restarts  int32     `json:"restarts"`
-	WorkloadKind string `json:"workload_kind"`
-	WorkloadName string `json:"workload_name"`
+	Name         string    `json:"name"`
+	Role         string    `json:"role"`
+	Ready        bool      `json:"ready"`
+	Phase        string    `json:"phase"`
+	PodIP        string    `json:"pod_ip"`
+	NodeName     string    `json:"node_name"`
+	StartedAt    time.Time `json:"started_at,omitempty"`
+	Restarts     int32     `json:"restarts"`
+	WorkloadKind string    `json:"workload_kind"`
+	WorkloadName string    `json:"workload_name"`
 }
 
 // ListPodsByLabel 按标签选择器列出 Pod 投影。
@@ -413,14 +413,14 @@ func (s *SessionManager) PodLogs(ctx context.Context, cfg *SessionConfig, podNam
 // WorkloadStatus aggregates desired and ready replicas of master/worker workloads for the
 // first stage of the double health check.
 type WorkloadStatus struct {
-	Role          string `json:"role"`
-	WorkloadKind  string `json:"workload_kind"`
-	WorkloadName  string `json:"workload_name"`
-	Desired       int    `json:"desired"`
-	Ready         int    `json:"ready"`
-	Updated       int    `json:"updated"`
-	CurrentImage  string `json:"current_image"`
-	Exists        bool   `json:"exists"`
+	Role         string `json:"role"`
+	WorkloadKind string `json:"workload_kind"`
+	WorkloadName string `json:"workload_name"`
+	Desired      int    `json:"desired"`
+	Ready        int    `json:"ready"`
+	Updated      int    `json:"updated"`
+	CurrentImage string `json:"current_image"`
+	Exists       bool   `json:"exists"`
 }
 
 // GetWorkloadStatus 读取 master/worker 工作负载状态；资源不存在时 Exists=false 而非报错，

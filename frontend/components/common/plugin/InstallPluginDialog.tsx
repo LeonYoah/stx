@@ -382,10 +382,13 @@ export function InstallPluginDialog({
       if (!openRef.current || session !== openSessionRef.current) {
         return;
       }
+      // K8s 集群遵循不可变镜像原则，不提供动态安装入口，直接从候选集群中排除。
+      // K8s clusters follow the immutable-image principle and are excluded from install candidates.
       const availableClusters = (result.clusters ?? []).filter(
         (c: ClusterInfo) =>
-          c.status === ClusterStatus.RUNNING ||
-          c.status === ClusterStatus.STOPPED,
+          (c.status === ClusterStatus.RUNNING ||
+          c.status === ClusterStatus.STOPPED) &&
+          !(c.infra_type && c.infra_type !== 'bare_metal'),
       );
 
       const statuses: ClusterPluginStatus[] = availableClusters.map(

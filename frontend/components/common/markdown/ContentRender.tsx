@@ -19,8 +19,9 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import {copyToClipboard} from '@/lib/utils';
 import {ReactNode} from 'react';
+import {useTranslations} from 'next-intl';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import type {Components} from 'react-markdown';
 
 /**
@@ -53,6 +54,20 @@ const getCodeContent = (node: ReactNode): string => {
 /**
  * Markdown 组件配置映射
  */
+function CodeBlockCopyButton({content}: {content: string}) {
+  const t = useTranslations('common');
+  return (
+    <CopyButton
+      value={content}
+      label={t('copy')}
+      copiedLabel={t('copied')}
+      failedLabel={t('copyFailed')}
+      variant='plain'
+      className='h-7 min-h-0 px-2 text-xs'
+    />
+  );
+}
+
 const markdownComponents: Components = {
   h1: ({children}) => (
     <h1 className='text-2xl font-bold mb-6 mt-8 first:mt-0 text-gray-900 dark:text-gray-100 border-b border-gray-300 dark:border-gray-600 pb-2'>
@@ -221,40 +236,10 @@ const markdownComponents: Components = {
               <div className='w-3 h-3 rounded-full bg-green-500'></div>
             </div>
             <span className='text-xs text-gray-500 dark:text-gray-400 font-medium ml-2'>
-              {language || '代码'}
+              {language || 'code'}
             </span>
           </div>
-          <button
-            onClick={async () => {
-              try {
-                await copyToClipboard(codeContent);
-                const button = document.activeElement as HTMLButtonElement;
-                const originalText = button.innerHTML;
-                button.innerHTML = `
-                  <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                  </svg>
-                `;
-                setTimeout(() => {
-                  button.innerHTML = originalText;
-                }, 2000);
-              } catch (error) {
-                console.error('复制失败:', error);
-              }
-            }}
-            className='flex items-center gap-1.5 px-2 py-1 text-xs bg-gray-300 dark:bg-gray-700 hover:bg-gray-400 dark:hover:bg-gray-600 rounded transition-colors duration-200 text-gray-700 dark:text-gray-300'
-            title='复制代码'
-          >
-            <svg
-              className='w-3.5 h-3.5'
-              fill='currentColor'
-              viewBox='0 0 20 20'
-            >
-              <path d='M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z' />
-              <path d='M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z' />
-            </svg>
-            <span>复制</span>
-          </button>
+          <CodeBlockCopyButton content={codeContent} />
         </div>
 
         {/* 代码内容区域：支持自动换行和语法高亮 */}

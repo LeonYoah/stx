@@ -19,6 +19,7 @@ package cmd
 
 import (
 	"net/http"
+	"os"
 	"net/url"
 	"strings"
 
@@ -65,12 +66,14 @@ func newHostCreateCommand(storeProvider authStoreProvider) *cobra.Command {
 				setChangedString(command, body, "docker-cert-path", dockerCertPath)
 				setChangedString(command, body, "k8s-api-url", k8sAPIURL)
 				setChangedString(command, body, "k8s-namespace", k8sNamespace)
+				setK8sCredentialFlags(command, body)
 			}
 			return executeHostWrite(command, storeProvider, "host.create", &options, http.MethodPost, "/api/v1/hosts", body, "stx host list")
 		},
 	}
 	addSecureWriteFlags(command, &options)
 	addHostFields(command, &name, &description, &ipAddress, &sshPort, &dockerAPIURL, &dockerTLSEnabled, &dockerCertPath, &k8sAPIURL, &k8sNamespace)
+	addK8sCredentialFlags(command)
 	command.Flags().StringVar(&hostType, "host-type", "", "Host type: bare_metal, docker, or kubernetes")
 	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body, including Kubernetes credentials when needed")
 	return command
@@ -102,6 +105,7 @@ func newHostUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
 				setChangedString(command, body, "docker-cert-path", dockerCertPath)
 				setChangedString(command, body, "k8s-api-url", k8sAPIURL)
 				setChangedString(command, body, "k8s-namespace", k8sNamespace)
+				setK8sCredentialFlags(command, body)
 				if len(body) == 0 {
 					return clioutput.NewError(clioutput.CodeUsage, "at least one update flag or --request-file is required", clioutput.ExitUsage, false)
 				}
@@ -112,8 +116,60 @@ func newHostUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
 	}
 	addSecureWriteFlags(command, &options)
 	addHostFields(command, &name, &description, &ipAddress, &sshPort, &dockerAPIURL, &dockerTLSEnabled, &dockerCertPath, &k8sAPIURL, &k8sNamespace)
+	addK8sCredentialFlags(command)
 	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body, including Kubernetes credentials when needed")
 	return command
+}
+
+// setK8sCredentialFlags 把 K8s 凭据类参数写入请求体；kubeconfig/token 支持 @文件路径 读取，
+// 避免长文本直接暴露在命令行与 shell 历史中。
+// setK8sCredentialFlags writes K8s credential flags into the request body; kubeconfig/token
+// support @file references so long secrets stay out of the command line and shell history.
+func setK8sCredentialFlags(command *cobra.Command, body map[string]any) {
+	setChangedString(command, body, "k8s-auth-mode", mustGetStringFlag(command, "k8s-auth-mode"))
+	setChangedString(command, body, "k8s-ca-cert", resolveFileReferenceFlag(command, "k8s-ca-cert"))
+	setChangedString(command, body, "k8s-kubeconfig", resolveFileReferenceFlag(command, "k8s-kubeconfig"))
+	setChangedString(command, body, "k8s-token", resolveFileReferenceFlag(command, "k8s-token"))
+	if command.Flags().Changed("k8s-insecure-skip-tls") {
+		v, _ := command.Flags().GetBool("k8s-insecure-skip-tls")
+		body["k8s_insecure_skip_tls"] = v
+	}
+}
+
+func mustGetStringFlag(command *cobra.Command, name string) string {
+	v, _ := command.Flags().GetString(name)
+	return v
+}
+
+func resolveFileReference(value string) string {
+	if !strings.HasPrefix(value, "@") || len(value) <= 1 {
+		return value
+	}
+	data, err := os.ReadFile(strings.TrimPrefix(value, "@"))
+	if err != nil {
+		return value
+	}
+	return string(data)
+}
+
+// resolveFileReferenceFlag 解析 @路径 引用；非 @ 前缀按原文使用。
+// resolveFileReferenceFlag resolves @path references; non-@ values pass through unchanged.
+func resolveFileReferenceFlag(command *cobra.Command, name string) string {
+	if !command.Flags().Changed(name) {
+		return ""
+	}
+	v, _ := command.Flags().GetString(name)
+	return resolveFileReference(v)
+}
+
+// addK8sCredentialFlags 登记 K8s 凭据类参数。
+// addK8sCredentialFlags registers K8s credential flags.
+func addK8sCredentialFlags(command *cobra.Command) {
+	command.Flags().String("k8s-auth-mode", "", "Kubernetes auth mode: kubeconfig, token, or in_cluster")
+	command.Flags().String("k8s-kubeconfig", "", "Kubeconfig content or @path/to/kubeconfig")
+	command.Flags().String("k8s-token", "", "Bearer token or @path/to/token")
+	command.Flags().String("k8s-ca-cert", "", "CA certificate PEM or @path/to/ca.crt (token mode)")
+	command.Flags().Bool("k8s-insecure-skip-tls", false, "Skip API server TLS verification (test only)")
 }
 
 // addHostFields 登记主机新增和修改共用的非敏感参数。

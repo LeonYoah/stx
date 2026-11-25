@@ -53,3 +53,25 @@
 7. 前端（主机 K8s 表单/集群创建向导/详情适配/工作台隐藏 local）
 8. 编译 stx-java-proxy jar → lib/（maven 需装；e2e 必须）
 9. e2e AC-2/3/4 + 全量检查 + 推送
+
+## 追加进度（第三轮 — e2e 验证大部分通过）
+- 已提交 4 个 commit 到 feat/k8s-p1-session-foundation（未推送）
+- 云端实测通过（minikube host id=1）：
+  - AC-2: host test-connection connected=true v1.37.0 RBAC 全绿; namespaces/discover 精确识别
+  - AC-3 纳管: cluster id=1 seatunnel-adopted 创建+伴生 Proxy healthy=true; 插件只读清单 ActiveMQ 等经 Proxy; 写操作拦截报错正确（含 StartInstallPluginAsync/UninstallPluginFromCluster 守卫）; FakeSource BATCH 作业 submit running→reconcile success sync=ok; PodLogs/ConfigMap 读取/scale worker 2→3→2 真实生效
+  - AC-4 一键部署: cluster id=6 stx-e2e-deploy (ns seatunnel-stx-e2e) 1master+1worker 39s 就绪 Members size=2; 作业 submit→success; upgrade-image success
+  - R2 删除确认流验证: 同 Idempotency-Key + X-STX-Confirmation-ID 头两步
+- 修复的缺陷：GetByName ErrClusterNotFound 兼容、stx_deployed 确定性命名回填、headless svc publishNotReadyAddresses+engine-member 标签（组网鸡生蛋）、STS template labels 合并 selector 标签
+- CLI: operation/k8s.go 注册全部新操作（reads 生成式 CLI；writes clusterBody/clusterGenerated）；host create/update 加 k8s 凭据 flags（@文件引用）；已验证命令树生成；stx auth login --server 方式见 docs/内置监控说明.md:167
+- lib/: stx-java-proxy-v2.jar + v3.jar 已编译（maven /opt/apache-maven-3.9.9）注意 lib/ 是否该入库需确认（.gitignore 检查）
+- API 服务：go run main.go api 后台运行 :17800；minikube host id=1 已建
+
+## 剩余待办
+1. AC-4 收尾: cluster 6 勾选清理删除验证无残留（force_delete 参数查证——Delete 用 forceRemoveInstallDir 语义复用）
+2. AC-3 收尾: 解绑删除 cluster 1 验证 seatunnel 原 StatefulSet 无损
+3. 前端（最大块）：host 表单 auth_mode/test-connection/RBAC 展示/编辑留空保留（CreateHostDialog 已有部分 k8s 字段）；cluster 创建向导 K8s（adopt/deploy）；集群详情 pods/scale/upgrade-image/configmap/插件只读；工作台隐藏 local
+4. capabilities.go K8s 能力位（未做）
+5. monitoring availability_evaluator 跳过 agent_offline for k8s（未验证是否需要）
+6. config 域 K8s 分支（ConfigMap 读写接口已在 cluster 层，config 域未接）
+7. WebUI 代理 K8s 适配（webui_master.go 未接）
+8. 全量检查 + 推送 PR #208

@@ -1815,6 +1815,7 @@ var registry = append([]OperationSpec{
 // additionalOperationSpecs returns supplemental operation registrations maintained by module.
 func additionalOperationSpecs() []OperationSpec {
 	specs := clusterAdditionalOperationSpecs()
+	specs = append(specs, k8sOperationSpecs()...)
 	specs = append(specs, stUpgradeOperationSpecs()...)
 	specs = append(specs, selfUpgradeOperationSpecs()...)
 	specs = append(specs, additionalReadOperationSpecs()...)

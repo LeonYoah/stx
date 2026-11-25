@@ -189,8 +189,11 @@ func ensureNamespace(ctx context.Context, clientset kubernetes.Interface, ns str
 	if !apierrors.IsNotFound(err) {
 		return fmt.Errorf("k8s: get namespace %q failed: %w", ns, err)
 	}
+	// STX 创建的 Namespace 打标，卸载时仅删除带标 Namespace；用户预建的无标 Namespace 永不删除。
+	// STX-created namespaces are labeled so uninstall only removes labeled ones; pre-existing
+	// user namespaces are never deleted.
 	if _, err := clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{Name: ns},
+		ObjectMeta: metav1.ObjectMeta{Name: ns, Labels: map[string]string{LabelManagedByKey: LabelManagedByValue}},
 	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("k8s: create namespace %q failed: %w", ns, err)
 	}
@@ -366,7 +369,15 @@ func ensureSessionStatefulSet(ctx context.Context, clientset kubernetes.Interfac
 	}
 
 	selectorLabels := podSelectorLabels(code, role)
+	// 模板标签必须包含全部 selector 标签（K8s 强制 selector⊆template.labels），
+	// 在 sessionLabels 基础上合并而不是替换，保留 cluster-id/managed-by 等管理面标签。
+	// Template labels must include every selector label (K8s enforces selector⊆template.labels);
+	// merge into sessionLabels instead of replacing so management labels like
+	// cluster-id/managed-by survive.
 	podLabels := sessionLabels(code, clusterID, role)
+	for k, v := range selectorLabels {
+		podLabels[k] = v
+	}
 
 	volumeMounts := []corev1.VolumeMount{}
 	for _, key := range sessionConfigMountKeys() {
@@ -583,6 +594,25 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 	deleteOne("rolebinding/"+names.RoleBinding, func() error {
 		return clientset.RbacV1().RoleBindings(ns).Delete(ctx, names.RoleBinding, metav1.DeleteOptions{})
 	})
+	// 伴生 Proxy 残留一并清理（uninstall 语义是全量回收 STX 资源）。
+	// Companion proxy leftovers are cleaned up too (uninstall means full reclamation of STX resources).
+	proxyDeployment, proxyService, proxyJarCM := ProxyResourceNames(clusterCode)
+	deleteOne("deployment/"+proxyDeployment, func() error {
+		return clientset.AppsV1().Deployments(ns).Delete(ctx, proxyDeployment, metav1.DeleteOptions{PropagationPolicy: &policy})
+	})
+	deleteOne("service/"+proxyService, func() error {
+		return clientset.CoreV1().Services(ns).Delete(ctx, proxyService, metav1.DeleteOptions{})
+	})
+	deleteOne("configmap/"+proxyJarCM, func() error {
+		return clientset.CoreV1().ConfigMaps(ns).Delete(ctx, proxyJarCM, metav1.DeleteOptions{})
+	})
+	if nsObj, getErr := clientset.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{}); getErr == nil {
+		if nsObj.Labels[LabelManagedByKey] == LabelManagedByValue {
+			deleteOne("namespace/"+ns, func() error {
+				return clientset.CoreV1().Namespaces().Delete(ctx, ns, metav1.DeleteOptions{})
+			})
+		}
+	}
 	if len(errs) > 0 {
 		return fmt.Errorf("k8s: uninstall partially failed: %s", strings.Join(errs, "; "))
 	}

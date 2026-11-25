@@ -123,6 +123,7 @@
   | 可搜索 / 长列表 / 数量不固定的数据 | Arc `Combobox` |
   | 行内操作 | 统一走 Arc `Button` ghost + `iconOnly`（`MoreHorizontal`）+ Arc `DropdownMenu`（破坏性项 `destructive` + `separatorBefore`，对齐告警中心）；不在表尾手拼零散定制图标按钮组 |
   | 行内轻确认 | Arc `ConfirmMorph`（§3） |
+  | 复制文本 | Arc `CopyButton`（`components/arc/copy-button`）；需要自定义触发形态时至少复用 `writeClipboard`（`components/arc/lib/use-copy-feedback`） |
   | 破坏性确认 | `ui/alert-dialog` |
   | 命令面板 | `ui/command`（不要拿它拼可搜索下拉） |
   | 状态标签 | 见 §9 |
@@ -130,6 +131,7 @@
 - **可访问名称（强制）**：`Select` / `Combobox` 的可见 `label` 可为可选，但**去掉可见标签后必须仍有可见标签或 `aria-label` 之一**，控件不得缺少可访问名称；纯图标按钮同理必须传 `aria-label`（含大盘头部范围选择）。
 - **`SegmentedControl` 跨挂载点共享 `layoutGroup`**：同一逻辑分段开关渲染在两个互斥挂载点时（如「通知渠道 | 投递记录」「巡检记录 | 自动」），两处必须传相同的 `layoutGroup` 字符串，确保选中胶囊跨实例平滑形变而非瞬移。
 - **日期范围选择**：全局起止日期走 `components/common/layout/ArcDateRangePicker`（默认 `months={1}`、`maxDate` 用 `useToday()` 避免首帧水合差异、Apply 闭区间写到 `:59.999`）；需分钟精度时开 `withTime`（内置 24h `ClockField`，不用原生 `<input type="time">`）。
+- **剪贴板统一入口**：所有复制一律走 `writeClipboard` / Arc `CopyButton`，**禁止**裸调 `navigator.clipboard.writeText`——clipboard API 仅在安全上下文（HTTPS / localhost）存在，HTTP+IP 部署时裸调会静默失败甚至同步抛错（连错误 toast 都不弹）。`writeClipboard` 回落用隐藏 textarea + `execCommand('copy')`，且 textarea 必须挂在打开中的 `[role="dialog"]` 内并显式 `focus()`（Radix 焦点圈禁下挂 body 会让选区不进页面选区，`execCommand` 空复制仍返回 true）。验证此类修复要用内网 IP（非 localhost）访问并用 `xclip -o -selection clipboard` 读回真实剪贴板内容。
 - **技术防坑**：
   - `localStorage` 状态首帧必须使用服务端一致的默认值，挂载后再同步，避免水合报错。
   - 整页 `html` 状态锁（如拖拽光标 `html[data-studio-resizing]`）必须写在非 CSS Module 文件中，否则 Next 生产构建报错。

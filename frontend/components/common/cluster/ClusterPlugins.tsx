@@ -82,6 +82,9 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
   const narrow = useDetailNarrow();
 
   const [plugins, setPlugins] = useState<InstalledPlugin[]>([]);
+  // K8s 集群插件遵循不可变镜像原则：只读展示，不提供安装/卸载写操作入口。
+  // K8s cluster plugins follow the immutable-image principle: read-only view, no install/uninstall entry points.
+  const [isK8sCluster, setIsK8sCluster] = useState(false);
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [operating, setOperating] = useState(false);
@@ -107,6 +110,12 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
     setLoading(true);
     try {
       const data = await services.plugin.listInstalledPlugins(clusterId);
+      try {
+        const info = await services.cluster.getCluster(clusterId);
+        setIsK8sCluster(info.infra_type === 'kubernetes');
+      } catch {
+        setIsK8sCluster(false);
+      }
       if (seq !== reqSeqRef.current) {
         return;
       }
@@ -572,7 +581,7 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
 
           {/* 悬浮多选批量条：位于列表卡内部底端，详情栏打开时也居中不遮挡 */}
           {/* Floating multi-select batch bar anchored inside listCol */}
-          {selectedNames.size > 0 ? (
+          {selectedNames.size > 0 && !isK8sCluster ? (
             <div
               className={layout.batchBarWrap}
               data-testid='cluster-plugins-batch-bar'

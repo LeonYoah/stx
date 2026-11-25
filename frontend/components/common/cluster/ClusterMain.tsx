@@ -89,6 +89,7 @@ import {ClusterDeployWizard} from './ClusterDeployWizard';
 import {ClusterQuickDetail} from './ClusterQuickDetail';
 import {ClusterStatusChip} from './ClusterStatusChip';
 import {CreateClusterDialog} from './CreateClusterDialog';
+import {K8sClusterCreateDialog} from './K8sClusterCreateDialog';
 import {EditClusterDialog} from './EditClusterDialog';
 import {
   getClusterActionFlags,
@@ -213,6 +214,7 @@ export function ClusterMain() {
   // 弹窗状态 / Dialog states
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isDeployWizardOpen, setIsDeployWizardOpen] = useState(false);
+  const [isK8sDialogOpen, setIsK8sDialogOpen] = useState(false);
   const [editingCluster, setEditingCluster] = useState<ClusterInfo | null>(
     null,
   );
@@ -433,6 +435,15 @@ export function ClusterMain() {
             >
               <Plus className='size-3.5' aria-hidden />
               {t('cluster.createCluster')}
+            </Button>
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => setIsK8sDialogOpen(true)}
+            >
+              <Plus className='size-3.5' aria-hidden />
+              {t('cluster.k8s.createK8s')}
             </Button>
           </div>
         }
@@ -715,6 +726,16 @@ export function ClusterMain() {
         open={isDeployWizardOpen}
         onOpenChange={setIsDeployWizardOpen}
         onComplete={() => {
+          void loadClusters();
+        }}
+      />
+
+      {/* K8s 集群创建对话框 / K8s cluster create dialog */}
+      <K8sClusterCreateDialog
+        open={isK8sDialogOpen}
+        onOpenChange={setIsK8sDialogOpen}
+        onSuccess={() => {
+          setIsK8sDialogOpen(false);
           void loadClusters();
         }}
       />

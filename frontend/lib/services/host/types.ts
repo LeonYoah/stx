@@ -140,6 +140,14 @@ export interface HostInfo {
   k8s_namespace?: string;
   /** Kubernetes version / Kubernetes 版本 */
   k8s_version?: string;
+  /** Kubernetes auth mode / K8s 认证方式 */
+  k8s_auth_mode?: 'kubeconfig' | 'token' | 'in_cluster';
+  /** Whether kubeconfig is stored (never returns plaintext) / 是否已存 kubeconfig（永不回明文） */
+  has_k8s_kubeconfig?: boolean;
+  /** Whether token is stored / 是否已存 token */
+  has_k8s_token?: boolean;
+  /** Skip TLS verification / 跳过 TLS 校验 */
+  k8s_insecure_skip_tls?: boolean;
 
   /** Creation time / 创建时间 */
   created_at: string;
@@ -183,6 +191,32 @@ export interface CreateHostRequest {
   k8s_kubeconfig?: string;
   /** Service account token / 服务账户令牌 */
   k8s_token?: string;
+  /** Auth mode / 认证方式 */
+  k8s_auth_mode?: 'kubeconfig' | 'token' | 'in_cluster';
+  /** CA certificate PEM / CA 证书 PEM */
+  k8s_ca_cert?: string;
+  /** Skip TLS verification / 跳过 TLS 校验 */
+  k8s_insecure_skip_tls?: boolean;
+}
+
+/**
+ * RBAC precheck item returned by test-connection / test-connection 返回的 RBAC 预检项
+ */
+export interface K8sRBACCheckItem {
+  resource: string;
+  verb: string;
+  allowed: boolean;
+}
+
+/**
+ * K8s connectivity probe result / K8s 连通性体检结果
+ */
+export interface K8sTestConnectionResult {
+  connected: boolean;
+  server_version?: string;
+  message?: string;
+  rbac: K8sRBACCheckItem[];
+  elapsed_ms: number;
 }
 
 /**
@@ -218,6 +252,12 @@ export interface UpdateHostRequest {
   k8s_kubeconfig?: string;
   /** Service account token / 服务账户令牌 */
   k8s_token?: string;
+  /** Auth mode / 认证方式 */
+  k8s_auth_mode?: 'kubeconfig' | 'token' | 'in_cluster';
+  /** CA certificate PEM / CA 证书 PEM */
+  k8s_ca_cert?: string;
+  /** Skip TLS verification / 跳过 TLS 校验 */
+  k8s_insecure_skip_tls?: boolean;
 }
 
 /**

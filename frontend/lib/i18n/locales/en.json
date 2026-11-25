@@ -102,7 +102,8 @@
       "next": "Next item"
     },
     "searchClear": "Clear search",
-    "dragToReorder": "Drag to reorder"
+    "dragToReorder": "Drag to reorder",
+    "pleaseSelect": "Please select"
   },
   "apiErrors": {
     "network": {
@@ -1188,7 +1189,21 @@
     "batchDelete": "Delete selected",
     "batchDeleteConfirmTitle": "Delete selected hosts?",
     "batchDeleteConfirmDesc": "{count, plural, one {This only removes the control-plane record for # host; it does not uninstall the Agent or node files on that host. This cannot be undone.} other {This only removes the control-plane records for # hosts; it does not uninstall the Agent or node files on those hosts. This cannot be undone.}}",
-    "batchResult": "{ok} succeeded, {skipped} skipped, {failed} failed"
+    "batchResult": "{ok} succeeded, {skipped} skipped, {failed} failed",
+    "k8sAuthMode": "Auth Mode",
+    "k8sCaCert": "CA Certificate",
+    "k8sCaCertPlaceholder": "Optional PEM-format CA certificate",
+    "k8sInsecureSkipTLS": "Skip TLS verification (test only)",
+    "testK8sConnection": "Test Connection",
+    "k8sConnected": "Connected",
+    "k8sConnectFailed": "Connection failed",
+    "k8sServerVersion": "K8s Version",
+    "k8sRbacPrecheck": "RBAC Precheck",
+    "k8sRbacResource": "Resource",
+    "k8sRbacVerb": "Verb",
+    "k8sRbacAllowed": "Allowed",
+    "k8sRbacDenied": "Denied",
+    "k8sCredentialStored": "Stored (leave blank to keep)"
   },
   "cluster": {
     "title": "Cluster Management",
@@ -2035,6 +2050,20 @@
         "diagnostics": "Diagnostics",
         "upgrades": "Upgrade Records"
       }
+    },
+    "k8s": {
+      "createTitle": "Create Kubernetes Cluster",
+      "modeAdopted": "Adopt Existing",
+      "modeDeploy": "One-Click Deploy",
+      "host": "Kubernetes Host",
+      "discovered": "Discovered clusters (click to fill)",
+      "image": "Image",
+      "masterReplicas": "Master Replicas",
+      "workerReplicas": "Worker Replicas",
+      "masterService": "Master Service Name",
+      "clusterService": "Cluster Service Name",
+      "requiredFields": "Name, host and namespace are required",
+      "createK8s": "Create K8s Cluster"
     }
   },
   "audit": {

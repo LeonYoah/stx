@@ -95,6 +95,9 @@ export function CreateHostDialog({
       k8s_namespace: 'default',
       k8s_kubeconfig: '',
       k8s_token: '',
+      k8s_auth_mode: 'kubeconfig' as const,
+      k8s_ca_cert: '',
+      k8s_insecure_skip_tls: false,
     });
     setStep(1);
     setCreatedHost(null);
@@ -161,7 +164,11 @@ export function CreateHostDialog({
         return false;
       }
       // K8s requires either kubeconfig or token / K8s 需要 kubeconfig 或 token
-      if (!formData.k8s_kubeconfig && !formData.k8s_token) {
+      if (formData.k8s_auth_mode === 'kubeconfig' && !formData.k8s_kubeconfig && !formData.k8s_token) {
+        toast.error(t('host.errors.k8sCredentialsRequired'));
+        return false;
+      }
+      if (formData.k8s_auth_mode === 'token' && !formData.k8s_token) {
         toast.error(t('host.errors.k8sCredentialsRequired'));
         return false;
       }
@@ -360,6 +367,24 @@ export function CreateHostDialog({
                     }
                     placeholder='https://kubernetes.default.svc:6443'
                   />
+                  <div className='space-y-2'>
+                    <Label htmlFor='k8s_auth_mode'>{t('host.k8sAuthMode')}</Label>
+                    <select
+                      id='k8s_auth_mode'
+                      className='w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm'
+                      value={formData.k8s_auth_mode || 'kubeconfig'}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          k8s_auth_mode: e.target.value as 'kubeconfig' | 'token' | 'in_cluster',
+                        })
+                      }
+                    >
+                      <option value='kubeconfig'>kubeconfig</option>
+                      <option value='token'>token</option>
+                      <option value='in_cluster'>in_cluster</option>
+                    </select>
+                  </div>
                   <Input
                     id='k8s_namespace'
                     label={t('host.namespace')}
@@ -404,6 +429,30 @@ export function CreateHostDialog({
                       {t('host.k8sCredentialsHint')}
                     </p>
                   </div>
+                  {formData.k8s_auth_mode !== 'in_cluster' ? (
+                    <div className='space-y-2'>
+                      <Label htmlFor='k8s_ca_cert'>{t('host.k8sCaCert')}</Label>
+                      <Textarea
+                        id='k8s_ca_cert'
+                        value={formData.k8s_ca_cert}
+                        onChange={(e) =>
+                          setFormData({...formData, k8s_ca_cert: e.target.value})
+                        }
+                        placeholder={t('host.k8sCaCertPlaceholder')}
+                        rows={2}
+                      />
+                    </div>
+                  ) : null}
+                  <label className='flex items-center gap-2 text-sm'>
+                    <input
+                      type='checkbox'
+                      checked={formData.k8s_insecure_skip_tls || false}
+                      onChange={(e) =>
+                        setFormData({...formData, k8s_insecure_skip_tls: e.target.checked})
+                      }
+                    />
+                    {t('host.k8sInsecureSkipTLS')}
+                  </label>
                 </>
               ) : null}
             </div>

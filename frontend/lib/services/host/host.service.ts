@@ -36,6 +36,7 @@ import {
   CreateHostResponse,
   GetHostResponse,
   UpdateHostResponse,
+  K8sTestConnectionResult,
   GetInstallCommandResponse,
   InstallCommandData,
 } from './types';
@@ -343,4 +344,45 @@ export class HostService extends BaseService {
       return {success: false, error: errorMessage};
     }
   }
+
+  /**
+   * Run read-only K8s connectivity probe (version + RBAC precheck) / 执行只读 K8s 连通性体检（版本+RBAC 预检）
+   */
+  static async testK8sConnection(hostId: number): Promise<K8sTestConnectionResult> {
+    const response = await apiClient.post<{error_msg: string; data: K8sTestConnectionResult}>(
+      `${this.basePath}/${hostId}/test-connection`,
+      {},
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data;
+  }
+
+  /**
+   * List namespaces visible to this host / 列出该主机可见的 Namespace
+   */
+  static async listK8sNamespaces(hostId: number): Promise<string[]> {
+    const response = await apiClient.get<{error_msg: string; data: string[]}>(
+      `${this.basePath}/${hostId}/k8s/namespaces`,
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data || [];
+  }
+
+  /**
+   * Discover SeaTunnel clusters in a namespace / 发现 Namespace 下的 SeaTunnel 集群
+   */
+  static async discoverK8sClusters(hostId: number, namespace: string): Promise<unknown[]> {
+    const response = await apiClient.get<{error_msg: string; data: unknown[]}>(
+      `${this.basePath}/${hostId}/k8s-discover?namespace=${encodeURIComponent(namespace)}`,
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data || [];
+  }
+
 }

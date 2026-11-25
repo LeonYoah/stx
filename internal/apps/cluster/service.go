@@ -761,7 +761,10 @@ func (s *Service) Delete(ctx context.Context, id uint, forceRemoveInstallDir boo
 
 	// Check if cluster has running tasks (deploying or running status)
 	// 检查集群是否有运行中的任务（部署中或运行中状态）
-	if cluster.Status == ClusterStatusDeploying || cluster.Status == ClusterStatusRunning {
+	// K8s 集群不适用该防护：其删除路径即 unbind/uninstall 资源治理，不存在 Agent 进程孤儿问题。
+	// K8s clusters skip this guard: their delete path IS the unbind/uninstall resource
+	// lifecycle, and there are no orphaned agent processes to protect.
+	if !cluster.IsKubernetes() && (cluster.Status == ClusterStatusDeploying || cluster.Status == ClusterStatusRunning) {
 		return ErrClusterHasRunningTask
 	}
 

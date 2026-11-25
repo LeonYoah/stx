@@ -36,7 +36,7 @@ import {STXLogo, STXLogoDark} from '@/components/icons/logo';
 function useInteractivePanel(panelRef: RefObject<HTMLElement | null>) {
   useEffect(() => {
     const panel = panelRef.current;
-    if (!panel) return;
+    if (!panel) {return;}
 
     let raf = 0;
     const current = {x: 50, y: 50, nx: 0, ny: 0};
@@ -84,7 +84,7 @@ function useInteractivePanel(panelRef: RefObject<HTMLElement | null>) {
     panel.addEventListener('pointerleave', onLeave, {passive: true});
 
     return () => {
-      if (raf) window.cancelAnimationFrame(raf);
+      if (raf) {window.cancelAnimationFrame(raf);}
       panel.removeEventListener('pointermove', onMove);
       panel.removeEventListener('pointerleave', onLeave);
     };
@@ -115,12 +115,12 @@ function useTypewriter(
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    if (!words.length) return;
+    if (!words.length) {return;}
     const currentWord = words[wordIndex % words.length];
 
     let delay = deleting ? deleteSpeed : typingSpeed;
-    if (!deleting && display === currentWord) delay = hold;
-    if (deleting && display === '') delay = nextHold;
+    if (!deleting && display === currentWord) {delay = hold;}
+    if (deleting && display === '') {delay = nextHold;}
 
     const timer = window.setTimeout(() => {
       if (!deleting) {

@@ -269,8 +269,8 @@ export function TaskScheduleSidebarPanel({
       {/* Cron expression editor */}
       <CronExpressionEditor
           expression={value.cron_expr}
-          onExpressionChange={(cron_expr) =>
-            onChange({...value, cron_expr, timezone: timezoneValue})
+          onExpressionChange={(cronExpr) =>
+            onChange({...value, cron_expr: cronExpr, timezone: timezoneValue})
           }
           timezone={timezoneValue}
           onTimezoneChange={(timezone) =>

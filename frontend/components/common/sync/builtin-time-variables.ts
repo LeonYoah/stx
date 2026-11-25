@@ -207,10 +207,10 @@ export function resolveBuiltinPreviewExpression(
   }
   if (/^add_months\((.+),(.+)\)$/.test(trimmed)) {
     const match = trimmed.match(/^add_months\((.+),(.+)\)$/);
-    if (!match) return null;
+    if (!match) {return null;}
     const format = match[1].trim();
     const offset = Number(match[2].trim());
-    if (!Number.isFinite(offset)) return null;
+    if (!Number.isFinite(offset)) {return null;}
     return formatBuiltinPreviewDate(addMonths(now, offset), format);
   }
   if (/^this_day\((.+)\)$/.test(trimmed)) {
@@ -219,14 +219,14 @@ export function resolveBuiltinPreviewExpression(
   }
   if (/^last_day\((.+)\)$/.test(trimmed)) {
     const match = trimmed.match(/^last_day\((.+)\)$/);
-    if (!match) return null;
+    if (!match) {return null;}
     const prev = new Date(now.getTime());
     prev.setDate(prev.getDate() - 1);
     return formatBuiltinPreviewDate(prev, match[1].trim());
   }
   if (/^month_first_day\((.+),(.+)\)$/.test(trimmed)) {
     const match = trimmed.match(/^month_first_day\((.+),(.+)\)$/);
-    if (!match) return null;
+    if (!match) {return null;}
     const target = addMonths(now, Number(match[2].trim()));
     const first = new Date(
       target.getFullYear(),
@@ -240,7 +240,7 @@ export function resolveBuiltinPreviewExpression(
   }
   if (/^month_last_day\((.+),(.+)\)$/.test(trimmed)) {
     const match = trimmed.match(/^month_last_day\((.+),(.+)\)$/);
-    if (!match) return null;
+    if (!match) {return null;}
     const target = addMonths(now, Number(match[2].trim()) + 1);
     const last = new Date(
       target.getFullYear(),
@@ -254,14 +254,14 @@ export function resolveBuiltinPreviewExpression(
   }
   if (/^week_first_day\((.+),(.+)\)$/.test(trimmed)) {
     const match = trimmed.match(/^week_first_day\((.+),(.+)\)$/);
-    if (!match) return null;
+    if (!match) {return null;}
     const target = new Date(now.getTime());
     target.setDate(target.getDate() + Number(match[2].trim()) * 7);
     return formatBuiltinPreviewDate(startOfWeek(target), match[1].trim());
   }
   if (/^week_last_day\((.+),(.+)\)$/.test(trimmed)) {
     const match = trimmed.match(/^week_last_day\((.+),(.+)\)$/);
-    if (!match) return null;
+    if (!match) {return null;}
     const target = new Date(now.getTime());
     target.setDate(target.getDate() + Number(match[2].trim()) * 7);
     const end = startOfWeek(target);
@@ -273,7 +273,7 @@ export function resolveBuiltinPreviewExpression(
     /^year_week\((.+),(.+)\)$/.test(trimmed)
   ) {
     const match = trimmed.match(/^year_week\((.+?)(?:,(.+))?\)$/);
-    if (!match) return null;
+    if (!match) {return null;}
     const format = match[1].trim();
     const weekStart = match[2] ? Number(match[2].trim()) : 1;
     const result = yearWeek(now, Number.isFinite(weekStart) ? weekStart : 1);

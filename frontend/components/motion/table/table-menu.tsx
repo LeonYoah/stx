@@ -69,10 +69,10 @@ export function TableMenu({
   const open = coords !== null;
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {return;}
     const close = () => setCoords(null);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (e.key === "Escape") {close();}
     };
     // Close on any scroll (the trigger moves) or resize; fixed coords go stale.
     window.addEventListener("scroll", close, true);
@@ -91,7 +91,7 @@ export function TableMenu({
       return;
     }
     const el = triggerRef.current;
-    if (!el) return;
+    if (!el) {return;}
     const r = el.getBoundingClientRect();
     setCoords({
       top: r.bottom + 4,

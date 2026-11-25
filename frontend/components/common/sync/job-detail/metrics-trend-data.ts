@@ -306,7 +306,7 @@ export const LIFETIME_TAIL_MS = 30 * 1000;
 export type TrendWindow = {start: number; end: number};
 
 const parseInstant = (value?: string | null): number | null => {
-  if (!value) return null;
+  if (!value) {return null;}
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : null;
 };
@@ -323,9 +323,9 @@ export function jobLifetimeWindow(
   running: boolean,
   now: number,
 ): TrendWindow | null {
-  if (!job) return null;
+  if (!job) {return null;}
   const start = parseInstant(job.started_at) ?? parseInstant(job.created_at);
-  if (start == null || start >= now) return null;
+  if (start == null || start >= now) {return null;}
   const after = (ms: number | null) => (ms != null && ms > start ? ms : null);
   const endBase =
     after(parseInstant(job.finished_at)) ??

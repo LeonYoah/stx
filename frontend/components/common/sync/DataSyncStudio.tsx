@@ -18,6 +18,7 @@
 'use client';
 
 import {useMonaco} from '@monaco-editor/react';
+import type * as Monaco from 'monaco-editor';
 import dynamic from 'next/dynamic';
 import {useSearchParams} from 'next/navigation';
 import {useTranslations} from 'next-intl';
@@ -32,28 +33,22 @@ import {
   useRef,
   useState,
   type MouseEvent,
-  type ReactNode,
 } from 'react';
 import {useTheme} from 'next-themes';
 import {toast} from '@/lib/toast';
 import {
-  AlertTriangle,
   Check,
-  Copy,
   ChevronRight,
   ChevronsUpDown,
   Columns2,
-  ExternalLink,
   Cpu,
   Folder,
-  FolderOpen,
   FolderPlus,
   FileCode2,
   FilePlus2,
   GitBranch,
   FileStack,
   Tags,
-  BarChart3,
   Maximize2,
   Minimize2,
   PanelLeftClose,
@@ -67,27 +62,16 @@ import {
   Save,
   Settings,
   Square,
-  Trash2,
   Upload,
   GitCompareArrows,
   LayoutPanelTop,
   Globe2,
   MoreHorizontal,
-  Pencil,
   Plus,
-  Minus,
   Loader2,
   Eye,
   Clock3,
-  Shield,
-  Users,
-  UserCheck,
-  Share2,
-  Workflow,
-  WandSparkles,
-  Code2,
   HelpCircle,
-  X,
 } from 'lucide-react';
 import './studio-chrome.css';
 import {Button as ArcButton} from '@/components/arc/button/button';
@@ -111,7 +95,6 @@ import {cn} from '@/lib/utils';
 import type {ClusterInfo} from '@/lib/services/cluster';
 import type {NotificationRecipientUser} from '@/lib/services/monitoring';
 import type {
-  RuntimeStorageCheckpointInspectJobConfig,
   RuntimeStorageCheckpointInspectResult,
 } from '@/lib/services/cluster/types';
 import type {
@@ -119,12 +102,10 @@ import type {
   SyncCuratedSection,
   SyncCuratedTemplateView,
   SyncDagResult,
-  SyncFormat,
   SyncGlobalVariable,
   SyncJobSummary,
   SyncPluginFactoryInfo,
   SyncPluginType,
-  SyncPreviewDataset,
   SyncPreviewSnapshot,
   SyncTask,
   SyncTaskAccessLevel,
@@ -136,13 +117,8 @@ import type {
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
-import {
-  Command,
-  CommandEmpty,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
+
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -153,7 +129,6 @@ import {
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {HELP_HINT_DELAY_MS, HelpHint} from '@/components/common/HelpHint';
-import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {
   Select,
@@ -162,14 +137,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+
+
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {JobDetailDialog} from '@/components/common/sync/job-detail/JobDetailDialog';
 import type {JobDetailTab} from '@/components/common/sync/job-detail/types';
@@ -193,15 +162,11 @@ import {
 } from '@/components/common/sync/TaskScheduleSidebarPanel';
 import {GlobalVariableDialog} from './GlobalVariableDialog';
 import {GlobalVariablesSidebarPanel} from './GlobalVariablesSidebarPanel';
-import {
-  BUILTIN_TIME_VARIABLE_ITEMS,
-  resolveBuiltinPreviewExpression,
-} from './builtin-time-variables';
+
+
 import {
   CustomVariableDialog,
-  type CustomVariableItem,
 } from './CustomVariableDialog';
-import {CustomVariablesSection} from './CustomVariablesSection';
 import type {CreateSyncGlobalVariableRequest} from '@/lib/services/sync';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
@@ -232,7 +197,6 @@ import {SettingsSidebarPanel} from './SettingsSidebarPanel';
 import {CuratedTemplatesManagePanel} from './CuratedTemplatesManagePanel';
 import {
   VersionSidebarPanel,
-  SimplePagination,
 } from './VersionSidebarPanel';
 import {
   ConsolePanel,
@@ -258,31 +222,23 @@ import { StudioSharePopover } from './StudioSharePopover';
 import { StudioQuickOpenDialog } from './StudioQuickOpenDialog';
 import {
   type BottomConsoleTab,
-  type CheckpointActionViewModel,
-  type CheckpointSourceSummary,
-  type CheckpointSubtaskViewRow,
   type EditorDraftState,
   type EditorState,
   type ExecutionMode,
   type LogFilterMode,
-  type MetricGroupKey,
   type OpenFileTab,
-  type OptionMetadataMap,
   type PendingActionKind,
   type PersistedWorkspaceTabs,
   type PluginEnumCatalogMap,
   type PreviewRunDialogState,
   type RightSidebarTab,
-  type TemplatePluginItem,
   type TreeContextMenuState,
   type TreeDialogState,
   type TreeFilterScope,
   type UserFacingErrorState,
-  type VariableDraft,
   type VariableRow,
   EMPTY_EDITOR,
   ENV_OPTION_METADATA,
-  WORKSPACE_NAME_PATTERN,
   WORKSPACE_TABS_STORAGE_KEY,
   DEFAULT_STUDIO_LAYOUT_PREFS,
   STUDIO_CONSOLE_HEIGHT_COMPACT,
@@ -298,58 +254,31 @@ import {
   resolveStudioTopbarTier,
   type StudioViewportMode,
   writeStudioLayoutPrefs,
-  buildCheckpointActionViewModels,
   buildCheckpointInspectJobConfig,
-  buildCheckpointInspectSummary,
-  buildCheckpointSubtaskRows,
   buildCopiedWorkspaceName,
-  buildDisplayLogLines,
   buildInsertedTemplateContent,
   buildInsertedCuratedContent,
   buildTaskPayloadFromEditor,
-  buildMetricGroups,
   hasWorkbenchUnsavedRisk,
   type DraftSaveStatus,
-  buildMetricHighlights,
-  buildPairedMetricRows,
-  buildPerTableMetricRows,
   buildTemplatePluginItems,
   canRecoverFromJob,
-  classifyMetricGroup,
   collectFolderIds,
   detectVariables,
   ensureSyncHoconLanguage,
-  extractCheckpointFileIdentity,
   extractEditorState,
   extractEditorStateFromTreeNode,
-  extractJobMetricSummary,
-  extractPreviewColumns,
-  extractPreviewRows,
   extractTaskScheduleValue,
   extractVariableRowsFromDefinition,
   filterTree,
-  findTopLevelBlockInsertOffset,
   findTreeNode,
   flattenTree,
-  formatCellValue,
-  formatCheckpointFieldValue,
-  formatJobDateTime,
-  formatJobDuration,
   formatMetadataValue,
   formatValueConstraintHints,
-  formatMetricCompactValue,
-  formatMetricDisplayValue,
-  formatMetricValue,
-  formatMetricWithUnit,
-  formatSizeBytes,
   formatSyncUserFacingError,
   fromVariableRows,
   fromVariableTypes,
-  getCheckpointEnumBadgeClass,
-  getCheckpointStatusBadgeClass,
   getDisplayJobLifecycleStatus,
-  getEngineAPIMode,
-  getEngineEndpointLabel,
   getExecutionMode,
   getObservabilityMode,
   getTaskTimeoutMinutes,
@@ -357,41 +286,22 @@ import {
   isSubmitOutcomeUnknown,
   type ObservabilityMode,
   type TaskTimeoutKey,
-  getJobStatusBadgeClass,
-  getJobStatusLabel,
-  getJobSubmittedScript,
-  getLogLineClass,
-  getMetricValue,
   getNodeBreadcrumbSegments,
   getPendingActionLabel,
-  getPreviewRowKindBadgeClass,
-  getRunModeLabel,
   getSyncJobClusterId,
   hasDuplicateWorkspaceName,
   isCursorInsideValueRegion,
   isEditorDraftDirty,
   studioSaveSegment,
   isJobLifecycleActive,
-  isJobLifecycleTerminal,
   isReservedBuiltinVariableKey,
   isTreeDescendant,
   listMoveTargets,
-  listSiblingNames,
-  normalizeCheckpointActionIdentity,
-  normalizeEditorForCompare,
-  normalizeJobLifecycleStatus,
-  normalizePairingTableKey,
-  normalizePluginIdentity,
-  normalizeStoredScriptContent,
-  normalizeVariableRowsForCompare,
-  parseMetricNumber,
   patchTreeNode,
-  resolveDefaultPreviewHTTPSinkURL,
   resolveEditorPluginContext,
   resolveEnumSuggestRange,
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
-  resolveFolderParent,
   findSyncJobsByIdInput,
   isCursorAtFinishedEnumValue,
   resolveOptionAssignmentContext,
@@ -400,11 +310,7 @@ import {
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
   splitLogLines,
-  summarizeCheckpointSourceState,
-  summarizeCheckpointSubtaskMetrics,
-  toCheckpointNumber,
   toObject,
-  toStringMetricMap,
   toVariableRows,
   validateCustomVariableRows,
   validateWorkspaceName,
@@ -484,17 +390,17 @@ export function DataSyncStudio() {
   }, []);
 
   const monacoFromHook = useMonaco();
-  const editorInstanceRef = useRef<any>(null);
-  const monacoInstanceRef = useRef<any>(null);
-  const completionDisposableRef = useRef<any>(null);
-  const hoverDisposableRef = useRef<any>(null);
-  const contentChangeDisposableRef = useRef<any>(null);
-  const modelContentDisposableRef = useRef<any>(null);
+  const editorInstanceRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const monacoInstanceRef = useRef<typeof Monaco | null>(null);
+  const completionDisposableRef = useRef<Monaco.IDisposable | null>(null);
+  const hoverDisposableRef = useRef<Monaco.IDisposable | null>(null);
+  const contentChangeDisposableRef = useRef<Monaco.IDisposable | null>(null);
+  const modelContentDisposableRef = useRef<Monaco.IDisposable | null>(null);
   const optionRuleMarkersTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-  const cursorPositionChangeDisposableRef = useRef<any>(null);
-  const cursorSelectionChangeDisposableRef = useRef<any>(null);
+  const cursorPositionChangeDisposableRef = useRef<Monaco.IDisposable | null>(null);
+  const cursorSelectionChangeDisposableRef = useRef<Monaco.IDisposable | null>(null);
   const lastSuggestTriggerRef = useRef('');
   const enumCompletionCommandIdRef = useRef('sync.applyEnumCompletion');
   const enumCompletionCommandRegisteredRef = useRef(false);
@@ -504,6 +410,7 @@ export function DataSyncStudio() {
     startOffset: number;
     endOffset: number;
   } | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 插件 schema 为后端动态 JSON / dynamic plugin schema JSON
   const pluginSchemaCacheRef = useRef<Record<string, Record<string, any>>>({});
   const pluginListCacheRef = useRef<Record<string, SyncPluginFactoryInfo[]>>(
     {},
@@ -517,6 +424,7 @@ export function DataSyncStudio() {
     (
       pluginType: SyncPluginType,
       factoryIdentifier: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 动态 schema JSON / dynamic schema JSON
     ) => Promise<Record<string, any>>
   >(async () => ({}));
   const [clusters, setClusters] = useState<ClusterInfo[]>([]);
@@ -1712,6 +1620,7 @@ export function DataSyncStudio() {
         factory_identifier: factoryIdentifier,
         include_supplement: true,
       });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 插件选项为动态 schema JSON / dynamic schema JSON
       const mapped: Record<string, any> = Object.fromEntries(
         (result.options || []).map((item) => [item.key, item]),
       );
@@ -1755,6 +1664,7 @@ export function DataSyncStudio() {
         __env__: Object.fromEntries(
           (result.env_options || []).map((item) => [item.key, item]),
         ),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- env 选项动态键控 / dynamic env options shape
       } as any;
     }
     enumCatalogCacheRef.current[cacheKey] = mapped;
@@ -2460,7 +2370,7 @@ export function DataSyncStudio() {
     }
     const content = model.getValue?.() || '';
     const snapshots = extractPluginBlockSnapshots(content);
-    const markers: any[] = [];
+    const markers: Monaco.editor.IMarkerData[] = [];
     for (const snapshot of snapshots) {
       try {
         const schemaMap = await ensurePluginSchemaRef.current(
@@ -2501,10 +2411,10 @@ export function DataSyncStudio() {
     }, 350);
   }, [refreshOptionRuleMarkers]);
 
-  const registerEditorAssistProviders = useCallback((monaco: any) => {
+  const registerEditorAssistProviders = useCallback((monaco: typeof Monaco) => {
     monacoInstanceRef.current = monaco;
     if (typeof window !== 'undefined') {
-      (window as typeof window & {monaco?: any}).monaco = monaco;
+      (window as typeof window & {monaco?: typeof Monaco}).monaco = monaco;
     }
     if (!monacoLanguageReadyRef.current) {
       ensureSyncHoconLanguage(monaco);
@@ -2571,7 +2481,7 @@ export function DataSyncStudio() {
     const completionProvider = {
       triggerCharacters: ['=', ' ', '"', '{', '}', '.', '_'],
       provideCompletionItems: async (
-        model: any,
+        model: Monaco.editor.ITextModel,
         position: {lineNumber: number; column: number},
       ) => {
         const lineContent = model.getLineContent(position.lineNumber);
@@ -2673,6 +2583,7 @@ export function DataSyncStudio() {
           fullContent,
           position.lineNumber,
         );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 选项元数据为动态 schema / dynamic option metadata
         let metadata: any = null;
         const enumCatalog =
           enumCatalogCacheRef.current[currentClusterIdRef.current] || {};
@@ -2783,7 +2694,7 @@ export function DataSyncStudio() {
       'sync-hocon',
       {
         provideHover: async (
-          model: any,
+          model: Monaco.editor.ITextModel,
           position: {lineNumber: number; column: number},
         ) => {
           const lineContent = model.getLineContent(position.lineNumber);
@@ -2795,7 +2706,9 @@ export function DataSyncStudio() {
             return null;
           }
           const optionKey = optionKeyInfo.key;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 选项元数据为动态 schema / dynamic option metadata
           let metadata: any = ENV_OPTION_METADATA[optionKey] || null;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 插件 schema 动态 JSON / dynamic schema JSON
           let schemaMeta: any = null;
           const context = resolveEditorPluginContext(
             model.getValue(),
@@ -2895,14 +2808,14 @@ export function DataSyncStudio() {
   }, []);
 
   const handleEditorBeforeMount = useCallback(
-    (monaco: any) => {
+    (monaco: typeof Monaco) => {
       registerEditorAssistProviders(monaco);
     },
     [registerEditorAssistProviders],
   );
 
   const handleEditorMount = useCallback(
-    (instance: any, monaco: any) => {
+    (instance: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
       editorInstanceRef.current = instance;
       registerEditorAssistProviders(monaco);
       // 选区右键：另存为精选模板
@@ -2926,7 +2839,10 @@ export function DataSyncStudio() {
       modelContentDisposableRef.current?.dispose?.();
       cursorPositionChangeDisposableRef.current?.dispose?.();
       cursorSelectionChangeDisposableRef.current?.dispose?.();
-      contentChangeDisposableRef.current = instance.onDidType?.(
+      const typingAwareInstance = instance as Monaco.editor.IStandaloneCodeEditor & {
+        onDidType?: (listener: (typedText: string) => void) => Monaco.IDisposable;
+      };
+      contentChangeDisposableRef.current = typingAwareInstance.onDidType?.(
         (typedText: string) => {
           const position = instance.getPosition?.();
           const model = instance.getModel?.();
@@ -2960,7 +2876,7 @@ export function DataSyncStudio() {
             );
           }, 0);
         },
-      );
+      ) ?? null;
       modelContentDisposableRef.current = instance.onDidChangeModelContent?.(
         () => {
           scheduleOptionRuleMarkersRefresh();
@@ -2968,7 +2884,7 @@ export function DataSyncStudio() {
       );
       scheduleOptionRuleMarkersRefresh();
       cursorPositionChangeDisposableRef.current =
-        instance.onDidChangeCursorPosition?.((event: any) => {
+        instance.onDidChangeCursorPosition?.((event: Monaco.editor.ICursorPositionChangedEvent) => {
           const model = instance.getModel?.();
           const position = event?.position;
           if (!model || !position) {
@@ -2992,7 +2908,7 @@ export function DataSyncStudio() {
           }, 0);
         });
       cursorSelectionChangeDisposableRef.current =
-        instance.onDidChangeCursorSelection?.((event: any) => {
+        instance.onDidChangeCursorSelection?.((event: Monaco.editor.ICursorSelectionChangedEvent) => {
           const model = instance.getModel?.();
           const position = event?.selection?.getPosition?.();
           if (!model || !position) {
@@ -3522,7 +3438,7 @@ export function DataSyncStudio() {
 
   const handleInlineCreateCommit = useCallback(
     async (name: string) => {
-      if (!creatingNode) return;
+      if (!creatingNode) {return;}
       const trimmed = name.trim();
       const nameError = validateWorkspaceName(trimmed, t);
       if (nameError) {
@@ -3573,23 +3489,16 @@ export function DataSyncStudio() {
     [creatingNode, editor.clusterId, loadWorkspace, selectedNodeId, syncOpenTabs, t, tree],
   );
 
-  const handleInlineDelete = useCallback(
-    (node: SyncTaskTreeNode) => {
-      openTreeDialog('delete', node);
-    },
-    [openTreeDialog],
-  );
-
   const handleDragStart = useCallback((node: SyncTaskTreeNode) => {
     setDraggingNodeId(node.id);
   }, []);
 
   const handleDragOver = useCallback(
     (targetFolder: SyncTaskTreeNode) => {
-      if (!draggingNodeId || draggingNodeId === targetFolder.id) return;
+      if (!draggingNodeId || draggingNodeId === targetFolder.id) {return;}
       const draggedNode = findTreeNode(tree, draggingNodeId);
-      if (!draggedNode) return;
-      if (draggedNode.parent_id === targetFolder.id) return;
+      if (!draggedNode) {return;}
+      if (draggedNode.parent_id === targetFolder.id) {return;}
       if (
         draggedNode.node_type === 'folder' &&
         isTreeDescendant(tree, draggedNode.id, targetFolder.id)
@@ -3613,10 +3522,10 @@ export function DataSyncStudio() {
   const handleDrop = useCallback(
     async (targetFolder: SyncTaskTreeNode) => {
       setDragOverFolderId(null);
-      if (!draggingNodeId || draggingNodeId === targetFolder.id) return;
+      if (!draggingNodeId || draggingNodeId === targetFolder.id) {return;}
       const draggedNode = findTreeNode(tree, draggingNodeId);
-      if (!draggedNode) return;
-      if (draggedNode.parent_id === targetFolder.id) return;
+      if (!draggedNode) {return;}
+      if (draggedNode.parent_id === targetFolder.id) {return;}
       if (
         draggedNode.node_type === 'folder' &&
         isTreeDescendant(tree, draggedNode.id, targetFolder.id)
@@ -3966,42 +3875,6 @@ export function DataSyncStudio() {
     }
   };
 
-  const handleValidateConfig = async () => {
-    const actionContext = ensureDraftActionContext(t('validateConfigTitle'));
-    if (!actionContext) {
-      return;
-    }
-    try {
-      const result = await services.sync.validateTask(actionContext.taskId, {
-        draft: actionContext.draft,
-      });
-      setValidationTitle(t('validateConfigTitle'));
-      setValidationResult(result);
-      setValidationOpen(true);
-      // 校验通过时轻提示成功，未通过时详情已在 ValidationDialog 内展示，避免双重弹窗。
-      // Toast success when passed; failure details are shown in ValidationDialog to avoid duplicate popups.
-      if (result.valid) {
-        toast.success(t('validatePassed'));
-      }
-    } catch (error) {
-      const uiError = formatSyncUserFacingError(
-        error,
-        t('validateFailedTitle'),
-        t,
-      );
-      setValidationTitle(uiError.title);
-      setValidationResult({
-        valid: false,
-        errors: [uiError.description],
-        warnings: [],
-        summary: uiError.title,
-      });
-      setValidationOpen(true);
-      // 错误已在 ValidationDialog 居中模态展示，不再重复弹出 toast 气泡，避免双重弹窗。
-      // Error is displayed in the modal ValidationDialog, omit duplicate toast to prevent double popups.
-    }
-  };
-
   const handleTestConnections = async () => {
     if (editor.id && !editor.canEdit) {
       toast.error(t('readOnlyTestConnTooltip'));
@@ -4276,11 +4149,6 @@ export function DataSyncStudio() {
       next[key] = minutes;
     }
     updateEditor('definition', next);
-  };
-
-  const openScheduleDialog = () => {
-    setScheduleDraft(extractTaskScheduleValue(editor.definition || {}));
-    setScheduleDialogOpen(true);
   };
 
   const handleScheduleDraftChange = (value: TaskScheduleValue) => {

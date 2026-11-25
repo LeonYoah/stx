@@ -738,6 +738,7 @@ export function resolveOptionKeyCompletionContext(
  * Rebuild assist schema from Studio cache including __schema_meta__.
  */
 export function toOptionRuleAssistSchema(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Studio schema 缓存为动态 JSON / dynamic schema cache
   cached: Record<string, any> | null | undefined,
 ): OptionRuleAssistSchema {
   if (!cached) {

@@ -20,7 +20,7 @@ import {TrustLevel} from '../core/types';
 /**
  * 项目分发类型
  */
-/* eslint-disable no-unused-vars */
+ 
 export enum DistributionType {
   /** 一码一用 */
   ONE_FOR_EACH = 0,

@@ -85,7 +85,7 @@ function useRootFontSize() {
     const measured = Number.parseFloat(
       getComputedStyle(document.documentElement).fontSize,
     );
-    if (measured > 0) setSize(measured);
+    if (measured > 0) {setSize(measured);}
   }, []);
   return size;
 }
@@ -99,12 +99,12 @@ function resolveColumnWidth(
   width: string | undefined,
   rootFontSize: number,
 ): number | null {
-  if (!width) return null;
+  if (!width) {return null;}
   const value = Number.parseFloat(width);
-  if (!Number.isFinite(value)) return null;
-  if (width.endsWith("px")) return value;
+  if (!Number.isFinite(value)) {return null;}
+  if (width.endsWith("px")) {return value;}
   // rem is the other absolute length the repo writes.
-  if (width.endsWith("rem")) return value * rootFontSize;
+  if (width.endsWith("rem")) {return value * rootFontSize;}
   return null;
 }
 
@@ -226,9 +226,9 @@ export function Table<T>({
       Boolean(onColumnRename) || (!column.cell && Boolean(column.editable));
     const total = orderedColumns.reduce((sum, column) => {
       const resized = widths[column.key];
-      if (resized != null) return sum + resized;
+      if (resized != null) {return sum + resized;}
       const declared = resolveColumnWidth(column.width, rootFontSize);
-      if (declared != null) return sum + declared;
+      if (declared != null) {return sum + declared;}
       return (
         sum +
         (inputOnly(column)
@@ -250,11 +250,11 @@ export function Table<T>({
   // loading; the guard resets when the load completes.
   const endReachedRef = useRef(false);
   useEffect(() => {
-    if (!loading) endReachedRef.current = false;
+    if (!loading) {endReachedRef.current = false;}
   }, [loading]);
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (!el || !onEndReached || loading || endReachedRef.current) return;
+    if (!el || !onEndReached || loading || endReachedRef.current) {return;}
     if (el.scrollHeight - el.scrollTop - el.clientHeight < rowHeight * 4) {
       endReachedRef.current = true;
       onEndReached();
@@ -265,12 +265,12 @@ export function Table<T>({
   // to the portal handle without the column deactivating.
   const deactivateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activateColumn = useCallback((key: string) => {
-    if (deactivateTimer.current) clearTimeout(deactivateTimer.current);
+    if (deactivateTimer.current) {clearTimeout(deactivateTimer.current);}
     deactivateTimer.current = null;
     setActiveColumn(key);
   }, []);
   const deactivateColumn = useCallback(() => {
-    if (deactivateTimer.current) clearTimeout(deactivateTimer.current);
+    if (deactivateTimer.current) {clearTimeout(deactivateTimer.current);}
     deactivateTimer.current = setTimeout(() => setActiveColumn(null), 100);
   }, []);
 
@@ -280,18 +280,18 @@ export function Table<T>({
   );
   const rowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activateRow = useCallback((id: string, index: number) => {
-    if (rowTimer.current) clearTimeout(rowTimer.current);
+    if (rowTimer.current) {clearTimeout(rowTimer.current);}
     rowTimer.current = null;
     setActiveRow({ id, index });
   }, []);
   const deactivateRow = useCallback(() => {
-    if (rowTimer.current) clearTimeout(rowTimer.current);
+    if (rowTimer.current) {clearTimeout(rowTimer.current);}
     rowTimer.current = setTimeout(() => setActiveRow(null), 100);
   }, []);
   useEffect(
     () => () => {
-      if (deactivateTimer.current) clearTimeout(deactivateTimer.current);
-      if (rowTimer.current) clearTimeout(rowTimer.current);
+      if (deactivateTimer.current) {clearTimeout(deactivateTimer.current);}
+      if (rowTimer.current) {clearTimeout(rowTimer.current);}
     },
     [],
   );
@@ -395,8 +395,8 @@ export function Table<T>({
                     <tr
                       key={entry.id}
                       ref={(el) => {
-                        if (el) rowRefs.current[entry.id] = el;
-                        else delete rowRefs.current[entry.id];
+                        if (el) {rowRefs.current[entry.id] = el;}
+                        else {delete rowRefs.current[entry.id];}
                       }}
                       data-selected={isSelected}
                       style={{ height: rowHeight }}

@@ -46,7 +46,7 @@ const subscribeToday = (notify: () => void) => {
     const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
     timer = window.setTimeout(() => { notify(); schedule(); }, nextMidnight.getTime() - now.getTime() + 1000);
   };
-  const onVisible = () => { if (document.visibilityState === "visible") notify(); };
+  const onVisible = () => { if (document.visibilityState === "visible") {notify();} };
   schedule();
   document.addEventListener("visibilitychange", onVisible);
   window.addEventListener("focus", notify);

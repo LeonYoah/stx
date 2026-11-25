@@ -23,7 +23,7 @@
  * 本文件定义所有与集群配置管理相关的类型。
  */
 
-/* eslint-disable no-unused-vars */
+ 
 /**
  * Config type enumeration
  * 配置类型枚举
@@ -43,7 +43,7 @@ export enum ConfigType {
   JVM_MASTER_OPTIONS = 'jvm_master_options',
   JVM_WORKER_OPTIONS = 'jvm_worker_options',
 }
-/* eslint-enable no-unused-vars */
+ 
 
 /**
  * Config type display names

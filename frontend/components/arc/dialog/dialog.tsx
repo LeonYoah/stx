@@ -53,7 +53,7 @@ const OpenContext = createContext<boolean | null>(null);
 export function Dialog({ open: openProp, defaultOpen = false, onOpenChange, ...props }: ComponentPropsWithoutRef<typeof DialogPrimitive.Root>) {
   const [uncontrolled, setUncontrolled] = useState(defaultOpen);
   const open = openProp ?? uncontrolled;
-  const setOpen = useCallback((next: boolean) => { if (openProp === undefined) setUncontrolled(next); onOpenChange?.(next); }, [openProp, onOpenChange]);
+  const setOpen = useCallback((next: boolean) => { if (openProp === undefined) {setUncontrolled(next);} onOpenChange?.(next); }, [openProp, onOpenChange]);
   return <OpenContext.Provider value={open}><DialogPrimitive.Root {...props} open={open} onOpenChange={setOpen}/></OpenContext.Provider>;
 }
 
@@ -75,7 +75,7 @@ const leave: Transition = { duration: motionTokens.duration.fast, ease: [...moti
 /** When the title or description changes while open, the new copy rises in and the old copy leaves upward. */
 function SwapText({ text }: { text: ReactNode }) {
   const reduced = useReducedMotion();
-  if (typeof text !== "string") return <span className={styles.swap}>{text}</span>;
+  if (typeof text !== "string") {return <span className={styles.swap}>{text}</span>;}
   return <AnimatePresence mode="popLayout" initial={false}>
     <motion.span key={text} className={styles.swap} initial={reduced ? false : { opacity: 0, y: "0.3em", filter: `blur(${motionTokens.blur.soft}px)` }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }} exit={reduced ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, y: "-0.3em", filter: `blur(${motionTokens.blur.subtle}px)`, transition: { duration: motionTokens.duration.fast, ease: [...motionTokens.ease.standard] } }} transition={{ duration: motionTokens.duration.standard, ease: [...motionTokens.ease.enter] }}>{text}</motion.span>
   </AnimatePresence>;
@@ -90,7 +90,7 @@ export function DialogContent({ title, description, showCloseButton = true, head
   useLayoutEffect(() => { change.current = { open, at: performance.now() }; }, [open]);
   const pressOutside: DialogContentProps["onPointerDownOutside"] = event => {
     onPointerDownOutside?.(event);
-    if (open !== null && (!change.current.open || event.detail.originalEvent.timeStamp < change.current.at)) event.preventDefault();
+    if (open !== null && (!change.current.open || event.detail.originalEvent.timeStamp < change.current.at)) {event.preventDefault();}
   };
   const classes = [styles.content, className].filter(Boolean).join(" ");
   const headerClasses = [styles.header, headerClassName].filter(Boolean).join(" ");
@@ -100,10 +100,10 @@ export function DialogContent({ title, description, showCloseButton = true, head
     <div className={bodyClasses}>{children}</div>
   </>;
   // Under a bare Radix root the open state is unknown here, so CSS keyframes keyed off data-state animate the layers instead.
-  if (open === null) return <DialogPrimitive.Portal>
+  if (open === null) {return <DialogPrimitive.Portal>
     <DialogPrimitive.Overlay className={`${styles.overlay} ${styles.keyframes}`}/>
     <DialogPrimitive.Content {...props} onPointerDownOutside={pressOutside} className={`${classes} ${styles.keyframes}`}>{inner}</DialogPrimitive.Content>
-  </DialogPrimitive.Portal>;
+  </DialogPrimitive.Portal>;}
   // The overlay fades while the dialog rises 8px and scales up on a spring. Closing is shorter and quieter, and starts from wherever the entrance is.
   return <AnimatePresence>
     {open && <DialogPrimitive.Portal key="dialog" forceMount>

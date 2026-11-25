@@ -290,7 +290,7 @@ export function CuratedTemplatesPanel({
               className='h-6 px-1.5 text-[11px]'
               disabled={!selected || !preview}
               onClick={async () => {
-                if (!preview) return;
+                if (!preview) {return;}
                 try {
                   await copyToClipboard(preview);
                   toast.success(t('curatedScriptCopied'));

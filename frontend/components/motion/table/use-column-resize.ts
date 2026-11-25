@@ -90,7 +90,7 @@ export function useColumnResize<T>({
   const moveResize = useCallback(
     (e: ReactPointerEvent) => {
       const state = resizeRef.current;
-      if (!state) return;
+      if (!state) {return;}
       const width = Math.max(
         minColumnWidth,
         state.startWidth + (e.clientX - state.startX),

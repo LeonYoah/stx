@@ -34,9 +34,9 @@ function normalizeToken(
   isDayOfWeek = false,
 ) {
   const upper = String(token).toUpperCase();
-  if (Object.prototype.hasOwnProperty.call(namesMap, upper)) return namesMap[upper];
+  if (Object.prototype.hasOwnProperty.call(namesMap, upper)) {return namesMap[upper];}
   const num = Number(token);
-  if (isDayOfWeek && num === 7) return 0;
+  if (isDayOfWeek && num === 7) {return 0;}
   return num;
 }
 
@@ -63,11 +63,11 @@ export function parseField(
 ) {
   const namesMap = buildNamesMap(names);
   const raw = field.trim();
-  if (!raw) throw new Error('Field is empty');
+  if (!raw) {throw new Error('Field is empty');}
 
   const values = new Set<number>();
   const parts = raw.split(',').map((item) => item.trim()).filter(Boolean);
-  if (parts.length === 0) throw new Error('Invalid field');
+  if (parts.length === 0) {throw new Error('Invalid field');}
 
   for (const part of parts) {
     if (part === '*') {
@@ -77,11 +77,11 @@ export function parseField(
 
     if (part.includes('/')) {
       const pieces = part.split('/');
-      if (pieces.length !== 2) throw new Error(`Invalid step: ${part}`);
+      if (pieces.length !== 2) {throw new Error(`Invalid step: ${part}`);}
 
       const base = pieces[0];
       const step = Number(pieces[1]);
-      if (!Number.isInteger(step) || step <= 0) throw new Error(`Invalid step: ${part}`);
+      if (!Number.isInteger(step) || step <= 0) {throw new Error(`Invalid step: ${part}`);}
 
       let rangeStart = min;
       let rangeEnd = max;
@@ -97,8 +97,8 @@ export function parseField(
         }
       }
 
-      if (!Number.isInteger(rangeStart) || !Number.isInteger(rangeEnd)) throw new Error(`Invalid range: ${part}`);
-      if (rangeStart < min || rangeEnd > max || rangeStart > rangeEnd) throw new Error(`Out of bounds: ${part}`);
+      if (!Number.isInteger(rangeStart) || !Number.isInteger(rangeEnd)) {throw new Error(`Invalid range: ${part}`);}
+      if (rangeStart < min || rangeEnd > max || rangeStart > rangeEnd) {throw new Error(`Out of bounds: ${part}`);}
 
       addRange(values, rangeStart, rangeEnd, step);
       continue;
@@ -106,18 +106,18 @@ export function parseField(
 
     if (part.includes('-')) {
       const pieces = part.split('-');
-      if (pieces.length !== 2) throw new Error(`Invalid range: ${part}`);
+      if (pieces.length !== 2) {throw new Error(`Invalid range: ${part}`);}
       const start = normalizeToken(pieces[0], namesMap, isDayOfWeek);
       const end = normalizeToken(pieces[1], namesMap, isDayOfWeek);
-      if (!Number.isInteger(start) || !Number.isInteger(end)) throw new Error(`Invalid range: ${part}`);
-      if (start < min || end > max || start > end) throw new Error(`Out of bounds: ${part}`);
+      if (!Number.isInteger(start) || !Number.isInteger(end)) {throw new Error(`Invalid range: ${part}`);}
+      if (start < min || end > max || start > end) {throw new Error(`Out of bounds: ${part}`);}
       addRange(values, start, end);
       continue;
     }
 
     const single = normalizeToken(part, namesMap, isDayOfWeek);
-    if (!Number.isInteger(single)) throw new Error(`Invalid token: ${part}`);
-    if (single < min || single > max) throw new Error(`Out of bounds: ${part}`);
+    if (!Number.isInteger(single)) {throw new Error(`Invalid token: ${part}`);}
+    if (single < min || single > max) {throw new Error(`Out of bounds: ${part}`);}
     values.add(single);
   }
 
@@ -207,9 +207,9 @@ function matchDayAndMonth(
   const domWildcard = isWildcardField(parsed.fields.dayOfMonth);
   const dowWildcard = isWildcardField(parsed.fields.dayOfWeek);
 
-  if (domWildcard && dowWildcard) return true;
-  if (domWildcard) return dowMatched;
-  if (dowWildcard) return domMatched;
+  if (domWildcard && dowWildcard) {return true;}
+  if (domWildcard) {return dowMatched;}
+  if (dowWildcard) {return domMatched;}
   return domMatched || dowMatched;
 }
 
@@ -265,7 +265,7 @@ export function expressionFromParts(parts: Record<string, string>) {
 
 export function parseExpressionToParts(expr: string) {
   const fields = splitCron(expr);
-  if (fields.length !== 5) throw new Error('Expected 5 fields');
+  if (fields.length !== 5) {throw new Error('Expected 5 fields');}
   const [minute, hour, dayOfMonth, month, dayOfWeek] = fields;
   return {minute, hour, dayOfMonth, month, dayOfWeek};
 }
@@ -279,20 +279,20 @@ export function cronToText(expr: string, t: CronTranslator) {
     const month = fields[3];
     const dow = fields[4];
 
-    if (expr === '* * * * *') return t('cronEveryMinute');
+    if (expr === '* * * * *') {return t('cronEveryMinute');}
     if (minute.startsWith('*/') && hour === '*' && dom === '*' && month === '*' && dow === '*') {
       return t('cronEveryNMinutes', {count: minute.slice(2)});
     }
     if (minute.startsWith('*/') && /^\d+$/.test(hour) && dom === '*' && month === '*' && dow === '*') {
       return t('cronEveryNMinutesDuringHour', {count: minute.slice(2), hour: pad(Number(hour))});
     }
-    if (expr === '0 * * * *') return t('cronEveryHour');
-    if (expr === '0 0 * * *') return t('cronEveryDayAtMidnight');
-    if (expr === '0 9 * * MON-FRI') return t('cronWeekdaysAtNine');
-    if (expr === '30 8 * * MON-FRI') return t('cronWeekdaysAtEightThirty');
-    if (expr === '0 0 * * SUN') return t('cronWeeklySunday');
-    if (expr === '0 9 1 * *') return t('cronMonthlyFirstDayNine');
-    if (expr === '0 0 1 */3 *') return t('cronQuarterlyFirstDay');
+    if (expr === '0 * * * *') {return t('cronEveryHour');}
+    if (expr === '0 0 * * *') {return t('cronEveryDayAtMidnight');}
+    if (expr === '0 9 * * MON-FRI') {return t('cronWeekdaysAtNine');}
+    if (expr === '30 8 * * MON-FRI') {return t('cronWeekdaysAtEightThirty');}
+    if (expr === '0 0 * * SUN') {return t('cronWeeklySunday');}
+    if (expr === '0 9 1 * *') {return t('cronMonthlyFirstDayNine');}
+    if (expr === '0 0 1 */3 *') {return t('cronQuarterlyFirstDay');}
     if (/^\d+$/.test(hour) && /^\d+$/.test(minute) && dom === '*' && month === '*' && dow === '*') {
       return t('cronAtTime', {hour: pad(Number(hour)), minute: pad(Number(minute))});
     }

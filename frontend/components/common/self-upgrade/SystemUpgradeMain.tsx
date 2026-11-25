@@ -319,7 +319,7 @@ export function SystemUpgradeMain() {
   }, [status?.overall_status, status?.stage?.status, status?.active_task?.status, loadStatus]);
 
   const overallLabel = useMemo(() => {
-    if (!status) return t('statusIdle');
+    if (!status) {return t('statusIdle');}
     const map: Record<string, string> = {
       idle: t('statusIdle'),
       checking: t('statusChecking'),
@@ -438,10 +438,10 @@ export function SystemUpgradeMain() {
       if (code === 'network_unreachable') {
         setErrorBanner(t('errNetworkUnreachable'));
         setStageTab('offline');
-      } else if (code === 'disk_full') setErrorBanner(t('errDiskFull'));
-      else if (code === 'concurrent_upgrade') setErrorBanner(t('errConcurrent'));
-      else if (code === 'already_latest') setErrorBanner(t('alreadyLatest'));
-      else setErrorBanner(apiErr.message || t('errDownload'));
+      } else if (code === 'disk_full') {setErrorBanner(t('errDiskFull'));}
+      else if (code === 'concurrent_upgrade') {setErrorBanner(t('errConcurrent'));}
+      else if (code === 'already_latest') {setErrorBanner(t('alreadyLatest'));}
+      else {setErrorBanner(apiErr.message || t('errDownload'));}
     } finally {
       setBusy(false);
     }
@@ -481,10 +481,10 @@ export function SystemUpgradeMain() {
       await loadStatus({background: true});
     } catch (err) {
       const apiErr = err as SelfUpgradeApiError;
-      if (apiErr.errorCode === 'not_staged') setErrorBanner(t('errNotStaged'));
+      if (apiErr.errorCode === 'not_staged') {setErrorBanner(t('errNotStaged'));}
       else if (apiErr.errorCode === 'concurrent_upgrade')
-        setErrorBanner(t('errConcurrent'));
-      else setErrorBanner(apiErr.message || t('errExecute'));
+        {setErrorBanner(t('errConcurrent'));}
+      else {setErrorBanner(apiErr.message || t('errExecute'));}
     } finally {
       setBusy(false);
     }

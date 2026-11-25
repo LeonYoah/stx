@@ -206,7 +206,7 @@ function itemsFromChildren(children: ReactNode): FileTreeItem[] {
   const items: FileTreeItem[] = [];
 
   Children.forEach(children, (child) => {
-    if (!isValidElement(child)) return;
+    if (!isValidElement(child)) {return;}
 
     if (child.type === Fragment) {
       const props = child.props as {children?: ReactNode};
@@ -255,7 +255,7 @@ function DefaultIcon({
   open: boolean;
   reduce: boolean;
 }) {
-  if (item.type === 'file') return <File className='size-4' />;
+  if (item.type === 'file') {return <File className='size-4' />;}
   if (reduce) {
     return open ? (
       <FolderOpen className='size-4' />
@@ -322,19 +322,19 @@ export function FileTree({
     focusedId !== null && rows.some(({item}) => item.value === focusedId)
       ? focusedId
       : (rows[0]?.item.value ?? null);
-  if (focusedId !== focusedRow) setFocusedId(focusedRow);
+  if (focusedId !== focusedRow) {setFocusedId(focusedRow);}
 
   const focusRow = useCallback((id: string) => {
     setFocusedId(id);
     const row = rowRefs.current.get(id);
-    if (row) row.focus();
-    else requestAnimationFrame(() => rowRefs.current.get(id)?.focus());
+    if (row) {row.focus();}
+    else {requestAnimationFrame(() => rowRefs.current.get(id)?.focus());}
   }, []);
 
   const selectItem = useCallback(
     (item: FileTreeItem) => {
-      if (item.disabled || item.selectable === false) return;
-      if (value === undefined) setInternalValue(item.value);
+      if (item.disabled || item.selectable === false) {return;}
+      if (value === undefined) {setInternalValue(item.value);}
       onValueChange?.(item.value);
     },
     [onValueChange, value],
@@ -342,7 +342,7 @@ export function FileTree({
 
   const setExpanded = useCallback(
     (next: string[]) => {
-      if (expandedIds === undefined) setInternalExpandedIds(next);
+      if (expandedIds === undefined) {setInternalExpandedIds(next);}
       onExpandedChange?.(next);
     },
     [expandedIds, onExpandedChange],
@@ -351,8 +351,8 @@ export function FileTree({
   const toggleFolder = useCallback(
     (id: string) => {
       const next = new Set(currentExpandedIds);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {next.delete(id);}
+      else {next.add(id);}
       setExpanded(Array.from(next));
     },
     [currentExpandedIds, setExpanded],
@@ -393,8 +393,8 @@ export function FileTree({
         focusRow(rows.at(-1)?.item.value ?? row.item.value);
       } else if (event.key === 'ArrowRight' && isFolder) {
         event.preventDefault();
-        if (!isOpen && !row.item.disabled) toggleFolder(row.item.value);
-        else if (next?.parentId === row.item.value) focusRow(next.item.value);
+        if (!isOpen && !row.item.disabled) {toggleFolder(row.item.value);}
+        else if (next?.parentId === row.item.value) {focusRow(next.item.value);}
       } else if (event.key === 'ArrowLeft') {
         event.preventDefault();
         if (isFolder && isOpen && !row.item.disabled) {
@@ -404,9 +404,9 @@ export function FileTree({
         }
       } else if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
-        if (row.item.disabled) return;
+        if (row.item.disabled) {return;}
         selectItem(row.item);
-        if (isFolder) toggleFolder(row.item.value);
+        if (isFolder) {toggleFolder(row.item.value);}
       }
     },
     [expanded, focusRow, rows, selectItem, toggleFolder],
@@ -448,8 +448,8 @@ export function FileTree({
           >
             <div
               ref={(node) => {
-                if (node) rowRefs.current.set(row.item.value, node);
-                else rowRefs.current.delete(row.item.value);
+                if (node) {rowRefs.current.set(row.item.value, node);}
+                else {rowRefs.current.delete(row.item.value);}
               }}
               role='treeitem'
               aria-level={row.depth + 1}
@@ -463,9 +463,9 @@ export function FileTree({
               onFocus={() => setFocusedId(row.item.value)}
               onKeyDown={(event) => handleKeyDown(event, row)}
               onClick={() => {
-                if (row.item.disabled) return;
+                if (row.item.disabled) {return;}
                 selectItem(row.item);
-                if (isFolder) toggleFolder(row.item.value);
+                if (isFolder) {toggleFolder(row.item.value);}
               }}
               onContextMenu={row.item.onContextMenu}
               onDoubleClick={row.item.onDoubleClick}

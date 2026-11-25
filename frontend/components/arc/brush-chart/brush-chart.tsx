@@ -96,7 +96,7 @@ const glide = physical(spring.snappy, .01);
 const follow = { stiffness: glide.stiffness, damping: glide.damping, restDelta: .01 };
 // motion: the series drawing in is a chart reveal, so it keeps a longer settle than interface motion.
 const draw = physical({ visualDuration: .9, bounce: 0 });
-const TOP = 28, GAP = 14, GRIP = 14;
+const TOP = 28; const GAP = 14; const GRIP = 14;
 const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const grouped = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 const utc = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-US", { timeZone: "UTC", ...options });
@@ -112,14 +112,14 @@ const clean = (value: number) => Number(value.toPrecision(12));
 
 /** Clean gridlines from zero: the smallest step of 1, 2, 2.5, or 5 that covers the data in four rows or fewer. */
 function niceTop(high: number) {
-  const hi = Math.max(high, 1), magnitude = 10 ** Math.floor(Math.log10(hi / 4));
-  for (const factor of [1, 2, 2.5, 5, 10]) { const step = factor * magnitude, top = Math.ceil(hi / step) * step; if (top / step <= 4 + 1e-9) return { top: clean(top), step: clean(step) }; }
+  const hi = Math.max(high, 1); const magnitude = 10 ** Math.floor(Math.log10(hi / 4));
+  for (const factor of [1, 2, 2.5, 5, 10]) { const step = factor * magnitude; const top = Math.ceil(hi / step) * step; if (top / step <= 4 + 1e-9) {return { top: clean(top), step: clean(step) };} }
   return { top: hi, step: hi / 4 };
 }
 
 /** Calendar ticks that fit the width: days, weeks, then months, quarters, and years, each landing on a real boundary. */
 function timeTicks(start: number, end: number, width: number, formatTime: (date: Date) => string) {
-  const room = Math.max(2, Math.floor(width / 76)), span = end - start;
+  const room = Math.max(2, Math.floor(width / 76)); const span = end - start;
   /* STX：日内窗口按 1m/5m/15m/30m/1h…12h 出刻度，UTC 对齐的步长都整除小时，
      任何时区（含 +5:45 这类 15 分钟偏移）下渲染出来仍是整分整点。
      STX: sub-day windows take 1m/5m/15m/30m/1h…12h ticks; UTC-aligned steps all
@@ -128,57 +128,57 @@ function timeTicks(start: number, end: number, width: number, formatTime: (date:
     const steps = [MINUTE, 5 * MINUTE, 15 * MINUTE, 30 * MINUTE, HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR];
     const step = steps.find(size => span / size <= room) ?? steps[steps.length - 1]!;
     const ticks: { t: number; label: string }[] = [];
-    for (let t = Math.ceil(start / step) * step; t <= end; t += step) ticks.push({ t, label: formatTime(new Date(t)) });
-    if (ticks.length) return ticks;
+    for (let t = Math.ceil(start / step) * step; t <= end; t += step) {ticks.push({ t, label: formatTime(new Date(t)) });}
+    if (ticks.length) {return ticks;}
   }
   for (const days of [1, 2, 7, 14]) {
-    if (span / (days * DAY) > room) continue;
+    if (span / (days * DAY) > room) {continue;}
     const ticks: { t: number; label: string }[] = [];
     let t = Math.ceil(start / DAY) * DAY;
-    if (days >= 7) while (new Date(t).getUTCDay() !== 1) t += DAY;
-    for (; t <= end; t += days * DAY) ticks.push({ t, label: dayTick.format(t) });
+    if (days >= 7) {while (new Date(t).getUTCDay() !== 1) {t += DAY;}}
+    for (; t <= end; t += days * DAY) {ticks.push({ t, label: dayTick.format(t) });}
     return ticks;
   }
   for (const months of [1, 2, 3, 6, 12]) {
-    if (span / (months * 30.44 * DAY) > room) continue;
+    if (span / (months * 30.44 * DAY) > room) {continue;}
     const ticks: { t: number; label: string }[] = [];
     const first = new Date(start);
-    let y = first.getUTCFullYear(), m = first.getUTCMonth() + (first.getUTCDate() > 1 || first.getUTCHours() > 0 ? 1 : 0);
+    let y = first.getUTCFullYear(); let m = first.getUTCMonth() + (first.getUTCDate() > 1 || first.getUTCHours() > 0 ? 1 : 0);
     for (;;) {
       y += Math.floor(m / 12); m %= 12;
       const t = Date.UTC(y, m, 1);
-      if (t > end) break;
-      if (m % months === 0) ticks.push({ t, label: m === 0 ? yearTick.format(t) : monthTick.format(t) });
+      if (t > end) {break;}
+      if (m % months === 0) {ticks.push({ t, label: m === 0 ? yearTick.format(t) : monthTick.format(t) });}
       m += 1;
     }
     return ticks;
   }
   const ticks: { t: number; label: string }[] = [];
-  for (let y = new Date(start).getUTCFullYear() + 1; Date.UTC(y, 0, 1) <= end; y++) ticks.push({ t: Date.UTC(y, 0, 1), label: String(y) });
+  for (let y = new Date(start).getUTCFullYear() + 1; Date.UTC(y, 0, 1) <= end; y++) {ticks.push({ t: Date.UTC(y, 0, 1), label: String(y) });}
   return ticks;
 }
 
 /** First index at or after t. */
 function lowerBound(points: Point[], t: number) {
-  let low = 0, high = points.length;
-  while (low < high) { const middle = (low + high) >> 1; if (points[middle]!.t < t) low = middle + 1; else high = middle; }
+  let low = 0; let high = points.length;
+  while (low < high) { const middle = (low + high) >> 1; if (points[middle]!.t < t) {low = middle + 1;} else {high = middle;} }
   return low;
 }
 
 /** A line through the points in view. Past two points per pixel, each pixel column keeps only its low and high so spikes survive. */
 function linePath(points: Point[], from: number, to: number, x: (t: number) => number, y: (value: number) => number, width: number) {
   const slice = points.slice(Math.max(0, from), Math.min(points.length, to));
-  if (!slice.length) return "";
+  if (!slice.length) {return "";}
   const parts: string[] = [];
-  if (slice.length <= width * 2) { for (const point of slice) parts.push(`${x(point.t).toFixed(1)},${y(point.value).toFixed(1)}`); }
+  if (slice.length <= width * 2) { for (const point of slice) {parts.push(`${x(point.t).toFixed(1)},${y(point.value).toFixed(1)}`);} }
   else {
-    let column = -1, low: Point | null = null, high: Point | null = null;
-    const flush = () => { if (!low || !high) return; const pair = low.t < high.t ? [low, high] : [high, low]; for (const point of pair) parts.push(`${x(point.t).toFixed(1)},${y(point.value).toFixed(1)}`); };
+    let column = -1; let low: Point | null = null; let high: Point | null = null;
+    const flush = () => { if (!low || !high) {return;} const pair = low.t < high.t ? [low, high] : [high, low]; for (const point of pair) {parts.push(`${x(point.t).toFixed(1)},${y(point.value).toFixed(1)}`);} };
     for (const point of slice) {
       const at = Math.floor(x(point.t));
       if (at !== column) { flush(); column = at; low = high = point; continue; }
-      if (point.value < low!.value) low = point;
-      if (point.value > high!.value) high = point;
+      if (point.value < low!.value) {low = point;}
+      if (point.value > high!.value) {high = point;}
     }
     flush();
   }
@@ -196,9 +196,9 @@ function useWidth<T extends HTMLElement>() {
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
     const element = node.current;
-    if (!element) return;
+    if (!element) {return;}
     setWidth(element.clientWidth);
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(() => setWidth(element.clientWidth));
     observer.observe(element);
     return () => observer.disconnect();
@@ -219,14 +219,14 @@ export function BrushChart({ data, label, unit = "", formatValue = value => grou
   const points = useMemo(() => data.map(item => ({ t: time(item.date), value: item.value })), [data]);
   // Zoomed out, a centred seven point average and its low to high band replace the raw line, so weekly noise reads as texture instead of a solid block.
   const smooth = useMemo(() => {
-    const around = <T,>(index: number, read: (at: number) => T) => { const out: T[] = []; for (let at = Math.max(0, index - 3); at <= Math.min(points.length - 1, index + 3); at++) out.push(read(at)); return out; };
+    const around = <T,>(index: number, read: (at: number) => T) => { const out: T[] = []; for (let at = Math.max(0, index - 3); at <= Math.min(points.length - 1, index + 3); at++) {out.push(read(at));} return out; };
     const raw = points.map((_, index) => { const values = around(index, (at): [number] => [points[at]!.value]).map(([value]) => value); return { value: values.reduce((sum, value) => sum + value, 0) / values.length, low: Math.min(...values), high: Math.max(...values) }; });
     // The band is averaged once more so its edges ease instead of stepping.
     return points.map((point, index) => { const near = around(index, (at): [number, number] => [raw[at]!.low, raw[at]!.high]); return { t: point.t, value: raw[index]!.value, low: near.reduce((sum, [low]) => sum + low, 0) / near.length, high: near.reduce((sum, [, high]) => sum + high, 0) / near.length }; });
   }, [points]);
   const events = useMemo(() => annotations.map(item => ({ ...item, t: time(item.date) })).sort((a, b) => a.t - b.t), [annotations]);
   const empty = points.length < 2;
-  const first = points[0]?.t ?? 0, lastT = points[points.length - 1]?.t ?? 1;
+  const first = points[0]?.t ?? 0; const lastT = points[points.length - 1]?.t ?? 1;
   const whole: [number, number] = [first, lastT];
   const fit = ([start, end]: [number, number]): [number, number] => {
     const span = clamp(end - start, Math.min(minSpan, lastT - first), lastT - first);
@@ -247,23 +247,23 @@ export function BrushChart({ data, label, unit = "", formatValue = value => grou
   };
   const commit = (next: [number, number], smooth: boolean) => {
     const target = fit(next);
-    if (smooth) glideTo(target); else { flight.current?.stop(); place(target); }
+    if (smooth) {glideTo(target);} else { flight.current?.stop(); place(target); }
     onRangeChange?.(target);
   };
   const rangeKey = range ? `${range[0]}:${range[1]}` : "";
   useEffect(() => {
-    if (!range || empty) return;
-    const target = fit(range), now = viewRef.current;
-    if (Math.abs(target[0] - now[0]) + Math.abs(target[1] - now[1]) > 1000) glideTo(target);
+    if (!range || empty) {return;}
+    const target = fit(range); const now = viewRef.current;
+    if (Math.abs(target[0] - now[0]) + Math.abs(target[1] - now[1]) > 1000) {glideTo(target);}
   }, [rangeKey, empty]); // eslint-disable-line react-hooks/exhaustive-deps
   // Data that no longer covers the window pulls it back inside.
-  useEffect(() => { if (!empty) { const target = fit(viewRef.current); if (target[0] !== viewRef.current[0] || target[1] !== viewRef.current[1]) place(target); } }, [first, lastT]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!empty) { const target = fit(viewRef.current); if (target[0] !== viewRef.current[0] || target[1] !== viewRef.current[1]) {place(target);} } }, [first, lastT]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [start, end] = view;
   const span = Math.max(1, end - start);
-  const from = Math.max(0, lowerBound(points, start) - 1), to = Math.min(points.length, lowerBound(points, end) + 1);
+  const from = Math.max(0, lowerBound(points, start) - 1); const to = Math.min(points.length, lowerBound(points, end) + 1);
   let peak = 0;
-  for (let index = from; index < to; index++) peak = Math.max(peak, points[index]!.value);
+  for (let index = from; index < to; index++) {peak = Math.max(peak, points[index]!.value);}
   const scale = niceTop(peak * 1.04);
 
   // The value axis springs to the tallest point in view, so zooming into a quiet stretch fills the plot.
@@ -271,10 +271,10 @@ export function BrushChart({ data, label, unit = "", formatValue = value => grou
   const topFlight = useRef<{ stop: () => void } | null>(null);
   const aimed = useRef(scale.top);
   useEffect(() => {
-    if (aimed.current === scale.top) return;
+    if (aimed.current === scale.top) {return;}
     aimed.current = scale.top;
     topFlight.current?.stop();
-    if (reduced) return;
+    if (reduced) {return;}
     topFlight.current = animate(top, scale.top, { ...settle, onUpdate: setTop });
   }, [reduced, scale.top]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { flight.current?.stop(); topFlight.current?.stop(); }, []);
@@ -296,22 +296,22 @@ export function BrushChart({ data, label, unit = "", formatValue = value => grou
   // Overview: the whole series, drawn once per width.
   const ox = (t: number) => ((t - first) / (lastT - first || 1)) * stripWidth;
   const overview = useMemo(() => {
-    if (!stripWidth || empty) return { line: "", area: "", marks: [] };
+    if (!stripWidth || empty) {return { line: "", area: "", marks: [] };}
     const max = niceTop(smooth.reduce((m, point) => Math.max(m, point.value), 0)).top || 1;
     const oy = (value: number) => 4 + (1 - value / max) * (overviewHeight - 4);
     const path = linePath(smooth, 0, smooth.length, ox, oy, stripWidth * 4);
     const marks = events.map(event => { const at = clamp(lowerBound(smooth, event.t), 0, smooth.length - 1); return { t: event.t, x: ox(event.t), y: oy(smooth[at]!.value) }; });
     return { line: path, area: `${path}L${stripWidth},${overviewHeight}L0,${overviewHeight}Z`, marks };
   }, [smooth, events, stripWidth, overviewHeight, empty]); // eslint-disable-line react-hooks/exhaustive-deps
-  const wx0 = ox(start), wx1 = ox(end);
+  const wx0 = ox(start); const wx1 = ox(end);
 
   // The line draws in from the left once, the first time it is seen.
   const drawn = useMotionValue(0);
   const [reveal, setReveal] = useState(0);
   useEffect(() => {
-    if (empty) return;
+    if (empty) {return;}
     if (reduced) { drawn.jump(1); return; }
-    if (!inView || drawn.get() >= 1) return;
+    if (!inView || drawn.get() >= 1) {return;}
     const controls = animate(drawn, 1, { ...draw, onUpdate: setReveal });
     return () => controls.stop();
   }, [drawn, empty, inView, reduced]);
@@ -322,39 +322,39 @@ export function BrushChart({ data, label, unit = "", formatValue = value => grou
   const index = active !== null && active >= from && active < to ? active : null;
   const nearest = (clientX: number) => {
     const rect = plot.current?.getBoundingClientRect();
-    if (!rect?.width || empty) return null;
+    if (!rect?.width || empty) {return null;}
     const t = start + ((clientX - rect.left) / rect.width) * span;
     const at = clamp(lowerBound(points, t), 1, points.length - 1);
     return clamp(t - points[at - 1]!.t < points[at]!.t - t ? at - 1 : at, Math.max(0, from), to - 1);
   };
-  const cx = index === null ? 0 : x(points[index]!.t), cy = index === null ? 0 : y(smooth[index]!.value + (points[index]!.value - smooth[index]!.value) * detail);
+  const cx = index === null ? 0 : x(points[index]!.t); const cy = index === null ? 0 : y(smooth[index]!.value + (points[index]!.value - smooth[index]!.value) * detail);
   const eventAt = index === null ? null : events.find(event => Math.abs(event.t - points[index]!.t) < DAY / 2) ?? null;
   const shownEvent = hoverEvent !== null ? events[hoverEvent] : null;
-  const tipX = useMotionValue(0), tipY = useMotionValue(0);
-  const tipSpringX = useSpring(tipX, follow), tipSpringY = useSpring(tipY, follow);
+  const tipX = useMotionValue(0); const tipY = useMotionValue(0);
+  const tipSpringX = useSpring(tipX, follow); const tipSpringY = useSpring(tipY, follow);
   const tipOn = index !== null || shownEvent !== null;
   const wasOn = useRef(false);
   useLayoutEffect(() => {
     const bubble = tip.current;
     if (!tipOn || !bubble || !width) { wasOn.current = false; return; }
-    const ax = shownEvent ? x(shownEvent.t) : cx, ay = shownEvent ? TOP : cy;
-    const tw = bubble.offsetWidth, th = bubble.offsetHeight;
+    const ax = shownEvent ? x(shownEvent.t) : cx; const ay = shownEvent ? TOP : cy;
+    const tw = bubble.offsetWidth; const th = bubble.offsetHeight;
     let left = ax + GAP;
-    if (left + tw > width) left = ax - GAP - tw;
+    if (left + tw > width) {left = ax - GAP - tw;}
     let topY = ay - th - GAP;
-    if (topY < 0) topY = ay + GAP;
+    if (topY < 0) {topY = ay + GAP;}
     tipX.set(clamp(left, 0, Math.max(0, width - tw))); tipY.set(clamp(topY, 0, Math.max(0, plotH - th)));
     if (!wasOn.current || reduced) { tipSpringX.jump(tipX.get()); tipSpringY.jump(tipY.get()); }
     wasOn.current = true;
   });
 
-  const onPlotMove = (event: PointerEvent<HTMLDivElement>) => { if (event.pointerType === "mouse" || event.buttons) setActive(nearest(event.clientX)); };
+  const onPlotMove = (event: PointerEvent<HTMLDivElement>) => { if (event.pointerType === "mouse" || event.buttons) {setActive(nearest(event.clientX));} };
   const onPlotKey = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (empty) return;
+    if (empty) {return;}
     if (event.key === "Escape" && index !== null) { event.preventDefault(); setActive(null); return; }
-    const current = index ?? to - 1, page = Math.max(1, Math.round((to - from) / 8));
+    const current = index ?? to - 1; const page = Math.max(1, Math.round((to - from) / 8));
     const next = ({ ArrowLeft: current - 1, ArrowRight: index === null ? to - 1 : current + 1, PageDown: current - page, PageUp: current + page, Home: from, End: to - 1 } as Record<string, number>)[event.key];
-    if (next === undefined) return;
+    if (next === undefined) {return;}
     event.preventDefault();
     setActive(clamp(next, Math.max(0, from), to - 1));
   };
@@ -363,8 +363,8 @@ export function BrushChart({ data, label, unit = "", formatValue = value => grou
   const drag = useRef<Drag | null>(null);
   const toTime = (clientX: number) => { const rect = strip.current?.getBoundingClientRect(); return rect?.width ? first + clamp((clientX - rect.left) / rect.width, 0, 1) * (lastT - first) : first; };
   const onStripDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (empty || event.button > 0) return;
-    const rect = strip.current!.getBoundingClientRect(), px = event.clientX - rect.left;
+    if (empty || event.button > 0) {return;}
+    const rect = strip.current!.getBoundingClientRect(); const px = event.clientX - rect.left;
     const mode: Drag["mode"] = Math.abs(px - wx0) <= GRIP && px <= (wx0 + wx1) / 2 ? "start" : Math.abs(px - wx1) <= GRIP ? "end" : px > wx0 && px < wx1 ? "pan" : "new";
     drag.current = { mode, pointerX: event.clientX, from: viewRef.current, anchor: toTime(event.clientX), moved: false };
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -372,22 +372,22 @@ export function BrushChart({ data, label, unit = "", formatValue = value => grou
   };
   const onStripMove = (event: PointerEvent<HTMLDivElement>) => {
     const current = drag.current;
-    if (!current) return;
-    if (!current.moved && Math.abs(event.clientX - current.pointerX) < 3) return;
+    if (!current) {return;}
+    if (!current.moved && Math.abs(event.clientX - current.pointerX) < 3) {return;}
     current.moved = true;
-    const t = toTime(event.clientX), shift = t - current.anchor;
-    const [s, e] = current.from, least = Math.min(minSpan, lastT - first);
+    const t = toTime(event.clientX); const shift = t - current.anchor;
+    const [s, e] = current.from; const least = Math.min(minSpan, lastT - first);
     const next: [number, number] = current.mode === "pan" ? [s + shift, e + shift]
       : current.mode === "start" ? [clamp(t, first, e - least), e]
       : current.mode === "end" ? [s, clamp(t, s + least, lastT)]
       : [Math.min(current.anchor, t), Math.max(current.anchor, t)];
-    if (current.mode === "new" && next[1] - next[0] < least) { if (t >= current.anchor) next[1] = next[0] + least; else next[0] = next[1] - least; }
+    if (current.mode === "new" && next[1] - next[0] < least) { if (t >= current.anchor) {next[1] = next[0] + least;} else {next[0] = next[1] - least;} }
     commit(next, false);
   };
   const onStripUp = () => {
     const current = drag.current;
     drag.current = null;
-    if (!current || current.moved || current.mode !== "new") return;
+    if (!current || current.moved || current.mode !== "new") {return;}
     const half = (viewRef.current[1] - viewRef.current[0]) / 2;
     commit([current.anchor - half, current.anchor + half], true);
   };
@@ -395,20 +395,20 @@ export function BrushChart({ data, label, unit = "", formatValue = value => grou
 
   const stepSize = Math.max(DAY, (lastT - first) / Math.max(1, points.length - 1));
   const onHandleKey = (event: KeyboardEvent<HTMLDivElement>, edge: "start" | "end" | "window") => {
-    const [s, e] = viewRef.current, win = e - s;
+    const [s, e] = viewRef.current; const win = e - s;
     const big = event.shiftKey || event.key.startsWith("Page");
     const delta = ({ ArrowLeft: -1, ArrowDown: -1, PageDown: -1, ArrowRight: 1, ArrowUp: 1, PageUp: 1 } as Record<string, number>)[event.key];
     let next: [number, number] | null = null;
-    if (event.key === "Escape" || event.key === "0") next = whole;
-    else if (edge === "window" && (event.key === "+" || event.key === "=")) next = [s + win / 4, e - win / 4];
-    else if (edge === "window" && (event.key === "-" || event.key === "_")) next = [s - win / 2, e + win / 2];
-    else if (event.key === "Home") next = edge === "end" ? [s, s + Math.min(minSpan, lastT - first)] : [first, edge === "window" ? first + win : e];
-    else if (event.key === "End") next = edge === "start" ? [e - Math.min(minSpan, lastT - first), e] : [edge === "window" ? lastT - win : s, lastT];
+    if (event.key === "Escape" || event.key === "0") {next = whole;}
+    else if (edge === "window" && (event.key === "+" || event.key === "=")) {next = [s + win / 4, e - win / 4];}
+    else if (edge === "window" && (event.key === "-" || event.key === "_")) {next = [s - win / 2, e + win / 2];}
+    else if (event.key === "Home") {next = edge === "end" ? [s, s + Math.min(minSpan, lastT - first)] : [first, edge === "window" ? first + win : e];}
+    else if (event.key === "End") {next = edge === "start" ? [e - Math.min(minSpan, lastT - first), e] : [edge === "window" ? lastT - win : s, lastT];}
     else if (delta) {
       const move = delta * (edge === "window" ? win * (big ? .5 : .1) : stepSize * (big ? 10 : 1));
       next = edge === "window" ? [s + move, e + move] : edge === "start" ? [Math.min(s + move, e - minSpan), e] : [s, Math.max(e + move, s + minSpan)];
     }
-    if (!next) return;
+    if (!next) {return;}
     event.preventDefault();
     commit(next, false);
   };
@@ -423,7 +423,7 @@ export function BrushChart({ data, label, unit = "", formatValue = value => grou
   const labelled = new Map<number, boolean>();
   let edge = -Infinity;
   inWindow.forEach((event, at) => {
-    const px = x(event.t), w = event.label.length * 6.2 + 4, next = at + 1 < inWindow.length ? x(inWindow[at + 1]!.t) - 10 : width;
+    const px = x(event.t); const w = event.label.length * 6.2 + 4; const next = at + 1 < inWindow.length ? x(inWindow[at + 1]!.t) - 10 : width;
     if (px + 14 >= edge && px + 14 + w <= next) { labelled.set(event.t, false); edge = px + 14 + w + 8; return; }
     if (px - 14 - w >= Math.max(0, edge) && (at === 0 || px - 14 - w >= x(inWindow[at - 1]!.t) + 12)) { labelled.set(event.t, true); edge = px + 12; return; }
     edge = Math.max(edge, px + 12);
@@ -435,8 +435,8 @@ export function BrushChart({ data, label, unit = "", formatValue = value => grou
     <div className={styles.chart} data-active={tipOn || undefined}>
       <div ref={plot} className={styles.plot} style={{ height: plotH }} role="group" tabIndex={empty ? -1 : 0} aria-roledescription="chart" aria-label={`${label}, ${windowText}. Use left and right arrows to read values.`}
         onPointerMove={onPlotMove} onPointerDown={event => { if (event.pointerType !== "mouse") { event.currentTarget.setPointerCapture?.(event.pointerId); setActive(nearest(event.clientX)); } }}
-        onPointerUp={event => { if (event.pointerType !== "mouse") setActive(null); }} onPointerCancel={() => setActive(null)} onPointerLeave={event => { if (event.pointerType === "mouse") setActive(null); }}
-        onKeyDown={onPlotKey} onBlur={() => setActive(null)} onDoubleClick={reset} onFocus={event => { if (event.currentTarget.matches(":focus-visible") && !empty) setActive(current => current ?? to - 1); }}>
+        onPointerUp={event => { if (event.pointerType !== "mouse") {setActive(null);} }} onPointerCancel={() => setActive(null)} onPointerLeave={event => { if (event.pointerType === "mouse") {setActive(null);} }}
+        onKeyDown={onPlotKey} onBlur={() => setActive(null)} onDoubleClick={reset} onFocus={event => { if (event.currentTarget.matches(":focus-visible") && !empty) {setActive(current => current ?? to - 1);} }}>
         <svg className={styles.svg} width="100%" height={plotH} aria-hidden="true" focusable="false">
           <defs><clipPath id={`${uid}-plot`}><rect x={0} y={-8} width={Math.max(0, width * (reduced ? 1 : reveal))} height={plotH + 16} /></clipPath></defs>
           {ticks.slice(1).map(value => <line key={value} className={styles.grid} x1={0} x2="100%" y1={Math.round(y(value)) + .5} y2={Math.round(y(value)) + .5} />)}
@@ -451,7 +451,7 @@ export function BrushChart({ data, label, unit = "", formatValue = value => grou
           <line className={styles.crosshair} x1={Math.round(cx) + .5} x2={Math.round(cx) + .5} y1={TOP - 10} y2={plotH} />
           <circle className={styles.dot} cx={cx} cy={cy} r={4} />
         </svg>
-        {inWindow.map(event => { const px = x(event.t), i = events.indexOf(event); return <span key={event.t} className={styles.event} style={{ left: px }} data-labelled={labelled.has(event.t) || undefined} data-flip={labelled.get(event.t) || undefined} data-active={shownEvent?.t === event.t || eventAt?.t === event.t || undefined} aria-hidden="true"
+        {inWindow.map(event => { const px = x(event.t); const i = events.indexOf(event); return <span key={event.t} className={styles.event} style={{ left: px }} data-labelled={labelled.has(event.t) || undefined} data-flip={labelled.get(event.t) || undefined} data-active={shownEvent?.t === event.t || eventAt?.t === event.t || undefined} aria-hidden="true"
           onPointerEnter={() => setHoverEvent(i)} onPointerLeave={() => setHoverEvent(null)} onPointerDown={event => event.stopPropagation()}>
           <span className={styles.eventDot} />
           <span className={styles.eventLabel}>{event.label}</span>

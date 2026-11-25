@@ -58,8 +58,8 @@ function partsFor(value: number, decimals: number, locale: string): Part[] {
   let fraction = 0;
   let order = 0;
   return parts.flatMap((part, index): Part[] => {
-    if (part.type === "integer") return [...part.value].map(char => ({ key: `i${--place}`, digit: Number(char), order: order++ }));
-    if (part.type === "fraction") return [...part.value].map(char => ({ key: `f${fraction++}`, digit: Number(char), order: order++ }));
+    if (part.type === "integer") {return [...part.value].map(char => ({ key: `i${--place}`, digit: Number(char), order: order++ }));}
+    if (part.type === "fraction") {return [...part.value].map(char => ({ key: `f${fraction++}`, digit: Number(char), order: order++ }));}
     return [{ key: part.type === "group" ? `g${place}` : part.type === "decimal" ? "d" : `${part.type}${index}`, text: part.value }];
   });
 }
@@ -82,11 +82,11 @@ function Column({ digit, direction, armed, delay, reduceMotion }: { digit: numbe
   const wheel = useRef({ digit: armed ? 0 : digit, target: armed ? 0 : digit, revealed: !armed });
   useEffect(() => {
     const state = wheel.current;
-    if (armed || state.digit === digit) { if (!armed) state.revealed = true; return; }
+    if (armed || state.digit === digit) { if (!armed) {state.revealed = true;} return; }
     state.target += direction < 0 && state.revealed ? -((state.digit - digit + 10) % 10) : (digit - state.digit + 10) % 10;
     state.digit = digit;
-    if (reduceMotion) position.jump(state.target);
-    else animate(position, state.target, state.revealed ? motionTokens.spring.smooth : { ...reveal, delay });
+    if (reduceMotion) {position.jump(state.target);}
+    else {animate(position, state.target, state.revealed ? motionTokens.spring.smooth : { ...reveal, delay });}
     state.revealed = true;
   }, [armed, delay, digit, direction, position, reduceMotion]);
   return <motion.span className={styles.column} {...presence} transition={reduceMotion ? { duration: 0 } : motionTokens.spring.morph}>

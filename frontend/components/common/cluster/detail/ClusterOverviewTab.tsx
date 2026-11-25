@@ -120,9 +120,9 @@ const CJK_RE = /[\u3400-\u9fff\uf900-\ufaff]/;
 // only when the right side contains CJK, so paths/URLs are never split accidentally.
 function localizeLegacyHealthReason(reason: string, locale: string): string {
   const idx = reason.indexOf(' / ');
-  if (idx < 0) return reason;
+  if (idx < 0) {return reason;}
   const right = reason.slice(idx + 3);
-  if (!CJK_RE.test(right)) return reason;
+  if (!CJK_RE.test(right)) {return reason;}
   const left = reason.slice(0, idx);
   return locale.startsWith('zh') ? right.trim() : left.trim();
 }

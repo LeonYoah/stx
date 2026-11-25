@@ -65,7 +65,7 @@ export function useColumnReorder<T>({
     const resultKeys = order.filter((k) => byKey.has(k));
     const present = new Set(resultKeys);
     columns.forEach((column, i) => {
-      if (present.has(column.key)) return;
+      if (present.has(column.key)) {return;}
       let at = resultKeys.length;
       if (i === 0) {
         at = 0;
@@ -86,7 +86,7 @@ export function useColumnReorder<T>({
       for (let i = 0; i < orderedColumns.length; i++) {
         const rect =
           thRefs.current[orderedColumns[i].key]?.getBoundingClientRect();
-        if (rect && clientX < rect.left + rect.width / 2) return i;
+        if (rect && clientX < rect.left + rect.width / 2) {return i;}
       }
       return orderedColumns.length;
     },
@@ -102,7 +102,7 @@ export function useColumnReorder<T>({
 
   const moveReorder = useCallback(
     (e: ReactPointerEvent) => {
-      if (!dragKey) return;
+      if (!dragKey) {return;}
       setDropIndex(dropIndexFor(e.clientX));
     },
     [dragKey, dropIndexFor],
@@ -117,7 +117,7 @@ export function useColumnReorder<T>({
         if (from !== -1) {
           const without = keys.filter((_, i) => i !== from);
           let to = dropIndex;
-          if (from < to) to--;
+          if (from < to) {to--;}
           without.splice(to, 0, dragKey);
           setOrder(without);
           onColumnOrderChange?.(without);

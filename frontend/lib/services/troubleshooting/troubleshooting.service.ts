@@ -247,10 +247,10 @@ export class TroubleshootingService extends BaseService {
     query: TroubleshootingMemoryQuery,
   ): TroubleshootingMemoryEntry[] {
     const all = this.getMemories();
-    const {fingerprint, exception_class, title, target_type} = query;
+    const {fingerprint, exception_class: exceptionClass, title, target_type: targetType} = query;
 
     const normalizedFingerprint = fingerprint?.trim().toLowerCase();
-    const normalizedException = exception_class?.trim().toLowerCase();
+    const normalizedException = exceptionClass?.trim().toLowerCase();
     const normalizedTitle = title?.trim().toLowerCase();
 
     // 强特征判定：非空、足够长且非通用词，防止空串/宽泛词把 includes 打成恒真
@@ -269,7 +269,7 @@ export class TroubleshootingService extends BaseService {
 
       // 类型匹配过滤
       // Target type filtering
-      if (target_type && entry.target_type !== target_type) {
+      if (targetType && entry.target_type !== targetType) {
         return {entry, score: 0};
       }
 

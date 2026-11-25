@@ -149,7 +149,14 @@ flowchart TB
   "image_pull_secrets": [],
   "service_account": "seatunnel-application",
   "seatunnel_home": "/opt/seatunnel",
-  "runtime_configmap_ref": "seatunnel-app-runtime",
+  "runtime_config": {
+    "mode": "image_default",
+    "configmap_name": "",
+    "mounts": {
+      "seatunnel.yaml": "/opt/seatunnel/config/seatunnel.yaml"
+    },
+    "env_secrets": {}
+  },
   "master_port": 5801,
   "master_http_port": 8080,
   "checkpoint_pvc": "",
@@ -215,7 +222,7 @@ flowchart TB
   - **保存 / 注册集群或 App 模板**：默认自动将 STX 本地 `lib/stx-java-proxy-v{2,3}.jar`（约 272 KB，带 SHA256 annotation）写入目标 Namespace `ConfigMap.binaryData["stx-java-proxy.jar"]`，并拉起 1 副本常驻伴生 `Deployment` + `Service(:18080)`，随后通过 `K8sTransport` 探活 `/healthz`；失败不阻断保存但明确标红展示 Pod Events 并支持一键重试。
 - **连接器 JAR 与驱动自动对齐**：
   - **常驻集群**：自动克隆目标 Master/Worker Workload 的 `image`、`imagePullSecrets`、`env`/`envFrom`，以及挂载到 `/opt/seatunnel/{connectors,plugins,lib,config}` 与 Checkpoint 的 `ConfigMap`、`Secret`、`RWX/ROX PVC` 与插件 `initContainers + emptyDir`，**显式跳过 StatefulSet 的 `RWO` 单 Pod 数据 PVC**。
-  - **App 模板**：直接使用模板指定的 `image`、`imagePullSecrets`、`runtime_configmap_ref`、`checkpoint_pvc`；从该模板启动的所有临时 App 实例均通过 `parent_cluster_id` 共享此常驻 Proxy。
+  - **App 模板**：直接使用模板指定的 `image`、`imagePullSecrets`、`runtime_config`（托管或引用 ConfigMap）、`checkpoint_pvc`；从该模板启动的所有临时 App 实例均通过 `parent_cluster_id` 共享此常驻 Proxy。P2 同时在伴生 Proxy 增加只读接口 `GET /api/v1/config/defaults`，直接读取目标容器镜像内真实的 `$SEATUNNEL_HOME/config/*` 作为配置编辑基线（借鉴 StreamPark `FlinkEnv` 同步基线，兼容任意版本与企业定制镜像）。
   - 支持 `managed`（默认）、`reuse_cluster`（同 Host/Namespace 多模板共享省内存）、`external` / `disabled`。
 - **插件页定位（不可变镜像原则）**：
   - 对所有 K8s 集群（Session / App 模板 / App 实例），隐藏物理机「上传/安装/卸载插件」写按钮；
@@ -260,6 +267,10 @@ sequenceDiagram
   2. **工作台目标集群选择器隔离**：严格排除 `auto_registered=true` 的临时实例。
   3. **外键不断链契约**：`sync_tasks.cluster_id` 与 `sync_job_instances.cluster_id` 永远指向父 App 模板 ID；临时集群定期清理不影响任何历史作业、趋势图或告警记录。
   4. **告警与大盘隔离**：App 模板不评估 `master_unavailable`/`worker_insufficient`；批任务与已终态 App 实例不触发集群可用性告警且不计入首页集群故障率。
+- **App 模板运行时配置三选一（兼顾零配置与 GitOps，复用 `subPath` 仅覆盖改动文件）**：
+  1. `image_default`（默认，零配置）：不挂载额外 ConfigMap，直接使用镜像内置 `/opt/seatunnel/config/*`；
+  2. `stx_managed`（STX 托管，推荐）：经伴生 Proxy 拉取镜像默认文件为基线，在 STX 内编辑 `seatunnel.yaml` / `jvm_options` / `log4j2.properties`（支持 `${VAR}` + `secretKeyRef` 零明文），保存模板时 STX 在目标 Namespace 自动同步专属 ConfigMap（`stx-app-cfg-<code>`），提交时仅对已修改文件按 `subPath` 挂载（不遮蔽镜像其余默认文件）；单作业特殊覆写支持生成带 `OwnerReference -> Job` 的临时 ConfigMap，作业结束自动 GC；
+  3. `external_ref`（引用外部 ConfigMap）：面向 Helm/GitOps 团队，STX 仅做提交前存在性/key 校验与只读预览，绝不篡改外部对象。
 
 ### 4.3 无 `stx agent` 替代边界（P3 补齐诊断增强）
 - **P1 完整替代**：进程拉活（Kubelet）、扩缩容与滚动重启（Scale/Rollout）、配置读写（ConfigMap）、引擎探活与成员探测（`K8sTransport` + `/overview` 双校验）、作业与节点日志（`PodLogs`）、伴生 `stx-java-proxy`、8080 `/metrics` 采集（支持自定义端口/路径）、Web UI 代理（按 Master Pod 探测 Active Master）。

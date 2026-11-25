@@ -30,7 +30,7 @@
 
 ### Stage 2：`11-25-k8s-p2-app-mode`（App 模板 + STIP-41 纯 Go + 临时集群治理）
 - **前置门禁**：Stage 1 合并并通过全量单测与云端实测。
-- 核心交付：`K8sApplicationRunner`（纯 Go STIP-41 + OwnerRef Secret 挂载 `job.conf` + 对齐 `LeonYoah/seatunnel#6` 的 `application.master.http-port` Service 发布与 Master 自 Patch 机制）、App 模板注册即起常驻 Proxy、提交自动登记临时集群（`auto_registered=true`）与 4 条隔离边界、批量双层融合对账 + K8s Events 故障归因、Savepoint 停止与 `restore-job-id` 恢复、`EphemeralClusterCleaner` 定期清理 + 一键回收、工作台任务级覆盖表单、`/clusters` 视图隔离与 CLI 对齐。
+- 核心交付：`K8sApplicationRunner`（纯 Go STIP-41 + OwnerRef Secret 挂载 `job.conf` + 对齐 `LeonYoah/seatunnel#6` 的 `application.master.http-port` Service 发布与 Master 自 Patch 机制）、App 模板注册即起常驻 Proxy（伴生 Proxy 补只读 `GET /api/v1/config/defaults` 拉镜像基线）+ 运行时配置三选一（`image_default` / `stx_managed` 按 `subPath` 只挂改动文件 / `external_ref`）、提交自动登记临时集群（`auto_registered=true`）与 4 条隔离边界、批量双层融合对账 + K8s Events 故障归因、Savepoint 停止与 `restore-job-id` 恢复、`EphemeralClusterCleaner` 定期清理 + 一键回收、工作台任务级覆盖表单、`/clusters` 视图隔离与 CLI 对齐。
 - **Stage 2 云端实测门禁**：在云端 `seatunnel-apps` Namespace 跑通批作业 + 长跑流作业提交、`/clusters` 临时集群视角运维、Master HTTP 观测、Savepoint 停止与 `restore-job-id` 恢复、自动/手动清理后历史作业零断链。
 
 ### Stage 3：`11-25-k8s-p3-diagnostics-obs`（无 Agent 诊断与观测增强）

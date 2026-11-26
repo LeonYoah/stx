@@ -260,6 +260,19 @@ export interface K8sWizardFormState {
   data_size: string;
   jvm_xms: string;
   jvm_xmx: string;
+  master_heap_mb: string;
+  worker_heap_mb: string;
+  hybrid_heap_mb: string;
+  java_proxy_mode: string;
+  java_proxy_port: string;
+  java_proxy_heap: string;
+  runtime_dynamic_slot: boolean;
+  runtime_slot_num: string;
+  runtime_slot_allocation_strategy: string;
+  runtime_job_schedule_strategy: string;
+  runtime_history_job_expire_minutes: string;
+  runtime_scheduled_deletion_enable: boolean;
+  runtime_job_log_mode: string;
   event_report_enabled: boolean;
   stx_callback_url: string;
   checkpoint: {
@@ -310,6 +323,19 @@ export const INITIAL_K8S_WIZARD_FORM: K8sWizardFormState = {
   data_size: '',
   jvm_xms: '512m',
   jvm_xmx: '1536m',
+  master_heap_mb: '',
+  worker_heap_mb: '',
+  hybrid_heap_mb: '',
+  java_proxy_mode: 'managed',
+  java_proxy_port: '18080',
+  java_proxy_heap: '512m',
+  runtime_dynamic_slot: true,
+  runtime_slot_num: '',
+  runtime_slot_allocation_strategy: '',
+  runtime_job_schedule_strategy: '',
+  runtime_history_job_expire_minutes: '',
+  runtime_scheduled_deletion_enable: true,
+  runtime_job_log_mode: 'mixed',
   event_report_enabled: false,
   stx_callback_url: '',
   checkpoint: {

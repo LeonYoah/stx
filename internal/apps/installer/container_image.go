@@ -51,7 +51,6 @@ type ContainerImage struct {
 	Description      string     `json:"description" gorm:"size:512"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
-	DeletedAt        *time.Time `json:"-" gorm:"index"`
 }
 
 // TableName 固定表名 container_images。

@@ -349,7 +349,9 @@ describe('Unified Kubernetes Cluster Flows', () => {
         worker_replicas: 2,
         master_http_port: 8080,
         hazelcast_port: 5801,
-        jvm: {xms: '512m', xmx: '1536m'},
+        jvm: {xms: '512m', xmx: '1536m', master_heap_mb: 0, worker_heap_mb: 0, hybrid_heap_mb: 0},
+        java_proxy_mode: 'managed',
+        enable_event_channel: false,
       }),
     );
   });

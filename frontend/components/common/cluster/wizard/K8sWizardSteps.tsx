@@ -31,6 +31,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {K8sImagePicker} from '@/components/common/k8s/K8sImagePicker';
+import {RadioCards} from '@/components/arc/radio-cards/radio-cards';
+import {isValidClusterCode, recommendClusterCode} from '@/lib/cluster-code';
+import {Layers, Server} from 'lucide-react';
+import {RuntimeAdvancedConfigCard} from '@/components/common/installer/RuntimeAdvancedConfigCard';
+import {deriveProxyContainerMemory} from '@/lib/k8s-proxy-memory';
+import type {RuntimeEngineConfig, SeaTunnelVersionCapabilities} from '@/lib/services/installer/types';
 import apiClient from '@/lib/services/core/api-client';
 import type {K8sWizardFormState} from './types';
 
@@ -75,10 +81,53 @@ export function validateJvmVsContainer(xmx: string, containerMemory: string): st
   return '';
 }
 
-// K8sBasicContent 第 1 步：集群基础信息 + 镜像选择。
-// K8sBasicContent is step 1: cluster basics plus image selection.
+
+// k8sVersionCapabilities 版本能力兜底：K8s 集群版本可任意自定义（私有镜像），
+// 无服务端能力矩阵时按版本规则推导，3.x 全量放行、2.3.x 仅基础项。
+// k8sVersionCapabilities derives capability fallbacks: Kubernetes cluster versions can
+// be arbitrary (private images), so without the server matrix infer by version rules —
+// full support on 3.x, basics only on 2.3.x.
+export function k8sVersionCapabilities(version: string): SeaTunnelVersionCapabilities | null {
+  const trimmed = version.trim().replace(/^v/, '');
+  const major = parseInt(trimmed.split('.')[0] || '0', 10);
+  if (!Number.isFinite(major) || major <= 0) return null;
+  const is3x = major >= 3;
+  return {
+    supports_dynamic_slot: true,
+    supports_slot_num: true,
+    supports_history_job_expire_minutes: true,
+    supports_scheduled_deletion_enable: is3x,
+    supports_job_schedule_strategy: is3x,
+    supports_slot_allocation_strategy: is3x,
+    supports_http_service: true,
+    supports_job_log_mode: is3x,
+    supports_event_channel: is3x,
+    default_event_channel_enabled: is3x,
+    default_dynamic_slot: true,
+    default_static_slot_num: 4,
+    default_history_job_expire_minutes: 1440,
+    default_scheduled_deletion_enable: true,
+    default_job_schedule_strategy: 'WAIT',
+    default_slot_allocation_strategy: 'RANDOM',
+    default_http_enabled: true,
+    default_job_log_mode: 'mixed',
+    min_java_version: is3x ? 11 : 8,
+    recommended_java_versions: is3x ? [11, 17] : [8],
+    max_recommended_java_version: is3x ? 17 : 8,
+    dynamic_slot: true,
+  } as SeaTunnelVersionCapabilities;
+}
+
+// K8sBasicContent 第 1 步：集群基础信息 + 部署形态 RadioCards + 镜像选择。
+// 版本字段可编辑：镜像识别自动填充但绝不锁死，用户可手工覆盖驱动版本能力。
+// K8sBasicContent is step 1: cluster basics, deployment-mode RadioCards, and image
+// selection. The version field stays editable: image recognition auto-fills it but
+// never locks it, so users can override and drive version capabilities.
 export function K8sBasicContent({form, patch}: StepProps) {
   const t = useTranslations();
+  const [codeTouched, setCodeTouched] = useState(Boolean(form.cluster_code));
+  const [versionTouched, setVersionTouched] = useState(false);
+  const codeInvalid = form.cluster_code.length > 0 && !isValidClusterCode(form.cluster_code);
   return (
     <div className='space-y-4' data-testid='k8s-basic-step'>
       <div className='grid grid-cols-2 gap-4'>
@@ -86,16 +135,57 @@ export function K8sBasicContent({form, patch}: StepProps) {
           <Label>{t('cluster.name')}</Label>
           <Input
             value={form.name}
-            onChange={(e) => patch({name: e.target.value})}
+            onChange={(e) => {
+              const next: Partial<K8sWizardFormState> = {name: e.target.value};
+              if (!codeTouched) {
+                next.cluster_code = recommendClusterCode(e.target.value);
+              }
+              patch(next);
+            }}
             placeholder='seatunnel-prod'
             data-testid='k8s-name-input'
           />
         </div>
         <div className='space-y-1.5'>
           <Label>{t('cluster.k8s.version')}</Label>
-          <Input value={form.version} readOnly disabled placeholder='auto' data-testid='k8s-version-input' />
+          <Input
+            value={form.version}
+            onChange={(e) => {
+              setVersionTouched(true);
+              patch({version: e.target.value});
+            }}
+            placeholder='3.1.0'
+            data-testid='k8s-version-input'
+          />
+          <p className='text-xs text-muted-foreground'>
+            {versionTouched ? t('cluster.k8s.versionManualHint') : t('cluster.k8s.versionAutoHint')}
+          </p>
         </div>
       </div>
+
+      <div className='space-y-1.5'>
+        <Label>{t('cluster.k8s.deploymentMode')}</Label>
+        <RadioCards
+          layout='grid'
+          value={form.deployment_mode}
+          onValueChange={(value) => patch({deployment_mode: value as 'separated' | 'hybrid'})}
+          options={[
+            {
+              value: 'separated',
+              label: t('cluster.k8s.modeSeparated'),
+              description: t('cluster.k8s.modeSeparatedDesc'),
+              icon: <Server className='h-4 w-4' aria-hidden />,
+            },
+            {
+              value: 'hybrid',
+              label: t('cluster.k8s.modeHybrid'),
+              description: t('cluster.k8s.modeHybridDesc'),
+              icon: <Layers className='h-4 w-4' aria-hidden />,
+            },
+          ]}
+        />
+      </div>
+
       <div className='space-y-1.5'>
         <Label>{t('cluster.k8s.image')}</Label>
         <K8sImagePicker
@@ -103,7 +193,7 @@ export function K8sBasicContent({form, patch}: StepProps) {
           onChange={(next) =>
             patch({
               image: next.image,
-              version: next.seatunnelVersion || form.version,
+              version: versionTouched ? form.version : next.seatunnelVersion || form.version,
               image_pull_policy: next.pullPolicy,
               image_pull_secrets: next.pullSecrets || form.image_pull_secrets,
             })
@@ -115,10 +205,16 @@ export function K8sBasicContent({form, patch}: StepProps) {
           <Label>{t('cluster.clusterCode')}</Label>
           <Input
             value={form.cluster_code}
-            onChange={(e) => patch({cluster_code: e.target.value})}
+            onChange={(e) => {
+              setCodeTouched(true);
+              patch({cluster_code: e.target.value.toLowerCase().trim()});
+            }}
             placeholder={t('common.optional')}
             data-testid='k8s-cluster-code-input'
           />
+          {codeInvalid ? (
+            <p className='text-xs font-medium text-destructive'>{t('cluster.clusterCodeInvalid')}</p>
+          ) : null}
         </div>
         <div className='space-y-1.5'>
           <Label>{t('cluster.description')}</Label>
@@ -149,7 +245,27 @@ export function K8sConfigContent({form, patch}: StepProps) {
       return false;
     }
   })();
-  const heapError = validateJvmVsContainer(form.jvm_xmx, containerMemory);
+  // 分角色 80% 红线校验：空值走内存联动默认（容器内存一半），不参与红线判定。
+  // Per-role 80% red-line validation: empty values fall back to memory-linked
+  // defaults (half the container memory) and skip red-line evaluation.
+  const heapErrors = (() => {
+    const check = (raw: string, memory: string): string => {
+      const heapMb = parseInt(raw, 10);
+      if (!Number.isFinite(heapMb) || heapMb <= 0) return '';
+      const containerMi = memoryToMi(memory);
+      if (!containerMi) return '';
+      if (heapMb > containerMi * 0.8) {
+        return t('cluster.k8s.heapRedlineError', {heap: String(heapMb), memory: String(containerMi), limit: String(Math.floor(containerMi * 0.8))});
+      }
+      return '';
+    };
+    return {
+      master: check(form.master_heap_mb, form.master_memory),
+      worker: check(form.worker_heap_mb, form.worker_memory),
+      hybrid: check(form.hybrid_heap_mb, form.hybrid_memory),
+    };
+  })();
+  void containerMemory;
 
   const patchStorage = (kind: 'checkpoint' | 'imap', partial: Record<string, unknown>) =>
     patch({[kind]: {...form[kind], ...partial}} as Partial<K8sWizardFormState>);
@@ -189,15 +305,56 @@ export function K8sConfigContent({form, patch}: StepProps) {
               />
             </div>
             {storage.storage_type === 'LOCAL_FILE' ? (
-              <p className='rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning' data-testid={`k8s-${kind}-localfile-warning`}>
-                {t('cluster.k8s.localFileWarning')}
-              </p>
+              <>
+                <p className='rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning' data-testid={`k8s-${kind}-localfile-warning`}>
+                  {t('cluster.k8s.localFileWarning')}
+                </p>
+                {kind === 'checkpoint' ? (
+                  <Input
+                    placeholder={t('cluster.k8s.checkpointPvcPlaceholder')}
+                    value={form.checkpoint_pvc}
+                    onChange={(e) => patch({checkpoint_pvc: e.target.value})}
+                    data-testid='k8s-checkpoint-pvc'
+                  />
+                ) : null}
+              </>
             ) : (
-              <div className='grid grid-cols-2 gap-3'>
-                <Input placeholder='endpoint' value={storage.endpoint} onChange={(e) => patchStorage(kind, {endpoint: e.target.value})} />
-                <Input placeholder='bucket' value={storage.bucket} onChange={(e) => patchStorage(kind, {bucket: e.target.value})} />
-                <Input placeholder='access key' value={storage.access_key} onChange={(e) => patchStorage(kind, {access_key: e.target.value})} />
-                <Input placeholder='secret key' type='password' value={storage.secret_key} onChange={(e) => patchStorage(kind, {secret_key: e.target.value})} />
+              <div className='space-y-2'>
+                <div className='grid grid-cols-2 gap-3'>
+                  <Input
+                    placeholder={storage.storage_type === 'HDFS' ? 'hdfs://namenode:8020' : 'endpoint'}
+                    value={storage.endpoint}
+                    onChange={(e) => patchStorage(kind, {endpoint: e.target.value})}
+                    data-testid={`k8s-${kind}-endpoint`}
+                  />
+                  {storage.storage_type !== 'HDFS' ? (
+                    <Input placeholder='bucket' value={storage.bucket} onChange={(e) => patchStorage(kind, {bucket: e.target.value})} />
+                  ) : null}
+                  {storage.storage_type !== 'HDFS' ? (
+                    <Input placeholder='access key' value={storage.access_key} onChange={(e) => patchStorage(kind, {access_key: e.target.value})} />
+                  ) : null}
+                  {storage.storage_type !== 'HDFS' ? (
+                    <Input placeholder='secret key' type='password' value={storage.secret_key} onChange={(e) => patchStorage(kind, {secret_key: e.target.value})} />
+                  ) : null}
+                </div>
+                {kind === 'imap' ? (
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='outline'
+                    onClick={() => patchStorage('imap', {
+                      storage_type: form.checkpoint.storage_type,
+                      namespace: form.checkpoint.namespace,
+                      endpoint: form.checkpoint.endpoint,
+                      bucket: form.checkpoint.bucket,
+                      access_key: form.checkpoint.access_key,
+                      secret_key: form.checkpoint.secret_key,
+                    })}
+                    data-testid='k8s-imap-sync-from-checkpoint'
+                  >
+                    {t('cluster.k8s.imapSyncFromCheckpoint')}
+                  </Button>
+                ) : null}
               </div>
             )}
           </>
@@ -231,21 +388,58 @@ export function K8sConfigContent({form, patch}: StepProps) {
 
       <div className='space-y-2 rounded-lg border p-3'>
         <p className='text-sm font-medium'>{t('cluster.k8s.jvmTitle')}</p>
-        <div className='grid grid-cols-2 gap-3'>
+        {form.deployment_mode === 'hybrid' ? (
           <div className='space-y-1.5'>
-            <Label>Xms</Label>
-            <Input value={form.jvm_xms} onChange={(e) => patch({jvm_xms: e.target.value})} placeholder='1g' data-testid='k8s-jvm-xms' />
+            <Label>{t('cluster.k8s.hybridHeapMb')}</Label>
+            <Input
+              type='number'
+              min={256}
+              value={form.hybrid_heap_mb}
+              onChange={(e) => patch({hybrid_heap_mb: e.target.value})}
+              placeholder={String(Math.floor(memoryToMi(form.hybrid_memory) / 2))}
+              data-testid='k8s-hybrid-heap'
+            />
+            {heapErrors.hybrid ? (
+              <p className='text-xs font-medium text-destructive' data-testid='k8s-jvm-heap-error'>{heapErrors.hybrid}</p>
+            ) : (
+              <p className='text-xs text-muted-foreground'>{t('cluster.k8s.heapDefaultHint', {memory: form.hybrid_memory, heap: String(Math.floor(memoryToMi(form.hybrid_memory) / 2))})}</p>
+            )}
           </div>
-          <div className='space-y-1.5'>
-            <Label>Xmx</Label>
-            <Input value={form.jvm_xmx} onChange={(e) => patch({jvm_xmx: e.target.value})} placeholder='2g' data-testid='k8s-jvm-xmx' />
-          </div>
-        </div>
-        {heapError ? (
-          <p className='text-xs font-medium text-destructive' data-testid='k8s-jvm-heap-error'>{heapError}</p>
         ) : (
-          <p className='text-xs text-muted-foreground'>{t('cluster.k8s.jvmHint', {memory: containerMemory})}</p>
+          <div className='grid grid-cols-2 gap-3'>
+            <div className='space-y-1.5'>
+              <Label>{t('cluster.k8s.masterHeapMb')}</Label>
+              <Input
+                type='number'
+                min={256}
+                value={form.master_heap_mb}
+                onChange={(e) => patch({master_heap_mb: e.target.value})}
+                placeholder={String(Math.floor(memoryToMi(form.master_memory) / 2))}
+                data-testid='k8s-master-heap'
+              />
+              {heapErrors.master ? (
+                <p className='text-xs font-medium text-destructive' data-testid='k8s-master-heap-error'>{heapErrors.master}</p>
+              ) : null}
+            </div>
+            <div className='space-y-1.5'>
+              <Label>{t('cluster.k8s.workerHeapMb')}</Label>
+              <Input
+                type='number'
+                min={256}
+                value={form.worker_heap_mb}
+                onChange={(e) => patch({worker_heap_mb: e.target.value})}
+                placeholder={String(Math.floor(memoryToMi(form.worker_memory) / 2))}
+                data-testid='k8s-worker-heap'
+              />
+              {heapErrors.worker ? (
+                <p className='text-xs font-medium text-destructive' data-testid='k8s-worker-heap-error'>{heapErrors.worker}</p>
+              ) : null}
+            </div>
+          </div>
         )}
+        {!heapErrors.master && !heapErrors.worker && !heapErrors.hybrid ? (
+          <p className='text-xs text-muted-foreground'>{t('cluster.k8s.heapRedlineHint')}</p>
+        ) : null}
       </div>
 
       <div className='space-y-2 rounded-lg border p-3'>
@@ -280,6 +474,80 @@ export function K8sConfigContent({form, patch}: StepProps) {
           </div>
         ) : null}
       </div>
+
+      <div className='space-y-2 rounded-lg border p-3' data-testid='k8s-proxy-section'>
+        <p className='text-sm font-medium'>{t('cluster.k8s.proxyTitle')}</p>
+        <div className='grid grid-cols-3 gap-3'>
+          <div className='space-y-1.5'>
+            <Label>{t('cluster.k8s.proxyMode')}</Label>
+            <Select value={form.java_proxy_mode} onValueChange={(value) => patch({java_proxy_mode: value})}>
+              <SelectTrigger data-testid='k8s-proxy-mode'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='managed'>{t('cluster.k8s.proxyModeManaged')}</SelectItem>
+                <SelectItem value='reuse_cluster'>{t('cluster.k8s.proxyModeReuse')}</SelectItem>
+                <SelectItem value='external'>{t('cluster.k8s.proxyModeExternal')}</SelectItem>
+                <SelectItem value='disabled'>{t('cluster.k8s.proxyModeDisabled')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className='space-y-1.5'>
+            <Label>{t('cluster.k8s.proxyPort')}</Label>
+            <Input value={form.java_proxy_port} onChange={(e) => patch({java_proxy_port: e.target.value})} placeholder='18080' data-testid='k8s-proxy-port' />
+          </div>
+          <div className='space-y-1.5'>
+            <Label>{t('cluster.k8s.proxyHeap')}</Label>
+            <Select value={form.java_proxy_heap} onValueChange={(value) => patch({java_proxy_heap: value})}>
+              <SelectTrigger data-testid='k8s-proxy-heap'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {['512m', '1024m', '2048m', '4096m'].map((heap) => (
+                  <SelectItem key={heap} value={heap}>{heap}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        {form.java_proxy_mode === 'managed' ? (
+          <p className='text-xs text-muted-foreground' data-testid='k8s-proxy-derived-memory'>
+            {t('cluster.k8s.proxyDerivedMemory', {
+              limit: deriveProxyContainerMemory(`-Xmx${form.java_proxy_heap}`).limitMi + 'Mi',
+              request: deriveProxyContainerMemory(`-Xmx${form.java_proxy_heap}`).requestMi + 'Mi',
+            })}
+          </p>
+        ) : null}
+      </div>
+
+      <RuntimeAdvancedConfigCard
+        compact
+        defaultCollapsed
+        version={form.version}
+        capabilities={k8sVersionCapabilities(form.version)}
+        runtime={{
+          dynamic_slot: form.runtime_dynamic_slot,
+          slot_num: parseInt(form.runtime_slot_num, 10) || 0,
+          slot_allocation_strategy: (form.runtime_slot_allocation_strategy || 'RANDOM') as RuntimeEngineConfig['slot_allocation_strategy'],
+          job_schedule_strategy: (form.runtime_job_schedule_strategy || 'WAIT') as RuntimeEngineConfig['job_schedule_strategy'],
+          history_job_expire_minutes: parseInt(form.runtime_history_job_expire_minutes, 10) || 1440,
+          scheduled_deletion_enable: form.runtime_scheduled_deletion_enable,
+          enable_http: true,
+          enable_event_channel: form.event_report_enabled,
+          job_log_mode: (form.runtime_job_log_mode || 'mixed') as RuntimeEngineConfig['job_log_mode'],
+        }}
+        onChange={(updates) => {
+          const next: Partial<K8sWizardFormState> = {};
+          if (updates.dynamic_slot !== undefined) next.runtime_dynamic_slot = updates.dynamic_slot;
+          if (updates.slot_num !== undefined) next.runtime_slot_num = String(updates.slot_num);
+          if (updates.slot_allocation_strategy !== undefined) next.runtime_slot_allocation_strategy = updates.slot_allocation_strategy;
+          if (updates.job_schedule_strategy !== undefined) next.runtime_job_schedule_strategy = updates.job_schedule_strategy;
+          if (updates.history_job_expire_minutes !== undefined) next.runtime_history_job_expire_minutes = String(updates.history_job_expire_minutes);
+          if (updates.scheduled_deletion_enable !== undefined) next.runtime_scheduled_deletion_enable = updates.scheduled_deletion_enable;
+          if (updates.job_log_mode !== undefined) next.runtime_job_log_mode = updates.job_log_mode;
+          patch(next);
+        }}
+      />
 
       {storageEditor('checkpoint')}
       {storageEditor('imap')}
@@ -325,6 +593,9 @@ export function K8sPrecheckContent({form, onResult}: {form: K8sWizardFormState; 
         worker_memory: form.worker_memory,
         hybrid_memory: form.hybrid_memory,
         jvm_xmx: form.jvm_xmx,
+        master_heap_mb: parseInt(form.master_heap_mb, 10) || 0,
+        worker_heap_mb: parseInt(form.worker_heap_mb, 10) || 0,
+        hybrid_heap_mb: parseInt(form.hybrid_heap_mb, 10) || 0,
         enable_event_channel: form.event_report_enabled,
         stx_callback_url: form.event_report_enabled ? form.stx_callback_url.trim() : '',
       });
@@ -406,10 +677,27 @@ export function buildK8sCreatePayload(form: K8sWizardFormState): Record<string, 
     checkpoint_pvc: form.checkpoint_pvc,
     data_storage_class: form.data_storage_class,
     data_size: form.data_size,
-    jvm: {xms: form.jvm_xms, xmx: form.jvm_xmx},
+    jvm: {
+      xms: form.jvm_xms,
+      xmx: form.jvm_xmx,
+      master_heap_mb: parseInt(form.master_heap_mb, 10) || 0,
+      worker_heap_mb: parseInt(form.worker_heap_mb, 10) || 0,
+      hybrid_heap_mb: parseInt(form.hybrid_heap_mb, 10) || 0,
+    },
+    java_proxy_mode: form.java_proxy_mode,
+    java_proxy_port: parseInt(form.java_proxy_port, 10) || 18080,
+    java_proxy_jvm_opts: `-Xmx${form.java_proxy_heap}`,
     enable_event_channel: form.event_report_enabled,
     stx_callback_url: form.event_report_enabled ? form.stx_callback_url.trim() : '',
-    runtime: {},
+    runtime: {
+      dynamic_slot: form.runtime_dynamic_slot,
+      ...(parseInt(form.runtime_slot_num, 10) > 0 ? {slot_num: parseInt(form.runtime_slot_num, 10)} : {}),
+      ...(form.runtime_slot_allocation_strategy ? {slot_allocation_strategy: form.runtime_slot_allocation_strategy} : {}),
+      ...(form.runtime_job_schedule_strategy ? {job_schedule_strategy: form.runtime_job_schedule_strategy} : {}),
+      ...(parseInt(form.runtime_history_job_expire_minutes, 10) > 0 ? {history_job_expire_minutes: parseInt(form.runtime_history_job_expire_minutes, 10)} : {}),
+      scheduled_deletion_enable: form.runtime_scheduled_deletion_enable,
+      ...(form.runtime_job_log_mode ? {job_log_mode: form.runtime_job_log_mode} : {}),
+    },
     checkpoint: form.checkpoint.enabled ? form.checkpoint : undefined,
     imap: form.imap.enabled ? form.imap : undefined,
   };

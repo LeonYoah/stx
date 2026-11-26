@@ -94,6 +94,7 @@ type K8sClusterCreateRequest struct {
 	JavaProxyMode        string `json:"java_proxy_mode"`
 	JavaProxyJVMOpts     string `json:"java_proxy_jvm_opts"`
 	JavaProxyExternalURL string `json:"java_proxy_external_url"`
+	JavaProxyPort        int    `json:"java_proxy_port"`
 	MasterCPU            string `json:"master_cpu"`
 	MasterMemory         string `json:"master_memory"`
 	WorkerCPU            string `json:"worker_cpu"`
@@ -150,6 +151,9 @@ func sessionConfigFromRequest(req *K8sClusterCreateRequest) (*k8s.SessionConfig,
 	cfg.JavaProxy.Mode = k8s.JavaProxyMode(req.JavaProxyMode)
 	cfg.JavaProxy.JVMOpts = req.JavaProxyJVMOpts
 	cfg.JavaProxy.ExternalURL = req.JavaProxyExternalURL
+	if req.JavaProxyPort > 0 {
+		cfg.JavaProxy.Port = req.JavaProxyPort
+	}
 	cfg.Resources.Master.CPU = req.MasterCPU
 	cfg.Resources.Master.Memory = req.MasterMemory
 	cfg.Resources.Worker.CPU = req.WorkerCPU

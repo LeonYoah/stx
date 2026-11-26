@@ -100,25 +100,6 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
         </div>
       </div>
 
-      <div className='space-y-1.5'>
-        <Label>{t('cluster.k8s.deploymentMode')}</Label>
-        <Select
-          value={form.deployment_mode}
-          onValueChange={(value) =>
-            patch({deployment_mode: value as 'separated' | 'hybrid'})
-          }
-        >
-          <SelectTrigger data-testid='k8s-mode-select'>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='separated'>{t('cluster.k8s.modeSeparated')}</SelectItem>
-            <SelectItem value='hybrid'>{t('cluster.k8s.modeHybrid')}</SelectItem>
-          </SelectContent>
-        </Select>
-        <p className='text-xs text-muted-foreground'>{t('cluster.k8s.modeHint')}</p>
-      </div>
-
       {separated ? (
         <div className='space-y-3'>
           <div className='grid grid-cols-3 gap-3'>

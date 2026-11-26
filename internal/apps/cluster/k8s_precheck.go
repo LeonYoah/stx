@@ -47,6 +47,9 @@ type K8sPrecheckRequest struct {
 	WorkerMemory       string `json:"worker_memory"`
 	HybridMemory       string `json:"hybrid_memory"`
 	JvmXmx             string `json:"jvm_xmx"`
+	MasterHeapMB       int    `json:"master_heap_mb"`
+	WorkerHeapMB       int    `json:"worker_heap_mb"`
+	HybridHeapMB       int    `json:"hybrid_heap_mb"`
 	EnableEventChannel bool   `json:"enable_event_channel"`
 	STXCallbackURL     string `json:"stx_callback_url"`
 }
@@ -191,7 +194,51 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 	// (same red line as the deploy wizard); with the event channel on, the callback
 	// address must not be loopback. Both failures are error-level blockers.
 	sizingProblems := []string{}
-	if xmxMi := k8s.JVMHeapMaxMi("-Xmx" + strings.TrimSpace(req.JvmXmx)); xmxMi > 0 {
+	// 分角色堆优先于统一 Xmx：向导按角色输入堆上限后，统一 Xmx 仅作历史兜底。
+	// Per-role heaps win over the shared Xmx: once the wizard carries per-role heap
+	// ceilings, the shared Xmx only serves as a legacy fallback.
+	roleHeaps := []struct {
+		role   string
+		heapMi int
+		memory string
+	}{}
+	if req.DeploymentMode == "hybrid" {
+		roleHeaps = append(roleHeaps, struct {
+			role   string
+			heapMi int
+			memory string
+		}{"hybrid", req.HybridHeapMB, req.HybridMemory})
+	} else {
+		roleHeaps = append(roleHeaps,
+			struct {
+				role   string
+				heapMi int
+				memory string
+			}{"master", req.MasterHeapMB, req.MasterMemory},
+			struct {
+				role   string
+				heapMi int
+				memory string
+			}{"worker", req.WorkerHeapMB, req.WorkerMemory})
+	}
+	for _, rh := range roleHeaps {
+		if rh.heapMi <= 0 {
+			continue
+		}
+		raw := strings.TrimSpace(rh.memory)
+		if raw == "" {
+			continue
+		}
+		quantity, parseErr := resource.ParseQuantity(raw)
+		if parseErr != nil {
+			continue
+		}
+		containerMi := int(quantity.Value() / (1024 * 1024))
+		if containerMi > 0 && rh.heapMi*5 > containerMi*4 {
+			sizingProblems = append(sizingProblems, fmt.Sprintf("%s 堆 %dMi 超过容器内存 %dMi 的 80%%（%dMi）", rh.role, rh.heapMi, containerMi, containerMi*4/5))
+		}
+	}
+	if xmxMi := k8s.JVMHeapMaxMi("-Xmx" + strings.TrimSpace(req.JvmXmx)); xmxMi > 0 && req.MasterHeapMB <= 0 && req.WorkerHeapMB <= 0 && req.HybridHeapMB <= 0 {
 		memories := []struct {
 			role string
 			raw  string

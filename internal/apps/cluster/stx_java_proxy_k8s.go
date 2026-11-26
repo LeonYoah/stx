@@ -117,6 +117,13 @@ func (s *Service) k8sSTXJavaProxyStatus(ctx context.Context, clusterInfo *Cluste
 	status.Port = port
 	status.JvmOpts = cfg.JavaProxy.JVMOpts
 	status.Managed = mode == k8s.JavaProxyModeManaged
+	// K8s 无 Agent 上报进程内存，堆上限与 -Xmx 等价，直接从 jvm_opts 派生回填，
+	// 否则前端永远落入 512 MB 兜底默认值。
+	// K8s has no agent-reported process memory; the heap ceiling equals -Xmx, so derive
+	// it from jvm_opts or the frontend falls back to the 512 MB placeholder forever.
+	if xmxMi := k8s.JVMHeapMaxMi(status.JvmOpts); xmxMi > 0 {
+		status.JvmMemory = map[string]interface{}{"maxMemoryMb": xmxMi}
+	}
 
 	code := clusterInfo.EffectiveClusterCode()
 	deploymentName, serviceName, _ := k8s.ProxyResourceNames(code)

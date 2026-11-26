@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -731,4 +732,11 @@ func TestIsLoopbackCallbackHost(t *testing.T) {
 			t.Fatalf("host %q = %v, want %v", host, got, want)
 		}
 	}
+}
+
+func TestNormalizeCallbackBase(t *testing.T) {
+	assert.Equal(t, "http://host:17800", normalizeCallbackBase("http://host:17800"))
+	assert.Equal(t, "http://host:17800", normalizeCallbackBase("http://host:17800/"))
+	assert.Equal(t, "http://host:17800", normalizeCallbackBase("http://host:17800/api/v1/sync/engine-events"))
+	assert.Equal(t, "http://host:17800", normalizeCallbackBase("http://host:17800/api/v1/sync/engine-events/10"))
 }

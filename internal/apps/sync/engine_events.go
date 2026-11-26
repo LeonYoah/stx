@@ -249,7 +249,7 @@ func engineEventsURL(clusterID uint) string {
 	if base == "" {
 		return ""
 	}
-	return base + "/api/v1/sync/engine-events/" + strconv.FormatUint(uint64(clusterID), 10)
+	return normalizeCallbackBase(base) + "/api/v1/sync/engine-events/" + strconv.FormatUint(uint64(clusterID), 10)
 }
 
 // resolveEngineEventsURL 两级回调地址解析：K8s 集群存在 stx_callback_url 覆写时优先使用，
@@ -266,7 +266,19 @@ func (s *Service) resolveEngineEventsURL(ctx context.Context, clusterID uint) st
 	if base == "" {
 		return engineEventsURL(clusterID)
 	}
-	return base + "/api/v1/sync/engine-events/" + strconv.FormatUint(uint64(clusterID), 10)
+	return normalizeCallbackBase(base) + "/api/v1/sync/engine-events/" + strconv.FormatUint(uint64(clusterID), 10)
+}
+
+// normalizeCallbackBase 幂等化回调基地址：用户粘贴完整事件端点（含 /api/v1/sync/engine-events
+// 及可能的集群 ID 尾巴）时截断到主机根，避免路径重复拼接。
+// normalizeCallbackBase makes the callback base idempotent: when the user pastes a full
+// event endpoint (containing /api/v1/sync/engine-events and possibly a trailing cluster
+// ID) it is truncated back to the host root so the path is never duplicated.
+func normalizeCallbackBase(base string) string {
+	if idx := strings.Index(base, "/api/v1/sync/engine-events"); idx >= 0 {
+		return strings.TrimRight(base[:idx], "/")
+	}
+	return strings.TrimRight(base, "/")
 }
 
 // isLoopbackCallbackHost 判定回调主机是否为回环/未指定地址：Pod 内的 127.0.0.1/localhost

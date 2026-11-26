@@ -61,7 +61,14 @@ func addPackageWriteCommands(root *cobra.Command, storeProvider authStoreProvide
 	// to that existing group, while delete stays out of the CLI per the repo rule.
 	imageCommand := childCommand(packageCommand, "image")
 	if imageCommand == nil {
-		panic("generated package image command is missing")
+		// 测试 harness 只挂写命令树时 GeneratedCLI 的 image 组不存在，与 offline-bundle 同款兜底自建。
+		// Test harnesses that mount only the write tree lack the GeneratedCLI image group;
+		// fall back to creating it the same way offline-bundle does.
+		imageCommand = &cobra.Command{
+			Use:   "image",
+			Short: "STX package container image commands",
+		}
+		packageCommand.AddCommand(imageCommand)
 	}
 	imageCommand.AddCommand(
 		newPackageImageCreateCommand(storeProvider),

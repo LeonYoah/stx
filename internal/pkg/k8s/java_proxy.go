@@ -322,6 +322,13 @@ func splitJVMOpts(opts string) []string {
 	return parts
 }
 
+// JVMHeapMaxMi 暴露 -Xmx 堆上限解析（MiB），供控制面状态契约回填 jvm_memory.maxMemoryMb。
+// JVMHeapMaxMi exposes the -Xmx heap ceiling parse (MiB) so the control-plane status
+// contract can backfill jvm_memory.maxMemoryMb.
+func JVMHeapMaxMi(jvmOpts string) int {
+	return parseJVMMemoryFlagMi(jvmOpts, "-xmx")
+}
+
 // parseJVMMemoryFlagMi 提取 jvmOpts 中最后一个有效的 -Xmx/-Xms 堆内存（单位换算 MiB，大小写不敏感）。
 // 取最后一个是因为 JVM 语义上后出现的参数覆盖先出现的。
 // parseJVMMemoryFlagMi extracts the last valid -Xmx/-Xms heap value in MiB

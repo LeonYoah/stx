@@ -86,6 +86,40 @@ function MemoryTierField({label, value, onChange, testId, customLabel, hintLabel
   );
 }
 
+
+// NamespaceObjectField 高级选项对象选择：namespace 内已有对象下拉快选，
+// 查询不到或用户需留空/手填时退化为普通输入。
+// NamespaceObjectField picks existing namespace objects from a dropdown when
+// available, falling back to a plain input for empty/manual values.
+function NamespaceObjectField({label, value, onChange, placeholder, objects, testId}: {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  placeholder: string;
+  objects: string[];
+  testId?: string;
+}) {
+  if (objects.length > 0) {
+    return (
+      <div className='space-y-1.5'>
+        <Select
+          label={label}
+          value={value}
+          onValueChange={onChange}
+          options={objects.map((name) => ({value: name, label: name}))}
+          placeholder={placeholder}
+          data-testid={testId}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className='space-y-1.5'>
+      <Input label={label} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} data-testid={testId} />
+    </div>
+  );
+}
+
 // K8sResourcesStep 统一向导第 2 步（K8s）：目标 K8s 主机 + namespace + 形态资源配比。
 // K8sResourcesStep is wizard step 2 for Kubernetes: target host, namespace, and
 // topology resource sizing.
@@ -96,6 +130,9 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
   const [hostError, setHostError] = useState<string | null>(null);
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [secrets, setSecrets] = useState<string[]>([]);
+  const [serviceAccounts, setServiceAccounts] = useState<string[]>([]);
+  const [pvcs, setPvcs] = useState<string[]>([]);
 
   // 主机清单加载失败必须显式可重试，禁止静默吞错后留下无法解释的空选项。
   // Host list failures surface a retry action; never swallow errors silently.
@@ -149,6 +186,31 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
         setNamespaces([]);
       });
   }, [form.host_id]);
+
+  // 高级选项对象清单随 host+namespace 联动加载；失败保持空表退化为手填。
+  // Advanced object lists load with host+namespace; failures keep empty lists so
+  // fields degrade to manual input.
+  useEffect(() => {
+    if (!form.host_id || !form.namespace.trim()) {
+      setSecrets([]);
+      setServiceAccounts([]);
+      setPvcs([]);
+      return;
+    }
+    const hostId = form.host_id;
+    const namespace = form.namespace.trim();
+    const load = (kind: string, setter: (names: string[]) => void) => {
+      services.host
+        .listK8sNamespaceObjects(hostId, namespace, kind)
+        .then((list) => {
+          if (Array.isArray(list)) setter(list);
+        })
+        .catch(() => setter([]));
+    };
+    load('secrets', setSecrets);
+    load('serviceaccounts', setServiceAccounts);
+    load('pvcs', setPvcs);
+  }, [form.host_id, form.namespace]);
 
   const separated = form.deployment_mode !== 'hybrid';
   const heapHintText = (memory: string) => t('cluster.k8s.heapDerivationHint', {hint: deriveHeapHint(memory) || '-'});
@@ -285,31 +347,28 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
         </button>
         {advancedOpen ? (
           <div className='mt-3 grid grid-cols-3 gap-3'>
-            <div className='space-y-1.5'>
-              <Input
-                label={t('cluster.k8s.checkpointPvc')}
-                value={form.checkpoint_pvc}
-                onChange={(e) => patch({checkpoint_pvc: e.target.value})}
-                placeholder={t('cluster.k8s.optionalPlaceholder')}
-                data-testid='k8s-checkpoint-pvc'
-              />
-            </div>
-            <div className='space-y-1.5'>
-              <Input
-                label={t('cluster.k8s.imagePullSecrets')}
-                value={form.image_pull_secrets}
-                onChange={(e) => patch({image_pull_secrets: e.target.value})}
-                placeholder={t('cluster.k8s.optionalPlaceholder')}
-              />
-            </div>
-            <div className='space-y-1.5'>
-              <Input
-                label={t('cluster.k8s.serviceAccount')}
-                value={form.service_account}
-                onChange={(e) => patch({service_account: e.target.value})}
-                placeholder={t('cluster.k8s.optionalPlaceholder')}
-              />
-            </div>
+            <NamespaceObjectField
+              label={t('cluster.k8s.checkpointPvc')}
+              value={form.checkpoint_pvc}
+              onChange={(next) => patch({checkpoint_pvc: next})}
+              placeholder={t('cluster.k8s.optionalPlaceholder')}
+              objects={pvcs}
+              testId='k8s-checkpoint-pvc'
+            />
+            <NamespaceObjectField
+              label={t('cluster.k8s.imagePullSecrets')}
+              value={form.image_pull_secrets}
+              onChange={(next) => patch({image_pull_secrets: next})}
+              placeholder={t('cluster.k8s.optionalPlaceholder')}
+              objects={secrets}
+            />
+            <NamespaceObjectField
+              label={t('cluster.k8s.serviceAccount')}
+              value={form.service_account}
+              onChange={(next) => patch({service_account: next})}
+              placeholder={t('cluster.k8s.optionalPlaceholder')}
+              objects={serviceAccounts}
+            />
           </div>
         ) : null}
       </div>

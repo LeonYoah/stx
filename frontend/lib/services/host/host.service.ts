@@ -400,6 +400,19 @@ export class HostService extends BaseService {
   }
 
   /**
+   * List existing namespace objects by kind / 按 kind 列出 namespace 内已有对象
+   */
+  static async listK8sNamespaceObjects(hostId: number, namespace: string, kind: string): Promise<string[]> {
+    const response = await apiClient.get<{error_msg: string; data: string[]}>(
+      `${this.basePath}/${hostId}/k8s/namespaces/${encodeURIComponent(namespace)}/objects?kind=${encodeURIComponent(kind)}`,
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data || [];
+  }
+
+  /**
    * Discover SeaTunnel clusters in a namespace / 发现 Namespace 下的 SeaTunnel 集群
    */
   static async discoverK8sClusters(hostId: number, namespace: string): Promise<unknown[]> {

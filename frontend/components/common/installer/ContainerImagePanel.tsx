@@ -179,8 +179,7 @@ export function ContainerImagePanel() {
         patch({registry_host: firstSegment});
       }
     }
-    }
-  }, [form.seatunnel_version, form.image, patch]);
+  }, [form.seatunnel_version, form.image, form.registry_host, patch]);
 
   const save = async () => {
     setSaving(true);

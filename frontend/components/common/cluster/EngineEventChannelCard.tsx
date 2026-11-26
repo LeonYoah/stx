@@ -21,9 +21,9 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {toast} from '@/lib/toast';
 import {HelpCircle, Radio, RefreshCw} from 'lucide-react';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {Tooltip} from '@/components/arc/tooltip/tooltip';
 import {Button} from '@/components/arc/button/button';
-import {Skeleton} from '@/components/ui/skeleton';
+import {Skeleton} from '@/components/arc/skeleton/skeleton';
 import {
   ConfirmDialog,
   SoftChip,
@@ -172,20 +172,15 @@ export function EngineEventChannelCard({
       <div className='flex flex-wrap items-center gap-2 border-b-[0.5px] border-border/80 px-5 py-3.5'>
         <Radio className='size-4 text-primary' aria-hidden />
         <h3 className='text-sm font-semibold text-foreground'>{t('title')}</h3>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type='button'
-              className='text-muted-foreground/70 hover:text-foreground'
-              aria-label={t('description')}
-              data-testid='cluster-event-channel-help'
-            >
-              <HelpCircle className='size-3.5' />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side='top' className='max-w-xs text-xs leading-relaxed'>
-            {t('description')}
-          </TooltipContent>
+        <Tooltip content={t('description')} side='top'>
+          <button
+            type='button'
+            className='text-muted-foreground/70 hover:text-foreground'
+            aria-label={t('description')}
+            data-testid='cluster-event-channel-help'
+          >
+            <HelpCircle className='size-3.5' />
+          </button>
         </Tooltip>
         {status ? (
           <SoftChip tone={eventChannelTone(status.state)}>

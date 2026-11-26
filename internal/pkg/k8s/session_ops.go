@@ -43,6 +43,7 @@ type PodInfo struct {
 	NodeName     string    `json:"node_name"`
 	StartedAt    time.Time `json:"started_at,omitempty"`
 	Restarts     int32     `json:"restarts"`
+	WaitingReason string    `json:"waiting_reason,omitempty"`
 	WorkloadKind string    `json:"workload_kind"`
 	WorkloadName string    `json:"workload_name"`
 }
@@ -98,6 +99,18 @@ func podToInfo(pod *corev1.Pod) *PodInfo {
 	}
 	for _, cs := range pod.Status.ContainerStatuses {
 		info.Restarts += cs.RestartCount
+		// 容器等待原因（ImagePullBackOff/CrashLoopBackOff 等）是引擎启动失败的唯一直接信号，
+		// 透出给健康检查让用户在状态里看到真实原因而非笼统的"未就绪"。
+		// The container waiting reason (ImagePullBackOff/CrashLoopBackOff etc.) is the only
+		// direct signal of engine boot failure; surface it so health checks show the real
+		// cause instead of a generic "not ready".
+		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+			if info.WaitingReason == "" {
+				info.WaitingReason = cs.State.Waiting.Reason
+			} else if !strings.Contains(info.WaitingReason, cs.State.Waiting.Reason) {
+				info.WaitingReason += ";" + cs.State.Waiting.Reason
+			}
+		}
 	}
 	for _, ref := range pod.OwnerReferences {
 		info.WorkloadKind = ref.Kind
@@ -403,7 +416,20 @@ func (s *SessionManager) PatchProxyImage(ctx context.Context, cfg *SessionConfig
 	} else if err != nil {
 		return err
 	}
-	return patchWorkloadImage(ctx, clientset, cfg.Namespace, "Deployment", deploymentName, image)
+	if err := patchWorkloadImage(ctx, clientset, cfg.Namespace, "Deployment", deploymentName, image); err != nil {
+		return err
+	}
+	// 伴生 Proxy 与引擎同镜像：升级到私仓镜像时若不同步 imagePullSecrets，
+	// Proxy 新 Pod 必卡 ImagePullBackOff 而引擎侧正常，形成半升级的隐蔽漂移。
+	// The companion proxy shares the engine image: without syncing imagePullSecrets on
+	// a private-registry upgrade the proxy's new pods stall in ImagePullBackOff while
+	// the engine rolls fine — a silent half-upgraded drift.
+	if len(cfg.ImagePullSecrets) > 0 {
+		if err := patchWorkloadImagePullSecrets(ctx, clientset, cfg.Namespace, "Deployment", deploymentName, cfg.ImagePullSecrets); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func patchWorkloadImage(ctx context.Context, clientset kubernetes.Interface, ns, kind, name, image string) error {

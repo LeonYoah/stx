@@ -34,6 +34,7 @@ import (
 	pluginapp "github.com/LeonYoah/stx/internal/apps/plugin"
 	"github.com/LeonYoah/stx/internal/pkg/infra"
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
@@ -259,27 +260,44 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 		code = SanitizeClusterCode(req.Name, 0)
 	}
 
+	// 纯校验全部前置：在任何 DB 写入与 K8s 资源创建之前失败直接返回，
+	// 不留半成品记录也无孤儿资源可清。
+	// All pure validation happens first: failures return before any DB write or
+	// K8s resource creation, leaving neither half-baked rows nor orphans to clean.
+	cfg, err := sessionConfigFromRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if req.EnableEventChannel && strings.TrimSpace(req.STXCallbackURL) != "" {
+		// 回环预检：用户显式覆写回环地址必然后报失败，在创建任何资源前 400。
+		// Loopback pre-check: an explicit loopback override guarantees report failure,
+		// so reject with 400 before creating any resource.
+		override := strings.TrimSpace(req.STXCallbackURL)
+		parsed, parseErr := urlpkg.Parse(override)
+		if parseErr != nil || parsed == nil || IsLoopbackCallbackHost(parsed.Hostname()) {
+			return nil, ErrEventCallbackLoopback
+		}
+	}
+
+	initialStatus := ClusterStatusCreated
+	if cfg.ManagementSource == k8s.ManagementSourceSTXDeployed {
+		// stx_deployed 初始即 deploying：部署中的集群由健康检查在 Pod 全部 Ready
+		// 且 master /overview 可达后自动收敛 running，绝不先谎报 running。
+		// stx_deployed starts as deploying: health checks converge it to running only
+		// after every pod is Ready and the master /overview answers — never lie
+		// running up front.
+		initialStatus = ClusterStatusDeploying
+	}
 	cluster := &Cluster{
 		Name:           req.Name,
 		ClusterCode:    code,
 		Description:    req.Description,
 		Version:        req.Version,
 		DeploymentMode: deploymentModeFromRequest(req),
-		Status:         ClusterStatusCreated,
+		Status:         initialStatus,
 		InfraType:      string(infra.TypeK8sSession),
 		K8sHostID:      &req.HostID,
 		Config:         ClusterConfig{},
-	}
-	if err := s.repo.Create(ctx, cluster); err != nil {
-		return nil, err
-	}
-
-	cfg, err := sessionConfigFromRequest(req)
-	if err != nil {
-		// 配置非法时回滚刚建的记录，避免留下无 kubernetes 配置的死集群。
-		// Roll back the freshly created record on invalid config to avoid dead rows without kubernetes config.
-		_ = s.repo.Delete(ctx, cluster.ID)
-		return nil, err
 	}
 	// stx_deployed 采用确定性命名回填工作负载/服务/ConfigMap，保证伴生 Proxy 克隆与
 	// 后续运维（scale/rollout/logs）不依赖用户显式输入；adopted 必须保留用户输入的既有命名。
@@ -318,17 +336,21 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 			cfg.LabelSelector = k8s.LabelClusterCodeKey + "=" + cluster.EffectiveClusterCode()
 		}
 	}
-	if req.EnableEventChannel && strings.TrimSpace(req.STXCallbackURL) != "" {
-		// 回环预检：用户显式覆写回环地址必然后报失败，在创建任何资源前 400。
-		// Loopback pre-check: an explicit loopback override guarantees report failure,
-		// so reject with 400 before creating any resource.
-		override := strings.TrimSpace(req.STXCallbackURL)
-		parsed, parseErr := urlpkg.Parse(override)
-		if parseErr != nil || parsed == nil || IsLoopbackCallbackHost(parsed.Hostname()) {
-			_ = s.repo.Delete(ctx, cluster.ID)
-			return nil, ErrEventCallbackLoopback
+	if cfg.ManagementSource != k8s.ManagementSourceSTXDeployed {
+		// adopted 纳管先真查：namespace/workload/service/configmap 任一缺失即 400 列明，
+		// 不创建任何 DB 记录，避免脏数据。
+		// Adopted clusters are verified for real first: any missing
+		// namespace/workload/service/configmap yields a 400 listing every absent object,
+		// and no DB row is ever created.
+		if missing := verifyAdoptedK8sObjectsExist(ctx, s.k8sManager, cfg); len(missing) > 0 {
+			return nil, fmt.Errorf("%s: %s", locale.Pick(ctx, "纳管对象在 K8s 中不存在", "adoption targets missing in Kubernetes"), strings.Join(missing, "；"))
 		}
 	}
+
+	if err := s.repo.Create(ctx, cluster); err != nil {
+		return nil, err
+	}
+
 	if cfg.ManagementSource == k8s.ManagementSourceSTXDeployed {
 		// 注册镜像携带私有仓库凭据时，先在目标 namespace 代建 dockerconfigjson Secret
 		// 并并入 imagePullSecrets：用户零 kubectl 操作即可拉取私有镜像。
@@ -341,7 +363,20 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 		}
 		deployer := k8s.NewSessionManager(s.k8sManager)
 		if _, err := deployer.Deploy(ctx, &k8s.DeployOptions{Config: cfg, ClusterCode: cluster.EffectiveClusterCode(), ClusterID: cluster.ID, CreateRBAC: cfg.ServiceAccount == ""}); err != nil {
-			_ = s.repo.Delete(ctx, cluster.ID)
+			// 中途失败按归属标签逆序回收 stx 自建的资源（保留用户既有资源）：
+			// 回收成功则删库返回原始错误；回收失败保留记录并标记 error 供人工重试。
+			// A mid-deploy failure cleans up stx-created resources in reverse order by
+			// ownership labels (user resources are never touched): successful cleanup
+			// deletes the row and returns the original error; failed cleanup keeps the
+			// row, marks it error with a summary so it can be retried manually.
+			cleanupErr := cleanupFailedK8sDeploy(ctx, s.k8sManager, cfg, cluster.EffectiveClusterCode())
+			if cleanupErr == nil {
+				_ = s.repo.Delete(ctx, cluster.ID)
+				return nil, fmt.Errorf("deploy kubernetes resources: %w", err)
+			}
+			cluster.Status = ClusterStatusError
+			cluster.Config["deploy_error"] = fmt.Sprintf("%s: %v; cleanup: %v", locale.Pick(ctx, "部署失败且自动回收不完整", "deploy failed and automatic cleanup incomplete"), err, cleanupErr)
+			_ = s.repo.Update(ctx, cluster)
 			return nil, fmt.Errorf("deploy kubernetes resources: %w", err)
 		}
 	}
@@ -351,12 +386,14 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 		return nil, err
 	}
 	cluster.Config["kubernetes"] = k8sJSON
-	// K8s 常驻集群在纳管或部署完成后即进入运行态（健康检查随后按真实 Pod 与 /overview 判定），
-	// 不与伴生 Proxy 是否启用或首轮探活结果耦合，避免 disabled 模式或慢启动永久卡在 created。
-	// K8s session clusters become running once adopted or deployed (health checks then evaluate
-	// real pods and /overview), decoupled from companion proxy mode or first-probe timing so
-	// disabled mode or slow boots never stall in created forever.
-	cluster.Status = ClusterStatusRunning
+	// adopted 纳管成功即 running（对象已验证存在）；stx_deployed 保持 deploying，
+	// 由健康检查在 Pod 全部 Ready 且 master /overview 200 后自动收敛 running。
+	// Adopted clusters go running immediately (objects verified present); stx_deployed
+	// stays deploying until health checks converge it to running once every pod is
+	// Ready and master /overview answers 200.
+	if cfg.ManagementSource != k8s.ManagementSourceSTXDeployed {
+		cluster.Status = ClusterStatusRunning
+	}
 	if err := s.repo.Update(ctx, cluster); err != nil {
 		return nil, err
 	}
@@ -589,65 +626,84 @@ func (s *Service) UpgradeK8sImage(ctx context.Context, cluster *Cluster, image s
 	if err != nil {
 		return err
 	}
-	// 升级目标为注册私仓镜像时同步代建凭据 Secret 并并入 imagePullSecrets，
-	// 否则滚动后的新 Pod 必卡 ImagePullBackOff。
-	// When the upgrade target is a registered private-registry image, materialize the
-	// credential secret and merge imagePullSecrets first, otherwise rolled pods stall
-	// in ImagePullBackOff.
+	// 期望态先落库再对账：任何中途失败都留下 upgrade_target_image/status=failed
+	// 漂移记录，详情页与 CLI 可据此重试；重试走同一幂等路径（每一步都已存在即跳过）。
+	// The desired state is persisted before reconciliation: any mid-upgrade failure
+	// leaves an upgrade_target_image/status=failed drift record that the detail page
+	// and CLI can retry; retries follow the same idempotent path (each step skips
+	// work already done).
+	resolvedVersion := ""
+	if len(targetVersion) > 0 {
+		resolvedVersion = strings.TrimSpace(targetVersion[0])
+	}
+	cluster.Config["upgrade_target_image"] = image
+	cluster.Config["upgrade_target_version"] = resolvedVersion
+	cluster.Config["upgrade_status"] = "in_progress"
+	delete(cluster.Config, "upgrade_error")
+	if err := s.repo.Update(ctx, cluster); err != nil {
+		return err
+	}
+
+	fail := func(step error) error {
+		cluster.Config["upgrade_status"] = "failed"
+		cluster.Config["upgrade_error"] = step.Error()
+		_ = s.repo.Update(ctx, cluster)
+		return step
+	}
+
+	// 对账步骤 1：私仓凭据 Secret 代建 + imagePullSecrets 并入（幂等）。
+	// Reconciliation step 1: materialize the registry credential secret and merge
+	// imagePullSecrets (idempotent).
 	originalImage := cfg.Image
 	cfg.Image = image
 	if err := s.ensureK8sRegistryCredential(ctx, cfg, cluster); err != nil {
 		cfg.Image = originalImage
-		return err
+		return fail(err)
 	}
 	cfg.Image = originalImage
+
+	// 对账步骤 2：引擎工作负载镜像 + imagePullSecrets（幂等 patch，K8s 原生滚动）。
+	// Reconciliation step 2: engine workload images + imagePullSecrets (idempotent
+	// patches; K8s performs the rolling update natively).
 	ops := k8s.NewSessionManager(s.k8sManager)
 	if err := ops.UpgradeImage(ctx, cfg, image); err != nil {
-		return err
+		return fail(err)
 	}
-	// 前端识别出的目标版本随升级同步写回，保证集群元数据与运行镜像一致。
-	// The version recognized by the frontend is written back alongside the upgrade so
-	// cluster metadata stays consistent with the running image.
-	if len(targetVersion) > 0 {
-		if version := strings.TrimSpace(targetVersion[0]); version != "" && version != cluster.Version {
-			cluster.Version = version
-			if err := s.repo.Update(ctx, cluster); err != nil {
-				return err
-			}
-		}
-	}
-	// 伴生 Proxy 与集群同镜像，升级需同步滚动否则插件清单版本漂移。
-	// The companion proxy shares the cluster image, so it must roll in sync or the plugin
-	// inventory version would drift.
-	// 仅 managed 模式存在 STX 托管的伴生 Deployment 需要同步滚动；reuse/external/disabled
-	// 的 Proxy 生命周期不归本集群管。
-	// Only managed mode owns an STX-hosted companion deployment that must roll in sync;
-	// reuse/external/disabled proxies have lifecycles outside this cluster.
+
+	// 对账步骤 3：managed 伴生 Proxy 同步滚动（含 imagePullSecrets）；reuse/external/
+	// disabled 的 Proxy 生命周期不归本集群管。
+	// Reconciliation step 3: managed companion proxy rolls in lockstep (imagePullSecrets
+	// included); reuse/external/disabled proxies have lifecycles outside this cluster.
 	if mode := cfg.JavaProxy.Mode; mode == "" || mode == k8s.JavaProxyModeManaged {
 		proxyDeployment, _, _ := k8s.ProxyResourceNames(cluster.EffectiveClusterCode())
 		if cfg.JavaProxy.DeploymentName != "" {
 			proxyDeployment = cfg.JavaProxy.DeploymentName
 		}
 		if err := ops.PatchProxyImage(ctx, cfg, proxyDeployment, image); err != nil {
-			return err
+			return fail(err)
 		}
 	}
+
+	// 对账步骤 4：单次写回 cfg.Image + cluster.Version 并清理临时期望态。
+	// 版本优先级：显式 targetVersion > 语义化镜像 tag；非语义化 tag 绝不回写版本。
+	// Reconciliation step 4: a single write-back of cfg.Image + cluster.Version with the
+	// temporary desired state cleared. Version priority: explicit targetVersion wins over
+	// a semantic tag; non-semver tags never overwrite the version.
 	cfg.Image = image
-	// 版本优先级：显式 targetVersion > 语义化镜像 tag。非语义化 tag（如 prod-202604）
-	// 绝不回写版本，否则集群元数据被无意义字符串污染。
-	// Version priority: explicit targetVersion wins over a semantic image tag. Non-semver
-	// tags (e.g. prod-202604) never overwrite the version, or cluster metadata gets
-	// polluted with meaningless strings.
-	if len(targetVersion) == 0 || strings.TrimSpace(targetVersion[0]) == "" {
-		if tag := imageTagVersion(image); tag != "" && semverLikeTag(tag) {
-			cluster.Version = tag
-		}
+	if resolvedVersion != "" {
+		cluster.Version = resolvedVersion
+	} else if tag := imageTagVersion(image); tag != "" && semverLikeTag(tag) {
+		cluster.Version = tag
 	}
 	k8sJSON, err := k8sConfigJSON(cfg)
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	cluster.Config["kubernetes"] = k8sJSON
+	delete(cluster.Config, "upgrade_target_image")
+	delete(cluster.Config, "upgrade_target_version")
+	delete(cluster.Config, "upgrade_status")
+	delete(cluster.Config, "upgrade_error")
 	return s.repo.Update(ctx, cluster)
 }
 

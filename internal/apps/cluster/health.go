@@ -189,6 +189,16 @@ func (s *Service) evaluateClusterHealth(ctx context.Context, cluster *Cluster, s
 		statusInfo.HealthStatus = HealthStatusUnhealthy
 		return
 	}
+	if cluster.Status == ClusterStatusDeploying {
+		// deploying 自动收敛 running：Pod 全部就绪且 /overview 200 才会走到这里，
+		// 持久化一次避免每轮健康检查重复写库。
+		// Deploying converges to running: reaching here means every pod is Ready and
+		// /overview answered 200; persist once so health checks don't rewrite the row.
+		cluster.Status = ClusterStatusRunning
+		if err := s.repo.Update(ctx, cluster); err != nil {
+			statusInfo.HealthReasons = append(statusInfo.HealthReasons, locale.Pick(ctx, "状态收敛写入失败: "+err.Error(), "status convergence write failed: "+err.Error()))
+		}
+	}
 	statusInfo.HealthStatus = HealthStatusHealthy
 }
 
@@ -417,9 +427,17 @@ func (s *Service) evaluateK8sClusterHealth(ctx context.Context, cluster *Cluster
 		return
 	}
 	ready := 0
+	bootFailures := make([]string, 0)
 	for _, pod := range pods {
 		if pod != nil && pod.Ready {
 			ready++
+		}
+		// 引擎启动失败（拉取镜像失败/崩溃循环）直接透出原因与 Pod 名，
+		// 状态里能看到 ImagePullBackOff/CrashLoopBackOff 而不是只有就绪计数。
+		// Engine boot failures (image pull / crash loop) surface with the pod name so
+		// the status shows ImagePullBackOff/CrashLoopBackOff instead of bare counts.
+		if pod != nil && pod.WaitingReason != "" {
+			bootFailures = append(bootFailures, fmt.Sprintf("%s: %s", pod.Name, pod.WaitingReason))
 		}
 	}
 	// 期望副本数优先取 Workload 实时 spec.replicas 之和：外部 kubectl scale 或
@@ -493,6 +511,9 @@ func (s *Service) evaluateK8sClusterHealth(ctx context.Context, cluster *Cluster
 	} else if ready < want {
 		reasons = append(reasons, locale.Pick(ctx, fmt.Sprintf("Pod 就绪 %d/%d", ready, want), fmt.Sprintf("pods ready %d/%d", ready, want)))
 		details = append(details, ClusterHealthReason{Code: ClusterHealthReasonProcessNotRunning, Status: fmt.Sprintf("%d/%d", ready, want)})
+	}
+	if len(bootFailures) > 0 {
+		reasons = append(reasons, locale.Pick(ctx, "引擎启动失败: "+strings.Join(bootFailures, "；"), "engine boot failure: "+strings.Join(bootFailures, "; ")))
 	}
 
 	if ready > 0 {

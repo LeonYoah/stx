@@ -6970,7 +6970,8 @@
       "backToList": "返回列表",
       "defaultBadge": "默认",
       "versionRecognized": "识别版本：{version}",
-      "versionUnrecognized": "未识别出版本，请确认镜像 tag"
+      "versionUnrecognized": "未识别出版本，请确认镜像 tag",
+      "retry": "重试"
     },
     "images": {
       "description": "注册 Kubernetes 部署与升级使用的容器镜像；官方预设由版本目录自动生成。",

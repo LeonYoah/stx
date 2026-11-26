@@ -6970,7 +6970,8 @@
       "backToList": "Back to list",
       "defaultBadge": "Default",
       "versionRecognized": "Detected version: {version}",
-      "versionUnrecognized": "Version not detected; check the image tag"
+      "versionUnrecognized": "Version not detected; check the image tag",
+      "retry": "Retry"
     },
     "images": {
       "description": "Register container images used by Kubernetes deploys and upgrades; official presets derive from the version catalog.",

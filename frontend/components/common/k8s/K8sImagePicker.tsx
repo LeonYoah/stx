@@ -17,17 +17,12 @@
 
 'use client';
 
-import {useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Input} from '@/components/ui/input';
-import {Badge} from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import {Input} from '@/components/arc/input/input';
+import {Select} from '@/components/arc/select/select';
+import {Skeleton} from '@/components/arc/skeleton/skeleton';
+import {Button} from '@/components/arc/button/button';
 import {
   listContainerImages,
   resolveImageSeatunnelVersion,
@@ -58,27 +53,39 @@ export function K8sImagePicker({value, onChange, id}: K8sImagePickerProps) {
   const [items, setItems] = useState<ContainerImage[]>([]);
   const [presets, setPresets] = useState<ContainerImage[]>([]);
   const [customMode, setCustomMode] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  // 镜像清单加载失败必须显式可重试，禁止静默吞错留下永久空清单。
+  // Image list load failures surface a retry action; never swallow errors silently.
+  const load = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
     listContainerImages()
       .then((result) => {
-        if (cancelled) return;
         setItems(result.items || []);
         setPresets(result.official_presets || []);
       })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
+      .catch((err) => {
+        setLoadError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const options = useMemo(() => {
     const all: {key: string; label: string; image: ContainerImage}[] = [];
     for (const item of items) {
       all.push({
         key: `reg-${item.id}`,
-        label: `${item.name}（${item.image}）`,
+        label: item.is_default
+          ? `${item.name}（${item.image}）· ${t('defaultBadge')}`
+          : `${item.name}（${item.image}）`,
         image: item,
       });
     }
@@ -89,7 +96,7 @@ export function K8sImagePicker({value, onChange, id}: K8sImagePickerProps) {
       all.push({key: `preset-${preset.image}`, label: preset.image, image: preset});
     }
     return all;
-  }, [items, presets]);
+  }, [items, presets, t]);
 
   const selectedKey = useMemo(() => {
     const hit = options.find((option) => option.image.image === value);
@@ -109,9 +116,24 @@ export function K8sImagePicker({value, onChange, id}: K8sImagePickerProps) {
 
   return (
     <div className='space-y-2' data-testid='k8s-image-picker'>
-      {!customMode ? (
+      {loading ? (
+        <Skeleton lines={1} className='h-9' label={t('placeholder')} />
+      ) : loadError ? (
+        <div className='flex items-center gap-2'>
+          <p className='min-w-0 flex-1 truncate text-xs text-destructive'>{loadError}</p>
+          <Button type='button' variant='secondary' size='sm' onClick={load}>
+            {t('retry')}
+          </Button>
+        </div>
+      ) : !customMode ? (
         <Select
+          aria-label={t('placeholder')}
           value={selectedKey}
+          placeholder={t('placeholder')}
+          options={[
+            ...options.map((option) => ({value: option.key, label: option.label})),
+            {value: CUSTOM_KEY, label: t('customImage')},
+          ]}
           onValueChange={(key) => {
             if (key === CUSTOM_KEY) {
               setCustomMode(true);
@@ -120,30 +142,13 @@ export function K8sImagePicker({value, onChange, id}: K8sImagePickerProps) {
             const option = options.find((entry) => entry.key === key);
             if (option) emit(option.image.image, option.image);
           }}
-        >
-          <SelectTrigger id={id} data-testid='k8s-image-picker-select'>
-            <SelectValue placeholder={t('placeholder')} />
-          </SelectTrigger>
-          <SelectContent>
-            {options.map((option) => (
-              <SelectItem key={option.key} value={option.key}>
-                <span className='flex items-center gap-2'>
-                  {option.label}
-                  {option.image.is_default ? (
-                    <Badge variant='secondary' className='text-[10px]'>
-                      {t('defaultBadge')}
-                    </Badge>
-                  ) : null}
-                </span>
-              </SelectItem>
-            ))}
-            <SelectItem value={CUSTOM_KEY}>{t('customImage')}</SelectItem>
-          </SelectContent>
-        </Select>
+          data-testid='k8s-image-picker-select'
+        />
       ) : (
         <div className='flex items-center gap-2'>
           <Input
             id={id}
+            label={t('customImage')}
             data-testid='k8s-image-picker-input'
             value={value}
             placeholder='apache/seatunnel:2.3.13'
@@ -151,7 +156,7 @@ export function K8sImagePicker({value, onChange, id}: K8sImagePickerProps) {
           />
           <button
             type='button'
-            className='text-xs text-primary underline-offset-2 hover:underline'
+            className='shrink-0 text-xs text-primary underline-offset-2 hover:underline'
             onClick={() => setCustomMode(false)}
           >
             {t('backToList')}

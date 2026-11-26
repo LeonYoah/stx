@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -160,7 +161,7 @@ func k8sRuntimeStorageBoundaryError(storageType string) error {
 // 返回 (success, message)；Proxy 不可用时返回明确错误。
 // k8sProxyHTTPProbe calls the companion proxy's HTTP probe endpoint through K8sTransport.
 // It returns (success, message); an unavailable proxy yields an explicit error.
-func (s *Service) k8sProxyHTTPProbe(ctx context.Context, clusterObj *Cluster, kind string, probeConfig map[string]interface{}) (bool, string, error) {
+func (s *Service) k8sProxyHTTPProbe(ctx context.Context, clusterObj *Cluster, kind string, probeConfig map[string]string) (bool, string, error) {
 	cfg, err := s.requireK8sSession(clusterObj)
 	if err != nil {
 		return false, "", err
@@ -169,38 +170,60 @@ func (s *Service) k8sProxyHTTPProbe(ctx context.Context, clusterObj *Cluster, ki
 	if mode == k8s.JavaProxyModeDisabled {
 		return false, "", errors.New("STX Java Proxy 已禁用，无法校验外部存储连通性")
 	}
-	targetNs := cfg.Namespace
-	_, serviceName, _ := k8s.ProxyResourceNames(clusterObj.EffectiveClusterCode())
-	port := cfg.JavaProxy.Port
-	if port <= 0 {
-		port = 18080
-	}
-	if mode == k8s.JavaProxyModeReuseCluster && cfg.JavaProxy.ReuseClusterID > 0 {
-		if reuse, getErr := s.repo.GetByID(ctx, cfg.JavaProxy.ReuseClusterID, false); getErr == nil && reuse != nil {
-			_, reuseSvc, _ := k8s.ProxyResourceNames(reuse.EffectiveClusterCode())
-			serviceName = reuseSvc
-			if reuseCfg := reuse.K8sSessionConfig(); reuseCfg != nil {
-				targetNs = reuseCfg.Namespace
+	var base string
+	var client *http.Client
+	if mode == k8s.JavaProxyModeExternal {
+		// external 模式直连用户自备 Proxy，不经过集群内 Service 寻址。
+		// External mode connects straight to the user-provided proxy without in-cluster service resolution.
+		base = strings.TrimRight(strings.TrimSpace(cfg.JavaProxy.ExternalURL), "/")
+		if base == "" {
+			return false, "", errors.New("STX Java Proxy external 模式缺少 external_url，无法校验外部存储连通性")
+		}
+		client = &http.Client{Timeout: 20 * time.Second}
+	} else {
+		targetNs := cfg.Namespace
+		_, serviceName, _ := k8s.ProxyResourceNames(clusterObj.EffectiveClusterCode())
+		port := cfg.JavaProxy.Port
+		if port <= 0 {
+			port = 18080
+		}
+		if mode == k8s.JavaProxyModeReuseCluster && cfg.JavaProxy.ReuseClusterID > 0 {
+			if reuse, getErr := s.repo.GetByID(ctx, cfg.JavaProxy.ReuseClusterID, false); getErr == nil && reuse != nil {
+				_, reuseSvc, _ := k8s.ProxyResourceNames(reuse.EffectiveClusterCode())
+				serviceName = reuseSvc
+				if reuseCfg := reuse.K8sSessionConfig(); reuseCfg != nil {
+					targetNs = reuseCfg.Namespace
+				}
 			}
 		}
+		transport := k8s.NewTransport(s.k8sManager, cfg.HostID, targetNs, cfg.AccessMode, cfg.ExternalBaseURL)
+		resolvedBase, resolveErr := transport.ServiceBaseURL(ctx, serviceName, port)
+		if resolveErr != nil {
+			return false, "", fmt.Errorf("STX Java Proxy 不可达，无法校验外部存储连通性: %w", resolveErr)
+		}
+		base = strings.TrimRight(resolvedBase, "/")
+		transportClient, clientErr := transport.HTTPClient(ctx, 20*time.Second)
+		if clientErr != nil {
+			return false, "", clientErr
+		}
+		client = transportClient
 	}
-	transport := k8s.NewTransport(s.k8sManager, cfg.HostID, targetNs, cfg.AccessMode, cfg.ExternalBaseURL)
-	base, err := transport.ServiceBaseURL(ctx, serviceName, port)
-	if err != nil {
-		return false, "", fmt.Errorf("STX Java Proxy 不可达，无法校验外部存储连通性: %w", err)
-	}
-	client, err := transport.HTTPClient(ctx, 20*time.Second)
-	if err != nil {
-		return false, "", err
-	}
-	body, _ := json.Marshal(map[string]interface{}{"config": probeConfig, "probe": true})
-	resp, err := client.Post(strings.TrimRight(base, "/")+"/api/v1/storage/"+kind+"/probe", "application/json", bytes.NewReader(body))
+	// 契约见 tools/stx-java-proxy/API.md：顶层 plugin=hdfs，config 为引擎原生小写键。
+	// Contract per tools/stx-java-proxy/API.md: top-level plugin=hdfs, config uses
+	// engine-native lowercase keys.
+	body, _ := json.Marshal(map[string]interface{}{
+		"plugin":         "hdfs",
+		"probeTimeoutMs": 15000,
+		"config":         probeConfig,
+	})
+	resp, err := client.Post(base+"/api/v1/storage/"+kind+"/probe", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return false, "", fmt.Errorf("STX Java Proxy 探活请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 	payload, _ := io.ReadAll(resp.Body)
 	var parsed struct {
+		OK      bool   `json:"ok"`
 		Success bool   `json:"success"`
 		Message string `json:"message"`
 		Error   string `json:"error"`
@@ -211,7 +234,9 @@ func (s *Service) k8sProxyHTTPProbe(ctx context.Context, clusterObj *Cluster, ki
 	if parsed.Error != "" && parsed.Message == "" {
 		parsed.Message = parsed.Error
 	}
-	return parsed.Success, parsed.Message, nil
+	// ok 为契约主字段，success 仅作历史兜底。
+	// ok is the contractual field; success only serves as a legacy fallback.
+	return parsed.OK || parsed.Success, parsed.Message, nil
 }
 
 // validateK8sRuntimeStorage K8s 集群的存储校验：本地文件友好结构化返回，外部存储经 Proxy 探活。
@@ -243,13 +268,20 @@ func (s *Service) validateK8sRuntimeStorage(ctx context.Context, clusterObj *Clu
 		host.Message = "IMAP 外部存储已禁用"
 		result.Success = true
 	default:
-		probeConfig := map[string]interface{}{
-			"storage.type": storageType,
-			"namespace":    resolved.Namespace,
-			"endpoint":     resolved.Endpoint,
-			"bucket":       resolved.Bucket,
-			"access.key":   resolved.AccessKey,
-			"secret.key":   resolved.SecretKey,
+		probeConfig, buildErr := installerapp.BuildEngineStorageProbeConfig(&installerapp.EngineStorageProbeFields{
+			StorageType: storageType,
+			Namespace:   resolved.Namespace,
+			Endpoint:    resolved.Endpoint,
+			Bucket:      resolved.Bucket,
+			AccessKey:   resolved.AccessKey,
+			SecretKey:   resolved.SecretKey,
+		})
+		if buildErr != nil {
+			host.Success = false
+			host.Message = buildErr.Error()
+			result.Success = false
+			result.Hosts = append(result.Hosts, host)
+			return result, nil
 		}
 		success, message, probeErr := s.k8sProxyHTTPProbe(ctx, clusterObj, string(kind), probeConfig)
 		if probeErr != nil {
@@ -300,13 +332,29 @@ func (s *Service) applyK8sRuntimeStorage(ctx context.Context, clusterObj *Cluste
 	// LOCAL_FILE/DISABLED need no probe.
 	storageType := strings.ToUpper(strings.TrimSpace(req.StorageType))
 	if req.Enabled && storageType != "" && storageType != "LOCAL_FILE" && storageType != string(installerapp.IMAPStorageDisabled) {
-		probeConfig := map[string]interface{}{
-			"storage.type": storageType,
-			"namespace":    req.Namespace,
-			"endpoint":     req.Endpoint,
-			"bucket":       req.Bucket,
-			"access.key":   req.AccessKey,
-			"secret.key":   req.SecretKey,
+		probeConfig, buildErr := installerapp.BuildEngineStorageProbeConfig(&installerapp.EngineStorageProbeFields{
+			StorageType:               storageType,
+			Namespace:                 req.Namespace,
+			Endpoint:                  req.Endpoint,
+			Bucket:                    req.Bucket,
+			AccessKey:                 req.AccessKey,
+			SecretKey:                 req.SecretKey,
+			HDFSNameNodeHost:          req.HDFSNameNodeHost,
+			HDFSNameNodePort:          req.HDFSNameNodePort,
+			HDFSHAEnabled:             req.HDFSHAEnabled,
+			HDFSNameServices:          req.HDFSNameServices,
+			HDFSHANamenodes:           req.HDFSHANamenodes,
+			HDFSNamenodeRPCAddress1:   req.HDFSNamenodeRPCAddress1,
+			HDFSNamenodeRPCAddress2:   req.HDFSNamenodeRPCAddress2,
+			HDFSFailoverProxyProvider: req.HDFSFailoverProxyProvider,
+			KerberosPrincipal:         req.KerberosPrincipal,
+			KerberosKeytabFilePath:    req.KerberosKeytabFilePath,
+			HdfsSitePath:              req.HdfsSitePath,
+			DisableCache:              req.DisableCache,
+			S3CredentialsProvider:     req.S3CredentialsProvider,
+		})
+		if buildErr != nil {
+			return nil, buildErr
 		}
 		success, message, probeErr := s.k8sProxyHTTPProbe(ctx, clusterObj, string(kind), probeConfig)
 		if probeErr != nil {

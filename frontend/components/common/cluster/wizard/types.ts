@@ -258,8 +258,6 @@ export interface K8sWizardFormState {
   checkpoint_pvc: string;
   data_storage_class: string;
   data_size: string;
-  jvm_xms: string;
-  jvm_xmx: string;
   java_proxy_mode: string;
   java_proxy_port: string;
   java_proxy_heap: string;
@@ -317,8 +315,6 @@ export const INITIAL_K8S_WIZARD_FORM: K8sWizardFormState = {
   checkpoint_pvc: '',
   data_storage_class: '',
   data_size: '',
-  jvm_xms: '512m',
-  jvm_xmx: '1536m',
   java_proxy_mode: 'managed',
   java_proxy_port: '18080',
   java_proxy_heap: '512m',

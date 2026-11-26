@@ -169,7 +169,6 @@ export function ClusterDeployWizard({
     k8sForm.master_memory,
     k8sForm.worker_memory,
     k8sForm.hybrid_memory,
-    k8sForm.jvm_xmx,
     k8sForm.event_report_enabled,
   ]);
 

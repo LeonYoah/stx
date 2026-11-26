@@ -107,4 +107,15 @@ func TestRenderHeapDerivesFromContainerMemory(t *testing.T) {
 	assert.Contains(t, empty["jvm_master_options"], "-Xmx2g")
 	assert.Equal(t, 0, deriveHeapFromContainerMemory("not-a-quantity"))
 	assert.Equal(t, 0, deriveHeapFromContainerMemory("256Mi"))
+
+	// 工单验收口径：1Gi → -Xms256m -Xmx512m；4Gi → -Xms1024m -Xmx2048m。
+	// Acceptance contract: 1Gi yields -Xms256m -Xmx512m; 4Gi yields -Xms1024m -Xmx2048m.
+	oneGi := sessionConfigFiles(&SessionConfig{
+		Resources: SessionResources{Master: ResourceRequirement{CPU: "1", Memory: "1Gi"}},
+	}, "derive-1gi")
+	assert.Contains(t, oneGi["jvm_master_options"], "-Xms256m -Xmx512m")
+	fourGi := sessionConfigFiles(&SessionConfig{
+		Resources: SessionResources{Master: ResourceRequirement{CPU: "1", Memory: "4Gi"}},
+	}, "derive-4gi")
+	assert.Contains(t, fourGi["jvm_master_options"], "-Xms1024m -Xmx2048m")
 }

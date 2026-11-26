@@ -18,6 +18,7 @@
 package cluster
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -58,4 +59,18 @@ func TestSanitizeClusterCodeConsistency(t *testing.T) {
 	// SanitizeClusterCode(name).
 	require.NotEmpty(t, SanitizeClusterCode("Demo Cluster", 0))
 	assert.Equal(t, SanitizeClusterCode("Demo Cluster", 0), SanitizeClusterCode("Demo Cluster", 0))
+}
+
+// TestValidateContainerMemoryFloor 覆盖工单验收口径：1Gi/4Gi 通过、<512Mi 与非法格式明确阻断。
+// TestValidateContainerMemoryFloor pins the acceptance contract: 1Gi/4Gi pass,
+// sub-512Mi and unparseable memory are blocked with clear messages.
+func TestValidateContainerMemoryFloor(t *testing.T) {
+	ctx := context.Background()
+	assert.Equal(t, "", validateContainerMemoryFloor(ctx, "hybrid", "1Gi"))
+	assert.Equal(t, "", validateContainerMemoryFloor(ctx, "master", "4Gi"))
+	assert.Equal(t, "", validateContainerMemoryFloor(ctx, "worker", "512Mi"))
+	assert.Contains(t, validateContainerMemoryFloor(ctx, "master", "256Mi"), "512Mi")
+	assert.Contains(t, validateContainerMemoryFloor(ctx, "worker", "128Mi"), "512Mi")
+	assert.Contains(t, validateContainerMemoryFloor(ctx, "master", "abc"), "无法解析")
+	require.NotEmpty(t, validateContainerMemoryFloor(ctx, "master", ""))
 }

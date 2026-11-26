@@ -24,6 +24,7 @@ import (
 	urlpkg "net/url"
 	"strings"
 
+	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/gin-gonic/gin"
@@ -239,6 +240,39 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 			sizingProblems = append(sizingProblems, fmt.Sprintf(locale.Pick(ctx, "%s 堆 %dMi 超过容器内存 %dMi 的 80%%（%dMi）", "%s heap %dMi exceeds 80%% of container memory %dMi (%dMi)"), rh.role, rh.heapMi, containerMi, containerMi*4/5))
 		}
 	}
+	// 无显式堆时堆按容器内存 1/2 自动推导：内存必须可解析且 >= 512Mi，
+	// 否则推导返回 0 回落保守默认 -Xmx2g，小容器必然 OOM。
+	// Without explicit heaps the heap derives as half the container memory, so memory
+	// must parse and be at least 512Mi — otherwise derivation yields 0 and the
+	// conservative -Xmx2g fallback OOMs small containers.
+	noExplicitHeap := req.MasterHeapMB <= 0 && req.WorkerHeapMB <= 0 && req.HybridHeapMB <= 0 && strings.TrimSpace(req.JvmXmx) == ""
+	if noExplicitHeap {
+		memCheck := []struct {
+			role string
+			raw  string
+		}{}
+		if req.DeploymentMode == "hybrid" {
+			memCheck = append(memCheck, struct {
+				role string
+				raw  string
+			}{"hybrid", req.HybridMemory})
+		} else {
+			memCheck = append(memCheck,
+				struct {
+					role string
+					raw  string
+				}{"master", req.MasterMemory},
+				struct {
+					role string
+					raw  string
+				}{"worker", req.WorkerMemory})
+		}
+		for _, mem := range memCheck {
+			if problem := validateContainerMemoryFloor(ctx, mem.role, mem.raw); problem != "" {
+				sizingProblems = append(sizingProblems, problem)
+			}
+		}
+	}
 	if xmxMi := k8s.JVMHeapMaxMi("-Xmx" + strings.TrimSpace(req.JvmXmx)); xmxMi > 0 && req.MasterHeapMB <= 0 && req.WorkerHeapMB <= 0 && req.HybridHeapMB <= 0 {
 		memories := []struct {
 			role string
@@ -276,22 +310,36 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 			}
 		}
 	}
+	eventChannelWarning := ""
 	if req.EnableEventChannel {
-		if override := strings.TrimSpace(req.STXCallbackURL); override != "" {
-			if parsed, parseErr := urlpkg.Parse(override); parseErr != nil || parsed == nil || IsLoopbackCallbackHost(parsed.Hostname()) {
+		// 预检口径必须与真实生效路径一致：override 为空时实际生效的是控制面
+		// app.external_url，回环或为空只给 warning（部署后可在事件通道卡片覆写），
+		// 绝不谎报"可达性预检通过"。
+		// The precheck must mirror the effective path: with no override the live base is
+		// the control-plane app.external_url; loopback or empty yields a warning (the
+		// event channel card offers post-deploy override), never a false "reachable" pass.
+		effective := strings.TrimSpace(req.STXCallbackURL)
+		if effective == "" {
+			effective = strings.TrimSpace(config.GetExternalURL())
+		}
+		if effective == "" {
+			eventChannelWarning = locale.Pick(ctx, "事件通道已开启但控制面 app.external_url 未配置，引擎事件将无法回传；部署后可在集群详情的事件通道卡片覆写回调地址", "event channel is on but control-plane app.external_url is unset, so engine events cannot report back; override the callback in the cluster detail event channel card after deploy")
+		} else if parsed, parseErr := urlpkg.Parse(effective); parseErr != nil || parsed == nil || IsLoopbackCallbackHost(parsed.Hostname()) {
+			if strings.TrimSpace(req.STXCallbackURL) != "" {
 				sizingProblems = append(sizingProblems, locale.Pick(ctx, "事件通道回调地址为回环地址，引擎 Pod 内无法到达控制面", "event channel callback address is loopback; engine pods cannot reach the control plane"))
+			} else {
+				eventChannelWarning = locale.Pick(ctx, "事件通道回调将继承控制面 app.external_url（回环地址），引擎 Pod 内无法到达；部署后可在集群详情的事件通道卡片覆写为 Pod 可达地址", "event channel callback inherits control-plane app.external_url (loopback), unreachable inside engine pods; override it with a pod-reachable address in the cluster detail event channel card after deploy")
 			}
 		}
 	}
 	if len(sizingProblems) > 0 {
 		add("sizing", "error", false, strings.Join(sizingProblems, "；"))
 	} else {
-		add("sizing", "info", true, locale.Pick(ctx, "JVM 堆与容器内存配比合规", "JVM heap and container memory sizing compliant")+func() string {
-			if req.EnableEventChannel {
-				return locale.Pick(ctx, "，事件通道回调地址可达性预检通过", "; event channel callback reachability precheck passed")
-			}
-			return ""
-		}())
+		if eventChannelWarning != "" {
+			add("sizing", "warning", true, locale.Pick(ctx, "容器内存与堆配比合规；", "container memory and heap sizing compliant; ")+eventChannelWarning)
+		} else {
+			add("sizing", "info", true, locale.Pick(ctx, "容器内存与堆配比合规（堆按容器内存 1/2 自动推导）", "container memory and heap sizing compliant (heap auto-derives as half the container memory)"))
+		}
 	}
 	return result, nil
 }
@@ -310,4 +358,20 @@ func (h *Handler) K8sPrecheckHandler(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, result)
+}
+
+// validateContainerMemoryFloor 校验容器内存可解析且不低于 512Mi（堆自动推导下限）。
+// validateContainerMemoryFloor validates container memory parses and meets the 512Mi
+// floor required by heap auto-derivation; empty problem string means pass.
+func validateContainerMemoryFloor(ctx context.Context, role string, raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	quantity, parseErr := resource.ParseQuantity(trimmed)
+	if parseErr != nil {
+		return fmt.Sprintf(locale.Pick(ctx, "%s 容器内存 %q 无法解析", "%s container memory %q is unparseable"), role, trimmed)
+	}
+	containerMi := int(quantity.Value() / (1024 * 1024))
+	if containerMi < 512 {
+		return fmt.Sprintf(locale.Pick(ctx, "%s 容器内存 %dMi 低于下限 512Mi（堆自动推导要求）", "%s container memory %dMi is below the 512Mi minimum (required by heap auto-derivation)"), role, containerMi)
+	}
+	return ""
 }

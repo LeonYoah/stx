@@ -456,7 +456,6 @@ export function K8sPrecheckContent({form, onResult}: {form: K8sWizardFormState; 
         master_memory: form.master_memory,
         worker_memory: form.worker_memory,
         hybrid_memory: form.hybrid_memory,
-        jvm_xmx: form.jvm_xmx,
         enable_event_channel: form.event_report_enabled,
       });
       setResult(response.data);
@@ -537,12 +536,8 @@ export function buildK8sCreatePayload(form: K8sWizardFormState): Record<string, 
     checkpoint_pvc: form.checkpoint_pvc,
     data_storage_class: form.data_storage_class,
     data_size: form.data_size,
-    // 堆由后端按容器内存 1/2 自动推导，向导不暴露手工堆配置。
-    // Heap derives backend-side from container memory; the wizard stays silent.
-    jvm: {
-      xms: form.jvm_xms,
-      xmx: form.jvm_xmx,
-    },
+    // 堆由后端按容器内存 1/2 自动推导，向导不发送任何 JVM 字段。
+    // Heap derives backend-side from container memory; the wizard sends no JVM fields.
     java_proxy_mode: form.java_proxy_mode,
     java_proxy_port: parseInt(form.java_proxy_port, 10) || 18080,
     java_proxy_jvm_opts: `-Xmx${form.java_proxy_heap}`,

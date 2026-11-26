@@ -93,10 +93,10 @@ vi.mock('@/lib/toast', () => ({
   },
 }));
 
-const listContainerImages = vi.hoisted(() => vi.fn());
-vi.mock('@/lib/services/installer/image.service', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/services/installer/image.service')>();
-  return {...actual, listContainerImages};
+const listContainerRegistries = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/services/installer/registry.service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/services/installer/registry.service')>();
+  return {...actual, listContainerRegistries};
 });
 
 const apiClientPost = vi.hoisted(() => vi.fn());
@@ -255,21 +255,9 @@ describe('Unified Kubernetes Cluster Flows', () => {
       cluster: {id: 88},
       proxy_status: {healthy: true},
     });
-    listContainerImages.mockResolvedValue({
-      items: [
-        {
-          id: 1,
-          name: 'st-320',
-          image: 'apache/seatunnel:3.2.0',
-          seatunnel_version: '3.2.0',
-          image_pull_policy: 'IfNotPresent',
-          image_pull_secrets: '',
-          is_default: true,
-          description: '',
-        },
-      ],
-      official_presets: [],
-    });
+    listContainerRegistries.mockResolvedValue([
+      {id: 1, host: 'docker.io', is_system: true, probe_status: 'public'},
+    ]);
     getAllHostsByTypeSafe.mockResolvedValue({success: true, hosts: [K8S_HOST]});
     apiClientPost.mockImplementation((url: string) => {
       if (url === '/clusters/k8s/precheck') {
@@ -301,13 +289,15 @@ describe('Unified Kubernetes Cluster Flows', () => {
     );
     expect(await screen.findByText('1 / 6')).toBeInTheDocument();
 
-    // Step1 basic：名称 + 镜像选择（注册镜像带出版本）。
-    // Step 1 basic: name plus image selection (registered image carries its version).
+    // Step1 basic：名称 + 三层镜像选择（docker.io 预填仓库与镜像名，输入 tag 提取版本）。
+    // Step 1 basic: name plus the three-tier picker (docker.io prefills registry
+    // and repository; typing the tag extracts the version).
     fireEvent.change(await screen.findByTestId('k8s-name-input'), {
       target: {value: 'k8s-prod'},
     });
-    fireEvent.click(await screen.findByTestId('k8s-image-picker-select'));
-    fireEvent.click(await screen.findByText(/st-320/));
+    fireEvent.change(await screen.findByTestId('k8s-image-picker-tag-input'), {
+      target: {value: '3.2.0'},
+    });
     await waitFor(() => {
       expect(screen.getByTestId('k8s-version-input')).toHaveValue('3.2.0');
     });

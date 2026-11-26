@@ -24,6 +24,7 @@ import (
 	urlpkg "net/url"
 	"strings"
 
+	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/pkg/locale"
@@ -42,6 +43,7 @@ type K8sPrecheckRequest struct {
 	ClusterCode        string `json:"cluster_code"`
 	DeploymentMode     string `json:"deployment_mode"`
 	Image              string `json:"image"`
+	Version            string `json:"version"`
 	ImagePullSecrets   string `json:"image_pull_secrets"`
 	ServiceAccount     string `json:"service_account"`
 	CheckpointPVC      string `json:"checkpoint_pvc"`
@@ -188,6 +190,31 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 		add("referenced_objects", "error", false, fmt.Sprintf(locale.Pick(ctx, "引用对象不存在: %s", "referenced objects do not exist: %s"), strings.Join(missing, ", ")))
 	} else {
 		add("referenced_objects", "info", true, locale.Pick(ctx, "引用的 PVC/Secret/ServiceAccount 均存在或未引用", "referenced PVC/Secret/ServiceAccount all exist or are unused"))
+	}
+
+	// 镜像仓库登记：私有镜像 host 未登记必然 ImagePullBackOff，error 阻断；
+	// docker.io 与匿名仓库放行。版本必须为确定性语义版本，否则告警（配置渲染依赖它）。
+	// Registry registration: an unregistered private-image host guarantees
+	// ImagePullBackOff and blocks at error level; docker.io and anonymous registries
+	// pass. The version must be a deterministic semver or a warning fires since
+	// config rendering depends on it.
+	imageHost := installerapp.RegistryImageHost(req.Image)
+	if imageHost != "" && imageHost != installerapp.DockerHubRegistryHost {
+		row, _ := s.findContainerRegistryByHost(ctx, imageHost)
+		if row == nil {
+			add("registry", "error", false, fmt.Sprintf(locale.Pick(ctx, "镜像仓库 %s 未登记，请先在软件包页登记", "registry %s is not registered; register it on the packages page first"), imageHost))
+		} else if row.HasCredentials() {
+			add("registry", "info", true, fmt.Sprintf(locale.Pick(ctx, "仓库 %s 已登记（含凭据），拉取 Secret 将自动代建", "registry %s is registered with credentials; the pull secret will be materialized automatically"), imageHost))
+		} else {
+			add("registry", "info", true, fmt.Sprintf(locale.Pick(ctx, "仓库 %s 已登记（匿名）", "registry %s is registered (anonymous)"), imageHost))
+		}
+	} else {
+		add("registry", "info", true, locale.Pick(ctx, "docker.io 公共镜像，无需凭据", "docker.io public image, no credentials needed"))
+	}
+	if !semverLikeTag(strings.TrimSpace(req.Version)) {
+		add("version", "warning", true, fmt.Sprintf(locale.Pick(ctx, "版本 %q 不是确定性语义版本（如 3.1.0），配置渲染将按保守默认生成", "version %q is not a deterministic semver (e.g. 3.1.0); config rendering will fall back to conservative defaults"), req.Version))
+	} else {
+		add("version", "info", true, fmt.Sprintf(locale.Pick(ctx, "引擎版本 %s", "engine version %s"), req.Version))
 	}
 
 	// 配比真校验：JVM 堆不得超过容器内存 80%（与创建向导红线一致）；

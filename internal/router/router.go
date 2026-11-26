@@ -864,17 +864,19 @@ func Serve() {
 				// POST /api/v1/packages/versions/refresh - Refresh version list
 				packageRouter.POST("/versions/refresh", installerHandler.RefreshVersions)
 
-				// 容器镜像管理（须注册在 /:version 之前）
-				// Container image management (register before /:version)
-				packageRouter.GET("/images", installerHandler.ListContainerImages)
-				// 写操作仅管理员：镜像注册表影响所有 K8s 集群的部署与升级供应链，
-				// 普通用户只读不出写，防止低权限账号注入带后门的私有镜像。
-				// Writes are admin-only: the image registry feeds the deploy/upgrade supply
+				// 镜像仓库管理（须注册在 /:version 之前）
+				// Container registry management (register before /:version)
+				packageRouter.GET("/registries", installerHandler.ListContainerRegistries)
+				packageRouter.GET("/registries/:id/tags", installerHandler.ListContainerRegistryTags)
+				// 写操作仅管理员：仓库凭据影响所有 K8s 集群的部署与升级供应链，
+				// 普通用户只读不出写，防止低权限账号注入带后门的私有仓库。
+				// Writes are admin-only: registry credentials feed the deploy/upgrade supply
 				// chain of every Kubernetes cluster, so regular users stay read-only to stop
-				// low-privilege accounts injecting backdoored private images.
-				packageRouter.POST("/images", admin.LoginAdminRequired(), installerHandler.CreateContainerImage)
-				packageRouter.PUT("/images/:id", admin.LoginAdminRequired(), installerHandler.UpdateContainerImage)
-				packageRouter.DELETE("/images/:id", admin.LoginAdminRequired(), installerHandler.DeleteContainerImage)
+				// low-privilege accounts injecting backdoored private registries.
+				packageRouter.POST("/registries", admin.LoginAdminRequired(), installerHandler.CreateContainerRegistry)
+				packageRouter.PUT("/registries/:id", admin.LoginAdminRequired(), installerHandler.UpdateContainerRegistry)
+				packageRouter.DELETE("/registries/:id", admin.LoginAdminRequired(), installerHandler.DeleteContainerRegistry)
+				packageRouter.POST("/registries/:id/test", admin.LoginAdminRequired(), installerHandler.TestContainerRegistry)
 
 				// 离线资产包（须注册在 /:version 之前，避免被版本参数吞掉）
 				// Offline asset bundles (register before /:version so Gin does not swallow the path)

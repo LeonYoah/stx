@@ -34,24 +34,24 @@ func TestResolveRegistryPasswordStdin(t *testing.T) {
 
 	// stdin 路径：密码正确读入字段。
 	// stdin path: the password lands in the field.
-	fields := &containerImageFlags{registryPasswordStdin: true}
+	fields := &containerRegistryFlags{passwordStdin: true}
 	require.NoError(t, resolveRegistryPassword(command, fields, strings.NewReader("s3cr3t\n")))
-	assert.Equal(t, "s3cr3t", fields.registryPassword)
+	assert.Equal(t, "s3cr3t", fields.password)
 
 	// 组合冲突：--registry-password 与 --registry-password-stdin 互斥。
 	// combination conflict: the two flags are mutually exclusive.
-	conflict := &containerImageFlags{registryPassword: "plain", registryPasswordStdin: true}
+	conflict := &containerRegistryFlags{password: "plain", passwordStdin: true}
 	require.Error(t, resolveRegistryPassword(command, conflict, strings.NewReader("x")))
 
 	// 非 TTY 无输入：凭据区填写时必须显式报错。
 	// non-TTY without input: credential fields require an explicit error.
-	pipe := &containerImageFlags{registryHost: "reg.example.com", registryUsername: "u"}
+	pipe := &containerRegistryFlags{host: "reg.example.com", username: "u"}
 	err := resolveRegistryPassword(command, pipe, strings.NewReader(""))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "registry-password-stdin")
+	assert.Contains(t, err.Error(), "password-stdin")
 
 	// 空 stdin 明确报错。
 	// empty stdin errors explicitly.
-	empty := &containerImageFlags{registryPasswordStdin: true}
+	empty := &containerRegistryFlags{passwordStdin: true}
 	require.Error(t, resolveRegistryPassword(command, empty, strings.NewReader("")))
 }

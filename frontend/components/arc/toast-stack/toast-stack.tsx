@@ -160,7 +160,7 @@ function createToastStore(base: number, limit: number): ToastStore {
   const commit = (next: ToastRecord[]) => { toasts = next; listeners.forEach(listener => listener()); };
   const update: ToastStackApi["update"] = (id, patch) => {
     const found = toasts.find(item => item.id === id);
-    if (!found) return;
+    if (!found) {return;}
     const type = patch.type ?? found.type;
     const record: ToastRecord = { ...found, ...patch, type, duration: patch.duration ?? durationFor(type, base), version: found.version + 1 };
     commit(toasts.map(item => item.id === id ? record : item));
@@ -174,14 +174,14 @@ function createToastStore(base: number, limit: number): ToastStore {
     return record.id;
   };
   const dismiss: ToastStackApi["dismiss"] = id => {
-    if (id === undefined) { if (toasts.length) commit([]); return; }
-    if (toasts.some(item => item.id === id)) commit(toasts.filter(item => item.id !== id));
+    if (id === undefined) { if (toasts.length) {commit([]);} return; }
+    if (toasts.some(item => item.id === id)) {commit(toasts.filter(item => item.id !== id));}
   };
   const runAction = (id: string) => {
     const found = toasts.find(item => item.id === id);
-    if (!found?.action) return;
+    if (!found?.action) {return;}
     found.action.onClick(id);
-    if (toasts.find(item => item.id === id)?.version === found.version) dismiss(id);
+    if (toasts.find(item => item.id === id)?.version === found.version) {dismiss(id);}
   };
   return {
     toast, update, dismiss, runAction,
@@ -194,7 +194,7 @@ const ToastStackContext = createContext<ToastStore | null>(null);
 
 function useStore() {
   const store = useContext(ToastStackContext);
-  if (!store) throw new Error("Render toast stack consumers inside <ToastStackProvider>.");
+  if (!store) {throw new Error("Render toast stack consumers inside <ToastStackProvider>.");}
   return store;
 }
 
@@ -261,9 +261,9 @@ function ToastItem({ toast, target, expanded, front, hidden, paused, reduce, sto
   // Measure before the first paint, so the toast enters from exactly its own height below the edge.
   useLayoutEffect(() => {
     const node = contentRef.current;
-    if (!node) return;
+    if (!node) {return;}
     onMeasure(id, node.offsetHeight + BORDER);
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(() => onMeasure(id, node.offsetHeight + BORDER));
     observer.observe(node);
     return () => observer.disconnect();
@@ -271,7 +271,7 @@ function ToastItem({ toast, target, expanded, front, hidden, paused, reduce, sto
 
   // Every stack change retargets the running springs from wherever they are, so rapid toasts and hover changes never queue.
   useLayoutEffect(() => {
-    if (!isPresent || target.height <= 0) return;
+    if (!isPresent || target.height <= 0) {return;}
     const entering = applied.current === null;
     const morph = !entering && applied.current !== expanded;
     applied.current = expanded;
@@ -285,7 +285,7 @@ function ToastItem({ toast, target, expanded, front, hidden, paused, reduce, sto
     const spring = morph ? motionTokens.spring.morph : motionTokens.spring.smooth;
     animate(y, target.y, spring);
     animate(scale, target.scale, spring);
-    if (!entering) animate(height, target.height, spring);
+    if (!entering) {animate(height, target.height, spring);}
     animate(opacity, target.opacity, entering ? enterFade : fade);
     animate(contentOpacity, target.content, fade);
   }, [contentOpacity, expanded, height, isPresent, opacity, reduce, scale, target.content, target.height, target.opacity, target.scale, target.y, y]);
@@ -293,7 +293,7 @@ function ToastItem({ toast, target, expanded, front, hidden, paused, reduce, sto
   // An update restarts the clock; pausing keeps whatever time is left.
   useEffect(() => { remaining.current = toast.duration; }, [toast.version, toast.duration]);
   useEffect(() => {
-    if (!isPresent || paused || !Number.isFinite(remaining.current) || toast.duration <= 0) return;
+    if (!isPresent || paused || !Number.isFinite(remaining.current) || toast.duration <= 0) {return;}
     const started = performance.now();
     const timer = window.setTimeout(() => store.dismiss(id), Math.max(remaining.current, 0));
     return () => { window.clearTimeout(timer); remaining.current -= performance.now() - started; };
@@ -301,11 +301,11 @@ function ToastItem({ toast, target, expanded, front, hidden, paused, reduce, sto
 
   // Leaving: hand focus on before the toast turns inert, then fade out quickly. A closed toast sinks toward its edge; a thrown one keeps flying.
   useEffect(() => {
-    if (isPresent) return;
+    if (isPresent) {return;}
     const node = itemRef.current;
     if (node) {
       const active = document.activeElement;
-      if (active instanceof HTMLElement && node.contains(active)) onHandOff(node, focusVisible(active));
+      if (active instanceof HTMLElement && node.contains(active)) {onHandOff(node, focusVisible(active));}
       node.setAttribute("inert", "");
     }
     const done = () => safeToRemove?.();
@@ -320,7 +320,7 @@ function ToastItem({ toast, target, expanded, front, hidden, paused, reduce, sto
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     pointerType.current = event.pointerType;
     suppressClick.current = false;
-    if (event.button !== 0 || !isPresent || (event.target as Element).closest("button, a")) return;
+    if (event.button !== 0 || !isPresent || (event.target as Element).closest("button, a")) {return;}
     // Catch a toast that is still springing back, from exactly where it is.
     x.stop();
     gesture.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, origin: x.get(), active: false, samples: [] };
@@ -328,10 +328,10 @@ function ToastItem({ toast, target, expanded, front, hidden, paused, reduce, sto
 
   function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const current = gesture.current;
-    if (!current || current.pointerId !== event.pointerId) return;
+    if (!current || current.pointerId !== event.pointerId) {return;}
     if (!current.active) {
-      const dx = event.clientX - current.startX, dy = event.clientY - current.startY;
-      if (Math.hypot(dx, dy) < 6) return;
+      const dx = event.clientX - current.startX; const dy = event.clientY - current.startY;
+      if (Math.hypot(dx, dy) < 6) {return;}
       if (Math.abs(dy) > Math.abs(dx)) { gesture.current = null; return; }
       // Start following from here, so crossing the slop never makes the toast jump.
       current.active = true;
@@ -346,51 +346,51 @@ function ToastItem({ toast, target, expanded, front, hidden, paused, reduce, sto
     // Right follows the finger 1:1; left is the wrong way, so it resists like an overscroll.
     x.set(raw >= 0 ? raw : -rubberBand(-raw, event.currentTarget.offsetWidth));
     current.samples.push({ t: event.timeStamp, x: raw });
-    while (current.samples.length > 2 && event.timeStamp - current.samples[0]!.t > 100) current.samples.shift();
+    while (current.samples.length > 2 && event.timeStamp - current.samples[0]!.t > 100) {current.samples.shift();}
   }
 
   function onPointerEnd(event: ReactPointerEvent<HTMLDivElement>, cancelled: boolean) {
     const current = gesture.current;
-    if (!current || current.pointerId !== event.pointerId) return;
+    if (!current || current.pointerId !== event.pointerId) {return;}
     gesture.current = null;
-    if (!current.active) return;
+    if (!current.active) {return;}
     delete event.currentTarget.dataset.dragging;
     onDragChange(false);
-    const first = current.samples[0], last = current.samples[current.samples.length - 1];
+    const first = current.samples[0]; const last = current.samples[current.samples.length - 1];
     // A finger that stopped before lifting carries no throw.
     const velocity = cancelled || !first || !last || last.t === first.t || event.timeStamp - last.t > 60 ? 0 : (last.x - first.x) / (last.t - first.t) * 1000;
     const width = event.currentTarget.offsetWidth;
     const offset = x.get();
     if (!cancelled && offset > 0 && velocity > -200 && offset + project(velocity) > width * .4) {
       swiped.current = true;
-      if (!reduce) animate(x, width + 40, { ...motionTokens.spring.smooth, velocity: Math.max(velocity, 0) });
+      if (!reduce) {animate(x, width + 40, { ...motionTokens.spring.smooth, velocity: Math.max(velocity, 0) });}
       store.dismiss(id);
       return;
     }
-    if (reduce) x.jump(0);
-    else animate(x, 0, { ...motionTokens.spring.snappy, velocity: offset < 0 ? velocity * .3 : velocity });
+    if (reduce) {x.jump(0);}
+    else {animate(x, 0, { ...motionTokens.spring.snappy, velocity: offset < 0 ? velocity * .3 : velocity });}
   }
 
   function onCardClick(event: MouseEvent<HTMLDivElement>) {
     if (suppressClick.current) { suppressClick.current = false; return; }
     // Touch has no hover, so a tap on the card opens or closes the stack instead.
-    if (pointerType.current !== "mouse" && !(event.target as Element).closest("button, a")) onTap();
+    if (pointerType.current !== "mouse" && !(event.target as Element).closest("button, a")) {onTap();}
   }
 
   // An action that updates its toast usually folds itself away; keyboard focus lands on the close button instead of the page.
   function runAction(event: MouseEvent<HTMLButtonElement>) {
     const keyboard = focusVisible(event.currentTarget);
     store.runAction(id);
-    if (keyboard && !store.getSnapshot().find(item => item.id === id)?.action) closeRef.current?.focus();
+    if (keyboard && !store.getSnapshot().find(item => item.id === id)?.action) {closeRef.current?.focus();}
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLLIElement>) {
-    if (event.key !== "Escape") return;
+    if (event.key !== "Escape") {return;}
     event.stopPropagation();
     store.dismiss(id);
   }
 
-  const markMoving = (moving: boolean) => { if (actionRef.current) actionRef.current.dataset.moving = moving ? "true" : "false"; };
+  const markMoving = (moving: boolean) => { if (actionRef.current) {actionRef.current.dataset.moving = moving ? "true" : "false";} };
   const Icon = toast.type === "loading" ? null : icons[toast.type];
   const swap = reduce ? fadeOnly : textSwap;
 
@@ -435,7 +435,7 @@ export function ToastStack({ label = "Notifications", position = "bottom-right",
   const regionRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLOListElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
-  if (tapped && toasts.length === 0) setTapped(false);
+  if (tapped && toasts.length === 0) {setTapped(false);}
   const expanded = toasts.length > 0 && (hovered || focused || tapped);
   const paused = expanded || dragging || pageHidden;
 
@@ -450,17 +450,17 @@ export function ToastStack({ label = "Notifications", position = "bottom-right",
     const candidates = items.filter(item => item !== leaving && !item.hasAttribute("inert"));
     const next = candidates.find(item => items.indexOf(item) > at) ?? candidates[candidates.length - 1];
     const button = next?.querySelector<HTMLElement>("button");
-    if (keyboard && button) button.focus();
-    else if (keyboard && returnFocus.current?.isConnected) returnFocus.current.focus();
-    else (document.activeElement as HTMLElement | null)?.blur();
+    if (keyboard && button) {button.focus();}
+    else if (keyboard && returnFocus.current?.isConnected) {returnFocus.current.focus();}
+    else {(document.activeElement as HTMLElement | null)?.blur();}
   }, []);
 
   useEffect(() => {
-    if (!hotkey) return;
+    if (!hotkey) {return;}
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (!event.altKey || event.metaKey || event.ctrlKey || event.code !== "KeyT") return;
+      if (!event.altKey || event.metaKey || event.ctrlKey || event.code !== "KeyT") {return;}
       const target = listRef.current?.querySelector<HTMLElement>(":scope > li:not([inert]) button");
-      if (!target) return;
+      if (!target) {return;}
       event.preventDefault();
       // Browsers skip the focus ring after a modifier shortcut, so the hotkey asks for it and opens the stack itself.
       target.focus({ focusVisible: true } as FocusOptions);
@@ -471,8 +471,8 @@ export function ToastStack({ label = "Notifications", position = "bottom-right",
   }, [hotkey]);
 
   useEffect(() => {
-    if (!tapped) return;
-    const onDown = (event: PointerEvent) => { if (!regionRef.current?.contains(event.target as Node)) setTapped(false); };
+    if (!tapped) {return;}
+    const onDown = (event: PointerEvent) => { if (!regionRef.current?.contains(event.target as Node)) {setTapped(false);} };
     document.addEventListener("pointerdown", onDown);
     return () => document.removeEventListener("pointerdown", onDown);
   }, [tapped]);
@@ -481,17 +481,17 @@ export function ToastStack({ label = "Notifications", position = "bottom-right",
 
   function onFocus(event: FocusEvent<HTMLElement>) {
     const from = event.relatedTarget;
-    if (!(from instanceof Node) || !event.currentTarget.contains(from)) returnFocus.current = from instanceof HTMLElement ? from : null;
+    if (!(from instanceof Node) || !event.currentTarget.contains(from)) {returnFocus.current = from instanceof HTMLElement ? from : null;}
     // Only keyboard focus opens the stack; a mouse click on a button should not pin it open.
-    if (focusVisible(event.target)) setFocused(true);
+    if (focusVisible(event.target)) {setFocused(true);}
   }
 
   function onBlur(event: FocusEvent<HTMLElement>) {
-    if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setFocused(false);
+    if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {setFocused(false);}
   }
 
   return <section ref={regionRef} className={[styles.viewport, styles[position], contained && styles.contained, className].filter(Boolean).join(" ")} aria-label={hotkey ? `${label} (Alt+T)` : label} aria-live="polite" aria-relevant="additions text" aria-atomic="false" onFocus={onFocus} onBlur={onBlur}>
-    <ol ref={listRef} className={styles.list} style={{ height: listHeight }} data-expanded={expanded} onPointerEnter={event => { if (event.pointerType === "mouse") setHovered(true); }} onPointerMove={event => { if (event.pointerType === "mouse" && !hovered) setHovered(true); }} onPointerLeave={event => { if (event.pointerType === "mouse") setHovered(false); }}>
+    <ol ref={listRef} className={styles.list} style={{ height: listHeight }} data-expanded={expanded} onPointerEnter={event => { if (event.pointerType === "mouse") {setHovered(true);} }} onPointerMove={event => { if (event.pointerType === "mouse" && !hovered) {setHovered(true);} }} onPointerLeave={event => { if (event.pointerType === "mouse") {setHovered(false);} }}>
       <AnimatePresence onExitComplete={prune}>
         {toasts.map((item, index) => <ToastItem key={item.id} toast={item} target={targets[index]!} expanded={expanded} front={index === 0} hidden={index >= visibleToasts} paused={paused} reduce={reduce} store={store} onMeasure={measure} onDragChange={setDragging} onTap={toggleTap} onHandOff={handOff} />)}
       </AnimatePresence>

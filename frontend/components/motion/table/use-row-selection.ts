@@ -60,7 +60,7 @@ export function useRowSelection<T>({
 
   const commit = useCallback(
     (next: Set<string>) => {
-      if (selectedRowIds === undefined) setInternalSelected(next);
+      if (selectedRowIds === undefined) {setInternalSelected(next);}
       onSelectionChange?.([...next]);
     },
     [selectedRowIds, onSelectionChange],
@@ -73,9 +73,9 @@ export function useRowSelection<T>({
   const toggleAll = useCallback(() => {
     const next = new Set(selected);
     if (allSelected) {
-      for (const r of sortedRows) next.delete(r.id);
+      for (const r of sortedRows) {next.delete(r.id);}
     } else {
-      for (const r of sortedRows) next.add(r.id);
+      for (const r of sortedRows) {next.add(r.id);}
     }
     commit(next);
   }, [allSelected, sortedRows, selected, commit]);
@@ -83,8 +83,8 @@ export function useRowSelection<T>({
   const toggleRow = useCallback(
     (id: string) => {
       const next = new Set(selected);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {next.delete(id);}
+      else {next.add(id);}
       commit(next);
     },
     [selected, commit],

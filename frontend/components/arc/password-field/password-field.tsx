@@ -77,8 +77,8 @@ function MessageRow({ id, text, className, alert }: { id?: string; text: string;
   const [height, setHeight] = useState<number | "auto">("auto");
   useEffect(() => {
     const node = copyRef.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => { if (entry) setHeight(entry.borderBoxSize?.[0]?.blockSize ?? node.offsetHeight); });
+    if (!node || typeof ResizeObserver === "undefined") {return;}
+    const observer = new ResizeObserver(([entry]) => { if (entry) {setHeight(entry.borderBoxSize?.[0]?.blockSize ?? node.offsetHeight);} });
     observer.observe(node);
     return () => observer.disconnect();
   }, []);

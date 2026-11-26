@@ -31,7 +31,7 @@ const isBinaryFile = (content: string): boolean => {
 
   // 检查非打印字符的比例
   const totalLength = content.length;
-  if (totalLength === 0) return false;
+  if (totalLength === 0) {return false;}
 
   let nonPrintableCount = 0;
   for (let i = 0; i < Math.min(totalLength, 1000); i++) {
@@ -280,7 +280,7 @@ export function useFileUpload() {
         skippedInfo?: string,
       ) => void,
     ) => {
-      if (files.length === 0) return;
+      if (files.length === 0) {return;}
 
       const file = files[0];
       const fileName = file.name.toLowerCase();

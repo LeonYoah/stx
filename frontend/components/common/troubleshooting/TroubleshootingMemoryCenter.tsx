@@ -26,7 +26,6 @@ import {
   Calendar,
   ChevronRight,
   Edit3,
-  ExternalLink,
   FileCode,
   Fingerprint,
   Lightbulb,
@@ -50,7 +49,6 @@ import {
   getLocalizedMemory,
   matchesMemoryKeyword,
   type TroubleshootingMemoryEntry,
-  type TroubleshootingTargetType,
 } from '@/lib/services/troubleshooting';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
@@ -87,13 +85,11 @@ export interface TroubleshootingMemoryCenterProps {
   clusterId?: number;
   // 可选过滤的集群名称
   // Optional cluster name filter
-  clusterName?: string;
   // 宿主注入的集群筛选控件（工具栏末端插槽）。Host-provided cluster filter
   // control rendered at the end of the toolbar slot.
   clusterFilter?: ReactNode;
   // 选定某条排障经验时的外部回调
   // External callback when selecting a memory entry
-  onSelectMemory?: (memory: TroubleshootingMemoryEntry) => void;
   // 自定义类名
   // Custom CSS class name
   className?: string;
@@ -118,9 +114,7 @@ function formatDateTime(value?: string | null): string {
  */
 export function TroubleshootingMemoryCenter({
   clusterId,
-  clusterName,
   clusterFilter,
-  onSelectMemory,
   className,
 }: TroubleshootingMemoryCenterProps) {
   const t = useTranslations('troubleshooting');

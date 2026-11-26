@@ -54,9 +54,9 @@ function TriggerLabel({ text }: { text: string }) {
   const [size, setSize] = useState<{ width: number | "auto"; animate: boolean }>({ width: "auto", animate: false });
   useLayoutEffect(() => {
     const node = measure.current;
-    if (!node) return;
+    if (!node) {return;}
     const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
+      if (!entry) {return;}
       const current = node.textContent;
       // Only a text change morphs; the first measure and font swaps settle instantly.
       const animate = measured.current !== null && measured.current !== current;

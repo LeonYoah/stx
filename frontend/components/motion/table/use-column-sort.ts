@@ -57,7 +57,7 @@ export function useColumnSort<T>({
 
   const commit = useCallback(
     (next: SortState | null) => {
-      if (sortProp === undefined) setInternalSort(next);
+      if (sortProp === undefined) {setInternalSort(next);}
       onSortChange?.(next);
     },
     [sortProp, onSortChange],
@@ -77,9 +77,9 @@ export function useColumnSort<T>({
   );
 
   const sortedRows = useMemo(() => {
-    if (!sort) return rows;
+    if (!sort) {return rows;}
     const column = columns.find((c) => c.key === sort.key);
-    if (!column) return rows;
+    if (!column) {return rows;}
     const copy = [...rows];
     copy.sort((a, b) => {
       const av = readSortValue(a.row, column);

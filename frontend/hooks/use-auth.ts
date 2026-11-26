@@ -88,7 +88,7 @@ export function useAuth(): UseAuthReturn {
    */
   const checkAuthStatus = useCallback(async (forceRefresh = false) => {
     try {
-      if (!isMounted.current) return;
+      if (!isMounted.current) {return;}
 
       if (!state.isLoading) {
         setState((prev) => ({...prev, isLoading: true, error: null}));

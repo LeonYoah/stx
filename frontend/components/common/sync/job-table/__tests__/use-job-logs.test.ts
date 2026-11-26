@@ -26,12 +26,12 @@ vi.mock('@/lib/services', () => ({default: {sync: {getJobLogs}}}));
 
 const makeResult = (
   logs: string,
-  next_offset = '',
+  nextOffset = '',
 ): SyncJobLogsResult => ({
   mode: 'per-job',
   source: 'file',
   logs,
-  next_offset,
+  next_offset: nextOffset,
   updated_at: '2025-01-01T00:00:00Z',
 });
 

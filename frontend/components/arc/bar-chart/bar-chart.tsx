@@ -87,7 +87,7 @@ function soon(start: () => { stop: () => void }) {
 }
 
 /** Room above the top gridline, the share of each slot a bar fills, its widest size, and the radius of its data end. */
-const TOP = 12, FILL = .58, MAX_BAR = 28, RADIUS = 4;
+const TOP = 12; const FILL = .58; const MAX_BAR = 28; const RADIUS = 4;
 const grouped = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
 
@@ -96,16 +96,16 @@ function scaleFor(max: number) {
   const safe = Math.max(max, 1);
   const magnitude = 10 ** Math.floor(Math.log10(safe / 4));
   for (const factor of [1, 2, 3, 5, 10]) {
-    const step = factor * magnitude, rows = Math.ceil(safe / step);
-    if (rows <= 4) return { top: rows * step, ticks: Array.from({ length: rows + 1 }, (_, row) => row * step) };
+    const step = factor * magnitude; const rows = Math.ceil(safe / step);
+    if (rows <= 4) {return { top: rows * step, ticks: Array.from({ length: rows + 1 }, (_, row) => row * step) };}
   }
   return { top: safe, ticks: [0, safe] };
 }
 
 /** A column that grows from a square baseline to a softly rounded data end. */
 function barPath(x: number, w: number, h: number, base: number) {
-  if (w <= 0 || h <= .01) return `M${x.toFixed(2)} ${base}H${(x + Math.max(w, 0)).toFixed(2)}Z`;
-  const r = Math.min(RADIUS, w / 2, h), top = base - h, f = (value: number) => value.toFixed(2);
+  if (w <= 0 || h <= .01) {return `M${x.toFixed(2)} ${base}H${(x + Math.max(w, 0)).toFixed(2)}Z`;}
+  const r = Math.min(RADIUS, w / 2, h); const top = base - h; const f = (value: number) => value.toFixed(2);
   return `M${f(x)} ${base}V${f(top + r)}A${f(r)} ${f(r)} 0 0 1 ${f(x + r)} ${f(top)}H${f(x + w - r)}A${f(r)} ${f(r)} 0 0 1 ${f(x + w)} ${f(top + r)}V${base}Z`;
 }
 
@@ -113,7 +113,7 @@ function barPath(x: number, w: number, h: number, base: number) {
 function usePlace(place: number, reduced: boolean) {
   const value = useMotionValue(place);
   useEffect(() => {
-    if (value.get() === place) return;
+    if (value.get() === place) {return;}
     if (reduced) { value.jump(place); return; }
     return soon(() => animate(value, place, settle));
   }, [place, reduced, value]);
@@ -134,9 +134,9 @@ function Bar({ id, place, value, delay, shown, active, frame, scale, height, red
 
   // A bar grows once it is seen, each a beat after its neighbour; later values settle without a delay.
   useEffect(() => {
-    if (!isPresent) return;
+    if (!isPresent) {return;}
     if (reduced) { amount.jump(value); grown.current = true; return; }
-    if (!shown) return;
+    if (!shown) {return;}
     const first = !grown.current;
     grown.current = true;
     return soon(() => animate(amount, value, first ? { ...grow, delay: firstDelay } : settle));
@@ -144,13 +144,13 @@ function Bar({ id, place, value, delay, shown, active, frame, scale, height, red
 
   // A leaving bar sinks into the baseline, faster than a bar grows, while the zoom carries it out of the plot.
   useEffect(() => {
-    if (isPresent) return;
+    if (isPresent) {return;}
     if (reduced) { remove.current?.(); return; }
     return soon(() => animate(amount, 0, { ...collapse, onComplete: () => remove.current?.() }));
   }, [amount, isPresent, reduced]);
 
   const d = useTransform(() => {
-    const w = frame.width.get() * frame.unit.get(), size = Math.min(w * FILL, MAX_BAR), center = centerOf(frame, slot.get());
+    const w = frame.width.get() * frame.unit.get(); const size = Math.min(w * FILL, MAX_BAR); const center = centerOf(frame, slot.get());
     return barPath(center - size / 2, size, (amount.get() / scale.get()) * (height - TOP), height);
   });
   return <motion.path className={styles.bar} data-key={id} data-active={active || undefined} d={d} />;
@@ -163,7 +163,7 @@ function useRowY(value: number, scale: MotionValue<number>, height: number) {
 
 function Gridline({ value, scale, height }: { value: number; scale: MotionValue<number>; height: number }) {
   const y = useRowY(value, scale, height);
-  if (value === 0) return null;
+  if (value === 0) {return null;}
   return <motion.line className={styles.grid} x1={0} x2="100%" y1={y} y2={y} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: fadeFast }} transition={{ duration: duration.standard, ease: [...ease.standard] }} />;
 }
 
@@ -186,11 +186,11 @@ function AxisLabel({ text, size, shift, place, frame, reduced }: { text: string;
 /** Axis labels that fit once the range has settled: every label, else every second, third, and so on, counted back from the latest so the newest date always shows and spacing stays even. */
 function fittingLabels(data: BarChartDatum[], width: number, sizes: Record<string, number>) {
   const fitting = new Map<string, number>();
-  if (!width) return fitting;
+  if (!width) {return fitting;}
   const count = Math.max(1, data.length);
   const labels = data.flatMap((item, index) => {
     const size = item.axisLabel ? sizes[item.axisLabel] : undefined;
-    if (size === undefined) return [];
+    if (size === undefined) {return [];}
     const natural = width - (data.length - 1 - index + .5) * (width / count) - size / 2;
     return [{ key: item.key, size, natural, left: clamp(natural, 0, Math.max(0, width - size)) }];
   }).reverse();
@@ -224,13 +224,13 @@ function Roll({ text, direction, reduced }: { text: string; direction: number; r
   const width = useMotionValue<number | "auto">("auto");
   useLayoutEffect(() => {
     const node = sizer.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
+    if (!node || typeof ResizeObserver === "undefined") {return;}
     let measured: string | null = null;
     // Only a new value springs; a late web font or a resize jumps straight to fit.
     const observer = new ResizeObserver(() => {
       const next = node.offsetWidth;
-      if (measured !== null && measured !== node.textContent && !reduced) animate(width, next, grow);
-      else width.jump(next);
+      if (measured !== null && measured !== node.textContent && !reduced) {animate(width, next, grow);}
+      else {width.jump(next);}
       measured = node.textContent;
     });
     observer.observe(node);
@@ -263,7 +263,7 @@ export function BarChart({ data, label, period, unit = "", averageLabel = "Daily
   const plot = useRef<HTMLDivElement>(null);
   const inView = useInView(figure, { once: true, amount: .35 });
   const titleId = useId();
-  const count = Math.max(data.length, 1), last = data.length - 1;
+  const count = Math.max(data.length, 1); const last = data.length - 1;
   const average = data.length ? data.reduce((sum, item) => sum + item.value, 0) / data.length : 0;
   const peak = data.reduce((max, item) => Math.max(max, item.value), 0);
   const { top, ticks } = useMemo(() => scaleFor(peak), [peak]);
@@ -285,7 +285,7 @@ export function BarChart({ data, label, period, unit = "", averageLabel = "Daily
   const shownValue = scrubbing ? data[index]!.value : average;
   // Headline copy moves the way the data did: a larger value rises from below, a later day arrives from below too.
   const [trend, setTrend] = useState({ value: shownValue, index, valueWay: 1, indexWay: 1 });
-  if (trend.value !== shownValue || trend.index !== index) setTrend({ value: shownValue, index, valueWay: shownValue === trend.value ? trend.valueWay : shownValue > trend.value ? 1 : -1, indexWay: index === null || trend.index === null ? 1 : Math.sign(index - trend.index) || 1 });
+  if (trend.value !== shownValue || trend.index !== index) {setTrend({ value: shownValue, index, valueWay: shownValue === trend.value ? trend.valueWay : shownValue > trend.value ? 1 : -1, indexWay: index === null || trend.index === null ? 1 : Math.sign(index - trend.index) || 1 });}
 
   const width = useMotionValue(0);
   const unitShare = useMotionValue(1 / count);
@@ -300,8 +300,8 @@ export function BarChart({ data, label, period, unit = "", averageLabel = "Daily
   const measure = useRef<HTMLSpanElement>(null);
   const labelTexts = [...new Set(data.map(item => item.axisLabel).filter((text): text is string => !!text))].join("\n");
   useLayoutEffect(() => {
-    const node = plot.current, ruler = measure.current;
-    if (!node || !ruler) return;
+    const node = plot.current; const ruler = measure.current;
+    if (!node || !ruler) {return;}
     const read = () => {
       width.set(node.clientWidth);
       setPlotWidth(node.clientWidth);
@@ -310,7 +310,7 @@ export function BarChart({ data, label, period, unit = "", averageLabel = "Daily
       setLabelSizes(current => Object.keys(sizes).every(text => current[text] === sizes[text]) ? current : sizes);
     };
     read();
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(read);
     observer.observe(node);
     observer.observe(ruler);
@@ -327,7 +327,7 @@ export function BarChart({ data, label, period, unit = "", averageLabel = "Daily
   const meanStarted = useRef(false);
   useEffect(() => {
     if (reduced) { mean.jump(average); return; }
-    if (!inView) return;
+    if (!inView) {return;}
     const first = !meanStarted.current;
     meanStarted.current = true;
     return soon(() => animate(mean, average, first ? { ...settle, delay: .12 } : settle));
@@ -338,9 +338,9 @@ export function BarChart({ data, label, period, unit = "", averageLabel = "Daily
   useEffect(() => {
     if (index === null) { wasScrubbing.current = false; return; }
     const place = last - index;
-    if (reduced || !wasScrubbing.current) cursor.jump(place);
+    if (reduced || !wasScrubbing.current) {cursor.jump(place);}
     wasScrubbing.current = true;
-    if (reduced) return;
+    if (reduced) {return;}
     const controls = animate(cursor, place, glide);
     return () => controls.stop();
   }, [cursor, index, last, reduced]);
@@ -351,24 +351,24 @@ export function BarChart({ data, label, period, unit = "", averageLabel = "Daily
 
   const pointAt = (clientX: number) => {
     const rect = plot.current?.getBoundingClientRect();
-    if (!rect?.width) return last;
+    if (!rect?.width) {return last;}
     const place = Math.floor(((rect.right - clientX) / rect.width) * count);
     return clamp(last - place, 0, last);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape" && scrubbing) { event.preventDefault(); setActive(null); return; }
-    const from = index ?? last + 1, page = Math.min(7, count);
+    const from = index ?? last + 1; const page = Math.min(7, count);
     const next = ({ ArrowLeft: from - 1, ArrowDown: from - 1, ArrowRight: index === null ? last : from + 1, ArrowUp: index === null ? last : from + 1, PageDown: from - page, PageUp: from + page, Home: 0, End: last } as Record<string, number>)[event.key];
-    if (next === undefined || last < 0) return;
+    if (next === undefined || last < 0) {return;}
     event.preventDefault();
     setActive(clamp(next, 0, last));
   };
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.pointerType !== "mouse") event.currentTarget.setPointerCapture?.(event.pointerId);
+    if (event.pointerType !== "mouse") {event.currentTarget.setPointerCapture?.(event.pointerId);}
     setActive(pointAt(event.clientX));
   };
-  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => { if (event.pointerType === "mouse" || event.buttons) setActive(pointAt(event.clientX)); };
-  const release = (event: PointerEvent<HTMLDivElement>) => { if (event.pointerType !== "mouse") setActive(null); };
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => { if (event.pointerType === "mouse" || event.buttons) {setActive(pointAt(event.clientX));} };
+  const release = (event: PointerEvent<HTMLDivElement>) => { if (event.pointerType !== "mouse") {setActive(null);} };
 
   const scrubbed = scrubbing ? data[index] : null;
   const reading = scrubbed ?? data[last];
@@ -410,8 +410,8 @@ export function BarChart({ data, label, period, unit = "", averageLabel = "Daily
       </div>
       {/* The scrubber lies over the plot: hover or drag across it, or focus it and use the arrow keys. Vertical swipes still scroll the page. */}
       <div className={styles.scrubber} role="slider" tabIndex={0} aria-label={`${label}, explore by ${categoryLabel.toLowerCase()}`} aria-orientation="horizontal" aria-valuemin={1} aria-valuemax={Math.max(1, data.length)} aria-valuenow={(index ?? last) + 1} aria-valuetext={valueText}
-        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={release} onPointerCancel={() => setActive(null)} onPointerLeave={event => { if (event.pointerType === "mouse") setActive(null); }} onKeyDown={onKeyDown} onBlur={() => setActive(null)}
-        onFocus={event => { if (event.currentTarget.matches(":focus-visible") && last >= 0) setActive(current => current ?? last); }} />
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={release} onPointerCancel={() => setActive(null)} onPointerLeave={event => { if (event.pointerType === "mouse") {setActive(null);} }} onKeyDown={onKeyDown} onBlur={() => setActive(null)}
+        onFocus={event => { if (event.currentTarget.matches(":focus-visible") && last >= 0) {setActive(current => current ?? last);} }} />
     </div>
     <div className={styles.srOnly}><table>
       <caption>{label}, {period}</caption>

@@ -307,6 +307,38 @@ jobs:
         run: |
           mvn -B -f tools/stx-java-proxy/pom.xml -P'epoch-v3,!epoch-v2' -DskipTests compile package
 
+  frontend-lint:
+    name: Frontend Lint
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.10.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          pnpm install --frozen-lockfile
+
+      - name: Run ESLint gate
+        run: |
+          cd frontend
+          pnpm lint
+
   frontend-unit:
     name: Frontend Unit Tests
     runs-on: ubuntu-latest
@@ -374,7 +406,7 @@ jobs:
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [changes, install-scripts-test, license-check, backend-core-test, agent-test, proxy-test, frontend-unit, frontend-build]
+    needs: [changes, install-scripts-test, license-check, backend-core-test, agent-test, proxy-test, frontend-lint, frontend-unit, frontend-build]
     if: always()
 
     steps:
@@ -415,6 +447,12 @@ jobs:
           if [ "${{ needs.changes.outputs.proxy }}" = "true" ] &&
              [ "${{ needs.proxy-test.result }}" != "success" ]; then
             echo "::error::Java Proxy Dual-Epoch Compile did not succeed."
+            exit 1
+          fi
+
+          if [ "${{ needs.changes.outputs.frontend }}" = "true" ] &&
+             [ "${{ needs.frontend-lint.result }}" != "success" ]; then
+            echo "::error::Frontend Lint did not succeed."
             exit 1
           fi
 

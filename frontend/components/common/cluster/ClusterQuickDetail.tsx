@@ -77,7 +77,6 @@ function CopyValueButton({
   value: string;
   label: string;
 }) {
-  const t = useTranslations();
   return (
     <CopyButton
       value={value}

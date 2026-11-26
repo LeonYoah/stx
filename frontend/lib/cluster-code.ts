@@ -35,7 +35,7 @@ export function isValidClusterCode(code: string): boolean {
  * 基于集群名称推荐集群标识（保留英文字母与数字，转小写并截断）
  */
 export function recommendClusterCode(name: string): string {
-  if (!name) return '';
+  if (!name) {return '';}
   const cleaned = name
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '')

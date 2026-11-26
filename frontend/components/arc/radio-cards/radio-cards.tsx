@@ -100,13 +100,13 @@ export const RadioCards = forwardRef<HTMLDivElement, RadioCardsProps>(function R
   const tabStop = selectedIndex >= 0 && usable(options[selectedIndex]!) ? selectedIndex : options.findIndex(usable);
 
   const select = (next: string) => {
-    if (next === selected) return;
-    if (value === undefined) setInternal(next);
+    if (next === selected) {return;}
+    if (value === undefined) {setInternal(next);}
     onValueChange?.(next);
   };
 
   /* The ring: one element that springs to the selected card's box. At rest it follows layout changes exactly. */
-  const x = useMotionValue(0), y = useMotionValue(0), w = useMotionValue(0), h = useMotionValue(0), o = useMotionValue(0);
+  const x = useMotionValue(0); const y = useMotionValue(0); const w = useMotionValue(0); const h = useMotionValue(0); const o = useMotionValue(0);
   const placed = useRef(false);
   const place = useCallback((spring: boolean) => {
     const node = selectedIndex < 0 ? null : rootRef.current?.querySelector<HTMLElement>(`[data-card="${selectedIndex}"]`);
@@ -114,7 +114,7 @@ export const RadioCards = forwardRef<HTMLDivElement, RadioCardsProps>(function R
     const box: [number, number, number, number] = [node.offsetLeft, node.offsetTop, node.offsetWidth, node.offsetHeight];
     if (!spring || !placed.current || reduced) {
       x.jump(box[0]); y.jump(box[1]); w.jump(box[2]); h.jump(box[3]);
-      if (!placed.current && !reduced && spring) { o.jump(0); animate(o, 1, { duration: motionTokens.duration.fast, ease: standard }); } else o.jump(1);
+      if (!placed.current && !reduced && spring) { o.jump(0); animate(o, 1, { duration: motionTokens.duration.fast, ease: standard }); } else {o.jump(1);}
       placed.current = true;
       return;
     }
@@ -127,7 +127,7 @@ export const RadioCards = forwardRef<HTMLDivElement, RadioCardsProps>(function R
   // A resize only snaps the ring to the new layout; it never replays the glide.
   useLayoutEffect(() => {
     const root = rootRef.current;
-    if (!root || typeof ResizeObserver === "undefined") return;
+    if (!root || typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(() => placeRef.current(false));
     observer.observe(root);
     return () => observer.disconnect();
@@ -138,10 +138,10 @@ export const RadioCards = forwardRef<HTMLDivElement, RadioCardsProps>(function R
     const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
     if (event.key === " " || event.key === "Enter") {
       event.preventDefault();
-      if (usable(options[index]!)) select(options[index]!.value);
+      if (usable(options[index]!)) {select(options[index]!.value);}
       return;
     }
-    if (!step && event.key !== "Home" && event.key !== "End") return;
+    if (!step && event.key !== "Home" && event.key !== "End") {return;}
     event.preventDefault();
     const count = options.length;
     const rtl = step && (event.key === "ArrowLeft" || event.key === "ArrowRight") && getComputedStyle(event.currentTarget).direction === "rtl" ? -1 : 1;
@@ -158,12 +158,12 @@ export const RadioCards = forwardRef<HTMLDivElement, RadioCardsProps>(function R
     style={{ "--min-column": `${minColumnWidth}px`, ...style } as CSSProperties} {...rest}>
     <motion.span className={styles.ring} style={{ x, y, width: w, height: h, opacity: o }} aria-hidden="true" />
     {options.map((option, index) => {
-      const checked = index === selectedIndex, off = !usable(option);
-      const labelId = `${uid}-${index}-label`, descriptionId = `${uid}-${index}-description`;
+      const checked = index === selectedIndex; const off = !usable(option);
+      const labelId = `${uid}-${index}-label`; const descriptionId = `${uid}-${index}-description`;
       const description = off && option.disabledReason ? option.disabledReason : option.description;
       return <div key={option.value} role="radio" data-card={index} className={styles.card} aria-checked={checked} aria-disabled={off || undefined}
         aria-labelledby={labelId} aria-describedby={description ? descriptionId : undefined} tabIndex={index === tabStop ? 0 : -1}
-        data-checked={checked || undefined} onClick={() => { if (!off) select(option.value); }} onKeyDown={event => onKeyDown(event, index)}>
+        data-checked={checked || undefined} onClick={() => { if (!off) {select(option.value);} }} onKeyDown={event => onKeyDown(event, index)}>
         <span className={styles.indicator} aria-hidden="true">
           <motion.span className={styles.indicatorDot} initial={false} animate={{ scale: checked ? 1 : 0 }} transition={reduced ? { duration: 0 } : motionTokens.spring.snappy} />
         </span>

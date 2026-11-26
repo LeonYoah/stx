@@ -175,10 +175,10 @@ export interface EstimateStrengthOptions {
 
 /** Scores a password on the device: one step per share of rules met, capped at the first step while it is shorter than the short length (8 by default). */
 export function estimateStrength(password: string, rules: PasswordRule[] = defaultPasswordRules, { shortLength = 8, levels, countCharacters = countCodePoints }: EstimateStrengthOptions = {}): PasswordStrengthResult {
-  if (!password) return { level: 0, label: "", met: [] };
+  if (!password) {return { level: 0, label: "", met: [] };}
   const words = { ...defaultPasswordStrengthMessages.levels, ...levels };
   const met = rules.filter(rule => rule.test(password)).map(rule => rule.id);
-  if (countCharacters(password) < shortLength) return { level: 1, label: words.tooShort, met, short: true };
+  if (countCharacters(password) < shortLength) {return { level: 1, label: words.tooShort, met, short: true };}
   const level = Math.min(4, Math.max(1, Math.round((met.length / Math.max(rules.length, 1)) * 4))) as 1 | 2 | 3 | 4;
   return { level, label: [words.weak, words.fair, words.good, words.strong][level - 1] ?? words.weak, met };
 }
@@ -205,7 +205,7 @@ const roll: Variants = {
 
 function RollingNumber({ value, reduced }: { value: number; reduced: boolean }) {
   const [track, setTrack] = useState({ value, direction: 1 });
-  if (track.value !== value) setTrack({ value, direction: value > track.value ? 1 : -1 });
+  if (track.value !== value) {setTrack({ value, direction: value > track.value ? 1 : -1 });}
   const digits = String(value).split("");
   // Columns are keyed by place value, so 10 → 9 lets the tens column narrow away while the ones column turns.
   return <span className={styles.number}>
@@ -247,8 +247,8 @@ function ErrorRow({ id, text, reduced }: { id: string; text: string; reduced: bo
   const [height, setHeight] = useState<number | "auto">("auto");
   useEffect(() => {
     const node = copy.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => { if (entry) setHeight(entry.borderBoxSize?.[0]?.blockSize ?? node.offsetHeight); });
+    if (!node || typeof ResizeObserver === "undefined") {return;}
+    const observer = new ResizeObserver(([entry]) => { if (entry) {setHeight(entry.borderBoxSize?.[0]?.blockSize ?? node.offsetHeight);} });
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
@@ -266,7 +266,7 @@ export const PasswordStrength = forwardRef<HTMLInputElement, PasswordStrengthPro
   const options: EstimateStrengthOptions = { shortLength, levels: messages.levels, countCharacters };
   const generated = useId();
   const controlId = id ?? generated;
-  const rulesId = `${controlId}-rules`, errorId = `${controlId}-error`;
+  const rulesId = `${controlId}-rules`; const errorId = `${controlId}-error`;
   const hydrated = useHydrated();
   const prefersReduced = useReducedMotion();
   const reduced = hydrated && !!prefersReduced;
@@ -281,13 +281,13 @@ export const PasswordStrength = forwardRef<HTMLInputElement, PasswordStrengthPro
   const rank = strength.short ? .5 : strength.level;
   const metKey = strength.met.join(" ");
   const [track, setTrack] = useState({ rank, level: strength.level, previousLevel: strength.level, direction: 1, metKey, previousMet: metKey });
-  if (track.rank !== rank || track.metKey !== metKey) setTrack({ rank, level: strength.level, previousLevel: track.rank !== rank ? track.level : track.previousLevel, direction: track.rank === rank ? track.direction : rank > track.rank ? 1 : -1, metKey, previousMet: track.metKey !== metKey ? track.metKey : track.previousMet });
+  if (track.rank !== rank || track.metKey !== metKey) {setTrack({ rank, level: strength.level, previousLevel: track.rank !== rank ? track.level : track.previousLevel, direction: track.rank === rank ? track.direction : rank > track.rank ? 1 : -1, metKey, previousMet: track.metKey !== metKey ? track.metKey : track.previousMet });}
   const previousMet = new Set(track.previousMet.split(" ").filter(Boolean));
   const changed = rules.filter(rule => met.has(rule.id) !== previousMet.has(rule.id)).map(rule => rule.id);
 
   // Only a change after mount resolves the text, so the field never blurs in on first paint.
   const [reveal, setReveal] = useState({ revealed, changed: false });
-  if (reveal.revealed !== revealed) setReveal({ revealed, changed: true });
+  if (reveal.revealed !== revealed) {setReveal({ revealed, changed: true });}
 
   const shake = useMotionValue(0);
   const shaking = useRef<AnimationPlaybackControls | null>(null);
@@ -295,7 +295,7 @@ export const PasswordStrength = forwardRef<HTMLInputElement, PasswordStrengthPro
   useEffect(() => {
     const previous = lastError.current;
     lastError.current = error;
-    if (!error || error === previous || reduced) return;
+    if (!error || error === previous || reduced) {return;}
     // motion: error shake is physical; its ring-out is the message.
     // A spring released with sideways velocity rings out on its own, the way a refused field shakes on a phone.
     shaking.current?.stop();
@@ -303,7 +303,7 @@ export const PasswordStrength = forwardRef<HTMLInputElement, PasswordStrengthPro
   }, [error, reduced, shake]);
 
   function toggleReveal() {
-    if (revealedProp === undefined) setRevealedInternal(!revealed);
+    if (revealedProp === undefined) {setRevealedInternal(!revealed);}
     onRevealedChange?.(!revealed);
   }
 
@@ -314,7 +314,7 @@ export const PasswordStrength = forwardRef<HTMLInputElement, PasswordStrengthPro
     <label className={styles.label} htmlFor={controlId}>{label}</label>
     <motion.div className={styles.shell} style={{ x: shake }}>
       <input autoComplete="new-password" autoCapitalize="off" autoCorrect="off" spellCheck={false} {...props} ref={ref} id={controlId} type={revealed ? "text" : "password"} value={value}
-        onChange={event => { const next = event.target.value; if (valueProp === undefined) setInternal(next); onChange?.(event); onValueChange?.(next, estimateStrength(next, rules, options)); }}
+        onChange={event => { const next = event.target.value; if (valueProp === undefined) {setInternal(next);} onChange?.(event); onValueChange?.(next, estimateStrength(next, rules, options)); }}
         aria-invalid={error ? true : props["aria-invalid"]} aria-describedby={describedBy} data-reveal={reveal.changed ? (revealed ? "shown" : "hidden") : undefined} className={[styles.input, className].filter(Boolean).join(" ")} />
       <button type="button" className={styles.reveal} onClick={toggleReveal} aria-label={messages.showPassword} aria-pressed={revealed} aria-controls={controlId}><EyeMorph slashed={revealed} reduced={reduced} /></button>
     </motion.div>

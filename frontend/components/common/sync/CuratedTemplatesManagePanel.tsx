@@ -389,9 +389,9 @@ export function CuratedTemplatesManagePanel({
         : t('curatedCreate');
 
   const getOriginLabel = (orig: string) => {
-    if (orig === 'builtin') return t('curatedOriginBuiltin');
-    if (orig === 'user') return t('curatedOriginUser');
-    if (orig === 'override') return t('curatedOriginOverride');
+    if (orig === 'builtin') {return t('curatedOriginBuiltin');}
+    if (orig === 'user') {return t('curatedOriginUser');}
+    if (orig === 'override') {return t('curatedOriginOverride');}
     return orig;
   };
 

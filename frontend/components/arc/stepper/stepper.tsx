@@ -100,8 +100,8 @@ function SwapText({ text, className, reduced }: { text?: string; className?: str
   const height = useMotionValue<number | "auto">("auto");
   useLayoutEffect(() => { armedUntil.current = performance.now() + 700; }, [text]);
   useEffect(() => {
-    const node = inner.current, slot = node?.parentElement;
-    if (!node || !slot || typeof ResizeObserver === "undefined") return;
+    const node = inner.current; const slot = node?.parentElement;
+    if (!node || !slot || typeof ResizeObserver === "undefined") {return;}
     let measured = false;
     const observer = new ResizeObserver(() => {
       const next = node.offsetHeight;
@@ -125,7 +125,7 @@ function Glyph({ kind, number, delay, reduced }: { kind: GlyphKind; number: numb
   const pop = reduced ? still : { scale: { ...motionTokens.spring.snappy, delay }, opacity: { duration: motionTokens.duration.fast, delay }, filter: { duration: motionTokens.duration.fast, delay } };
   const exit = { ...glyphFrom, transition: reduced ? still : leave };
   const draw = reduced ? still : { duration: motionTokens.duration.standard, ease: motionTokens.ease.enter, delay: delay + .04 };
-  if (kind === "number") return <motion.span className={styles.glyph} initial={glyphFrom} animate={glyphRest} exit={exit} transition={pop}>{number}</motion.span>;
+  if (kind === "number") {return <motion.span className={styles.glyph} initial={glyphFrom} animate={glyphRest} exit={exit} transition={pop}>{number}</motion.span>;}
   return <motion.svg className={`${styles.glyph} ${styles.icon}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" initial={glyphFrom} animate={glyphRest} exit={exit} transition={pop}>
     {kind === "check"
       ? <motion.path d="M5.5 12.5l4.25 4.25L18.5 8" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={draw} />
@@ -160,12 +160,12 @@ export function Stepper({ steps, current, orientation = "horizontal", onStepSele
   const active = Math.min(Math.max(Math.round(current), 0), count);
   // Remember where progress came from, so a jump across several steps fills or drains its connectors one after another.
   const [travel, setTravel] = useState({ to: active, from: active });
-  if (travel.to !== active) setTravel({ to: active, from: travel.to });
+  if (travel.to !== active) {setTravel({ to: active, from: travel.to });}
   const from = travel.from;
   const gap = motionTokens.stagger.line;
   const delayAt = (index: number) => {
-    if (reduced) return 0;
-    if (active > from) return index >= from && index < active ? (index - from) * gap : 0;
+    if (reduced) {return 0;}
+    if (active > from) {return index >= from && index < active ? (index - from) * gap : 0;}
     return index >= active && index < from ? (from - 1 - index) * gap : 0;
   };
   const ringDelay = reduced ? 0 : Math.max(0, Math.abs(active - from) - 1) * gap + .12;
@@ -177,11 +177,11 @@ export function Stepper({ steps, current, orientation = "horizontal", onStepSele
   /** Arrow keys move between the steps you can reach; Home and End jump to the first and the current one. */
   function onKeyDown(event: KeyboardEvent<HTMLOListElement>) {
     const rtl = !vertical && getComputedStyle(event.currentTarget).direction === "rtl";
-    const back = ["ArrowUp", rtl ? "ArrowRight" : "ArrowLeft"], ahead = ["ArrowDown", rtl ? "ArrowLeft" : "ArrowRight"];
-    if (![...back, ...ahead, "Home", "End"].includes(event.key)) return;
+    const back = ["ArrowUp", rtl ? "ArrowRight" : "ArrowLeft"]; const ahead = ["ArrowDown", rtl ? "ArrowLeft" : "ArrowRight"];
+    if (![...back, ...ahead, "Home", "End"].includes(event.key)) {return;}
     const targets = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button[data-reachable]"));
     const at = targets.indexOf(event.target as HTMLButtonElement);
-    if (at < 0) return;
+    if (at < 0) {return;}
     event.preventDefault();
     const next = event.key === "Home" ? 0 : event.key === "End" ? targets.length - 1 : back.includes(event.key) ? Math.max(0, at - 1) : Math.min(targets.length - 1, at + 1);
     targets[next]?.focus();

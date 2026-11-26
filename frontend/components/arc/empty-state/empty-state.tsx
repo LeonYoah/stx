@@ -62,7 +62,7 @@ function Swap(props: HTMLMotionProps<"span">) {
 
 /** A new icon component crossfades in; re-rendering the same icon stays still. */
 function iconKey(icon: ReactNode) {
-  if (!isValidElement(icon)) return "icon";
+  if (!isValidElement(icon)) {return "icon";}
   const type = icon.type as string | { displayName?: string; name?: string };
   return typeof type === "string" ? type : type.displayName ?? type.name ?? "icon";
 }
@@ -76,20 +76,20 @@ function HeightFrame({ reduce, morphKey, children }: { reduce: boolean | null; m
   useLayoutEffect(() => { changedAt.current = performance.now(); }, [morphKey]);
   useEffect(() => {
     const node = content.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
+    if (!node || typeof ResizeObserver === "undefined") {return;}
     let last: number | undefined;
     let controls: AnimationPlaybackControls | undefined;
-    const settle = () => { height.jump("auto"); if (frame.current) Object.assign(frame.current.style, { overflow: "", height: "auto" }); };
+    const settle = () => { height.jump("auto"); if (frame.current) {Object.assign(frame.current.style, { overflow: "", height: "auto" });} };
     const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
+      if (!entry) {return;}
       const next = entry.borderBoxSize?.[0]?.blockSize ?? node.offsetHeight;
       const current = height.get();
       const from = typeof current === "number" ? current : last;
       last = next;
       controls?.stop();
-      if (reduce || from === undefined || from === next || performance.now() - changedAt.current > 120) return settle();
+      if (reduce || from === undefined || from === next || performance.now() - changedAt.current > 120) {return settle();}
       // Pin the old height before this frame paints, then spring to the new one.
-      if (frame.current) Object.assign(frame.current.style, { overflow: "hidden", height: `${from}px` });
+      if (frame.current) {Object.assign(frame.current.style, { overflow: "hidden", height: `${from}px` });}
       controls = animate(height, [from, next], { ...motionTokens.spring.smooth, onComplete: settle });
     });
     observer.observe(node);

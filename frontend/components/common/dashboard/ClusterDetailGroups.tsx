@@ -46,7 +46,6 @@ import {
   colorForLabels,
   formatBytes,
   formatCompactNumber,
-  NEUTRAL_LINE,
 } from './dashboard-format';
 import {
   HomeService,

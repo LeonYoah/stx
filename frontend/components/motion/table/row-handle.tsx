@@ -67,7 +67,7 @@ export function RowHandle({
     return () => window.removeEventListener("scroll", onLeave, true);
   }, [onLeave]);
 
-  if (!rowEl || typeof document === "undefined") return null;
+  if (!rowEl || typeof document === "undefined") {return null;}
   const rect = rowEl.getBoundingClientRect();
 
   return createPortal(

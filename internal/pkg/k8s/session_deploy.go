@@ -186,6 +186,13 @@ func (s *SessionManager) Deploy(ctx context.Context, opts *DeployOptions) (*Depl
 	track("service", names.ClusterSvc)
 	track("service", names.MasterSvc)
 
+	if cfg.IsHybrid() {
+		if err := ensureSessionStatefulSet(ctx, clientset, cfg, names, code, opts.ClusterID, "hybrid"); err != nil {
+			return nil, err
+		}
+		track("statefulset", names.MasterSTS+"-hybrid")
+		return result, nil
+	}
 	if err := ensureSessionStatefulSet(ctx, clientset, cfg, names, code, opts.ClusterID, "master"); err != nil {
 		return nil, err
 	}
@@ -195,6 +202,16 @@ func (s *SessionManager) Deploy(ctx context.Context, opts *DeployOptions) (*Depl
 	}
 	track("statefulset", names.WorkerSTS)
 	return result, nil
+}
+
+// engineRoleArg 把 STX 角色映射为 Zeta 启动角色参数：hybrid 即 master_and_worker。
+// engineRoleArg maps the STX role to the Zeta startup role argument: hybrid means
+// master_and_worker.
+func engineRoleArg(role string) string {
+	if role == "hybrid" {
+		return "master_and_worker"
+	}
+	return role
 }
 
 func ensureNamespace(ctx context.Context, clientset kubernetes.Interface, ns string) error {
@@ -407,11 +424,26 @@ func ensureSessionStatefulSet(ctx context.Context, clientset kubernetes.Interfac
 	var stsName string
 	var replicas int
 	var req ResourceRequirement
-	if role == "master" {
+	switch role {
+	case "master":
 		stsName = names.MasterSTS
 		replicas = cfg.MasterReplicas
 		req = cfg.Resources.Master
-	} else {
+	case "hybrid":
+		// hybrid 单 StatefulSet 同时承载 master+worker 角色（Zeta master_and_worker）。
+		// Hybrid runs one StatefulSet carrying both roles (Zeta master_and_worker).
+		stsName = names.MasterSTS + "-hybrid"
+		if cfg.HybridWorkloadName != "" {
+			stsName = cfg.HybridWorkloadName
+		}
+		replicas = cfg.HybridReplicas
+		if replicas <= 0 {
+			replicas = 2
+		}
+		if cfg.Resources.Hybrid != nil {
+			req = *cfg.Resources.Hybrid
+		}
+	default:
 		stsName = names.WorkerSTS
 		replicas = cfg.WorkerReplicas
 		req = cfg.Resources.Worker
@@ -446,7 +478,7 @@ func ensureSessionStatefulSet(ctx context.Context, clientset kubernetes.Interfac
 			},
 		},
 	}
-	if role == "master" && strings.TrimSpace(cfg.Storage.CheckpointPVC) != "" {
+	if (role == "master" || role == "hybrid") && strings.TrimSpace(cfg.Storage.CheckpointPVC) != "" {
 		volumes = append(volumes, corev1.Volume{
 			Name: "checkpoint-data",
 			VolumeSource: corev1.VolumeSource{
@@ -464,7 +496,7 @@ func ensureSessionStatefulSet(ctx context.Context, clientset kubernetes.Interfac
 	ports := []corev1.ContainerPort{
 		{Name: "hazelcast-port", ContainerPort: int32(cfg.HazelcastPort)},
 	}
-	if role == "master" {
+	if role == "master" || role == "hybrid" {
 		ports = append(ports, corev1.ContainerPort{Name: "master-port", ContainerPort: int32(cfg.MasterHTTPPort)})
 	}
 
@@ -482,7 +514,7 @@ func ensureSessionStatefulSet(ctx context.Context, clientset kubernetes.Interfac
 	}
 	liveness := tcpProbe()
 	readiness := tcpProbe()
-	if role == "master" {
+	if role == "master" || role == "hybrid" {
 		readiness = &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
@@ -502,7 +534,7 @@ func ensureSessionStatefulSet(ctx context.Context, clientset kubernetes.Interfac
 		Name:            stsName,
 		Image:           cfg.Image,
 		ImagePullPolicy: corev1.PullPolicy(cfg.ImagePullPolicy),
-		Command:         []string{"/opt/seatunnel/bin/seatunnel-cluster.sh", "-r", role},
+		Command:         []string{"/opt/seatunnel/bin/seatunnel-cluster.sh", "-r", engineRoleArg(role)},
 		Ports:           ports,
 		VolumeMounts:    volumeMounts,
 		LivenessProbe:   liveness,
@@ -644,6 +676,16 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 			return nil
 		}
 		return clientset.AppsV1().StatefulSets(ns).Delete(ctx, names.WorkerSTS, metav1.DeleteOptions{PropagationPolicy: &policy})
+	})
+	deleteOne("statefulset/"+names.MasterSTS+"-hybrid", func() error {
+		obj, err := clientset.AppsV1().StatefulSets(ns).Get(ctx, names.MasterSTS+"-hybrid", metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
+		return clientset.AppsV1().StatefulSets(ns).Delete(ctx, names.MasterSTS+"-hybrid", metav1.DeleteOptions{PropagationPolicy: &policy})
 	})
 	deleteOne("service/"+names.ClusterSvc, func() error {
 		obj, err := clientset.CoreV1().Services(ns).Get(ctx, names.ClusterSvc, metav1.GetOptions{})

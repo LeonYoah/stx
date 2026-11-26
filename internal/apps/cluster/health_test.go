@@ -570,3 +570,54 @@ func TestScaleK8sComponentPersistsReplicas(t *testing.T) {
 		t.Fatalf("master replicas must stay 1, got %d", cfg.MasterReplicas)
 	}
 }
+
+
+// TestEvaluateK8sClusterHealth_NodeCounts 验证 K8s 健康检查填充 TotalNodes/OnlineNodes/OfflineNodes。
+// TestEvaluateK8sClusterHealth_NodeCounts verifies K8s health evaluation fills
+// TotalNodes/OnlineNodes/OfflineNodes.
+func TestEvaluateK8sClusterHealth_NodeCounts(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	mgr := k8s.NewClientManagerWithFactory(
+		func(_ context.Context, _ uint) (*k8s.Credentials, error) {
+			return &k8s.Credentials{AuthMode: k8s.AuthModeToken, APIURL: "https://unused", Token: "t"}, nil
+		},
+		func(_ *rest.Config) (kubernetes.Interface, error) {
+			return client, nil
+		},
+	)
+	svc := &Service{k8sManager: mgr}
+	cluster := &Cluster{
+		ID:          9,
+		ClusterCode: "demo",
+		Status:      ClusterStatusRunning,
+		InfraType:   string(infra.TypeK8sSession),
+		Config: ClusterConfig{
+			"kubernetes": map[string]interface{}{
+				"host_id":           1,
+				"namespace":         "seatunnel",
+				"access_mode":       "apiserver_proxy",
+				"management_source": "stx_deployed",
+				"master_replicas":   1,
+				"worker_replicas":   2,
+			},
+		},
+	}
+	info := &ClusterStatusInfo{}
+	svc.evaluateK8sClusterHealth(context.Background(), cluster, info)
+	if info.TotalNodes != 3 {
+		t.Fatalf("TotalNodes = %d, want 3", info.TotalNodes)
+	}
+	if info.OnlineNodes != info.RunningNodes {
+		t.Fatalf("OnlineNodes = %d must equal RunningNodes = %d", info.OnlineNodes, info.RunningNodes)
+	}
+	if info.OfflineNodes != info.TotalNodes-info.OnlineNodes {
+		t.Fatalf("OfflineNodes = %d inconsistent with total %d online %d", info.OfflineNodes, info.TotalNodes, info.OnlineNodes)
+	}
+	// stopped 集群同样必须填充计数 / stopped clusters must still expose the counts
+	cluster.Status = ClusterStatusStopped
+	info2 := &ClusterStatusInfo{}
+	svc.evaluateK8sClusterHealth(context.Background(), cluster, info2)
+	if info2.TotalNodes != 3 {
+		t.Fatalf("stopped TotalNodes = %d, want 3", info2.TotalNodes)
+	}
+}

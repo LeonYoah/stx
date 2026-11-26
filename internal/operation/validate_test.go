@@ -512,18 +512,18 @@ func TestK8sOperationsRegistered(t *testing.T) {
 		route  string
 		risk   RiskLevel
 	}{
-		"host.test-connection":          {"POST", "/api/v1/hosts/:id/test-connection", RiskR0},
-		"host.k8s-namespaces":           {"GET", "/api/v1/hosts/:id/k8s/namespaces", RiskR0},
-		"host.k8s-discover":             {"GET", "/api/v1/hosts/:id/k8s/discover", RiskR0},
-		"cluster.kubernetes-create":     {"POST", "/api/v1/clusters/kubernetes", RiskR1},
-		"cluster.k8s-scale":             {"POST", "/api/v1/clusters/:id/k8s/scale", RiskR1},
-		"cluster.k8s-rollout-restart":   {"POST", "/api/v1/clusters/:id/k8s/rollout-restart", RiskR1},
-		"cluster.k8s-upgrade-image":     {"POST", "/api/v1/clusters/:id/k8s/upgrade-image", RiskR1},
-		"cluster.k8s-pods":              {"GET", "/api/v1/clusters/:id/k8s/pods", RiskR0},
-		"cluster.k8s-pod-logs":          {"GET", "/api/v1/clusters/:id/k8s/pods/:pod/logs", RiskR0},
-		"cluster.k8s-java-proxy-retry":  {"POST", "/api/v1/clusters/:id/k8s/java-proxy/retry", RiskR1},
-		"cluster.k8s-configmap":         {"GET", "/api/v1/clusters/:id/k8s/configmap", RiskR0},
-		"cluster.k8s-configmap-update":  {"PUT", "/api/v1/clusters/:id/k8s/configmap/:file", RiskR1},
+		"host.test-connection":         {"POST", "/api/v1/hosts/:id/test-connection", RiskR0},
+		"host.k8s-namespaces":          {"GET", "/api/v1/hosts/:id/k8s/namespaces", RiskR0},
+		"host.k8s-discover":            {"GET", "/api/v1/hosts/:id/k8s/discover", RiskR0},
+		"cluster.kubernetes-create":    {"POST", "/api/v1/clusters/kubernetes", RiskR1},
+		"cluster.k8s-scale":            {"POST", "/api/v1/clusters/:id/k8s/scale", RiskR1},
+		"cluster.k8s-rollout-restart":  {"POST", "/api/v1/clusters/:id/k8s/rollout-restart", RiskR1},
+		"cluster.k8s-upgrade-image":    {"POST", "/api/v1/clusters/:id/k8s/upgrade-image", RiskR1},
+		"cluster.k8s-pods":             {"GET", "/api/v1/clusters/:id/k8s/pods", RiskR0},
+		"cluster.k8s-pod-logs":         {"GET", "/api/v1/clusters/:id/k8s/pods/:pod/logs", RiskR0},
+		"cluster.k8s-java-proxy-retry": {"POST", "/api/v1/clusters/:id/k8s/java-proxy/retry", RiskR1},
+		"cluster.k8s-configmap":        {"GET", "/api/v1/clusters/:id/k8s/configmap", RiskR0},
+		"cluster.k8s-configmap-update": {"PUT", "/api/v1/clusters/:id/k8s/configmap/:file", RiskR1},
 	}
 	byID := map[string]OperationSpec{}
 	for _, spec := range Registry() {

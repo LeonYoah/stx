@@ -2201,7 +2201,8 @@
       "heapDerivationHint": "JVM 堆自动推导为容器内存的 1/2：{hint}",
       "namespaceCreateNew": "新建 namespace",
       "namespaceSelectOrCreate": "选择或输入新 namespace",
-      "advancedOptions": "高级选项"
+      "advancedOptions": "高级选项",
+      "hostVersionHint": "支持 Kubernetes 1.18+"
     }
   },
   "audit": {

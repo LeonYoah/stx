@@ -236,6 +236,7 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
               </Button>
             </div>
           ) : null}
+          <p className='text-[11px] text-muted-foreground'>{t('cluster.k8s.hostVersionHint')}</p>
         </div>
         <div className='space-y-1.5'>
           {namespaces.length > 0 && namespaces.includes(form.namespace) ? (

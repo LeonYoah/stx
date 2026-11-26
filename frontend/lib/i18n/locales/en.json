@@ -2201,7 +2201,8 @@
       "heapDerivationHint": "JVM heap auto-derives as half the container memory: {hint}",
       "namespaceCreateNew": "Create namespace",
       "namespaceSelectOrCreate": "Select or type a new namespace",
-      "advancedOptions": "Advanced options"
+      "advancedOptions": "Advanced options",
+      "hostVersionHint": "Supports Kubernetes 1.18+"
     }
   },
   "audit": {

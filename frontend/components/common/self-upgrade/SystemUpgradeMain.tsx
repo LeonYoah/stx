@@ -25,7 +25,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock,
-  Copy,
   History,
   Loader2,
   Package,
@@ -56,6 +55,7 @@ import {AgentNodeList, AgentVersionsPanel} from './AgentNodesPanel';
 import {ExecuteActions} from './ExecuteActions';
 import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
 import {toast} from '@/lib/toast';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 // 去掉可选的 v 前缀，便于比较与展示版本号
 // Strip an optional leading v so versions compare and render consistently
@@ -319,7 +319,7 @@ export function SystemUpgradeMain() {
   }, [status?.overall_status, status?.stage?.status, status?.active_task?.status, loadStatus]);
 
   const overallLabel = useMemo(() => {
-    if (!status) return t('statusIdle');
+    if (!status) {return t('statusIdle');}
     const map: Record<string, string> = {
       idle: t('statusIdle'),
       checking: t('statusChecking'),
@@ -438,10 +438,10 @@ export function SystemUpgradeMain() {
       if (code === 'network_unreachable') {
         setErrorBanner(t('errNetworkUnreachable'));
         setStageTab('offline');
-      } else if (code === 'disk_full') setErrorBanner(t('errDiskFull'));
-      else if (code === 'concurrent_upgrade') setErrorBanner(t('errConcurrent'));
-      else if (code === 'already_latest') setErrorBanner(t('alreadyLatest'));
-      else setErrorBanner(apiErr.message || t('errDownload'));
+      } else if (code === 'disk_full') {setErrorBanner(t('errDiskFull'));}
+      else if (code === 'concurrent_upgrade') {setErrorBanner(t('errConcurrent'));}
+      else if (code === 'already_latest') {setErrorBanner(t('alreadyLatest'));}
+      else {setErrorBanner(apiErr.message || t('errDownload'));}
     } finally {
       setBusy(false);
     }
@@ -481,10 +481,10 @@ export function SystemUpgradeMain() {
       await loadStatus({background: true});
     } catch (err) {
       const apiErr = err as SelfUpgradeApiError;
-      if (apiErr.errorCode === 'not_staged') setErrorBanner(t('errNotStaged'));
+      if (apiErr.errorCode === 'not_staged') {setErrorBanner(t('errNotStaged'));}
       else if (apiErr.errorCode === 'concurrent_upgrade')
-        setErrorBanner(t('errConcurrent'));
-      else setErrorBanner(apiErr.message || t('errExecute'));
+        {setErrorBanner(t('errConcurrent'));}
+      else {setErrorBanner(apiErr.message || t('errExecute'));}
     } finally {
       setBusy(false);
     }
@@ -652,19 +652,12 @@ export function SystemUpgradeMain() {
               <code className='truncate text-foreground select-all'>
                 {status.docker_compose_upgrade_cmd || 'docker compose pull && docker compose up -d'}
               </code>
-              <Button
-                type='button'
-                size='sm'
-                variant='ghost'
-                className='h-7 shrink-0 text-xs gap-1 hover:bg-background'
-                onClick={() => {
-                  navigator.clipboard.writeText(status.docker_compose_upgrade_cmd || 'docker compose pull && docker compose up -d');
-                  toast.success(t('dockerNoticeCopied'));
-                }}
-              >
-                <Copy className='h-3.5 w-3.5' />
-                {t('dockerNoticeCopy')}
-              </Button>
+              <CopyButton
+                value={status.docker_compose_upgrade_cmd || 'docker compose pull && docker compose up -d'}
+                label={t('dockerNoticeCopy')}
+                variant='plain'
+                className='h-7 shrink-0 px-2 text-xs hover:bg-background'
+              />
             </div>
           </CardContent>
         </Card>

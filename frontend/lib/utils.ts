@@ -18,6 +18,7 @@
 import {clsx, type ClassValue} from 'clsx';
 import {twMerge} from 'tailwind-merge';
 import {formatDateTimeMinuteTz, formatDateTimeTz, formatDateTz} from './timezone';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -56,21 +57,5 @@ export function formatDateTimeWithSeconds(dateString: string): string {
  * @returns Promise<void>
  */
 export async function copyToClipboard(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    try {
-      const textArea = document.createElement('textarea');
-      textArea.value = text;
-      textArea.style.position = 'fixed';
-      textArea.style.opacity = '0';
-      document.body.appendChild(textArea);
-      textArea.focus();
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-    } catch {
-      throw new Error('复制失败');
-    }
-  }
+  await writeClipboard(text);
 }

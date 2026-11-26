@@ -1153,7 +1153,8 @@
       "done": "完成并关闭",
       "viewHostDetail": "查看主机详情",
       "installLater": "稍后在主机运行",
-      "pendingAlert": "该主机尚未安装 Agent 探针，无法采集资源监控或下发任务。请在目标机器上复制并运行以下命令完成接入。"
+      "pendingAlert": "该主机尚未安装 Agent 探针，无法采集资源监控或下发任务。请在目标机器上复制并运行以下命令完成接入。",
+      "copyInstallCommand": "复制安装命令"
     },
     "types": {
       "bareMetal": "物理机/虚拟机",
@@ -4473,7 +4474,7 @@
         "details": "查看检查信息",
         "investigate": "排查方向",
         "copy": "复制",
-        "copied": "排查方向已复制",
+        "copied": "已复制",
         "copyFailed": "复制失败",
         "zeroTitle": "本次未发现需关注项",
         "zeroScope": "仅表示本次时间窗内已执行的检查没有产生发现项。",
@@ -5234,7 +5235,7 @@
     "curatedCopy": "复制",
     "curatedCreateCopyHint": "基于此模板创建可编辑的副本",
     "curatedCopyScript": "复制脚本",
-    "curatedScriptCopied": "HOCON 脚本已复制到剪贴板",
+    "curatedScriptCopied": "已复制",
     "curatedCopyScriptFailed": "复制脚本失败",
     "curatedPreviewTitle": "模板脚本预览",
     "curatedPreviewScriptHeading": "HOCON 脚本内容",
@@ -5555,7 +5556,7 @@
     "realtime": "实时同步中",
     "copyPath": "复制路径",
     "copyJson": "复制完整快照 JSON",
-    "copied": "已复制到剪贴板",
+    "copied": "已复制",
     "sourceStateNotice": "数据源解析提示",
     "showTechnicalDetails": "查看技术详情",
     "hideTechnicalDetails": "收起技术详情",
@@ -6096,7 +6097,9 @@
     "metricFlowZeroTitle": "全为 0 的指标",
     "metricFlowItemCount": "{count} 项",
     "metricFlowEndpoints": "{count} 个端点",
-    "metricFlowSearchEmpty": "没有匹配 \"{query}\" 的链路"
+    "metricFlowSearchEmpty": "没有匹配 \"{query}\" 的链路",
+    "copyCheckpoint": "复制位点",
+    "copyError": "复制错误"
   },
   "troubleshooting": {
     "title": "经验库",

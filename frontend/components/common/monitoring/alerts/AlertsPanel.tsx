@@ -1799,8 +1799,6 @@ function AlertPayload({text, textClass}: {text: string; textClass: string}) {
               iconOnly
               variant='plain'
               label={tCommon('copy')}
-              copiedLabel={tCommon('copied')}
-              failedLabel={tCommon('copyFailed')}
             />
           </span>
         </summary>

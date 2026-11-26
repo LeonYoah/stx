@@ -417,6 +417,7 @@ import {
   resolveOptionKeyCompletionContext,
   toOptionRuleAssistSchema,
 } from './sync-option-rule-assist';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 const OPTION_RULE_MARKER_OWNER = 'stx-option-rule';
 
@@ -4550,7 +4551,7 @@ export function DataSyncStudio() {
 
   const copyToClipboard = async (value: string, successText: string) => {
     try {
-      await navigator.clipboard.writeText(value);
+      await writeClipboard(value);
       toast.success(successText);
     } catch {
       toast.error(t('copyFailed'));
@@ -5414,7 +5415,7 @@ export function DataSyncStudio() {
                     <Loader2 className='size-3.5 animate-spin' />
                     <span>{t('loading')}</span>
                   </div>
-                ) : filteredTree.length === 0 ? (
+                ) : filteredTree.length === 0 && !creatingNode ? (
                   <div className='flex flex-col items-start gap-2 p-3'>
                     <p className='text-xs text-muted-foreground'>
                       {t('emptyWorkspace')}

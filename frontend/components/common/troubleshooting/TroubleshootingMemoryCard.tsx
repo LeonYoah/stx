@@ -87,7 +87,6 @@ export function TroubleshootingMemoryCard({
   className,
 }: TroubleshootingMemoryCardProps) {
   const t = useTranslations('troubleshooting');
-  const tCommon = useTranslations('common');
   const {locale} = useLocale();
   // 官方经典方案自动做中英文两版自适应，自定义方案保持原样
   // Adapt official preset memories bilingually; keep custom entries as-is
@@ -214,8 +213,6 @@ export function TroubleshootingMemoryCard({
             value={memory.solution}
             variant='plain'
             label={t('copySolution')}
-            copiedLabel={tCommon('copied')}
-            failedLabel={tCommon('copyFailed')}
           />
         </div>
         <pre className='whitespace-pre-wrap font-sans text-xs leading-relaxed text-foreground select-text text-pretty'>

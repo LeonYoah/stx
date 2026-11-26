@@ -238,8 +238,6 @@ export function JobDetailDialog({
                   <CopyButton
                     value={item.value}
                     label={t('copy')}
-                    copiedLabel={t('copied')}
-                    failedLabel={t('copyFailed')}
                     iconOnly
                     variant='plain'
                   />

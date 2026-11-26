@@ -230,9 +230,6 @@ func (s *Service) UpdateContainerRegistry(ctx context.Context, id uint, req *Con
 	if err := validateRegistryRequest(req, false); err != nil {
 		return nil, err
 	}
-	if row.IsSystem {
-		return nil, errors.New("installer: system registry cannot be edited")
-	}
 	if req.Host != row.Host {
 		var count int64
 		if err := s.db.WithContext(ctx).Model(&ContainerRegistry{}).Where("host = ? AND id != ?", req.Host, row.ID).Count(&count).Error; err != nil {

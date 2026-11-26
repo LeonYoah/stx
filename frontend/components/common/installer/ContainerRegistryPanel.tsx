@@ -20,7 +20,8 @@
 import {useCallback, useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/arc/button/button';
-import {Drawer, DrawerContent, useDrawerItem} from '@/components/arc/drawer/drawer';
+import {useDrawerItem} from '@/components/arc/drawer/drawer';
+import {DetailHost, useDetailNarrow} from '@/components/common/layout';
 import {ActionButton} from '@/components/arc/action-button/action-button';
 import {Input} from '@/components/arc/input/input';
 import {Skeleton} from '@/components/arc/skeleton/skeleton';
@@ -59,8 +60,9 @@ export function ContainerRegistryPanel() {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   // 抽屉滑出动画期间保留最后编辑的行，内容不先消失。
   // Keep the edited row mounted while the drawer slides out.
-  const drawerRow = useDrawerItem(editingId != null ? items.find((row) => row.id === editingId) ?? null : null);
-  void drawerRow;
+  const editingRow = editingId != null ? items.find((row) => row.id === editingId) ?? null : null;
+  const retained = useDrawerItem(editingRow);
+  const narrow = useDetailNarrow();
 
   const load = useCallback(() => {
     setLoading(true);
@@ -191,21 +193,17 @@ export function ContainerRegistryPanel() {
       sortable: true,
       render: (_value, row) => (
         <span className='font-mono text-xs'>
-          {row.is_system ? (
-            row.host
-          ) : (
-            <button
-              type='button'
-              className='text-primary underline-offset-2 hover:underline'
-              onClick={(event) => {
-                event.stopPropagation();
-                openEdit(row);
-              }}
-              data-testid={`registry-open-${row.id}`}
-            >
-              {row.host}
-            </button>
-          )}
+          <button
+            type='button'
+            className='text-primary underline-offset-2 hover:underline'
+            onClick={(event) => {
+              event.stopPropagation();
+              openEdit(row);
+            }}
+            data-testid={`registry-open-${row.id}`}
+          >
+            {row.host}
+          </button>
           {row.is_system ? (
             <span className='ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px]'>{t('officialBadge')}</span>
           ) : null}
@@ -303,17 +301,21 @@ export function ContainerRegistryPanel() {
           selectable
           selectedKeys={selectedKeys}
           onSelectionChange={setSelectedKeys}
-          onRowActivate={(row) => {
-            if (!row.is_system) {openEdit(row);}
-          }}
+          onRowActivate={(row) => openEdit(row)}
         />
       )}
-      <Drawer open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DrawerContent
-          title={editingId != null ? t('editDialogTitle') : t('dialogTitle')}
-          
-        >
-          <div className='space-y-3'>
+      <DetailHost
+        open={dialogOpen}
+        hasContent={retained != null || editingId == null}
+        onOpenChange={(open) => {
+          if (!open) {setDialogOpen(false);}
+        }}
+        narrow={narrow}
+        title={editingId != null ? t('editDialogTitle') : t('dialogTitle')}
+        meta={editingRow?.host}
+        drawerWidth='w-[min(92vw,480px)]'
+      >
+        <div className='space-y-3 px-4 py-3'>
             <Input
               label={t('hostLabel')}
               value={host}
@@ -369,8 +371,7 @@ export function ContainerRegistryPanel() {
               {submitting ? t('submitting') : editingId != null ? t('submitEdit') : t('submit')}
             </Button>
           </div>
-        </DrawerContent>
-      </Drawer>
+      </DetailHost>
     </div>
   );
 }

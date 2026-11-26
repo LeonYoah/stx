@@ -109,8 +109,10 @@ func TestSystemRegistryProtected(t *testing.T) {
 	require.NoError(t, svc.db.Create(&ContainerRegistry{Host: DockerHubRegistryHost, IsSystem: true}).Error)
 	var row ContainerRegistry
 	require.NoError(t, svc.db.Where("host = ?", DockerHubRegistryHost).First(&row).Error)
-	_, err := svc.UpdateContainerRegistry(ctx, row.ID, &ContainerRegistryRequest{Host: "x"})
-	require.Error(t, err, "system registry must not be editable")
+	// 系统行可编辑（凭据归属用户自己），仅删除受保护。
+	// System rows are editable (credentials belong to the user); only deletion is protected.
+	_, err := svc.UpdateContainerRegistry(ctx, row.ID, &ContainerRegistryRequest{Host: DockerHubRegistryHost, Username: "u", Password: "plaintext-pw-x9"})
+	require.NoError(t, err, "system registry stays editable")
 	require.Error(t, svc.DeleteContainerRegistry(ctx, row.ID), "system registry must not be deletable")
 }
 

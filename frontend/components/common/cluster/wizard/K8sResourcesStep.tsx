@@ -17,17 +17,11 @@
 
 'use client';
 
-import {useEffect, useState} from 'react';
+import {useCallback, useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import {Input} from '@/components/arc/input/input';
+import {Select} from '@/components/arc/select/select';
+import {Button} from '@/components/arc/button/button';
 import services from '@/lib/services';
 import type {HostInfo} from '@/lib/services/host/types';
 import type {K8sWizardFormState} from './types';
@@ -44,23 +38,29 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
   const t = useTranslations();
   const [hosts, setHosts] = useState<HostInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [hostError, setHostError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  // 主机清单加载失败必须显式可重试，禁止静默吞错后留下无法解释的空选项。
+  // Host list failures surface a retry action; never swallow errors silently.
+  const loadHosts = useCallback(() => {
     setLoading(true);
+    setHostError(null);
     services.host
       .getAllHostsByTypeSafe('kubernetes')
       .then((result) => {
-        if (!cancelled && result?.hosts) setHosts(result.hosts);
+        if (result?.hosts) setHosts(result.hosts);
       })
-      .catch(() => undefined)
+      .catch((err) => {
+        setHostError(err instanceof Error ? err.message : String(err));
+      })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => {
+    loadHosts();
+  }, [loadHosts]);
 
   const patch = (partial: Partial<K8sWizardFormState>) =>
     onChange((prev) => ({...prev, ...partial}));
@@ -71,27 +71,27 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
     <div className='space-y-4' data-testid='k8s-resources-step'>
       <div className='grid grid-cols-2 gap-4'>
         <div className='space-y-1.5'>
-          <Label>{t('cluster.k8s.targetHost')}</Label>
           <Select
+            label={t('cluster.k8s.targetHost')}
             value={form.host_id ? String(form.host_id) : ''}
             onValueChange={(value) => patch({host_id: Number(value)})}
             disabled={loading}
-          >
-            <SelectTrigger data-testid='k8s-host-select'>
-              <SelectValue placeholder={t('cluster.k8s.selectHost')} />
-            </SelectTrigger>
-            <SelectContent>
-              {hosts.map((host) => (
-                <SelectItem key={host.id} value={String(host.id)}>
-                  {host.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            placeholder={t('cluster.k8s.selectHost')}
+            options={hosts.map((host) => ({value: String(host.id), label: host.name}))}
+            data-testid='k8s-host-select'
+          />
+          {hostError ? (
+            <div className='flex items-center gap-2'>
+              <p className='text-xs text-destructive'>{hostError}</p>
+              <Button type='button' variant='secondary' size='sm' onClick={loadHosts}>
+                {t('common.retry')}
+              </Button>
+            </div>
+          ) : null}
         </div>
         <div className='space-y-1.5'>
-          <Label>Namespace</Label>
           <Input
+            label='Namespace'
             value={form.namespace}
             onChange={(event) => patch({namespace: event.target.value})}
             placeholder='default'
@@ -104,8 +104,8 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
         <div className='space-y-3'>
           <div className='grid grid-cols-3 gap-3'>
             <div className='space-y-1.5'>
-              <Label>{t('cluster.k8s.masterReplicas')}</Label>
               <Input
+                label={t('cluster.k8s.masterReplicas')}
                 type='number'
                 min={1}
                 value={form.master_replicas}
@@ -114,12 +114,11 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
               />
             </div>
             <div className='space-y-1.5'>
-              <Label>{t('cluster.k8s.masterCpu')}</Label>
-              <Input value={form.master_cpu} onChange={(e) => patch({master_cpu: e.target.value})} placeholder='0.5' />
+              <Input label={t('cluster.k8s.masterCpu')} value={form.master_cpu} onChange={(e) => patch({master_cpu: e.target.value})} placeholder='0.5' />
             </div>
             <div className='space-y-1.5'>
-              <Label>{t('cluster.k8s.masterMemory')}</Label>
               <Input
+                label={t('cluster.k8s.masterMemory')}
                 value={form.master_memory}
                 onChange={(e) => patch({master_memory: e.target.value})}
                 placeholder='2Gi'
@@ -129,8 +128,8 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
           </div>
           <div className='grid grid-cols-3 gap-3'>
             <div className='space-y-1.5'>
-              <Label>{t('cluster.k8s.workerReplicas')}</Label>
               <Input
+                label={t('cluster.k8s.workerReplicas')}
                 type='number'
                 min={1}
                 value={form.worker_replicas}
@@ -139,12 +138,11 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
               />
             </div>
             <div className='space-y-1.5'>
-              <Label>{t('cluster.k8s.workerCpu')}</Label>
-              <Input value={form.worker_cpu} onChange={(e) => patch({worker_cpu: e.target.value})} placeholder='1' />
+              <Input label={t('cluster.k8s.workerCpu')} value={form.worker_cpu} onChange={(e) => patch({worker_cpu: e.target.value})} placeholder='1' />
             </div>
             <div className='space-y-1.5'>
-              <Label>{t('cluster.k8s.workerMemory')}</Label>
               <Input
+                label={t('cluster.k8s.workerMemory')}
                 value={form.worker_memory}
                 onChange={(e) => patch({worker_memory: e.target.value})}
                 placeholder='2Gi'
@@ -156,8 +154,8 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
       ) : (
         <div className='grid grid-cols-3 gap-3'>
           <div className='space-y-1.5'>
-            <Label>{t('cluster.k8s.hybridReplicas')}</Label>
             <Input
+              label={t('cluster.k8s.hybridReplicas')}
               type='number'
               min={1}
               value={form.hybrid_replicas}
@@ -166,12 +164,11 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
             />
           </div>
           <div className='space-y-1.5'>
-            <Label>{t('cluster.k8s.hybridCpu')}</Label>
-            <Input value={form.hybrid_cpu} onChange={(e) => patch({hybrid_cpu: e.target.value})} placeholder='1' />
+            <Input label={t('cluster.k8s.hybridCpu')} value={form.hybrid_cpu} onChange={(e) => patch({hybrid_cpu: e.target.value})} placeholder='1' />
           </div>
           <div className='space-y-1.5'>
-            <Label>{t('cluster.k8s.hybridMemory')}</Label>
             <Input
+              label={t('cluster.k8s.hybridMemory')}
               value={form.hybrid_memory}
               onChange={(e) => patch({hybrid_memory: e.target.value})}
               placeholder='4Gi'
@@ -183,8 +180,8 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
 
       <div className='grid grid-cols-3 gap-3 border-t pt-3'>
         <div className='space-y-1.5'>
-          <Label>{t('cluster.k8s.checkpointPvc')}</Label>
           <Input
+            label={t('cluster.k8s.checkpointPvc')}
             value={form.checkpoint_pvc}
             onChange={(e) => patch({checkpoint_pvc: e.target.value})}
             placeholder='optional'
@@ -192,16 +189,16 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
           />
         </div>
         <div className='space-y-1.5'>
-          <Label>{t('cluster.k8s.imagePullSecrets')}</Label>
           <Input
+            label={t('cluster.k8s.imagePullSecrets')}
             value={form.image_pull_secrets}
             onChange={(e) => patch({image_pull_secrets: e.target.value})}
             placeholder='optional, comma separated'
           />
         </div>
         <div className='space-y-1.5'>
-          <Label>{t('cluster.k8s.serviceAccount')}</Label>
           <Input
+            label={t('cluster.k8s.serviceAccount')}
             value={form.service_account}
             onChange={(e) => patch({service_account: e.target.value})}
             placeholder='optional'

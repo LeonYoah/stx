@@ -72,8 +72,24 @@ export async function listRegistryTags(id: number, repo: string): Promise<string
   return response.data.items || [];
 }
 
+
+export interface RegistryProbeResult {
+  status: string;
+  scheme?: string;
+  repos?: string[];
+  error?: string;
+}
+
+// probeRegistry 注册前不落库测试连通性，对应后端 /registries/probe。
+// probeRegistry tests connectivity before registration without persisting.
+export async function probeRegistry(payload: ContainerRegistryPayload): Promise<RegistryProbeResult> {
+  const response = await apiClient.post<RegistryProbeResult>('/packages/registries/probe', payload);
+  return response.data;
+}
+
 // extractVersionFromTag 从 tag 提取确定性语义版本：3.1.1 原样、3.1.1-connector-full
 // 提取主版本、latest/nightly 等返回空串（调用方据此告警）。
+
 // extractVersionFromTag extracts a deterministic semver from a tag: 3.1.1 passes
 // through, 3.1.1-connector-full yields the 3.1.1 core, latest/nightly yield an
 // empty string so callers can warn.

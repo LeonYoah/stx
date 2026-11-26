@@ -877,6 +877,9 @@ func Serve() {
 				packageRouter.PUT("/registries/:id", admin.LoginAdminRequired(), installerHandler.UpdateContainerRegistry)
 				packageRouter.DELETE("/registries/:id", admin.LoginAdminRequired(), installerHandler.DeleteContainerRegistry)
 				packageRouter.POST("/registries/:id/test", admin.LoginAdminRequired(), installerHandler.TestContainerRegistry)
+				// probe 是不落库的注册前连通性测试，登录用户可用。
+				// probe is a pre-registration connectivity test that persists nothing.
+				packageRouter.POST("/registries/probe", installerHandler.ProbeRegistryTransient)
 
 				// 离线资产包（须注册在 /:version 之前，避免被版本参数吞掉）
 				// Offline asset bundles (register before /:version so Gin does not swallow the path)

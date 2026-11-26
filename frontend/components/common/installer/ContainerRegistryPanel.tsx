@@ -24,33 +24,40 @@ import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/arc/input/input';
 import {Skeleton} from '@/components/arc/skeleton/skeleton';
 import {ConfirmMorph} from '@/components/arc/confirm-morph/confirm-morph';
+import {SortableDataTable, type DataColumn} from '@/components/arc/sortable-data-table/sortable-data-table';
 import {
   createContainerRegistry,
   deleteContainerRegistry,
   listContainerRegistries,
+  probeRegistry,
   testContainerRegistry,
+  updateContainerRegistry,
   type ContainerRegistry,
 } from '@/lib/services/installer/registry.service';
 
-// ContainerRegistryPanel 镜像仓库管理卡：host+凭据三字段注册，注册即后台探测
-// catalog 缓存，docker.io 系统行不可删改。镜像地址不再逐行登记——部署/升级从
-// 仓库探测结果三层选择合成。
-// ContainerRegistryPanel manages image registries: a three-field register dialog,
-// catalog cache probed in the background, and an undeletable docker.io system row.
-// Image references are no longer registered row by row; deploy/upgrade composes
-// them from the probed tiers.
+type Row = ContainerRegistry & Record<string, unknown>;
+
+// ContainerRegistryPanel 镜像仓库管理卡：标准 SortableDataTable（多选批量删除），
+// 注册/编辑弹窗内置不落库的「测试连接」，docker.io 系统行不可删改。
+// ContainerRegistryPanel manages image registries with the standard
+// SortableDataTable (multi-select bulk delete); the register/edit dialog embeds a
+// non-persisting test-connection action, and the docker.io system row is immutable.
 export function ContainerRegistryPanel() {
   const t = useTranslations('packages.registry');
   const [items, setItems] = useState<ContainerRegistry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [host, setHost] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<number | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [probeResult, setProbeResult] = useState<{ok: boolean; text: string} | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -65,15 +72,41 @@ export function ContainerRegistryPanel() {
     load();
   }, [load]);
 
+  const openCreate = () => {
+    setEditingId(null);
+    setHost('');
+    setUsername('');
+    setPassword('');
+    setSubmitError(null);
+    setProbeResult(null);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (row: ContainerRegistry) => {
+    setEditingId(row.id);
+    setHost(row.host);
+    setUsername(row.username || '');
+    // 密码不回填——密文不出后端，留空表示保持原密码。
+    // The password is never backfilled (ciphertext never leaves the backend);
+    // an empty field keeps the stored one.
+    setPassword('');
+    setSubmitError(null);
+    setProbeResult(null);
+    setDialogOpen(true);
+  };
+
   const submit = async () => {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await createContainerRegistry({host: host.trim(), username: username.trim(), password});
+      const payload = {host: host.trim(), username: username.trim(), password};
+      if (editingId != null) {
+        await updateContainerRegistry(editingId, payload);
+      } else {
+        await createContainerRegistry(payload);
+      }
       setDialogOpen(false);
-      setHost('');
-      setUsername('');
-      setPassword('');
+      setEditingId(null);
       load();
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : String(err));
@@ -82,17 +115,60 @@ export function ContainerRegistryPanel() {
     }
   };
 
-  const test = async (id: number) => {
+  // 弹窗内测试连接：不落库，直接用表单值探测，结果行内反馈。
+  // The in-dialog test probes the form values without persisting anything and
+  // reports inline.
+  const probe = async () => {
+    setProbing(true);
+    setProbeResult(null);
+    try {
+      const result = await probeRegistry({host: host.trim(), username: username.trim(), password});
+      if (result.error) {
+        setProbeResult({ok: false, text: `${t('probeFailed')}: ${result.error}`});
+      } else if (result.status === 'reachable') {
+        setProbeResult({ok: true, text: t('probeReachable')});
+      } else {
+        const count = result.repos?.length ?? 0;
+        setProbeResult({ok: true, text: count > 0 ? `${t('probeOk')} · ${count}` : t('probeOk')});
+      }
+    } catch (err) {
+      setProbeResult({ok: false, text: `${t('probeFailed')}: ${err instanceof Error ? err.message : String(err)}`});
+    } finally {
+      setProbing(false);
+    }
+  };
+
+  const testRow = async (id: number) => {
     setTestingId(id);
     try {
-      await testContainerRegistry(id);
-    } catch {
-      // 探测结果统一从刷新后的列表读取，失败原因在 probe_error 列展示。
-      // Probe outcomes surface through the refreshed list's probe_error column.
+      const row = await testContainerRegistry(id);
+      // 原地替换该行，不触发整表骨架重载——全量刷新会被误读成页面刷新。
+      // Replace the row in place instead of reloading the whole table; a full
+      // skeleton flash reads as a page refresh.
+      setItems((prev) => prev.map((item) => (item.id === id ? row : item)));
+    } catch (err) {
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === id
+            ? {...item, probe_status: 'failed', probe_error: err instanceof Error ? err.message : String(err)}
+            : item,
+        ),
+      );
     } finally {
       setTestingId(null);
-      load();
     }
+  };
+
+  const deleteSelected = async () => {
+    const ids = selectedKeys.map(Number).filter((id) => items.some((row) => row.id === id && !row.is_system));
+    for (const id of ids) {
+      // 串行删除避免半批失败难排查；仓库数量级小，无需并发。
+      // Deletes run serially so a partial failure stays diagnosable; registry
+      // counts are small enough that concurrency is pointless.
+      await deleteContainerRegistry(id).catch(() => undefined);
+    }
+    setSelectedKeys([]);
+    load();
   };
 
   const statusBadge = (row: ContainerRegistry) => {
@@ -110,13 +186,95 @@ export function ContainerRegistryPanel() {
     );
   };
 
+  const columns: DataColumn<Row>[] = [
+    {
+      key: 'host',
+      label: t('colHost'),
+      sortable: true,
+      render: (_value, row) => (
+        <span className='font-mono text-xs'>
+          {row.host}
+          {row.is_system ? (
+            <span className='ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px]'>{t('officialBadge')}</span>
+          ) : null}
+        </span>
+      ),
+    },
+    {
+      key: 'has_auth',
+      label: t('colAuth'),
+      render: (_value, row) => <span className='text-xs'>{row.has_auth ? row.username || '•••' : t('anonymous')}</span>,
+    },
+    {
+      key: 'probe_status',
+      label: t('colProbe'),
+      sortable: true,
+      render: (_value, row) => statusBadge(row),
+    },
+    {
+      key: 'repo_count',
+      label: t('colRepos'),
+      numeric: true,
+      render: (_value, row) => <span className='text-xs text-muted-foreground'>{row.catalog_repos?.length ?? 0}</span>,
+    },
+    {
+      key: 'actions',
+      label: t('colActions'),
+      width: 220,
+      render: (_value, row) => (
+        <span className='inline-flex items-center gap-2'>
+          <Button
+            type='button'
+            variant='ghost'
+            size='sm'
+            disabled={testingId === row.id}
+            onClick={() => testRow(row.id)}
+            data-testid={`registry-test-${row.id}`}
+          >
+            {testingId === row.id ? t('testing') : t('test')}
+          </Button>
+          {row.is_system ? null : (
+            <>
+              <Button
+                type='button'
+                variant='ghost'
+                size='sm'
+                onClick={() => openEdit(row)}
+                data-testid={`registry-edit-${row.id}`}
+              >
+                {t('edit')}
+              </Button>
+              <ConfirmMorph
+                label={t('delete')}
+                confirmLabel={t('deleteConfirm')}
+                onConfirm={() => deleteContainerRegistry(row.id).then(load)}
+              />
+            </>
+          )}
+        </span>
+      ),
+    },
+  ];
+
+  const rows = items.map((item) => ({...item, repo_count: item.catalog_repos?.length ?? 0})) as Row[];
+  const hasSelection = selectedKeys.length > 0;
+
   return (
     <div className='space-y-3' data-testid='container-registry-panel'>
       <div className='flex items-center justify-between'>
         <p className='text-sm text-muted-foreground'>{t('subtitle')}</p>
-        <Button type='button' size='sm' onClick={() => setDialogOpen(true)} data-testid='registry-add'>
-          {t('add')}
-        </Button>
+        <span className='inline-flex items-center gap-2'>
+          {hasSelection ? (
+            <ConfirmMorph
+              label={`${t('deleteSelected')} (${selectedKeys.length})`}
+              confirmLabel={t('deleteConfirm')}
+              onConfirm={deleteSelected}
+            />
+          ) : null}
+          <Button type='button' size='sm' onClick={openCreate} data-testid='registry-add'>
+            {t('add')}
+          </Button>
+        </span>
       </div>
       {loading ? (
         <Skeleton lines={3} className='h-9' label={t('title')} />
@@ -130,101 +288,85 @@ export function ContainerRegistryPanel() {
       ) : items.length === 0 ? (
         <div className='space-y-2 py-6 text-center'>
           <p className='text-sm text-muted-foreground'>{t('empty')}</p>
-          <Button type='button' variant='secondary' size='sm' onClick={() => setDialogOpen(true)}>
+          <Button type='button' variant='secondary' size='sm' onClick={openCreate}>
             {t('emptyAction')}
           </Button>
         </div>
       ) : (
-        <table className='w-full text-sm' data-testid='registry-table'>
-          <thead>
-            <tr className='border-b border-border/50 text-left text-xs text-muted-foreground'>
-              <th className='py-2 pr-3 font-medium'>{t('colHost')}</th>
-              <th className='py-2 pr-3 font-medium'>{t('colAuth')}</th>
-              <th className='py-2 pr-3 font-medium'>{t('colProbe')}</th>
-              <th className='py-2 pr-3 font-medium'>{t('colRepos')}</th>
-              <th className='py-2 text-right font-medium'>{t('colActions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((row) => (
-              <tr key={row.id} className='border-b border-border/30 last:border-0'>
-                <td className='py-2 pr-3 font-mono text-xs'>
-                  {row.host}
-                  {row.is_system ? (
-                    <span className='ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px]'>{t('officialBadge')}</span>
-                  ) : null}
-                </td>
-                <td className='py-2 pr-3 text-xs'>
-                  {row.has_auth ? row.username || '•••' : t('anonymous')}
-                </td>
-                <td className='py-2 pr-3'>{statusBadge(row)}</td>
-                <td className='py-2 pr-3 text-xs text-muted-foreground'>
-                  {row.catalog_repos?.length ?? 0}
-                </td>
-                <td className='py-2 text-right'>
-                  <span className='inline-flex items-center gap-2'>
-                    <Button
-                      type='button'
-                      variant='ghost'
-                      size='sm'
-                      disabled={testingId === row.id}
-                      onClick={() => test(row.id)}
-                      data-testid={`registry-test-${row.id}`}
-                    >
-                      {testingId === row.id ? t('testing') : t('test')}
-                    </Button>
-                    {row.is_system ? null : (
-                      <ConfirmMorph
-                        label={t('delete')}
-                        confirmLabel={t('deleteConfirm')}
-                        onConfirm={() => deleteContainerRegistry(row.id).then(load)}
-                      />
-                    )}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <SortableDataTable
+          rows={rows}
+          columns={columns}
+          rowKey={(row) => String(row.id)}
+          caption={t('title')}
+          emptyMessage={t('empty')}
+          selectable
+          selectedKeys={selectedKeys}
+          onSelectionChange={setSelectedKeys}
+        />
       )}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent title={t('dialogTitle')} className='arc-compact w-[min(94vw,480px)]!'>
-        <div className='space-y-3'>
-          <Input
-            label={t('hostLabel')}
-            value={host}
-            placeholder='harbor.example.com 或 192.168.49.4:5000'
-            onChange={(event) => setHost(event.target.value)}
-            data-testid='registry-host-input'
-          />
-          <Input
-            label={t('usernameLabel')}
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-          />
-          <Input
-            label={t('passwordLabel')}
-            type='password'
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-          <p className='text-xs text-muted-foreground'>{t('hint')}</p>
-          {submitError ? <p className='text-xs text-destructive'>{submitError}</p> : null}
-        </div>
-        <div className='mt-4 flex justify-end gap-2'>
-          <Button type='button' variant='secondary' size='sm' onClick={() => setDialogOpen(false)}>
-            {t('cancel')}
-          </Button>
-          <Button
-            type='button'
-            size='sm'
-            disabled={submitting || !host.trim()}
-            onClick={submit}
-            data-testid='registry-submit'
-          >
-            {submitting ? t('submitting') : t('submit')}
-          </Button>
-        </div>
+        <DialogContent
+          title={editingId != null ? t('editDialogTitle') : t('dialogTitle')}
+          className='arc-compact w-[min(94vw,480px)]!'
+        >
+          <div className='space-y-3'>
+            <Input
+              label={t('hostLabel')}
+              value={host}
+              placeholder='harbor.example.com 或 192.168.49.4:5000'
+              readOnly={editingId != null}
+              disabled={editingId != null}
+              onChange={(event) => setHost(event.target.value)}
+              data-testid='registry-host-input'
+            />
+            <Input
+              label={t('usernameLabel')}
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+            <Input
+              label={t('passwordLabel')}
+              type='password'
+              value={password}
+              placeholder={editingId != null ? t('passwordKeepHint') : undefined}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            <div className='flex items-center gap-2'>
+              <Button
+                type='button'
+                variant='secondary'
+                size='sm'
+                disabled={probing || !host.trim()}
+                onClick={probe}
+                data-testid='registry-probe'
+              >
+                {probing ? t('testing') : t('probeFirst')}
+              </Button>
+              {probeResult ? (
+                <p
+                  className={`text-xs ${probeResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}
+                  data-testid='registry-probe-result'
+                >
+                  {probeResult.text}
+                </p>
+              ) : null}
+            </div>
+            {submitError ? <p className='text-xs text-destructive'>{submitError}</p> : null}
+          </div>
+          <div className='mt-4 flex justify-end gap-2'>
+            <Button type='button' variant='secondary' size='sm' onClick={() => setDialogOpen(false)}>
+              {t('cancel')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              disabled={submitting || !host.trim()}
+              onClick={submit}
+              data-testid='registry-submit'
+            >
+              {submitting ? t('submitting') : editingId != null ? t('submitEdit') : t('submit')}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

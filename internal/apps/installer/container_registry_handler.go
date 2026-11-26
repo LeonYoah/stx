@@ -160,3 +160,26 @@ func (h *Handler) ListContainerRegistryTags(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"items": tags})
 }
+
+// ProbeRegistryTransient POST /api/v1/packages/registries/probe
+// ProbeRegistryTransient 注册前不落库测试连通性。
+// @Summary 注册前测试仓库连通性 / Probe a registry before registration
+// @Tags packages
+// @Accept json
+// @Produce json
+// @Param payload body installer.ContainerRegistryRequest true "仓库信息 / Registry payload"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/packages/registries/probe [post]
+func (h *Handler) ProbeRegistryTransient(c *gin.Context) {
+	var req ContainerRegistryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	status, scheme, repos, err := h.service.ProbeRegistryTransient(c.Request.Context(), req.Host, req.Username, req.Password)
+	resp := gin.H{"status": status, "scheme": scheme, "repos": repos}
+	if err != nil {
+		resp["error"] = err.Error()
+	}
+	c.JSON(http.StatusOK, resp)
+}

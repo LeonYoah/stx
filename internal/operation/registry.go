@@ -1440,6 +1440,29 @@ var registry = append([]OperationSpec{
 }`,
 	},
 	{
+		ID:           "package.registry.probe",
+		Summary:      "Probe registry connectivity before registration without persisting",
+		GeneratedCLI: false,
+		Method:       "POST",
+		Route:        "/api/v1/packages/registries/probe",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR0,
+		Revision:     1,
+		Input: []InputSpec{
+			{Name: "host", Location: InputBody, Required: true, Description: "Registry host"},
+			{Name: "username", Location: InputBody, Description: "Username"},
+			{Name: "password", Location: InputBody, Description: "Password"},
+		},
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "package.registry.probe",
+  "request_id": "req_example",
+  "data": {"status": "ok", "scheme": "http", "repos": ["seatunnel"]},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
 		ID:           "package.registry.delete",
 		Summary:      "Delete a registered container registry",
 		GeneratedCLI: false,

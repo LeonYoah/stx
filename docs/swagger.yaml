@@ -3214,6 +3214,15 @@ definitions:
       error_msg:
         type: string
     type: object
+  installer.ContainerRegistryRequest:
+    properties:
+      host:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    type: object
   installer.DeletePackageResponse:
     properties:
       data: {}
@@ -8795,6 +8804,28 @@ paths:
             additionalProperties: true
             type: object
       summary: 测试镜像仓库连通性 / Test registry connectivity and refresh catalog
+      tags:
+      - packages
+  /api/v1/packages/registries/probe:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 仓库信息 / Registry payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/installer.ContainerRegistryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 注册前测试仓库连通性 / Probe a registry before registration
       tags:
       - packages
   /api/v1/packages/upload:

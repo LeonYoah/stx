@@ -4814,6 +4814,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/packages/registries/probe": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "summary": "注册前测试仓库连通性 / Probe a registry before registration",
+                "parameters": [
+                    {
+                        "description": "仓库信息 / Registry payload",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/installer.ContainerRegistryRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/packages/registries/{id}": {
             "put": {
                 "produces": [
@@ -11537,6 +11571,20 @@ const docTemplate = `{
                     "$ref": "#/definitions/host.HostInfo"
                 },
                 "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "installer.ContainerRegistryRequest": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }

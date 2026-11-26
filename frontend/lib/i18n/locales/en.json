@@ -7048,7 +7048,7 @@
       "colActions": "Actions",
       "officialBadge": "Official",
       "anonymous": "Anonymous",
-      "test": "Test",
+      "test": "Test connection",
       "testing": "Testing…",
       "delete": "Delete",
       "deleteConfirm": "Confirm delete",
@@ -7066,7 +7066,17 @@
         "reachable": "Reachable",
         "failed": "Failed",
         "unknown": "Unknown"
-      }
+      },
+      "edit": "Edit",
+      "editDialogTitle": "Edit image registry",
+      "passwordKeepHint": "Leave empty to keep the current password",
+      "submitEdit": "Save",
+      "hostImmutable": "The registry host cannot be changed after creation",
+      "probeOk": "Connection succeeded",
+      "probeReachable": "Reachable but catalog unavailable",
+      "probeFailed": "Connection failed",
+      "deleteSelected": "Delete selected",
+      "probeFirst": "Test connection"
     }
   }
 }

@@ -7048,7 +7048,7 @@
       "colActions": "操作",
       "officialBadge": "官方",
       "anonymous": "匿名",
-      "test": "测试连通",
+      "test": "测试连接",
       "testing": "测试中…",
       "delete": "删除",
       "deleteConfirm": "确认删除",
@@ -7066,7 +7066,17 @@
         "reachable": "可达",
         "failed": "失败",
         "unknown": "未知"
-      }
+      },
+      "edit": "编辑",
+      "editDialogTitle": "编辑镜像仓库",
+      "passwordKeepHint": "留空则保持原密码",
+      "submitEdit": "保存",
+      "hostImmutable": "仓库地址创建后不可修改",
+      "probeOk": "连接成功",
+      "probeReachable": "连通但无法枚举镜像",
+      "probeFailed": "连接失败",
+      "deleteSelected": "删除所选",
+      "probeFirst": "测试连接"
     }
   }
 }

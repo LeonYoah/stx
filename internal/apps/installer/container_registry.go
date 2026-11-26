@@ -283,6 +283,31 @@ func (s *Service) DeleteContainerRegistry(ctx context.Context, id uint) error {
 // ProbeContainerRegistry 探测连通性并刷新 catalog 缓存（同步执行，10s 上限）。
 // ProbeContainerRegistry probes connectivity and refreshes the catalog cache
 // synchronously with the client's own timeout.
+// ProbeRegistryTransient 注册前不落库探测：用户点「测试连接」时凭据尚未入库，
+// 直接用表单值 ping+catalog 验证，成功后注册流程会再正式探测一次。
+// ProbeRegistryTransient probes without persisting: the credentials are not yet
+// stored when the user clicks "test connection" in the register dialog, so the
+// form values probe the registry directly.
+func (s *Service) ProbeRegistryTransient(ctx context.Context, host, username, password string) (string, string, []string, error) {
+	req := &ContainerRegistryRequest{Host: host, Username: username, Password: password}
+	if err := validateRegistryRequest(req, false); err != nil {
+		return "", "", nil, err
+	}
+	normalized := req.Host
+	if normalized == DockerHubRegistryHost {
+		return "public", "https", nil, nil
+	}
+	client := regclient.New(normalized, username, password)
+	if err := client.Ping(ctx); err != nil {
+		return "error", client.Scheme(), nil, err
+	}
+	repos, err := client.Catalog(ctx)
+	if err != nil {
+		return "reachable", client.Scheme(), nil, nil
+	}
+	return "ok", client.Scheme(), repos, nil
+}
+
 func (s *Service) ProbeContainerRegistry(ctx context.Context, row *ContainerRegistry) {
 	now := time.Now()
 	row.ProbeAt = &now

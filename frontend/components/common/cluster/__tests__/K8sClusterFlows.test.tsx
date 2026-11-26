@@ -61,6 +61,7 @@ vi.mock('@/lib/services', () => ({
       getHostsSafe,
       getAllHostsByTypeSafe,
       listK8sNamespaces,
+      listK8sNamespaceObjects: vi.fn().mockResolvedValue([]),
       discoverK8sClusters,
     },
     cluster: {

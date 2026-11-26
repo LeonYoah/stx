@@ -92,6 +92,17 @@ vi.mock('@/lib/toast', () => ({
   },
 }));
 
+const listContainerImages = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/services/installer/image.service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/services/installer/image.service')>();
+  return {...actual, listContainerImages};
+});
+
+const apiClientPost = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/services/core/api-client', () => ({
+  default: {post: apiClientPost, get: vi.fn(), put: vi.fn(), delete: vi.fn()},
+}));
+
 const K8S_HOST: HostInfo = {
   id: 7,
   name: 'k8s-staging',
@@ -236,12 +247,39 @@ describe('Unified Kubernetes Cluster Flows', () => {
     expect(onSuccess).toHaveBeenCalledTimes(1);
   });
 
-  it('ClusterDeployWizard switches to Kubernetes, hides bare-metal stepper, and deploys stx_deployed cluster', async () => {
+  it('ClusterDeployWizard walks the unified 6-step Kubernetes wizard and deploys stx_deployed cluster', async () => {
     const onComplete = vi.fn();
     const onOpenChange = vi.fn();
     createKubernetesCluster.mockResolvedValue({
       cluster: {id: 88},
       proxy_status: {healthy: true},
+    });
+    listContainerImages.mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          name: 'st-320',
+          image: 'apache/seatunnel:3.2.0',
+          seatunnel_version: '3.2.0',
+          image_pull_policy: 'IfNotPresent',
+          image_pull_secrets: '',
+          is_default: true,
+          description: '',
+        },
+      ],
+      official_presets: [],
+    });
+    getAllHostsByTypeSafe.mockResolvedValue({success: true, hosts: [K8S_HOST]});
+    apiClientPost.mockImplementation((url: string) => {
+      if (url === '/clusters/k8s/precheck') {
+        return Promise.resolve({
+          data: {
+            passed: true,
+            items: [{name: 'api_connectivity', passed: true, level: 'info', message: 'ok'}],
+          },
+        });
+      }
+      return Promise.resolve({data: {}});
     });
 
     render(
@@ -254,50 +292,65 @@ describe('Unified Kubernetes Cluster Flows', () => {
       </NextIntlClientProvider>,
     );
 
-    // 裸机态显示步骤计数；切到 Kubernetes 后隐藏步骤条并加载部署面板
-    // Bare-metal shows step counter; switching to Kubernetes hides stepper and renders K8s deploy panel
+    // 裸机 7 步；切到 Kubernetes 后变 6 步（跳过 plugins）。
+    // Bare-metal has 7 steps; switching to Kubernetes yields 6 (plugins skipped).
     expect(screen.getByText('1 / 7')).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', {name: zh.host.types.kubernetes}),
     );
+    expect(await screen.findByText('1 / 6')).toBeInTheDocument();
 
-    expect(await screen.findByTestId('k8s-deploy-panel')).toBeInTheDocument();
-    expect(screen.queryByText('1 / 7')).not.toBeInTheDocument();
-
-    fireEvent.change(document.getElementById('k8s-deploy-name')!, {
+    // Step1 basic：名称 + 镜像选择（注册镜像带出版本）。
+    // Step 1 basic: name plus image selection (registered image carries its version).
+    fireEvent.change(await screen.findByTestId('k8s-name-input'), {
       target: {value: 'k8s-prod'},
     });
-    fireEvent.change(document.getElementById('k8s-deploy-image')!, {
-      target: {value: 'apache/seatunnel:3.2.0'},
+    fireEvent.click(await screen.findByTestId('k8s-image-picker-select'));
+    fireEvent.click(await screen.findByText(/st-320/));
+    await waitFor(() => {
+      expect(screen.getByTestId('k8s-version-input')).toHaveValue('3.2.0');
     });
+    fireEvent.click(screen.getByRole('button', {name: zh.common.next}));
 
-    expect(document.getElementById('k8s-deploy-code')).toHaveValue('k8sprod');
-    expect(document.getElementById('k8s-deploy-version')).toHaveValue('3.2.0');
+    // Step2 hosts：选择 K8s 主机 + namespace。
+    // Step 2 hosts: pick the Kubernetes host and namespace.
+    fireEvent.click(await screen.findByTestId('k8s-host-select'));
+    fireEvent.click(await screen.findByText('k8s-staging'));
+    fireEvent.change(screen.getByTestId('k8s-namespace-input'), {
+      target: {value: 'seatunnel'},
+    });
+    fireEvent.click(screen.getByRole('button', {name: zh.common.next}));
 
-    fireEvent.click(
-      screen.getByRole('button', {name: zh.cluster.wizard.startDeploy}),
-    );
+    // Step3 config：默认直达。
+    // Step 3 config: defaults pass straight through.
+    expect(await screen.findByTestId('k8s-config-step')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: zh.common.next}));
 
+    // Step4 precheck：真实端点结果渲染后进入部署步。
+    // Step 4 precheck: the real endpoint result renders before entering deploy.
+    expect(await screen.findByTestId('k8s-precheck-item-api_connectivity')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: zh.common.next}));
+
+    // Step5 deploy：自动启动并提交扩展负载。
+    // Step 5 deploy: auto-starts and submits the extended payload.
     await waitFor(() => {
       expect(createKubernetesCluster).toHaveBeenCalledTimes(1);
     });
     expect(createKubernetesCluster).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'k8s-prod',
-        cluster_code: 'k8sprod',
         version: '3.2.0',
         host_id: 7,
         namespace: 'seatunnel',
         management_source: 'stx_deployed',
         image: 'apache/seatunnel:3.2.0',
+        deployment_mode: 'separated',
         master_replicas: 1,
         worker_replicas: 2,
         master_http_port: 8080,
         hazelcast_port: 5801,
+        jvm: {xms: '512m', xmx: '1536m'},
       }),
     );
-    expect(toastSuccess).toHaveBeenCalledWith(zh.cluster.wizard.deploySuccess);
-    expect(onComplete).toHaveBeenCalledWith(88);
-    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

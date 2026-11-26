@@ -77,10 +77,19 @@ import {ClusterPluginsStep} from './wizard/ClusterPluginsStep';
 import {ClusterDeployStep} from './wizard/ClusterDeployStep';
 import {ClusterCompleteStep} from './wizard/ClusterCompleteStep';
 import {
-  INITIAL_K8S_DEPLOY_FORM,
-  K8sDeployClusterPanel,
-  type K8sDeployFormState,
-} from './K8sDeployClusterPanel';
+  INITIAL_K8S_WIZARD_FORM,
+  K8S_WIZARD_STEPS,
+  type K8sWizardFormState,
+} from './wizard/types';
+import {
+  K8sBasicContent,
+  K8sConfigContent,
+  K8sPrecheckContent,
+  buildK8sCreatePayload,
+  jvmHeapToMi,
+  memoryToMi,
+} from './wizard/K8sWizardSteps';
+import {K8sResourcesStep} from './wizard/K8sResourcesStep';
 
 type DeployInfraTarget = 'bare_metal' | 'kubernetes';
 
@@ -103,8 +112,8 @@ export function ClusterDeployWizard({
   const reducedMotion = useReducedMotion() ?? false;
   const [infraTarget, setInfraTarget] =
     useState<DeployInfraTarget>('bare_metal');
-  const [k8sForm, setK8sForm] = useState<K8sDeployFormState>(
-    INITIAL_K8S_DEPLOY_FORM,
+  const [k8sForm, setK8sForm] = useState<K8sWizardFormState>(
+    INITIAL_K8S_WIZARD_FORM,
   );
   const [k8sDeploying, setK8sDeploying] = useState(false);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -183,7 +192,10 @@ export function ClusterDeployWizard({
   }, [open, loadHosts]);
 
   // Current step / 当前步骤
-  const currentStep = WIZARD_STEPS[currentStepIndex];
+  // K8s 跳过 plugins 步骤，统一 6 步骨架。
+  // Kubernetes skips the plugins step in the unified 6-step skeleton.
+  const wizardSteps = infraTarget === 'kubernetes' ? K8S_WIZARD_STEPS : WIZARD_STEPS;
+  const currentStep = wizardSteps[currentStepIndex];
 
   // Selected hosts / 已选择的主机
   const selectedHosts = useMemo(
@@ -532,6 +544,45 @@ export function ClusterDeployWizard({
    * 与 DisabledReasonTooltip 共用同一谓词，让按钮始终说明不可推进的原因。
    */
   const proceedBlockReason = useCallback((): string | null => {
+    // K8s 分步校验：basic 名称+镜像、hosts 主机+namespace、config 堆内存联动红线、precheck 需通过。
+    // Kubernetes per-step validation: basic needs name+image, hosts needs host+namespace,
+    // config enforces the heap/container-memory red line, precheck must pass.
+    if (infraTarget === 'kubernetes') {
+      switch (currentStep.id) {
+        case 'basic':
+          if (
+            k8sForm.cluster_code.length > 0 &&
+            !isValidClusterCode(k8sForm.cluster_code)
+          ) {
+            return t('cluster.clusterCodeInvalid');
+          }
+          return k8sForm.name.trim().length > 0 && k8sForm.image.trim().length > 0
+            ? null
+            : t('cluster.k8s.nextDisabledK8s');
+        case 'hosts':
+          return k8sForm.host_id > 0 && k8sForm.namespace.trim().length > 0
+            ? null
+            : t('cluster.k8s.nextDisabledK8s');
+        case 'config': {
+          const containerMemory =
+            k8sForm.deployment_mode === 'hybrid'
+              ? k8sForm.hybrid_memory
+              : k8sForm.worker_memory;
+          const heapMi = jvmHeapToMi(k8sForm.jvm_xmx);
+          const containerMi = memoryToMi(containerMemory);
+          if (heapMi && containerMi && heapMi > containerMi * 0.8) {
+            return t('cluster.k8s.nextDisabledHeap');
+          }
+          return null;
+        }
+        case 'deploy':
+          return deployStatus === 'success' ? null : '';
+        case 'complete':
+          return null;
+        default:
+          return null;
+      }
+    }
     const hasPluginProfileSelectionIssue = config.selectedPlugins.some(
       (pluginName) =>
         pluginName === 'jdbc' &&
@@ -613,6 +664,8 @@ export function ClusterDeployWizard({
     selectedHosts,
     deployStatus,
     allPrechecksPassed,
+    infraTarget,
+    k8sForm,
     t,
   ]);
 
@@ -934,10 +987,14 @@ export function ClusterDeployWizard({
     if (currentStep.id === 'plugins') {
       setCurrentStepIndex(currentStepIndex + 1);
       handleDeploy();
-    } else if (currentStepIndex < WIZARD_STEPS.length - 1) {
+    } else if (currentStep.id === 'precheck' && infraTarget === 'kubernetes') {
+      // K8s 无 plugins 步：precheck 后进入部署步并立即启动部署。
+      // Kubernetes has no plugins step: entering the deploy step starts deployment.
+      setCurrentStepIndex(currentStepIndex + 1);
+    } else if (currentStepIndex < wizardSteps.length - 1) {
       setCurrentStepIndex(currentStepIndex + 1);
     }
-  }, [currentStep.id, currentStepIndex, handleDeploy]);
+  }, [currentStep.id, currentStepIndex, handleDeploy, infraTarget, wizardSteps.length]);
 
   // Handle previous step / 处理返回上一步
   const handlePrevious = useCallback(() => {
@@ -989,7 +1046,7 @@ export function ClusterDeployWizard({
   /** Reset everything and actually close / 复位全部状态并真正关闭弹窗 */
   const closeNow = useCallback(() => {
     setInfraTarget('bare_metal');
-    setK8sForm(INITIAL_K8S_DEPLOY_FORM);
+    setK8sForm(INITIAL_K8S_WIZARD_FORM);
     setK8sDeploying(false);
     setCurrentStepIndex(0);
     setConfig(defaultClusterDeployConfig);
@@ -1006,66 +1063,24 @@ export function ClusterDeployWizard({
     onOpenChange(false);
   }, [onOpenChange]);
 
-  const k8sBlockReason = useMemo((): string | null => {
-    if (
-      k8sForm.cluster_code.length > 0 &&
-      !isValidClusterCode(k8sForm.cluster_code)
-    ) {
-      return t('cluster.clusterCodeInvalid');
-    }
-    if (
-      !k8sForm.host_id ||
-      !k8sForm.namespace.trim() ||
-      !k8sForm.name.trim() ||
-      !k8sForm.image.trim()
-    ) {
-      return t('cluster.k8s.nextDisabledK8s');
-    }
-    return null;
-  }, [k8sForm, t]);
+
 
   const handleK8sDeploy = useCallback(async () => {
-    if (k8sBlockReason || k8sDeploying) {
+    if (k8sDeploying) {
       return;
     }
     setK8sDeploying(true);
+    setDeployStatus('running');
+    setDeployError(null);
+    setDeployProgress(15);
+    setDeploySteps([
+      {step: 'submit', message: t('cluster.k8s.deployStepSubmit'), status: 'running'},
+      {step: 'workloads', message: t('cluster.k8s.deployStepWorkloads'), status: 'pending'},
+      {step: 'proxy', message: t('cluster.k8s.deployStepProxy'), status: 'pending'},
+    ]);
     try {
-      const payload: Record<string, unknown> = {
-        name: k8sForm.name.trim(),
-        cluster_code: k8sForm.cluster_code.trim() || undefined,
-        description: k8sForm.description.trim() || undefined,
-        version: k8sForm.version.trim() || undefined,
-        host_id: k8sForm.host_id,
-        namespace: k8sForm.namespace.trim(),
-        management_source: 'stx_deployed',
-        image: k8sForm.image.trim(),
-        master_replicas: k8sForm.master_replicas,
-        worker_replicas: k8sForm.worker_replicas,
-        master_http_port: k8sForm.master_http_port,
-        hazelcast_port: k8sForm.hazelcast_port,
-      };
-      if (k8sForm.master_cpu.trim()) {
-        payload.master_cpu = k8sForm.master_cpu.trim();
-      }
-      if (k8sForm.master_memory.trim()) {
-        payload.master_memory = k8sForm.master_memory.trim();
-      }
-      if (k8sForm.worker_cpu.trim()) {
-        payload.worker_cpu = k8sForm.worker_cpu.trim();
-      }
-      if (k8sForm.worker_memory.trim()) {
-        payload.worker_memory = k8sForm.worker_memory.trim();
-      }
-      if (k8sForm.checkpoint_pvc.trim()) {
-        payload.checkpoint_pvc = k8sForm.checkpoint_pvc.trim();
-      }
-      if (k8sForm.data_storage_class.trim()) {
-        payload.data_storage_class = k8sForm.data_storage_class.trim();
-      }
-      if (k8sForm.data_size.trim()) {
-        payload.data_size = k8sForm.data_size.trim();
-      }
-
+      const payload = buildK8sCreatePayload(k8sForm);
+      setDeployProgress(45);
       const created = (await services.cluster.createKubernetesCluster(
         payload,
       )) as
@@ -1078,29 +1093,62 @@ export function ClusterDeployWizard({
             };
           }
         | undefined;
+      setDeploySteps((prev) =>
+        prev.map((step) =>
+          step.step === 'submit' ? {...step, status: 'success'} : step.step === 'workloads' ? {...step, status: 'success'} : step,
+        ),
+      );
+      setDeployProgress(80);
       const proxyStatus = created?.proxy_status;
+      setDeploySteps((prev) =>
+        prev.map((step) =>
+          step.step === 'proxy'
+            ? {...step, status: proxyStatus && !proxyStatus.healthy ? 'failed' : 'success'}
+            : step,
+        ),
+      );
       if (proxyStatus && !proxyStatus.healthy) {
         // 伴生 Proxy 探活异常时不阻断集群创建，展示 Pod 事件便于详情页重试。
         // Companion proxy readiness warning never blocks saving; surface pod events for retry in detail view.
         const events = (proxyStatus.pod_events || []).slice(0, 3).join(' · ');
-        toast.warning(
+        setDeployWarnings([
           `${t('cluster.k8s.proxyUnhealthy')}: ${proxyStatus.message || ''}${events ? ` · ${events}` : ''}`,
-        );
-      } else {
-        toast.success(t('cluster.wizard.deploySuccess'));
+        ]);
       }
+      setDeployProgress(100);
+      setDeployStatus('success');
       if (created?.cluster?.id) {
-        onComplete?.(created.cluster.id);
+        setCreatedClusterId(created.cluster.id);
       }
-      closeNow();
     } catch (err) {
-      toast.error(
+      setDeployStatus('failed');
+      setDeployError(
         err instanceof Error ? err.message : t('cluster.wizard.deployFailed'),
+      );
+      setDeploySteps((prev) =>
+        prev.map((step) =>
+          step.status === 'running' || step.status === 'pending'
+            ? {...step, status: 'failed'}
+            : step,
+        ),
       );
     } finally {
       setK8sDeploying(false);
     }
-  }, [k8sBlockReason, k8sDeploying, k8sForm, onComplete, closeNow, t]);
+  }, [k8sDeploying, k8sForm, t]);
+
+  // 进入 K8s 部署步自动启动部署（仅一次，失败可手动重试）。
+  // Entering the Kubernetes deploy step auto-starts deployment once; failures retry manually.
+  useEffect(() => {
+    if (
+      infraTarget === 'kubernetes' &&
+      currentStep.id === 'deploy' &&
+      deployStatus === 'idle' &&
+      !k8sDeploying
+    ) {
+      void handleK8sDeploy();
+    }
+  }, [infraTarget, currentStep.id, deployStatus, k8sDeploying, handleK8sDeploy]);
 
   /**
    * Close requests route through the right confirmation instead of a native confirm().
@@ -1131,6 +1179,60 @@ export function ClusterDeployWizard({
 
   // Render current step component / 渲染当前步骤组件
   const renderStepContent = () => {
+    // K8s 各步内容：basic/hosts/config/precheck 走专属组件，deploy/complete 复用共享骨架。
+    // Kubernetes step content: basic/hosts/config/precheck use dedicated components
+    // while deploy/complete reuse the shared skeleton.
+    if (infraTarget === 'kubernetes') {
+      const patchK8s = (partial: Partial<K8sWizardFormState>) =>
+        setK8sForm((prev) => ({...prev, ...partial}));
+      switch (currentStep.id) {
+        case 'basic':
+          return <K8sBasicContent form={k8sForm} patch={patchK8s} />;
+        case 'hosts':
+          return (
+            <K8sResourcesStep
+              form={k8sForm}
+              onChange={(updater) => setK8sForm(updater)}
+            />
+          );
+        case 'config':
+          return <K8sConfigContent form={k8sForm} patch={patchK8s} />;
+        case 'precheck':
+          return <K8sPrecheckContent form={k8sForm} />;
+        case 'deploy':
+          return (
+            <ClusterDeployStep
+              deployStatus={deployStatus}
+              deployProgress={deployProgress}
+              deployError={deployError}
+              deployWarnings={deployWarnings}
+              deploySteps={deploySteps}
+              deploying={k8sDeploying}
+              onRetry={handleK8sDeploy}
+              onBackToPlugins={() => {
+                setDeployStatus('idle');
+                setDeployProgress(0);
+                setDeployError(null);
+                setDeployWarnings([]);
+                setDeploySteps([]);
+                setCurrentStepIndex(3);
+              }}
+            />
+          );
+        case 'complete':
+          return (
+            <ClusterCompleteStep
+              config={config}
+              selectedHosts={selectedHosts}
+              deployWarnings={deployWarnings}
+              onClose={handleClose}
+              onComplete={handleComplete}
+            />
+          );
+        default:
+          return null;
+      }
+    }
     switch (currentStep.id) {
       case 'basic':
         return (
@@ -1243,18 +1345,12 @@ export function ClusterDeployWizard({
           <span className='flex items-center gap-2.5'>
             <Layers className='size-4 shrink-0 text-primary' aria-hidden />
             <span>{t('cluster.wizard.title')}</span>
-            {infraTarget === 'bare_metal' ? (
-              <NeutralChip className='font-mono tabular-nums'>
-                {currentStepIndex + 1} / {WIZARD_STEPS.length}
-              </NeutralChip>
-            ) : null}
+            <NeutralChip className='font-mono tabular-nums'>
+              {currentStepIndex + 1} / {wizardSteps.length}
+            </NeutralChip>
           </span>
         }
-        description={
-          infraTarget === 'kubernetes'
-            ? t('cluster.k8s.deployDesc')
-            : t(currentStep.descKey)
-        }
+        description={t(currentStep.descKey)}
       >
         {/* 目标基础设施切换栏 / Target infrastructure switcher */}
         {!deploying &&
@@ -1279,57 +1375,6 @@ export function ClusterDeployWizard({
             </div>
           )}
 
-        {infraTarget === 'kubernetes' ? (
-          <>
-            <div className='min-h-0 flex-1 overflow-hidden px-6 py-4'>
-              <K8sDeployClusterPanel
-                active={open && infraTarget === 'kubernetes'}
-                form={k8sForm}
-                onChange={setK8sForm}
-                onNavigateToHosts={() => {
-                  closeNow();
-                  router.push('/hosts');
-                }}
-              />
-            </div>
-            <div className='flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border/80 px-6 py-3'>
-              <Button
-                type='button'
-                variant='ghost'
-                size='sm'
-                disabled={k8sDeploying}
-                onClick={handleClose}
-              >
-                <X className='size-3.5' aria-hidden />
-                {t('common.cancel')}
-              </Button>
-              <DisabledReasonTooltip reason={k8sBlockReason}>
-                <Button
-                  type='button'
-                  size='sm'
-                  loading={k8sDeploying}
-                  onClick={() => {
-                    if (k8sBlockReason || k8sDeploying) {
-                      return;
-                    }
-                    void handleK8sDeploy();
-                  }}
-                  aria-disabled={
-                    Boolean(k8sBlockReason) || k8sDeploying ? 'true' : undefined
-                  }
-                  className={
-                    Boolean(k8sBlockReason) || k8sDeploying
-                      ? 'opacity-60'
-                      : undefined
-                  }
-                >
-                  {t('cluster.wizard.startDeploy')}
-                  <PlayCircle className='size-3.5' aria-hidden />
-                </Button>
-              </DisabledReasonTooltip>
-            </div>
-          </>
-        ) : (
           <>
             {/* Stepper bar / 现代化步骤条 */}
             <ClusterWizardStepper
@@ -1432,7 +1477,6 @@ export function ClusterDeployWizard({
               </div>
             )}
           </>
-        )}
 
       </DialogContent>
     </Dialog>

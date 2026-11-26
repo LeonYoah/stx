@@ -227,3 +227,112 @@ export const defaultClusterDeployConfig: ClusterDeployConfig = {
   selectedPlugins: [],
   selectedPluginProfiles: {},
 };
+
+/**
+ * K8s 部署向导表单状态（模块6统一向导扩展版）。
+ * Kubernetes deploy wizard form state (module-6 unified wizard edition).
+ */
+export interface K8sWizardFormState {
+  host_id: number;
+  namespace: string;
+  name: string;
+  cluster_code: string;
+  description: string;
+  image: string;
+  version: string;
+  image_pull_policy: string;
+  image_pull_secrets: string;
+  service_account: string;
+  deployment_mode: 'separated' | 'hybrid';
+  master_replicas: number;
+  worker_replicas: number;
+  hybrid_replicas: number;
+  master_http_port: number;
+  hazelcast_port: number;
+  master_cpu: string;
+  master_memory: string;
+  worker_cpu: string;
+  worker_memory: string;
+  hybrid_cpu: string;
+  hybrid_memory: string;
+  checkpoint_pvc: string;
+  data_storage_class: string;
+  data_size: string;
+  jvm_xms: string;
+  jvm_xmx: string;
+  enable_http_server: boolean;
+  event_report_enabled: boolean;
+  checkpoint: {
+    enabled: boolean;
+    storage_type: string;
+    namespace: string;
+    endpoint: string;
+    bucket: string;
+    access_key: string;
+    secret_key: string;
+  };
+  imap: {
+    enabled: boolean;
+    storage_type: string;
+    namespace: string;
+    endpoint: string;
+    bucket: string;
+    access_key: string;
+    secret_key: string;
+  };
+}
+
+export const INITIAL_K8S_WIZARD_FORM: K8sWizardFormState = {
+  host_id: 0,
+  namespace: 'default',
+  name: '',
+  cluster_code: '',
+  description: '',
+  image: '',
+  version: '',
+  image_pull_policy: 'IfNotPresent',
+  image_pull_secrets: '',
+  service_account: '',
+  deployment_mode: 'separated',
+  master_replicas: 1,
+  worker_replicas: 2,
+  hybrid_replicas: 2,
+  master_http_port: 8080,
+  hazelcast_port: 5801,
+  master_cpu: '500m',
+  master_memory: '2Gi',
+  worker_cpu: '1',
+  worker_memory: '2Gi',
+  hybrid_cpu: '1',
+  hybrid_memory: '4Gi',
+  checkpoint_pvc: '',
+  data_storage_class: '',
+  data_size: '',
+  jvm_xms: '512m',
+  jvm_xmx: '1536m',
+  enable_http_server: true,
+  event_report_enabled: false,
+  checkpoint: {
+    enabled: false,
+    storage_type: 'LOCAL_FILE',
+    namespace: '',
+    endpoint: '',
+    bucket: '',
+    access_key: '',
+    secret_key: '',
+  },
+  imap: {
+    enabled: false,
+    storage_type: 'DISABLED',
+    namespace: '',
+    endpoint: '',
+    bucket: '',
+    access_key: '',
+    secret_key: '',
+  },
+};
+
+/** K8s 向导步骤：跳过 plugins / Kubernetes wizard steps: plugins skipped */
+export const K8S_WIZARD_STEPS: StepConfig[] = WIZARD_STEPS.filter(
+  (step) => step.id !== 'plugins',
+);

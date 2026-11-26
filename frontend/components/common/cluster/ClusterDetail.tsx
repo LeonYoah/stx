@@ -82,6 +82,7 @@ import {
   CLUSTER_DETAIL_TABS,
   getLegacyClusterRouteRewrite,
   resolveClusterDetailRoute,
+  type OpsSubView,
   type ClusterDetailTab,
   type RuntimeSubView,
 } from './detail/cluster-detail-tabs';
@@ -403,6 +404,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     () => pickWebUINode(nodes, cluster?.version, runtimeConfig.enableHTTP),
     [cluster?.version, nodes, runtimeConfig.enableHTTP],
   );
+  // 提前计算基础设施类型：opsView 归一化与 Pod 拉取都依赖它，且需在 early return 前就绪。
+  // Infra type is computed early: both opsView normalization and pod loading depend on
+  // it and it must be ready before the early returns.
+  const clusterIsK8s = Boolean(cluster?.infra_type && cluster.infra_type !== 'bare_metal');
   const resolvedRoute = useMemo(
     () =>
       resolveClusterDetailRoute(rawTabParam, rawViewParam, Boolean(webUINode)),
@@ -410,7 +415,13 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   );
   const activeTab = resolvedRoute.tab;
   const runtimeView = resolvedRoute.runtimeView;
-  const opsView = resolvedRoute.opsView;
+  // K8s 无 guard 子视图：深链或默认值落到 guard 时无感归一化到 diagnostics。
+  // Kubernetes has no guard sub-view: deep links or defaults landing on guard
+  // transparently normalize to diagnostics.
+  const opsView: OpsSubView =
+    clusterIsK8s && resolvedRoute.opsView === 'guard'
+      ? 'diagnostics'
+      : resolvedRoute.opsView;
 
   // 旧 ?tab=storage|proxy|webui|monitoring|diagnostics|upgrades 深链无感归一化。
   // ?tab=webui 须等集群/节点首次加载完成，避免未知可用性被写成 checkpoint。
@@ -1632,7 +1643,6 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   // hooks 必须全部位于 early return 之前，故 Pod 拉取放在这里而不是渲染区。
   // All hooks must precede the early returns, so pod loading lives here rather than
   // in the render section.
-  const clusterIsK8s = Boolean(cluster?.infra_type && cluster.infra_type !== 'bare_metal');
   useEffect(() => {
     if (!clusterIsK8s) {
       setK8sPods([]);

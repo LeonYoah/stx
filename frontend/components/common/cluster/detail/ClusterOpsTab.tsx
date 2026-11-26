@@ -115,7 +115,12 @@ export function ClusterOpsTab({
           value={view}
           onValueChange={(v) => onViewChange(v as OpsSubView)}
           options={[
-            {value: 'guard', label: t('cluster.list.opsViews.guard')},
+            // K8s 无主机 Agent，进程自愈由 kubelet 原生托管，「守护与自愈」配置只会空转误导。
+            // Kubernetes has no host agent; self-healing is kubelet-native so the guard
+            // view would idle and mislead, hence it is hidden.
+            ...(isKubernetes
+              ? []
+              : [{value: 'guard', label: t('cluster.list.opsViews.guard')}]),
             {
               value: 'diagnostics',
               label: t('cluster.list.opsViews.diagnostics'),
@@ -137,7 +142,7 @@ export function ClusterOpsTab({
         ) : null}
       </div>
 
-      {view === 'guard' ? (
+      {view === 'guard' && !isKubernetes ? (
         <MonitorConfigPanel
           clusterId={clusterId}
           clusterName={clusterName}

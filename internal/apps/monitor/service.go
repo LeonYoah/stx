@@ -69,6 +69,10 @@ type Service struct {
 	configSender    AgentConfigSender
 	nodeProvider    ClusterNodeProvider
 	onEventRecorded func(context.Context, *ProcessEvent) error
+	// k8sChecker 解耦判断集群是否 K8s 基础设施（由 router 接线，避免反向依赖 cluster 包）。
+	// k8sChecker reports whether a cluster runs on Kubernetes (wired in router to avoid
+	// a reverse dependency on the cluster package).
+	k8sChecker func(ctx context.Context, clusterID uint) bool
 }
 
 // NewService creates a new monitor service.
@@ -83,6 +87,12 @@ func NewService(repo *Repository) *Service {
 // SetConfigSender 设置 Agent 配置发送器。
 func (s *Service) SetConfigSender(sender AgentConfigSender) {
 	s.configSender = sender
+}
+
+// SetKubernetesChecker injects the Kubernetes infrastructure checker.
+// SetKubernetesChecker 注入 K8s 基础设施检查器。
+func (s *Service) SetKubernetesChecker(checker func(ctx context.Context, clusterID uint) bool) {
+	s.k8sChecker = checker
 }
 
 // SetNodeProvider sets the cluster node provider.
@@ -174,6 +184,15 @@ func (s *Service) GetOrCreateConfig(ctx context.Context, clusterID uint) (*Monit
 // **Feature: seatunnel-process-monitor, Property 13: 配置热更新**
 // **Validates: Requirements 5.5**
 func (s *Service) UpdateConfig(ctx context.Context, clusterID uint, req *UpdateMonitorConfigRequest) (*MonitorConfig, error) {
+	// K8s 集群无主机 Agent：进程自愈由 kubelet RestartPolicy 与 Liveness/Readiness Probe
+	// 原生托管，Agent 自愈参数无意义，必须拒绝保存防止空转后误导用户"已同步"。
+	// Kubernetes clusters have no host agent: process self-healing is natively managed by
+	// the kubelet RestartPolicy and Liveness/Readiness probes, so agent self-healing
+	// parameters are meaningless and must be rejected instead of idling misleadingly.
+	if s.k8sChecker != nil && s.k8sChecker(ctx, clusterID) {
+		return nil, ErrKubernetesMonitorConfigUnsupported
+	}
+
 	// Validate request / 验证请求
 	if err := req.Validate(); err != nil {
 		return nil, err

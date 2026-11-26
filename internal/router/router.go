@@ -482,6 +482,9 @@ func Serve() {
 
 			// Inject node provider and config sender if agent manager is available
 			// 如果 Agent Manager 可用，注入节点提供者和配置发送器
+			monitorService.SetKubernetesChecker(func(ctx context.Context, clusterID uint) bool {
+				return clusterService.IsKubernetesCluster(ctx, clusterID)
+			})
 			if agentManager != nil {
 				monitorService.SetNodeProvider(&monitorClusterNodeProviderAdapter{
 					clusterService: clusterService,

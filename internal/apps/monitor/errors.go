@@ -30,6 +30,10 @@ var (
 	// ErrInvalidMonitorInterval 表示监控间隔无效。
 	ErrInvalidMonitorInterval = errors.New("monitor interval must be between 1 and 60 seconds")
 
+	// ErrKubernetesMonitorConfigUnsupported 表示 K8s 集群不支持 Agent 自愈配置。
+	// ErrKubernetesMonitorConfigUnsupported indicates Kubernetes clusters do not support agent self-healing config.
+	ErrKubernetesMonitorConfigUnsupported = errors.New("kubernetes cluster process self-healing is natively managed by kubelet RestartPolicy and Liveness/Readiness probes; agent self-healing config is not applicable")
+
 	// ErrInvalidRestartDelay indicates the restart delay is invalid.
 	// ErrInvalidRestartDelay 表示重启延迟无效。
 	ErrInvalidRestartDelay = errors.New("restart delay must be between 1 and 300 seconds")

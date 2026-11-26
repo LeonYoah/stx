@@ -972,7 +972,7 @@ export function ClusterDeployWizard({
       toast.success(t('cluster.wizard.deploySuccess'));
 
       await new Promise((resolve) => setTimeout(resolve, 800));
-      setCurrentStepIndex(6); // complete step
+      setCurrentStepIndex(wizardSteps.length - 1); // complete step
     } catch (err) {
       setDeployStatus('failed');
       setDeployError(err instanceof Error ? err.message : 'Deployment failed');
@@ -980,7 +980,7 @@ export function ClusterDeployWizard({
     } finally {
       setDeploying(false);
     }
-  }, [config, selectedHosts, deployNodes, t, createdClusterId, eventChannelSupported]);
+  }, [config, selectedHosts, deployNodes, t, createdClusterId, eventChannelSupported, wizardSteps.length]);
 
   // Handle next step / 处理进入下一步
   const handleNext = useCallback(() => {
@@ -1036,8 +1036,9 @@ export function ClusterDeployWizard({
   const dirtyGuardActive =
     open &&
     hasUserInput &&
+    deployStatus !== 'success' &&
     (infraTarget === 'kubernetes'
-      ? !k8sDeploying
+      ? !k8sDeploying && currentStep.id !== 'complete'
       : currentStep.id !== 'deploy' &&
         currentStep.id !== 'complete' &&
         !deploying);
@@ -1061,7 +1062,13 @@ export function ClusterDeployWizard({
     setDeployCancelOpen(false);
     setDirtyCloseOpen(false);
     onOpenChange(false);
-  }, [onOpenChange]);
+    // 成功创建过集群时无论走哪条关闭路径都刷新外层列表，避免手动刷新才能看到新集群。
+    // Whenever a cluster was created, refresh the outer list on every close path so
+    // the new cluster appears without a manual reload.
+    if (createdClusterId) {
+      onComplete?.(createdClusterId);
+    }
+  }, [onOpenChange, createdClusterId, onComplete]);
 
 
 
@@ -1120,6 +1127,8 @@ export function ClusterDeployWizard({
       if (created?.cluster?.id) {
         setCreatedClusterId(created.cluster.id);
       }
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      setCurrentStepIndex(wizardSteps.length - 1); // complete step
     } catch (err) {
       setDeployStatus('failed');
       setDeployError(
@@ -1135,7 +1144,7 @@ export function ClusterDeployWizard({
     } finally {
       setK8sDeploying(false);
     }
-  }, [k8sDeploying, k8sForm, t]);
+  }, [k8sDeploying, k8sForm, t, wizardSteps.length]);
 
   // 进入 K8s 部署步自动启动部署（仅一次，失败可手动重试）。
   // Entering the Kubernetes deploy step auto-starts deployment once; failures retry manually.
@@ -1171,11 +1180,8 @@ export function ClusterDeployWizard({
 
   // Handle complete callback / 处理完成并查看集群
   const handleComplete = useCallback(() => {
-    if (createdClusterId) {
-      onComplete?.(createdClusterId);
-    }
     handleClose();
-  }, [createdClusterId, onComplete, handleClose]);
+  }, [handleClose]);
 
   // Render current step component / 渲染当前步骤组件
   const renderStepContent = () => {
@@ -1378,7 +1384,7 @@ export function ClusterDeployWizard({
           <>
             {/* Stepper bar / 现代化步骤条 */}
             <ClusterWizardStepper
-              steps={WIZARD_STEPS}
+              steps={wizardSteps}
               currentStepIndex={currentStepIndex}
               onStepClick={(index) => setCurrentStepIndex(index)}
               deploying={deploying}

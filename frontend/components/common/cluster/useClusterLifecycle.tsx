@@ -301,7 +301,13 @@ export function useClusterLifecycle(
         confirmVariant='danger'
         onConfirm={() => {
           if (pendingDelete) {
-            void executeDelete(pendingDelete, forceDelete);
+            // stx_deployed 的删除文案已承诺卸载 K8s 资源，必须强制携带 force 标志，
+            // 否则 StatefulSet/ConfigMap 等主工作负载会成为孤儿残留。
+            // stx_deployed delete copy already promises uninstalling the K8s resources, so
+            // the force flag must ride along or StatefulSets/ConfigMaps are orphaned.
+            const force =
+              forceDelete || deleteDialogK8sKind === 'stx_deployed';
+            void executeDelete(pendingDelete, force);
           }
         }}
       >

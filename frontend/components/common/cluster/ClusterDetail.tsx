@@ -1086,6 +1086,18 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       );
       setStxJavaProxyConfigOpen(false);
       void loadStxJavaProxyStatus();
+      // 触发滚动重启时新 Pod 需数十秒就绪，期间状态接口打到旧 Pod 会展示过期堆内存；
+      // 间隔轮询直到新实例上报，避免详情页长期停留在旧值。
+      // During a rolling restart the new pod takes tens of seconds to become ready and
+      // the status endpoint keeps hitting the old pod, so poll until the fresh instance
+      // reports instead of leaving the detail page pinned to stale heap values.
+      if (stxJavaProxyRestartOnSave) {
+        for (let attempt = 1; attempt <= 12; attempt++) {
+          setTimeout(() => {
+            void loadStxJavaProxyStatus();
+          }, attempt * 5000);
+        }
+      }
     } finally {
       setStxJavaProxySaving(false);
     }

@@ -22,6 +22,7 @@ import {useTranslations} from 'next-intl';
 import {Button} from '@/components/arc/button/button';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
 import {DetailHost, useDetailNarrow} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
 import {ActionButton} from '@/components/arc/action-button/action-button';
 import {Input} from '@/components/arc/input/input';
 import {Skeleton} from '@/components/arc/skeleton/skeleton';
@@ -279,6 +280,8 @@ export function ContainerRegistryPanel() {
           </Button>
         </span>
       </div>
+      <div className={layout.split}>
+      <div className={layout.listCol}>
       {loading ? (
         <Skeleton lines={3} className='h-9' label={t('title')} />
       ) : loadError ? (
@@ -308,6 +311,7 @@ export function ContainerRegistryPanel() {
           onRowActivate={(row) => openEdit(row)}
         />
       )}
+      </div>
       <DetailHost
         open={dialogOpen}
         hasContent={retained != null || editingId == null}
@@ -373,6 +377,7 @@ export function ContainerRegistryPanel() {
             </Button>
           </div>
       </DetailHost>
+      </div>
     </div>
   );
 }

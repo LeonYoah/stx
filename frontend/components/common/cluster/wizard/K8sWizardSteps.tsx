@@ -197,7 +197,7 @@ export function K8sBasicContent({form, patch}: StepProps) {
           ) : null}
         </div>
         <div className='space-y-1.5'>
-          <Input label={t('cluster.description')} value={form.description} onChange={(e) => patch({description: e.target.value})} />
+          <Input label={t('cluster.descriptionLabel')} value={form.description} onChange={(e) => patch({description: e.target.value})} />
         </div>
       </div>
     </div>

@@ -1690,7 +1690,8 @@
         "installingPlugins": "正在安装插件...",
         "installComplete": "安装完成",
         "installFailed": "安装失败"
-      }
+      },
+      "summaryK8sScale": "{namespace} · {mode} · 副本 {replicas}"
     },
     "masterWorkerNodeConfig": "Master/Worker 节点配置",
     "hazelcastMasterPort": "Hazelcast Master 端口",

@@ -1250,6 +1250,18 @@ func (s *Service) executeK8sLifecycleOperation(ctx context.Context, cluster *Clu
 	return nil, fmt.Errorf("cluster: unsupported operation %q for kubernetes cluster", operation)
 }
 
+// preferCredentialedImageRow 在同镜像串的注册行中优先选出带凭据的行。
+// preferCredentialedImageRow picks the row carrying credentials among rows
+// registered for the same image string, falling back to the first row.
+func preferCredentialedImageRow(rows []installerapp.ContainerImage) installerapp.ContainerImage {
+	for i := range rows {
+		if rows[i].HasCredentials() {
+			return rows[i]
+		}
+	}
+	return rows[0]
+}
+
 // ensureK8sRegistryCredential 解析注册镜像的私有仓库凭据并代建拉取 Secret。
 // 镜像未注册或无凭据时静默跳过；已存在同名 Secret 且归属本集群时原地更新。
 // ensureK8sRegistryCredential resolves the registered image's private-registry
@@ -1269,13 +1281,18 @@ func (s *Service) ensureK8sRegistryCredential(ctx context.Context, cfg *k8s.Sess
 		// as absent rather than blocking the deploy.
 		return nil
 	}
-	var row installerapp.ContainerImage
-	err := s.repo.db.WithContext(ctx).Where("image = ?", imageRef).First(&row).Error
-	if err != nil {
+	// 同一镜像串可注册多行（同名不同凭据配置），优先命中带凭据的行，
+	// 否则无凭据的默认行会抢先导致私有仓库凭据永远不落 Secret。
+	// Multiple rows can register the same image string; prefer the row carrying
+	// credentials, otherwise a credential-less default row wins the lookup and the
+	// private-registry secret never materializes.
+	var rows []installerapp.ContainerImage
+	if err := s.repo.db.WithContext(ctx).Where("image = ?", imageRef).Find(&rows).Error; err != nil || len(rows) == 0 {
 		// 未注册的自定义镜像：凭据依赖用户预建 secret，不阻断。
 		// Unregistered custom images rely on user-provisioned secrets; do not block.
 		return nil
 	}
+	row := preferCredentialedImageRow(rows)
 	if !row.HasCredentials() {
 		return nil
 	}

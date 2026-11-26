@@ -21,6 +21,7 @@ import (
 	"context"
 	"testing"
 
+	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,4 +69,19 @@ func TestSemverLikeTagEdge(t *testing.T) {
 	assert.False(t, semverLikeTag(""))
 	assert.False(t, semverLikeTag("v1.2.x"))
 	assert.False(t, semverLikeTag("1.2.3.4"))
+}
+
+// TestPreferCredentialedImageRow 验证同镜像串多行注册时凭据行优先。
+// TestPreferCredentialedImageRow verifies credential-carrying rows win when
+// multiple rows share one image string.
+func TestPreferCredentialedImageRow(t *testing.T) {
+	rows := []installerapp.ContainerImage{
+		{Image: "apache/seatunnel:3.1.0"},
+		{Image: "apache/seatunnel:3.1.0", RegistryHost: "registry.example.com", RegistryUsername: "u", RegistryPassword: "enc:v1:x"},
+	}
+	picked := preferCredentialedImageRow(rows)
+	assert.Equal(t, "registry.example.com", picked.RegistryHost)
+	noCreds := []installerapp.ContainerImage{{Image: "apache/seatunnel:3.1.0"}, {Image: "apache/seatunnel:3.1.0", IsDefault: true}}
+	pickedNoCreds := preferCredentialedImageRow(noCreds)
+	assert.False(t, pickedNoCreds.HasCredentials())
 }

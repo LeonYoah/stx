@@ -1690,7 +1690,8 @@
         "installingPlugins": "Installing plugins...",
         "installComplete": "Installation complete",
         "installFailed": "Installation failed"
-      }
+      },
+      "summaryK8sScale": "{namespace} · {mode} · replicas {replicas}"
     },
     "masterWorkerNodeConfig": "Master/Worker Node Config",
     "hazelcastMasterPort": "Hazelcast Master Port",

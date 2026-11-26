@@ -1271,6 +1271,7 @@ export function ClusterDeployWizard({
               config={config}
               selectedHosts={selectedHosts}
               deployWarnings={deployWarnings}
+              k8sForm={k8sForm}
               onClose={handleClose}
               onComplete={handleComplete}
             />
@@ -1361,7 +1362,7 @@ export function ClusterDeployWizard({
         );
       case 'complete':
         return (
-          <ClusterCompleteStep
+                      <ClusterCompleteStep
             config={config}
             selectedHosts={selectedHosts}
             deployWarnings={deployWarnings}

@@ -260,9 +260,6 @@ export interface K8sWizardFormState {
   data_size: string;
   jvm_xms: string;
   jvm_xmx: string;
-  master_heap_mb: string;
-  worker_heap_mb: string;
-  hybrid_heap_mb: string;
   java_proxy_mode: string;
   java_proxy_port: string;
   java_proxy_heap: string;
@@ -274,7 +271,6 @@ export interface K8sWizardFormState {
   runtime_scheduled_deletion_enable: boolean;
   runtime_job_log_mode: string;
   event_report_enabled: boolean;
-  stx_callback_url: string;
   checkpoint: {
     enabled: boolean;
     storage_type: string;
@@ -323,9 +319,6 @@ export const INITIAL_K8S_WIZARD_FORM: K8sWizardFormState = {
   data_size: '',
   jvm_xms: '512m',
   jvm_xmx: '1536m',
-  master_heap_mb: '',
-  worker_heap_mb: '',
-  hybrid_heap_mb: '',
   java_proxy_mode: 'managed',
   java_proxy_port: '18080',
   java_proxy_heap: '512m',
@@ -337,7 +330,6 @@ export const INITIAL_K8S_WIZARD_FORM: K8sWizardFormState = {
   runtime_scheduled_deletion_enable: true,
   runtime_job_log_mode: 'mixed',
   event_report_enabled: false,
-  stx_callback_url: '',
   checkpoint: {
     enabled: false,
     storage_type: 'LOCAL_FILE',

@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/LeonYoah/stx/internal/seatunnel"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 // 本文件集中维护 stx_deployed 一键部署渲染进 ConfigMap 的全部配置文件模板，
@@ -310,23 +311,33 @@ func renderJVMOptions() string {
 // renderJVMOptionsForRole 按角色渲染 JVM 选项：分角色堆上限（MB）优先于统一 Xmx。
 // renderJVMOptionsForRole renders JVM options per role: per-role heap ceilings (MB)
 // win over the shared Xmx.
-func renderJVMOptionsForRole(jvm *SessionJVMConfig, role string) string {
-	if jvm == nil {
-		return renderJVMOptionsWithConfig(nil)
-	}
+func renderJVMOptionsForRole(jvm *SessionJVMConfig, role string, containerMemory string) string {
 	heapMB := 0
-	switch role {
-	case "master":
-		heapMB = jvm.MasterHeapMB
-	case "worker":
-		heapMB = jvm.WorkerHeapMB
-	case "hybrid":
-		heapMB = jvm.HybridHeapMB
+	if jvm != nil {
+		switch role {
+		case "master":
+			heapMB = jvm.MasterHeapMB
+		case "worker":
+			heapMB = jvm.WorkerHeapMB
+		case "hybrid":
+			heapMB = jvm.HybridHeapMB
+		}
+	}
+	if heapMB <= 0 && (jvm == nil || strings.TrimSpace(jvm.Xmx) == "") {
+		// 堆跟随容器内存自动推导（1/2）：用户只需调整容器内存，无需理解 JVM 堆；
+		// 显式 heap_mb 或 Xmx 仍是给进阶用户的覆盖通道。推导失败回落保守默认。
+		// Heap derives from container memory automatically (1/2) so users only size
+		// the container; explicit heap_mb or Xmx remains the power-user override.
+		// Unparseable memory falls back to the conservative default.
+		heapMB = deriveHeapFromContainerMemory(containerMemory)
 	}
 	if heapMB <= 0 {
 		return renderJVMOptionsWithConfig(jvm)
 	}
-	clone := *jvm
+	clone := SessionJVMConfig{}
+	if jvm != nil {
+		clone = *jvm
+	}
 	clone.Xmx = fmt.Sprintf("%dm", heapMB)
 	if strings.TrimSpace(clone.Xms) == "" {
 		// Xms 缺省取堆上限的一半，避免起步即全额堆造成的虚占。
@@ -334,6 +345,23 @@ func renderJVMOptionsForRole(jvm *SessionJVMConfig, role string) string {
 		clone.Xms = fmt.Sprintf("%dm", heapMB/2)
 	}
 	return renderJVMOptionsWithConfig(&clone)
+}
+
+// deriveHeapFromContainerMemory 按容器内存量的 1/2 推导堆上限（Mi）；
+// 解析失败或过小（<256Mi）返回 0，由调用方回落默认值。
+// deriveHeapFromContainerMemory derives the heap ceiling (Mi) as half the container
+// memory quantity; unparseable or tiny (<256Mi) values yield 0 so callers fall back.
+func deriveHeapFromContainerMemory(memory string) int {
+	quantity, err := resource.ParseQuantity(strings.TrimSpace(memory))
+	if err != nil {
+		return 0
+	}
+	mi := int(quantity.Value() / (1024 * 1024))
+	heap := mi / 2
+	if heap < 256 {
+		return 0
+	}
+	return heap
 }
 
 func renderJVMOptionsWithConfig(jvm *SessionJVMConfig) string {
@@ -401,6 +429,16 @@ rootLogger.appenderRef.stdout.ref = LogToConsole
 `
 }
 
+
+// hybridContainerMemory 安全取 hybrid 资源内存（指针可空）。
+// hybridContainerMemory safely reads the hybrid resource memory (pointer nullable).
+func hybridContainerMemory(cfg *SessionConfig) string {
+	if cfg.Resources.Hybrid == nil {
+		return ""
+	}
+	return cfg.Resources.Hybrid.Memory
+}
+
 // sessionConfigFiles 返回 ConfigMap 应包含的文件名到内容的映射。
 // sessionConfigFiles returns the file name to content mapping for the ConfigMap.
 func sessionConfigFiles(cfg *SessionConfig, clusterCode string) map[string]string {
@@ -412,7 +450,7 @@ func sessionConfigFiles(cfg *SessionConfig, clusterCode string) map[string]strin
 			"seatunnel.yaml":        renderSeatunnelYAML(cfg),
 			"hazelcast.yaml":        renderHazelcastMemberYAML(cfg, clusterCode, "hybrid"),
 			"hazelcast-client.yaml": renderHazelcastClientYAML(cfg, clusterCode),
-			"jvm_options":           renderJVMOptionsForRole(cfg.JVM, "hybrid"),
+			"jvm_options":           renderJVMOptionsForRole(cfg.JVM, "hybrid", hybridContainerMemory(cfg)),
 			"jvm_client_options":    renderJVMOptions(),
 			"log4j2.properties":     renderLog4j2(),
 		}
@@ -422,8 +460,8 @@ func sessionConfigFiles(cfg *SessionConfig, clusterCode string) map[string]strin
 		"hazelcast-master.yaml": renderHazelcastMemberYAML(cfg, clusterCode, "master"),
 		"hazelcast-worker.yaml": renderHazelcastMemberYAML(cfg, clusterCode, "worker"),
 		"hazelcast-client.yaml": renderHazelcastClientYAML(cfg, clusterCode),
-		"jvm_master_options":    renderJVMOptionsForRole(cfg.JVM, "master"),
-		"jvm_worker_options":    renderJVMOptionsForRole(cfg.JVM, "worker"),
+		"jvm_master_options":    renderJVMOptionsForRole(cfg.JVM, "master", cfg.Resources.Master.Memory),
+		"jvm_worker_options":    renderJVMOptionsForRole(cfg.JVM, "worker", cfg.Resources.Worker.Memory),
 		"jvm_client_options":    renderJVMOptions(),
 		"log4j2.properties":     renderLog4j2(),
 	}

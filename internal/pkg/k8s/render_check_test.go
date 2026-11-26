@@ -66,3 +66,45 @@ func TestRenderPerRoleHeap(t *testing.T) {
 	hf := sessionConfigFiles(hybrid, "demo")
 	assert.Contains(t, hf["jvm_options"], "-Xmx2048m")
 }
+
+// TestRenderHeapDerivesFromContainerMemory 验证未显式配置堆时按容器内存 1/2 自动推导，
+// 用户只需调整容器内存；显式 heap_mb 仍优先。
+// TestRenderHeapDerivesFromContainerMemory verifies heap auto-derives as half the
+// container memory when not explicitly set; explicit heap_mb still wins.
+func TestRenderHeapDerivesFromContainerMemory(t *testing.T) {
+	cfg := &SessionConfig{
+		Resources: SessionResources{
+			Master: ResourceRequirement{CPU: "1", Memory: "2Gi"},
+			Worker: ResourceRequirement{CPU: "1", Memory: "4Gi"},
+		},
+	}
+	files := sessionConfigFiles(cfg, "derive-demo")
+	// 2Gi → 堆 1024m，Xms 半量 512m；4Gi → 堆 2048m。
+	// 2Gi yields a 1024m heap with 512m Xms; 4Gi yields 2048m.
+	assert.Contains(t, files["jvm_master_options"], "-Xmx1024m")
+	assert.Contains(t, files["jvm_master_options"], "-Xms512m")
+	assert.Contains(t, files["jvm_worker_options"], "-Xmx2048m")
+
+	// 显式 heap_mb 覆盖推导。
+	// Explicit heap_mb overrides derivation.
+	cfg.JVM = &SessionJVMConfig{MasterHeapMB: 1500}
+	files = sessionConfigFiles(cfg, "derive-demo")
+	assert.Contains(t, files["jvm_master_options"], "-Xmx1500m")
+
+	// hybrid 指针空安全 + 推导。
+	// Hybrid nil-pointer safety plus derivation.
+	hybridCfg := &SessionConfig{
+		DeploymentMode:   "hybrid",
+		HybridReplicas:   1,
+		Resources:        SessionResources{Hybrid: &ResourceRequirement{CPU: "1", Memory: "4Gi"}},
+	}
+	hf := sessionConfigFiles(hybridCfg, "derive-hybrid")
+	assert.Contains(t, hf["jvm_options"], "-Xmx2048m")
+
+	// 无资源声明回落保守默认 2g。
+	// Missing resource sizing falls back to the conservative 2g default.
+	empty := sessionConfigFiles(&SessionConfig{}, "derive-empty")
+	assert.Contains(t, empty["jvm_master_options"], "-Xmx2g")
+	assert.Equal(t, 0, deriveHeapFromContainerMemory("not-a-quantity"))
+	assert.Equal(t, 0, deriveHeapFromContainerMemory("256Mi"))
+}

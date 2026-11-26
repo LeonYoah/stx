@@ -171,7 +171,6 @@ export function ClusterDeployWizard({
     k8sForm.hybrid_memory,
     k8sForm.jvm_xmx,
     k8sForm.event_report_enabled,
-    k8sForm.stx_callback_url,
   ]);
 
   // Load available hosts / 加载可用主机
@@ -584,25 +583,8 @@ export function ClusterDeployWizard({
           return k8sForm.host_id > 0 && k8sForm.namespace.trim().length > 0
             ? null
             : t('cluster.k8s.nextDisabledK8s');
-        case 'config': {
-          // 分角色堆 80% 红线：hybrid 校验混合堆，separated 双角色各自校验。
-          // Per-role heap 80% red line: hybrid checks the mixed heap, separated
-          // validates both roles against their own container memory.
-          const violations = [
-            {heap: k8sForm.master_heap_mb, memory: k8sForm.master_memory, skip: k8sForm.deployment_mode === 'hybrid'},
-            {heap: k8sForm.worker_heap_mb, memory: k8sForm.worker_memory, skip: k8sForm.deployment_mode === 'hybrid'},
-            {heap: k8sForm.hybrid_heap_mb, memory: k8sForm.hybrid_memory, skip: k8sForm.deployment_mode !== 'hybrid'},
-          ];
-          for (const item of violations) {
-            if (item.skip) continue;
-            const heapMb = parseInt(item.heap, 10);
-            const containerMi = memoryToMi(item.memory);
-            if (Number.isFinite(heapMb) && heapMb > 0 && containerMi && heapMb > containerMi * 0.8) {
-              return t('cluster.k8s.nextDisabledHeap');
-            }
-          }
+        case 'config':
           return null;
-        }
         case 'precheck':
           // 预检未跑完或未通过一律阻断部署按钮，reason 供 tooltip 说明。
           // An unfinished or failed precheck always blocks the deploy advance;

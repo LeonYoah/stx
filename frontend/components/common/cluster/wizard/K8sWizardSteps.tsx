@@ -209,42 +209,6 @@ export function K8sBasicContent({form, patch}: StepProps) {
 // event reporting, and runtime storage.
 export function K8sConfigContent({form, patch}: StepProps) {
   const t = useTranslations();
-  const containerMemory =
-    form.deployment_mode === 'hybrid' ? form.hybrid_memory : form.worker_memory;
-  // 回环地址在引擎 Pod 内解析为容器自身，前端与后端同一规则预检拦截。
-  // Loopback addresses resolve to the container itself inside engine pods; the
-  // frontend pre-checks with the same rule as the backend.
-  const callbackUrlLoopback = (() => {
-    const raw = (form.stx_callback_url || '').trim();
-    if (!raw) return false;
-    try {
-      const host = new URL(raw).hostname.toLowerCase();
-      return host === '' || host === 'localhost' || host === '::1' || host === '[::1]' || host === '0.0.0.0' || host === '::' || host.startsWith('127.');
-    } catch {
-      return false;
-    }
-  })();
-  // 分角色 80% 红线校验：空值走内存联动默认（容器内存一半），不参与红线判定。
-  // Per-role 80% red-line validation: empty values fall back to memory-linked
-  // defaults (half the container memory) and skip red-line evaluation.
-  const heapErrors = (() => {
-    const check = (raw: string, memory: string): string => {
-      const heapMb = parseInt(raw, 10);
-      if (!Number.isFinite(heapMb) || heapMb <= 0) return '';
-      const containerMi = memoryToMi(memory);
-      if (!containerMi) return '';
-      if (heapMb > containerMi * 0.8) {
-        return t('cluster.k8s.heapRedlineError', {heap: String(heapMb), memory: String(containerMi), limit: String(Math.floor(containerMi * 0.8))});
-      }
-      return '';
-    };
-    return {
-      master: check(form.master_heap_mb, form.master_memory),
-      worker: check(form.worker_heap_mb, form.worker_memory),
-      hybrid: check(form.hybrid_heap_mb, form.hybrid_memory),
-    };
-  })();
-  void containerMemory;
 
   const patchStorage = (kind: 'checkpoint' | 'imap', partial: Record<string, unknown>) =>
     patch({[kind]: {...form[kind], ...partial}} as Partial<K8sWizardFormState>);
@@ -365,62 +329,6 @@ export function K8sConfigContent({form, patch}: StepProps) {
       </div>
 
       <div className='space-y-2 border-t-[0.5px] border-border/80 pt-3'>
-        <p className='text-sm font-medium'>{t('cluster.k8s.jvmTitle')}</p>
-        {form.deployment_mode === 'hybrid' ? (
-          <div className='space-y-1.5'>
-            <Input
-              label={t('cluster.k8s.hybridHeapMb')}
-              type='number'
-              min={256}
-              value={form.hybrid_heap_mb}
-              onChange={(e) => patch({hybrid_heap_mb: e.target.value})}
-              placeholder={String(Math.floor(memoryToMi(form.hybrid_memory) / 2))}
-              data-testid='k8s-hybrid-heap'
-            />
-            {heapErrors.hybrid ? (
-              <p className='text-xs font-medium text-destructive' data-testid='k8s-jvm-heap-error'>{heapErrors.hybrid}</p>
-            ) : (
-              <p className='text-xs text-muted-foreground'>{t('cluster.k8s.heapDefaultHint', {memory: form.hybrid_memory, heap: String(Math.floor(memoryToMi(form.hybrid_memory) / 2))})}</p>
-            )}
-          </div>
-        ) : (
-          <div className='grid grid-cols-2 gap-3'>
-            <div className='space-y-1.5'>
-              <Input
-                label={t('cluster.k8s.masterHeapMb')}
-                type='number'
-                min={256}
-                value={form.master_heap_mb}
-                onChange={(e) => patch({master_heap_mb: e.target.value})}
-                placeholder={String(Math.floor(memoryToMi(form.master_memory) / 2))}
-                data-testid='k8s-master-heap'
-              />
-              {heapErrors.master ? (
-                <p className='text-xs font-medium text-destructive' data-testid='k8s-master-heap-error'>{heapErrors.master}</p>
-              ) : null}
-            </div>
-            <div className='space-y-1.5'>
-              <Input
-                label={t('cluster.k8s.workerHeapMb')}
-                type='number'
-                min={256}
-                value={form.worker_heap_mb}
-                onChange={(e) => patch({worker_heap_mb: e.target.value})}
-                placeholder={String(Math.floor(memoryToMi(form.worker_memory) / 2))}
-                data-testid='k8s-worker-heap'
-              />
-              {heapErrors.worker ? (
-                <p className='text-xs font-medium text-destructive' data-testid='k8s-worker-heap-error'>{heapErrors.worker}</p>
-              ) : null}
-            </div>
-          </div>
-        )}
-        {!heapErrors.master && !heapErrors.worker && !heapErrors.hybrid ? (
-          <p className='text-xs text-muted-foreground'>{t('cluster.k8s.heapRedlineHint')}</p>
-        ) : null}
-      </div>
-
-      <div className='space-y-2 border-t-[0.5px] border-border/80 pt-3'>
         <div className='flex items-center gap-2 text-sm font-medium' data-testid='k8s-enable-http-locked'>
           <Checkbox checked disabled label={t('cluster.k8s.enableHttp')} />
           <span className='sr-only'>{t('cluster.k8s.enableHttp')}</span>
@@ -433,22 +341,7 @@ export function K8sConfigContent({form, patch}: StepProps) {
             data-testid='k8s-event-report-toggle'
           />
         <p className='text-xs text-muted-foreground'>{t('cluster.k8s.eventReportHint')}</p>
-        {form.event_report_enabled ? (
-          <div className='space-y-1'>
-            <Input
-              label={t('cluster.k8s.stxCallbackUrl')}
-              value={form.stx_callback_url}
-              onChange={(e) => patch({stx_callback_url: e.target.value})}
-              placeholder={t('cluster.k8s.stxCallbackUrlPlaceholder')}
-              data-testid='k8s-stx-callback-url'
-            />
-            {callbackUrlLoopback ? (
-              <p className='text-xs font-medium text-destructive' data-testid='k8s-callback-loopback-error'>{t('cluster.k8s.stxCallbackUrlLoopbackError')}</p>
-            ) : (
-              <p className='text-xs text-muted-foreground'>{t('cluster.k8s.stxCallbackUrlHint')}</p>
-            )}
-          </div>
-        ) : null}
+        
       </div>
 
       <div className='space-y-2 border-t-[0.5px] border-border/80 pt-3' data-testid='k8s-proxy-section'>
@@ -564,11 +457,7 @@ export function K8sPrecheckContent({form, onResult}: {form: K8sWizardFormState; 
         worker_memory: form.worker_memory,
         hybrid_memory: form.hybrid_memory,
         jvm_xmx: form.jvm_xmx,
-        master_heap_mb: parseInt(form.master_heap_mb, 10) || 0,
-        worker_heap_mb: parseInt(form.worker_heap_mb, 10) || 0,
-        hybrid_heap_mb: parseInt(form.hybrid_heap_mb, 10) || 0,
         enable_event_channel: form.event_report_enabled,
-        stx_callback_url: form.event_report_enabled ? form.stx_callback_url.trim() : '',
       });
       setResult(response.data);
       onResult?.(response.data);
@@ -648,18 +537,20 @@ export function buildK8sCreatePayload(form: K8sWizardFormState): Record<string, 
     checkpoint_pvc: form.checkpoint_pvc,
     data_storage_class: form.data_storage_class,
     data_size: form.data_size,
+    // 堆由后端按容器内存 1/2 自动推导，向导不暴露手工堆配置。
+    // Heap derives backend-side from container memory; the wizard stays silent.
     jvm: {
       xms: form.jvm_xms,
       xmx: form.jvm_xmx,
-      master_heap_mb: parseInt(form.master_heap_mb, 10) || 0,
-      worker_heap_mb: parseInt(form.worker_heap_mb, 10) || 0,
-      hybrid_heap_mb: parseInt(form.hybrid_heap_mb, 10) || 0,
     },
     java_proxy_mode: form.java_proxy_mode,
     java_proxy_port: parseInt(form.java_proxy_port, 10) || 18080,
     java_proxy_jvm_opts: `-Xmx${form.java_proxy_heap}`,
     enable_event_channel: form.event_report_enabled,
-    stx_callback_url: form.event_report_enabled ? form.stx_callback_url.trim() : '',
+    // 回调地址缺省继承控制面 app.external_url（与主机部署一致）；
+    // 集群详情的引擎事件通道卡片提供部署后覆写入口。
+    // Callback URL defaults to the control-plane app.external_url (same as bare-metal);
+    // the event channel card in cluster detail offers post-deploy override.
     runtime: {
       dynamic_slot: form.runtime_dynamic_slot,
       ...(parseInt(form.runtime_slot_num, 10) > 0 ? {slot_num: parseInt(form.runtime_slot_num, 10)} : {}),

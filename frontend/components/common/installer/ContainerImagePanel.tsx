@@ -21,20 +21,14 @@ import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {ChevronDown, ChevronRight, Plus} from 'lucide-react';
 import {toast} from '@/lib/toast';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
-import {Badge} from '@/components/ui/badge';
-import {Checkbox} from '@/components/ui/checkbox';
-import {Skeleton} from '@/components/ui/skeleton';
-import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import {Button} from '@/components/arc/button/button';
+import {Input} from '@/components/arc/input/input';
+import {Badge} from '@/components/arc/badge/badge';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {Skeleton} from '@/components/arc/skeleton/skeleton';
+import {ConfirmMorph} from '@/components/arc/confirm-morph/confirm-morph';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {
   listContainerImages,
   createContainerImage,
@@ -101,7 +95,6 @@ export function ContainerImagePanel() {
   const [editing, setEditing] = useState<ContainerImage | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [form, setForm] = useState<ImageFormState>(EMPTY_FORM);
 
   const reload = useCallback(async () => {
@@ -195,7 +188,6 @@ export function ContainerImagePanel() {
   };
 
   const remove = async (item: ContainerImage) => {
-    setDeletingId(null);
     try {
       await deleteContainerImage(item.id);
       toast.success(t('deleted'));
@@ -231,9 +223,9 @@ export function ContainerImagePanel() {
         </Button>
       </div>
 
-      <table className='w-full text-sm'>
+      <table className='w-full text-sm [&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
         <thead>
-          <tr className='border-b text-left text-xs text-muted-foreground'>
+          <tr className='text-left text-xs text-muted-foreground'>
             <th className='py-2 font-medium'>{t('colName')}</th>
             <th className='font-medium'>{t('colImage')}</th>
             <th className='font-medium'>{t('colVersion')}</th>
@@ -244,20 +236,20 @@ export function ContainerImagePanel() {
         <tbody>
           {loading
             ? Array.from({length: 3}).map((_, index) => (
-                <tr key={`skeleton-${index}`} className='border-b last:border-0'>
+                <tr key={`skeleton-${index}`} className='last:border-0'>
                   <td className='py-2' colSpan={5}>
                     <Skeleton className='h-5 w-full' />
                   </td>
                 </tr>
               ))
             : items.map((item) => (
-                <tr key={item.id} className='border-b last:border-0' data-testid={`container-image-row-${item.id}`}>
+                <tr key={item.id} className='last:border-0' data-testid={`container-image-row-${item.id}`}>
                   <td className='py-2'>
                     <span className='flex items-center gap-2'>
                       {item.name}
-                      {item.is_default ? <Badge variant='secondary'>{t('defaultBadge')}</Badge> : null}
+                      {item.is_default ? <Badge tone='neutral'>{t('defaultBadge')}</Badge> : null}
                       {item.has_registry_auth ? (
-                        <Badge variant='outline' className='text-[10px]'>
+                        <Badge tone='neutral' outline className='text-[10px]'>
                           {t('privateBadge')}
                         </Badge>
                       ) : null}
@@ -271,34 +263,14 @@ export function ContainerImagePanel() {
                       <button type='button' className='text-xs text-primary' onClick={() => openEdit(item)}>
                         {t('edit')}
                       </button>
-                      <Popover
-                        open={deletingId === item.id}
-                        onOpenChange={(open) => setDeletingId(open ? item.id : null)}
-                      >
-                        <PopoverTrigger asChild>
-                          <button type='button' className='text-xs text-destructive'>
-                            {t('delete')}
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent className='w-56 space-y-2 p-3' align='start'>
-                          <p className='text-xs text-muted-foreground'>
-                            {t('deleteConfirm', {name: item.name})}
-                          </p>
-                          <div className='flex justify-end gap-2'>
-                            <Button size='sm' variant='ghost' onClick={() => setDeletingId(null)}>
-                              {t('cancel')}
-                            </Button>
-                            <Button
-                              size='sm'
-                              variant='destructive'
-                              data-testid={`container-image-delete-confirm-${item.id}`}
-                              onClick={() => void remove(item)}
-                            >
-                              {t('delete')}
-                            </Button>
-                          </div>
-                        </PopoverContent>
-                      </Popover>
+                      <ConfirmMorph
+                        label={t('delete')}
+                        confirmLabel={t('deleteConfirm', {name: item.name})}
+                        pendingLabel={t('delete')}
+                        className='text-xs text-destructive'
+                        data-testid={`container-image-delete-confirm-${item.id}`}
+                        onConfirm={() => remove(item)}
+                      />
                     </div>
                   </td>
                 </tr>
@@ -308,7 +280,7 @@ export function ContainerImagePanel() {
               <td colSpan={5} className='py-8'>
                 <div className='flex flex-col items-center gap-2 text-center'>
                   <p className='text-xs text-muted-foreground'>{t('empty')}</p>
-                  <Button size='sm' variant='outline' onClick={() => openCreate()}>
+                  <Button size='sm' variant='secondary' onClick={() => openCreate()}>
                     <Plus className='size-3.5' aria-hidden />
                     {t('emptyAction')}
                   </Button>
@@ -340,7 +312,7 @@ export function ContainerImagePanel() {
                   onClick={() => openPreset(preset)}
                   data-testid={`container-image-preset-${preset.seatunnel_version}`}
                 >
-                  <Badge variant='outline' className='cursor-pointer font-mono text-[10px] hover:bg-accent'>
+                  <Badge tone='neutral' outline className='cursor-pointer font-mono text-[10px]'>
                     {preset.image}
                   </Badge>
                 </button>
@@ -351,14 +323,14 @@ export function ContainerImagePanel() {
       ) : null}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className='max-h-[85vh] overflow-y-auto'>
-          <DialogHeader>
-            <DialogTitle>{editing ? t('editTitle') : t('createTitle')}</DialogTitle>
-          </DialogHeader>
+        <DialogContent
+          title={editing ? t('editTitle') : t('createTitle')}
+          className='arc-compact max-h-[85vh]! w-[min(94vw,640px)]! overflow-y-auto!'
+        >
           <div className='space-y-3'>
             <div className='space-y-1.5'>
-              <Label htmlFor='image-form-name'>{t('fieldName')}</Label>
               <Input
+                label={t('fieldName')}
                 id='image-form-name'
                 value={form.name}
                 onChange={(e) => patch({name: e.target.value})}
@@ -366,8 +338,8 @@ export function ContainerImagePanel() {
               />
             </div>
             <div className='space-y-1.5'>
-              <Label htmlFor='image-form-image'>{t('fieldImage')}</Label>
               <Input
+                label={t('fieldImage')}
                 id='image-form-image'
                 placeholder='apache/seatunnel:2.3.13'
                 value={form.image}
@@ -377,8 +349,8 @@ export function ContainerImagePanel() {
               />
             </div>
             <div className='space-y-1.5'>
-              <Label htmlFor='image-form-version'>{t('fieldVersion')}</Label>
               <Input
+                label={t('fieldVersion')}
                 id='image-form-version'
                 placeholder='2.3.13'
                 value={form.seatunnel_version}
@@ -387,24 +359,17 @@ export function ContainerImagePanel() {
               <p className='text-[11px] text-muted-foreground'>{t('fieldVersionHint')}</p>
             </div>
             <div className='space-y-1.5'>
-              <Label>{t('colPullPolicy')}</Label>
-              <div className='flex gap-1' data-testid='image-form-pull-policy'>
-                {PULL_POLICIES.map((policy) => (
-                  <Button
-                    key={policy}
-                    type='button'
-                    size='sm'
-                    variant={form.image_pull_policy === policy ? 'default' : 'outline'}
-                    onClick={() => patch({image_pull_policy: policy})}
-                  >
-                    {policy}
-                  </Button>
-                ))}
-              </div>
+              <SegmentedControl
+                label={t('colPullPolicy')}
+                value={form.image_pull_policy}
+                onValueChange={(policy) => patch({image_pull_policy: policy})}
+                options={PULL_POLICIES.map((policy) => ({value: policy, label: policy}))}
+                data-testid='image-form-pull-policy'
+              />
             </div>
             <div className='space-y-1.5'>
-              <Label htmlFor='image-form-pull-secrets'>{t('fieldPullSecrets')}</Label>
               <Input
+                label={t('fieldPullSecrets')}
                 id='image-form-pull-secrets'
                 value={form.image_pull_secrets}
                 onChange={(e) => patch({image_pull_secrets: e.target.value})}
@@ -412,21 +377,21 @@ export function ContainerImagePanel() {
               <p className='text-[11px] text-muted-foreground'>{t('fieldPullSecretsHint')}</p>
             </div>
             <div className='space-y-1.5'>
-              <Label htmlFor='image-form-description'>{t('fieldDescription')}</Label>
               <Input
+                label={t('fieldDescription')}
                 id='image-form-description'
                 value={form.description}
                 onChange={(e) => patch({description: e.target.value})}
               />
             </div>
 
-            <div className='space-y-2 rounded-md border border-dashed p-3'>
+            <div className='space-y-2 border-t-[0.5px] border-border/80 pt-3'>
               <p className='text-xs font-medium'>{t('registryTitle')}</p>
               <p className='text-[11px] text-muted-foreground'>{t('registryHint')}</p>
               <div className='grid grid-cols-2 gap-2'>
                 <div className='space-y-1.5'>
-                  <Label htmlFor='image-form-registry-host'>{t('registryHost')}</Label>
                   <Input
+                    label={t('registryHost')}
                     id='image-form-registry-host'
                     placeholder='registry.example.com'
                     value={form.registry_host}
@@ -435,8 +400,8 @@ export function ContainerImagePanel() {
                   />
                 </div>
                 <div className='space-y-1.5'>
-                  <Label htmlFor='image-form-registry-username'>{t('registryUsername')}</Label>
                   <Input
+                    label={t('registryUsername')}
                     id='image-form-registry-username'
                     value={form.registry_username}
                     onChange={(e) => patch({registry_username: e.target.value})}
@@ -444,8 +409,8 @@ export function ContainerImagePanel() {
                 </div>
               </div>
               <div className='space-y-1.5'>
-                <Label htmlFor='image-form-registry-password'>{t('registryPassword')}</Label>
                 <Input
+                  label={t('registryPassword')}
                   id='image-form-registry-password'
                   type='password'
                   placeholder={editing?.has_registry_auth ? t('registryPasswordKeep') : ''}
@@ -459,19 +424,16 @@ export function ContainerImagePanel() {
               </div>
             </div>
 
-            <label className='flex items-center gap-2 text-sm'>
-              <Checkbox checked={form.is_default} onCheckedChange={(checked) => patch({is_default: checked === true})} />
-              {t('fieldDefault')}
-            </label>
+            <Checkbox label={t('fieldDefault')} checked={form.is_default} onCheckedChange={(checked) => patch({is_default: checked === true})} />
           </div>
-          <DialogFooter>
-            <Button variant='outline' onClick={() => setDialogOpen(false)}>
+          <div className='flex justify-end gap-2 pt-2'>
+            <Button variant='secondary' onClick={() => setDialogOpen(false)}>
               {t('cancel')}
             </Button>
             <Button onClick={() => void save()} disabled={saving} data-testid='image-form-save'>
               {t('save')}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

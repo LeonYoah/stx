@@ -92,7 +92,7 @@ export function K8sImagePicker({value, onChange, id}: K8sImagePickerProps) {
     for (const preset of presets) {
       // 注册表已覆盖同名镜像时不重复展示官方预设。
       // Skip presets already covered by a registered entry.
-      if (items.some((item) => item.image === preset.image)) continue;
+      if (items.some((item) => item.image === preset.image)) {continue;}
       all.push({key: `preset-${preset.image}`, label: preset.image, image: preset});
     }
     return all;
@@ -140,7 +140,7 @@ export function K8sImagePicker({value, onChange, id}: K8sImagePickerProps) {
               return;
             }
             const option = options.find((entry) => entry.key === key);
-            if (option) emit(option.image.image, option.image);
+            if (option) {emit(option.image.image, option.image);}
           }}
           data-testid='k8s-image-picker-select'
         />

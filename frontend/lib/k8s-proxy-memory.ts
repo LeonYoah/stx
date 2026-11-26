@@ -27,9 +27,9 @@ function parseJvmFlagMi(jvmOpts: string, flag: string): number {
   const lower = flag.toLowerCase();
   for (const piece of jvmOpts.split(/\s+/).filter(Boolean)) {
     const p = piece.trim().toLowerCase();
-    if (!p.startsWith(lower)) continue;
+    if (!p.startsWith(lower)) {continue;}
     const raw = p.slice(lower.length);
-    if (!raw) continue;
+    if (!raw) {continue;}
     let unit = 1;
     let num = raw;
     const last = raw[raw.length - 1];
@@ -43,7 +43,7 @@ function parseJvmFlagMi(jvmOpts: string, flag: string): number {
       num = raw.slice(0, -1);
     }
     const n = Number.parseFloat(num);
-    if (!Number.isFinite(n) || n <= 0) continue;
+    if (!Number.isFinite(n) || n <= 0) {continue;}
     value = Math.ceil(n * unit);
   }
   return value;
@@ -72,13 +72,13 @@ export function formatMemoryMi(mi: number): string {
  */
 export function deriveProxyContainerMemory(jvmOpts: string): ProxyContainerMemory {
   let xmxMi = parseJvmFlagMi(jvmOpts, '-xmx');
-  if (xmxMi <= 0) xmxMi = 512;
+  if (xmxMi <= 0) {xmxMi = 512;}
   let xmsMi = parseJvmFlagMi(jvmOpts, '-xms');
-  if (xmsMi <= 0) xmsMi = 64;
-  if (xmsMi > xmxMi) xmsMi = xmxMi;
+  if (xmsMi <= 0) {xmsMi = 64;}
+  if (xmsMi > xmxMi) {xmsMi = xmxMi;}
   const overheadMi = Math.max(512, Math.ceil(xmxMi * 0.25));
   const limitMi = alignUpMi(xmxMi + overheadMi, 128);
   let requestMi = alignUpMi(Math.max(256, xmsMi + 192), 64);
-  if (requestMi > limitMi) requestMi = limitMi;
+  if (requestMi > limitMi) {requestMi = limitMi;}
   return {xmxMi, limitMi, requestMi, limitDisplay: formatMemoryMi(limitMi)};
 }

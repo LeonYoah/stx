@@ -80,7 +80,7 @@ export function resolveImageSeatunnelVersion(
   registered?: Pick<ContainerImage, 'image' | 'seatunnel_version'>[] | null,
 ): string {
   const ref = (imageRef || '').trim();
-  if (!ref) return '';
+  if (!ref) {return '';}
   if (registered) {
     for (const item of registered) {
       if (item.image === ref && item.seatunnel_version) {
@@ -89,9 +89,9 @@ export function resolveImageSeatunnelVersion(
     }
   }
   const tagMatch = ref.match(/:(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$/);
-  if (tagMatch) return tagMatch[1];
+  if (tagMatch) {return tagMatch[1];}
   const digestless = ref.split('@')[0];
   const embedded = digestless.match(/(\d+\.\d+\.\d+)/);
-  if (embedded && /seatunnel/i.test(digestless)) return embedded[1];
+  if (embedded && /seatunnel/i.test(digestless)) {return embedded[1];}
   return '';
 }

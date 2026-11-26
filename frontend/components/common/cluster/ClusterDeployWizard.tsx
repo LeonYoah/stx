@@ -28,7 +28,6 @@
 'use client';
 
 import React, {useState, useCallback, useEffect, useMemo, useRef} from 'react';
-import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Button} from '@/components/arc/button/button';
@@ -86,8 +85,6 @@ import {
   K8sConfigContent,
   K8sPrecheckContent,
   buildK8sCreatePayload,
-  jvmHeapToMi,
-  memoryToMi,
 } from './wizard/K8sWizardSteps';
 import {K8sResourcesStep} from './wizard/K8sResourcesStep';
 
@@ -108,7 +105,6 @@ export function ClusterDeployWizard({
   onComplete,
 }: ClusterDeployWizardProps) {
   const t = useTranslations();
-  const router = useRouter();
   const reducedMotion = useReducedMotion() ?? false;
   const [infraTarget, setInfraTarget] =
     useState<DeployInfraTarget>('bare_metal');

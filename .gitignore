@@ -84,3 +84,4 @@ tools/stx-java-proxy/.flattened-pom.xml
 
 # package-release.sh 构建前端时临时写入 / Temporary file written by install/package-release.sh during frontend builds
 frontend/pnpm-workspace.yaml
+__pycache__/

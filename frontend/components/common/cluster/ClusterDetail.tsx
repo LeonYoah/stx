@@ -2260,7 +2260,6 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 onConfigChanged={handleConfigChanged}
                 isKubernetes={isK8sCluster}
                 k8sConfigMapName={(k8sCfg?.configmap_name as string | undefined) ?? undefined}
-                k8sNamespace={(k8sCfg?.namespace as string | undefined) ?? undefined}
               />
               <EngineEventChannelCard
                 clusterId={clusterId}

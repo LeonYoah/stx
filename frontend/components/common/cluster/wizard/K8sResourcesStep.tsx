@@ -38,11 +38,11 @@ const MEMORY_TIERS = ['1Gi', '2Gi', '4Gi', '8Gi', '16Gi'];
 // Xmx = container memory / 2, Xms = Xmx / 2.
 function deriveHeapHint(memory: string): string {
   const match = /^\s*(\d+(?:\.\d+)?)(Mi|Gi)\s*$/i.exec(memory || '');
-  if (!match) return '';
+  if (!match) {return '';}
   let mi = parseFloat(match[1]);
-  if (/gi/i.test(match[2])) mi *= 1024;
+  if (/gi/i.test(match[2])) {mi *= 1024;}
   const xmx = Math.floor(mi / 2);
-  if (xmx < 256) return '';
+  if (xmx < 256) {return '';}
   return `-Xms${Math.floor(xmx / 2)}m -Xmx${xmx}m`;
 }
 
@@ -66,8 +66,8 @@ function MemoryTierField({label, value, onChange, testId, customLabel, hintLabel
         label={label}
         value={tierValue}
         onValueChange={(next) => {
-          if (next !== '__custom__') onChange(next);
-          else if (isTier) onChange('');
+          if (next !== '__custom__') {onChange(next);}
+          else if (isTier) {onChange('');}
         }}
         options={[...MEMORY_TIERS.map((tier) => ({value: tier, label: tier})), {value: '__custom__', label: customLabel}]}
         data-testid={testId}
@@ -142,7 +142,7 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
     services.host
       .getAllHostsByTypeSafe('kubernetes')
       .then((result) => {
-        if (result?.hosts) setHosts(result.hosts);
+        if (result?.hosts) {setHosts(result.hosts);}
       })
       .catch((err) => {
         setHostError(err instanceof Error ? err.message : String(err));
@@ -180,7 +180,7 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
     services.host
       .listK8sNamespaces(form.host_id)
       .then((list) => {
-        if (Array.isArray(list)) setNamespaces(list);
+        if (Array.isArray(list)) {setNamespaces(list);}
       })
       .catch(() => {
         setNamespaces([]);
@@ -203,7 +203,7 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
       services.host
         .listK8sNamespaceObjects(hostId, namespace, kind)
         .then((list) => {
-          if (Array.isArray(list)) setter(list);
+          if (Array.isArray(list)) {setter(list);}
         })
         .catch(() => setter([]));
     };

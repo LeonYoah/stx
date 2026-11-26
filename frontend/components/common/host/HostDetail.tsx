@@ -145,7 +145,7 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
   }, [host]);
 
   const runK8sTest = async () => {
-    if (!host) return;
+    if (!host) {return;}
     setK8sTesting(true);
     try {
       const result = await services.host.testK8sConnection(host.id);

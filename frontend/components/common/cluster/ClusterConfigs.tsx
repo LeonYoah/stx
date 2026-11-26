@@ -92,7 +92,6 @@ interface ClusterConfigsProps {
       node/template/push semantics; saving edits goes through updateK8sConfigMapFile. */
   isKubernetes?: boolean;
   k8sConfigMapName?: string;
-  k8sNamespace?: string;
 }
 
 interface DiffRow {
@@ -282,7 +281,6 @@ export function ClusterConfigs({
   onConfigChanged,
   isKubernetes = false,
   k8sConfigMapName,
-  k8sNamespace,
 }: ClusterConfigsProps) {
   const t = useTranslations();
   const [configs, setConfigs] = useState<ConfigInfo[]>([]);

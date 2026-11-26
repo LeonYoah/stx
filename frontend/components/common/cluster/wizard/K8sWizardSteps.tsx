@@ -44,11 +44,11 @@ interface StepProps {
 // memoryToMi parses a Kubernetes memory quantity into Mi; unparseable yields 0.
 export function memoryToMi(input: string): number {
   const match = input.trim().match(/^(\d+(?:\.\d+)?)(Mi|Gi|M|G)?$/i);
-  if (!match) return 0;
+  if (!match) {return 0;}
   const value = parseFloat(match[1]);
   const unit = (match[2] || 'Mi').toLowerCase();
-  if (unit === 'gi' || unit === 'g') return Math.round(value * 1024);
-  if (unit === 'm') return Math.round(value * 1000 * 1000 / 1048576);
+  if (unit === 'gi' || unit === 'g') {return Math.round(value * 1024);}
+  if (unit === 'm') {return Math.round(value * 1000 * 1000 / 1048576);}
   return Math.round(value);
 }
 
@@ -56,7 +56,7 @@ export function memoryToMi(input: string): number {
 // jvmHeapToMi parses an -Xmx style heap value into Mi.
 export function jvmHeapToMi(input: string): number {
   const match = input.trim().match(/^(\d+)(m|g)?$/i);
-  if (!match) return 0;
+  if (!match) {return 0;}
   const value = parseInt(match[1], 10);
   return (match[2] || 'm').toLowerCase() === 'g' ? value * 1024 : value;
 }
@@ -70,7 +70,7 @@ export function jvmHeapToMi(input: string): number {
 export function k8sVersionCapabilities(version: string): SeaTunnelVersionCapabilities | null {
   const trimmed = version.trim().replace(/^v/, '');
   const major = parseInt(trimmed.split('.')[0] || '0', 10);
-  if (!Number.isFinite(major) || major <= 0) return null;
+  if (!Number.isFinite(major) || major <= 0) {return null;}
   const is3x = major >= 3;
   return {
     supports_dynamic_slot: true,
@@ -391,13 +391,13 @@ export function K8sConfigContent({form, patch}: StepProps) {
         }}
         onChange={(updates) => {
           const next: Partial<K8sWizardFormState> = {};
-          if (updates.dynamic_slot !== undefined) next.runtime_dynamic_slot = updates.dynamic_slot;
-          if (updates.slot_num !== undefined) next.runtime_slot_num = String(updates.slot_num);
-          if (updates.slot_allocation_strategy !== undefined) next.runtime_slot_allocation_strategy = updates.slot_allocation_strategy;
-          if (updates.job_schedule_strategy !== undefined) next.runtime_job_schedule_strategy = updates.job_schedule_strategy;
-          if (updates.history_job_expire_minutes !== undefined) next.runtime_history_job_expire_minutes = String(updates.history_job_expire_minutes);
-          if (updates.scheduled_deletion_enable !== undefined) next.runtime_scheduled_deletion_enable = updates.scheduled_deletion_enable;
-          if (updates.job_log_mode !== undefined) next.runtime_job_log_mode = updates.job_log_mode;
+          if (updates.dynamic_slot !== undefined) {next.runtime_dynamic_slot = updates.dynamic_slot;}
+          if (updates.slot_num !== undefined) {next.runtime_slot_num = String(updates.slot_num);}
+          if (updates.slot_allocation_strategy !== undefined) {next.runtime_slot_allocation_strategy = updates.slot_allocation_strategy;}
+          if (updates.job_schedule_strategy !== undefined) {next.runtime_job_schedule_strategy = updates.job_schedule_strategy;}
+          if (updates.history_job_expire_minutes !== undefined) {next.runtime_history_job_expire_minutes = String(updates.history_job_expire_minutes);}
+          if (updates.scheduled_deletion_enable !== undefined) {next.runtime_scheduled_deletion_enable = updates.scheduled_deletion_enable;}
+          if (updates.job_log_mode !== undefined) {next.runtime_job_log_mode = updates.job_log_mode;}
           patch(next);
         }}
       />

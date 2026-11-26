@@ -19,7 +19,7 @@
 
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {FileText, RefreshCw, RotateCw} from 'lucide-react';
+import {FileText, RotateCw} from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/arc/input/input';
@@ -113,12 +113,12 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     return pods.filter((pod) => {
-      if (statusFilter === 'ready' && !(pod.ready && pod.phase === 'Running')) return false;
-      if (statusFilter === 'abnormal' && pod.ready && pod.phase === 'Running') return false;
-      if (roleFilter !== 'all' && pod.role !== roleFilter) return false;
+      if (statusFilter === 'ready' && !(pod.ready && pod.phase === 'Running')) {return false;}
+      if (statusFilter === 'abnormal' && pod.ready && pod.phase === 'Running') {return false;}
+      if (roleFilter !== 'all' && pod.role !== roleFilter) {return false;}
       if (keyword) {
         const hay = `${pod.name} ${pod.pod_ip} ${pod.node_name}`.toLowerCase();
-        if (!hay.includes(keyword)) return false;
+        if (!hay.includes(keyword)) {return false;}
       }
       return true;
     });
@@ -436,7 +436,7 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
         <ConfirmDialog
           open
           onOpenChange={(open) => {
-            if (!open) setDeletePodConfirm(null);
+            if (!open) {setDeletePodConfirm(null);}
           }}
           title={t('cluster.k8s.recreatePod')}
           description={t('cluster.k8s.recreatePodConfirm', {name: deletePodConfirm})}
@@ -450,7 +450,7 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
         <LogViewerDialog
           open
           onOpenChange={(open) => {
-            if (!open) setLogPod(null);
+            if (!open) {setLogPod(null);}
           }}
           title={
             <span className='flex flex-wrap items-center gap-2'>

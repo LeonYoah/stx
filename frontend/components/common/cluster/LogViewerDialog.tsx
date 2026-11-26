@@ -33,7 +33,6 @@ import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/arc/input/input';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {TableLoadingBar} from '@/components/common/layout';
-import {toast} from '@/lib/toast';
 
 export interface LogFetchParams {
   lines: number;

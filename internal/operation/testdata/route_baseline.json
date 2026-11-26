@@ -2,11 +2,11 @@
   "version": 1,
   "baseline_date": "2026-11-26",
   "summary": {
-    "route_count": 335,
+    "route_count": 336,
     "swagger_path_count": 133,
     "swagger_operation_count": 155,
     "swagger_documented_routes": 155,
-    "registered_operations": 303,
+    "registered_operations": 304,
     "route_exceptions": 32,
     "historical_gaps": 0
   },
@@ -1549,6 +1549,13 @@
       "operation_id": "host.k8s-namespaces",
       "mode": "normal",
       "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hosts/:id/k8s/namespaces/:namespace/objects",
+      "source": "internal/router/router.go:350",
+      "status": "operation",
+      "operation_id": "host.k8s-namespace-objects"
     },
     {
       "method": "POST",

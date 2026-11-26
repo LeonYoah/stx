@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 303)
+	require.Len(t, Registry(), 304)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -153,7 +153,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"sync.scheduler.connection.list": {}, "sync.scheduler.connection.projects": {},
 		"sync.scheduler.connection.workflows": {}, "sync.scheduler.connection.workflow.get": {},
 		"audit.command.list": {}, "audit.command.get": {}, "audit.log.list": {}, "audit.log.get": {},
-		"host.test-connection": {}, "host.k8s-namespaces": {}, "host.k8s-discover": {},
+		"host.test-connection": {}, "host.k8s-namespaces": {}, "host.k8s-namespace-objects": {}, "host.k8s-discover": {},
 		"cluster.k8s-scale": {}, "cluster.k8s-rollout-restart": {}, "cluster.k8s-upgrade-image": {},
 		"cluster.k8s-java-proxy-retry": {}, "cluster.k8s-pods": {}, "cluster.k8s-pod-logs": {}, "cluster.k8s-configmap": {},
 	}

@@ -171,6 +171,18 @@ func sessionConfigFromRequest(req *K8sClusterCreateRequest) (*k8s.SessionConfig,
 	return cfg, nil
 }
 
+// deploymentModeFromRequest 按请求形态写集群实体，hybrid 误判会导致健康检查与生命周期
+// 全部按分离双 workload 统计而永远红。
+// deploymentModeFromRequest persists the requested topology onto the cluster entity;
+// misclassifying hybrid makes health checks and lifecycle expect two separated workloads
+// and stay red forever.
+func deploymentModeFromRequest(req *K8sClusterCreateRequest) DeploymentMode {
+	if strings.EqualFold(strings.TrimSpace(req.DeploymentMode), "hybrid") {
+		return DeploymentModeHybrid
+	}
+	return DeploymentModeSeparated
+}
+
 // k8sConfigJSON 将 SessionConfig 序列化为 Config["kubernetes"] 的 JSON 对象。
 // k8sConfigJSON serializes the SessionConfig into the Config["kubernetes"] JSON object.
 func k8sConfigJSON(cfg *k8s.SessionConfig) (map[string]interface{}, error) {
@@ -240,7 +252,7 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 		ClusterCode:    code,
 		Description:    req.Description,
 		Version:        req.Version,
-		DeploymentMode: DeploymentModeSeparated,
+		DeploymentMode: deploymentModeFromRequest(req),
 		Status:         ClusterStatusCreated,
 		InfraType:      string(infra.TypeK8sSession),
 		K8sHostID:      &req.HostID,
@@ -264,11 +276,22 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 	// adopted clusters must keep the user-supplied existing names.
 	if cfg.ManagementSource == k8s.ManagementSourceSTXDeployed {
 		names := k8s.ResourceNamesFor(cluster.EffectiveClusterCode())
-		if cfg.MasterWorkloadName == "" {
-			cfg.MasterWorkloadName = names.MasterSTS
-		}
-		if cfg.WorkerWorkloadName == "" {
-			cfg.WorkerWorkloadName = names.WorkerSTS
+		if cfg.IsHybrid() {
+			// hybrid 形态只有混合 StatefulSet：回填 HybridWorkloadName 且保持分离命名为空，
+			// 避免运维操作误查不存在的 master/worker StatefulSet。
+			// Hybrid topology has only the mixed StatefulSet: backfill HybridWorkloadName and
+			// keep the separated names empty so operations never probe nonexistent
+			// master/worker StatefulSets.
+			if cfg.HybridWorkloadName == "" {
+				cfg.HybridWorkloadName = names.MasterSTS + "-hybrid"
+			}
+		} else {
+			if cfg.MasterWorkloadName == "" {
+				cfg.MasterWorkloadName = names.MasterSTS
+			}
+			if cfg.WorkerWorkloadName == "" {
+				cfg.WorkerWorkloadName = names.WorkerSTS
+			}
 		}
 		if cfg.MasterServiceName == "" {
 			cfg.MasterServiceName = names.MasterSvc
@@ -493,7 +516,9 @@ func (s *Service) ScaleK8sComponent(ctx context.Context, cluster *Cluster, compo
 	// Persist the desired replicas after scaling: health checks and stop/start restore
 	// both read this config, and skipping the write would false-positive unhealthy
 	// after a downscale.
-	if component == "master" {
+	if component == "hybrid" {
+		cfg.HybridReplicas = replicas
+	} else if component == "master" {
 		cfg.MasterReplicas = replicas
 	} else if component == "worker" {
 		cfg.WorkerReplicas = replicas
@@ -1052,24 +1077,35 @@ func (s *Service) executeK8sLifecycleOperation(ctx context.Context, cluster *Clu
 		// 快照实时副本：外部 kubectl scale 修改过的也要以真实值为准，否则 Start 恢复错误副本数。
 		// Snapshot live replicas: even externally kubectl-scaled values must win, or Start
 		// would restore the wrong replica count.
-		if cfg.MasterWorkloadName != "" {
-			if n, err := ops.GetReplicas(ctx, cfg, "master"); err == nil && n > 0 {
-				cfg.MasterReplicas = n
+		if cfg.IsHybrid() {
+			if cfg.HybridWorkloadName != "" {
+				if n, err := ops.GetReplicas(ctx, cfg, "hybrid"); err == nil && n > 0 {
+					cfg.HybridReplicas = n
+				}
+				if err := ops.Scale(ctx, cfg, "hybrid", 0); err != nil {
+					return nil, err
+				}
 			}
-		}
-		if cfg.WorkerWorkloadName != "" {
-			if n, err := ops.GetReplicas(ctx, cfg, "worker"); err == nil && n > 0 {
-				cfg.WorkerReplicas = n
+		} else {
+			if cfg.MasterWorkloadName != "" {
+				if n, err := ops.GetReplicas(ctx, cfg, "master"); err == nil && n > 0 {
+					cfg.MasterReplicas = n
+				}
 			}
-		}
-		if cfg.WorkerWorkloadName != "" {
-			if err := ops.Scale(ctx, cfg, "worker", 0); err != nil {
-				return nil, err
+			if cfg.WorkerWorkloadName != "" {
+				if n, err := ops.GetReplicas(ctx, cfg, "worker"); err == nil && n > 0 {
+					cfg.WorkerReplicas = n
+				}
 			}
-		}
-		if cfg.MasterWorkloadName != "" {
-			if err := ops.Scale(ctx, cfg, "master", 0); err != nil {
-				return nil, err
+			if cfg.WorkerWorkloadName != "" {
+				if err := ops.Scale(ctx, cfg, "worker", 0); err != nil {
+					return nil, err
+				}
+			}
+			if cfg.MasterWorkloadName != "" {
+				if err := ops.Scale(ctx, cfg, "master", 0); err != nil {
+					return nil, err
+				}
 			}
 		}
 		cluster.Status = ClusterStatusStopped
@@ -1080,22 +1116,34 @@ func (s *Service) executeK8sLifecycleOperation(ctx context.Context, cluster *Clu
 		return result, nil
 
 	case OperationStart:
-		masterTarget := cfg.MasterReplicas
-		if masterTarget < 1 {
-			masterTarget = 1
-		}
-		workerTarget := cfg.WorkerReplicas
-		if workerTarget < 1 {
-			workerTarget = 1
-		}
-		if cfg.MasterWorkloadName != "" {
-			if err := ops.Scale(ctx, cfg, "master", masterTarget); err != nil {
-				return nil, err
+		if cfg.IsHybrid() {
+			hybridTarget := cfg.HybridReplicas
+			if hybridTarget < 1 {
+				hybridTarget = 1
 			}
-		}
-		if cfg.WorkerWorkloadName != "" {
-			if err := ops.Scale(ctx, cfg, "worker", workerTarget); err != nil {
-				return nil, err
+			if cfg.HybridWorkloadName != "" {
+				if err := ops.Scale(ctx, cfg, "hybrid", hybridTarget); err != nil {
+					return nil, err
+				}
+			}
+		} else {
+			masterTarget := cfg.MasterReplicas
+			if masterTarget < 1 {
+				masterTarget = 1
+			}
+			workerTarget := cfg.WorkerReplicas
+			if workerTarget < 1 {
+				workerTarget = 1
+			}
+			if cfg.MasterWorkloadName != "" {
+				if err := ops.Scale(ctx, cfg, "master", masterTarget); err != nil {
+					return nil, err
+				}
+			}
+			if cfg.WorkerWorkloadName != "" {
+				if err := ops.Scale(ctx, cfg, "worker", workerTarget); err != nil {
+					return nil, err
+				}
 			}
 		}
 		cluster.Status = ClusterStatusRunning

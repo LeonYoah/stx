@@ -65,6 +65,22 @@ func (s *SessionManager) ListPodsByLabel(ctx context.Context, cfg *SessionConfig
 	return infos, nil
 }
 
+// workloadTargetForRole 解析角色对应的工作负载 kind/name；hybrid 形态只有一个混合
+// 工作负载，role "master"/"worker" 与 "hybrid" 都归一到同一目标，避免误查不存在的
+// 分离 StatefulSet。
+// workloadTargetForRole resolves a role to its workload kind/name; hybrid topology has a
+// single mixed workload, so "master"/"worker"/"hybrid" all resolve to the same target
+// instead of nonexistent separated StatefulSets.
+func workloadTargetForRole(cfg *SessionConfig, role string) (string, string) {
+	if cfg.IsHybrid() {
+		return "StatefulSet", cfg.HybridWorkloadName
+	}
+	if role == "master" {
+		return cfg.MasterWorkloadKind, cfg.MasterWorkloadName
+	}
+	return cfg.WorkerWorkloadKind, cfg.WorkerWorkloadName
+}
+
 func podToInfo(pod *corev1.Pod) *PodInfo {
 	info := &PodInfo{
 		Name:     pod.Name,
@@ -90,7 +106,12 @@ func podToInfo(pod *corev1.Pod) *PodInfo {
 			break
 		}
 	}
-	if strings.Contains(info.WorkloadName, "-master") {
+	// hybrid 必须先于 -master 判定：<code>-master-hybrid 含 "-master" 子串会被误判成 master。
+	// Hybrid must be checked before -master: <code>-master-hybrid contains "-master"
+	// and would be misclassified as master.
+	if strings.Contains(info.WorkloadName, "-hybrid") || pod.Labels[LabelComponentKey] == "hybrid" {
+		info.Role = "hybrid"
+	} else if strings.Contains(info.WorkloadName, "-master") {
 		info.Role = "master"
 	} else if strings.Contains(info.WorkloadName, "-worker") {
 		info.Role = "worker"
@@ -130,7 +151,7 @@ func (s *SessionManager) SessionPods(ctx context.Context, cfg *SessionConfig, cl
 	// Workload attribution must always merge additively instead of acting as an
 	// empty-list fallback: once the selector hits any pod (e.g. the proxy), a pure
 	// fallback would mask every unlabeled engine pod.
-	if cfg.MasterWorkloadName != "" || cfg.WorkerWorkloadName != "" {
+	if cfg.MasterWorkloadName != "" || cfg.WorkerWorkloadName != "" || cfg.HybridWorkloadName != "" {
 		clientset, err := s.manager.Clientset(ctx, cfg.HostID)
 		if err != nil {
 			return nil, err
@@ -169,13 +190,16 @@ func (s *SessionManager) SessionPods(ctx context.Context, cfg *SessionConfig, cl
 					info.WorkloadName = deployName
 				}
 			}
-			if (info.WorkloadName == cfg.MasterWorkloadName || info.WorkloadName == cfg.WorkerWorkloadName) && !seen[info.Name] {
+			if (info.WorkloadName == cfg.MasterWorkloadName || info.WorkloadName == cfg.WorkerWorkloadName || (cfg.HybridWorkloadName != "" && info.WorkloadName == cfg.HybridWorkloadName)) && !seen[info.Name] {
 				pods = append(pods, info)
 				seen[info.Name] = true
 			}
 		}
 	}
 	for _, pod := range pods {
+		if cfg.HybridWorkloadName != "" && pod.WorkloadName == cfg.HybridWorkloadName {
+			pod.Role = "hybrid"
+		}
 		if pod.WorkloadName == cfg.MasterWorkloadName {
 			pod.Role = "master"
 		}
@@ -197,12 +221,7 @@ func (s *SessionManager) Scale(ctx context.Context, cfg *SessionConfig, role str
 	if err != nil {
 		return err
 	}
-	var kind, name string
-	if role == "master" {
-		kind, name = cfg.MasterWorkloadKind, cfg.MasterWorkloadName
-	} else {
-		kind, name = cfg.WorkerWorkloadKind, cfg.WorkerWorkloadName
-	}
+	kind, name := workloadTargetForRole(cfg, role)
 	if name == "" {
 		return fmt.Errorf("k8s: %s workload name is empty", role)
 	}
@@ -229,12 +248,7 @@ func (s *SessionManager) GetReplicas(ctx context.Context, cfg *SessionConfig, ro
 	if err != nil {
 		return 0, err
 	}
-	var kind, name string
-	if role == "master" {
-		kind, name = cfg.MasterWorkloadKind, cfg.MasterWorkloadName
-	} else {
-		kind, name = cfg.WorkerWorkloadKind, cfg.WorkerWorkloadName
-	}
+	kind, name := workloadTargetForRole(cfg, role)
 	if strings.TrimSpace(name) == "" {
 		return 0, fmt.Errorf("k8s: %s workload name is empty", role)
 	}
@@ -271,11 +285,18 @@ func (s *SessionManager) RolloutRestart(ctx context.Context, cfg *SessionConfig,
 		return err
 	}
 	targets := []struct{ kind, name string }{}
-	if role == "" || role == "master" {
-		targets = append(targets, struct{ kind, name string }{cfg.MasterWorkloadKind, cfg.MasterWorkloadName})
-	}
-	if role == "" || role == "worker" {
-		targets = append(targets, struct{ kind, name string }{cfg.WorkerWorkloadKind, cfg.WorkerWorkloadName})
+	if cfg.IsHybrid() {
+		// hybrid 形态只有单一工作负载：任意角色（含空）都收敛到它，避免误查不存在的分离 STS。
+		// Hybrid topology has a single workload: any role (including empty) converges on
+		// it instead of nonexistent separated StatefulSets.
+		targets = append(targets, struct{ kind, name string }{"StatefulSet", cfg.HybridWorkloadName})
+	} else {
+		if role == "" || role == "master" {
+			targets = append(targets, struct{ kind, name string }{cfg.MasterWorkloadKind, cfg.MasterWorkloadName})
+		}
+		if role == "" || role == "worker" {
+			targets = append(targets, struct{ kind, name string }{cfg.WorkerWorkloadKind, cfg.WorkerWorkloadName})
+		}
 	}
 	restartedAt := time.Now().UTC().Format(time.RFC3339)
 	patch := []byte(fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":%q}}}}}`, restartedAt))
@@ -312,10 +333,14 @@ func (s *SessionManager) UpgradeImage(ctx context.Context, cfg *SessionConfig, i
 	if err != nil {
 		return err
 	}
-	for _, target := range []struct{ kind, name string }{
+	upgradeTargets := []struct{ kind, name string }{
 		{cfg.MasterWorkloadKind, cfg.MasterWorkloadName},
 		{cfg.WorkerWorkloadKind, cfg.WorkerWorkloadName},
-	} {
+	}
+	if cfg.IsHybrid() {
+		upgradeTargets = []struct{ kind, name string }{{"StatefulSet", cfg.HybridWorkloadName}}
+	}
+	for _, target := range upgradeTargets {
 		if target.name == "" {
 			continue
 		}
@@ -536,7 +561,11 @@ func (s *SessionManager) GetWorkloadStatus(ctx context.Context, cfg *SessionConf
 		}
 		result = append(result, status)
 	}
-	collect("master", cfg.MasterWorkloadKind, cfg.MasterWorkloadName)
-	collect("worker", cfg.WorkerWorkloadKind, cfg.WorkerWorkloadName)
+	if cfg.IsHybrid() {
+		collect("hybrid", "StatefulSet", cfg.HybridWorkloadName)
+	} else {
+		collect("master", cfg.MasterWorkloadKind, cfg.MasterWorkloadName)
+		collect("worker", cfg.WorkerWorkloadKind, cfg.WorkerWorkloadName)
+	}
 	return result, nil
 }

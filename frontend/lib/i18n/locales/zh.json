@@ -1438,7 +1438,8 @@
       "master": "Master",
       "worker": "Worker",
       "masterWorker": "Master/Worker",
-      "undefined": "未知"
+      "undefined": "未知",
+      "hybrid": "混合"
     },
     "masterStates": {
       "active": "活跃",

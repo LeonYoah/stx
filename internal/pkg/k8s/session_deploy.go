@@ -87,6 +87,15 @@ func errResourceConflict(kind, name string) error {
 	return fmt.Errorf("k8s: %s %q already exists and is not owned by this cluster; refusing to overwrite", kind, name)
 }
 
+// masterServiceComponent 计算 master Service 选择器的目标组件标签。
+// masterServiceComponent computes the component label the master Service selects.
+func masterServiceComponent(cfg *SessionConfig) string {
+	if cfg.IsHybrid() {
+		return "hybrid"
+	}
+	return "master"
+}
+
 func podSelectorLabels(clusterCode, component string) map[string]string {
 	return map[string]string{
 		LabelClusterCodeKey:  clusterCode,
@@ -381,7 +390,12 @@ func ensureHeadlessServices(ctx context.Context, clientset kubernetes.Interface,
 		},
 		Spec: corev1.ServiceSpec{
 			ClusterIP: corev1.ClusterIPNone,
-			Selector:  podSelectorLabels(code, "master"),
+			// Hybrid 形态没有独立 master Pod，REST/WebUI 流量必须落到 hybrid Pod，
+			// 否则 Endpoints 为空导致 /overview 与作业提交全 503。
+			// Hybrid topology has no dedicated master pod, so REST/WebUI traffic must land
+			// on hybrid pods; otherwise endpoints stay empty and /overview plus job
+			// submission all 503.
+			Selector:  podSelectorLabels(code, masterServiceComponent(cfg)),
 			Ports: []corev1.ServicePort{
 				{Name: "http", Port: int32(cfg.MasterHTTPPort), TargetPort: intstrPort(cfg.MasterHTTPPort)},
 			},

@@ -431,24 +431,37 @@ func (s *Service) evaluateK8sClusterHealth(ctx context.Context, cluster *Cluster
 	liveQueried := false
 	liveOK := true
 	liveTotal := 0
-	if strings.TrimSpace(cfg.MasterWorkloadName) != "" {
-		liveQueried = true
-		if n, err := ops.GetReplicas(ctx, cfg, "master"); err == nil {
-			liveTotal += n
-		} else {
-			liveOK = false
+	if cfg.IsHybrid() {
+		if strings.TrimSpace(cfg.HybridWorkloadName) != "" {
+			liveQueried = true
+			if n, err := ops.GetReplicas(ctx, cfg, "hybrid"); err == nil {
+				liveTotal += n
+			} else {
+				liveOK = false
+			}
 		}
-	}
-	if strings.TrimSpace(cfg.WorkerWorkloadName) != "" {
-		liveQueried = true
-		if n, err := ops.GetReplicas(ctx, cfg, "worker"); err == nil {
-			liveTotal += n
-		} else {
-			liveOK = false
+	} else {
+		if strings.TrimSpace(cfg.MasterWorkloadName) != "" {
+			liveQueried = true
+			if n, err := ops.GetReplicas(ctx, cfg, "master"); err == nil {
+				liveTotal += n
+			} else {
+				liveOK = false
+			}
+		}
+		if strings.TrimSpace(cfg.WorkerWorkloadName) != "" {
+			liveQueried = true
+			if n, err := ops.GetReplicas(ctx, cfg, "worker"); err == nil {
+				liveTotal += n
+			} else {
+				liveOK = false
+			}
 		}
 	}
 	if liveQueried && liveOK {
 		want = liveTotal
+	} else if cfg.IsHybrid() {
+		want = cfg.HybridReplicas
 	} else {
 		want = cfg.MasterReplicas + cfg.WorkerReplicas
 	}

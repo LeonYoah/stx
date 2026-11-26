@@ -62,14 +62,14 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
   const [loading, setLoading] = useState(false);
   const [operating, setOperating] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | 'ready' | 'abnormal'>('all');
-  const [roleFilter, setRoleFilter] = useState<'all' | 'master' | 'worker'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'master' | 'worker' | 'hybrid'>('all');
   const [search, setSearch] = useState('');
   const [scaleOpen, setScaleOpen] = useState(false);
   const [scaleMaster, setScaleMaster] = useState('1');
   const [scaleWorker, setScaleWorker] = useState('1');
   const [logPod, setLogPod] = useState<string | null>(null);
   const [restartOpen, setRestartOpen] = useState(false);
-  const [restartRole, setRestartRole] = useState<'master' | 'worker'>('worker');
+  const [restartRole, setRestartRole] = useState<'master' | 'worker' | 'hybrid'>('worker');
   const [deletePodConfirm, setDeletePodConfirm] = useState<string | null>(null);
 
   const k8sCfg = useMemo(() => {
@@ -78,8 +78,15 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
   }, [cluster]);
   const hasMasterWorkload = Boolean(k8sCfg['master_workload_name']);
   const hasWorkerWorkload = Boolean(k8sCfg['worker_workload_name']);
+  // hybrid 形态只有单一混合工作负载：扩缩容/滚动重启/角色筛选统一收敛到 hybrid，
+  // 不再展示不存在的 master/worker 分离操作。
+  // Hybrid topology has a single mixed workload: scale/rollout/role filtering converge
+  // on hybrid instead of showing nonexistent separated master/worker operations.
+  const isHybrid = String(k8sCfg['deployment_mode'] || '').toLowerCase() === 'hybrid' || Boolean(k8sCfg['hybrid_workload_name']);
+  const hasHybridWorkload = Boolean(k8sCfg['hybrid_workload_name']);
   const expectedMaster = Number(k8sCfg['master_replicas']) || 1;
   const expectedWorker = Number(k8sCfg['worker_replicas']) || 1;
+  const expectedHybrid = Number(k8sCfg['hybrid_replicas']) || 1;
 
   const loadPods = useCallback(async () => {
     setLoading(true);
@@ -120,7 +127,7 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
   const hasActiveFilter = statusFilter !== 'all' || roleFilter !== 'all' || search.trim() !== '';
 
   const openScale = () => {
-    setScaleMaster(String(expectedMaster));
+    setScaleMaster(String(isHybrid ? expectedHybrid : expectedMaster));
     setScaleWorker(String(expectedWorker));
     setScaleOpen(true);
   };
@@ -129,11 +136,17 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
     setOperating(true);
     try {
       const jobs: Promise<unknown>[] = [];
-      if (hasMasterWorkload && Number(scaleMaster) !== expectedMaster) {
-        jobs.push(services.cluster.scaleK8s(clusterId, 'master', Number(scaleMaster)));
-      }
-      if (hasWorkerWorkload && Number(scaleWorker) !== expectedWorker) {
-        jobs.push(services.cluster.scaleK8s(clusterId, 'worker', Number(scaleWorker)));
+      if (isHybrid) {
+        if (hasHybridWorkload && Number(scaleMaster) !== expectedHybrid) {
+          jobs.push(services.cluster.scaleK8s(clusterId, 'hybrid', Number(scaleMaster)));
+        }
+      } else {
+        if (hasMasterWorkload && Number(scaleMaster) !== expectedMaster) {
+          jobs.push(services.cluster.scaleK8s(clusterId, 'master', Number(scaleMaster)));
+        }
+        if (hasWorkerWorkload && Number(scaleWorker) !== expectedWorker) {
+          jobs.push(services.cluster.scaleK8s(clusterId, 'worker', Number(scaleWorker)));
+        }
       }
       if (jobs.length === 0) {
         setScaleOpen(false);
@@ -233,8 +246,12 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
           onValueChange={(v) => setRoleFilter(v as typeof roleFilter)}
           options={[
             {value: 'all', label: t('cluster.k8s.filterAll')},
-            {value: 'master', label: t('cluster.roles.master')},
-            {value: 'worker', label: t('cluster.roles.worker')},
+            ...(isHybrid
+              ? [{value: 'hybrid', label: t('cluster.roles.hybrid')}]
+              : [
+                  {value: 'master', label: t('cluster.roles.master')},
+                  {value: 'worker', label: t('cluster.roles.worker')},
+                ]),
           ]}
         />
         <div className={layout.toolbarSearch}>
@@ -269,7 +286,7 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
               disabled={operating}
               data-testid='k8s-rollout-open'
               onClick={() => {
-                setRestartRole(hasWorkerWorkload ? 'worker' : 'master');
+                setRestartRole(isHybrid ? 'hybrid' : hasWorkerWorkload ? 'worker' : 'master');
                 setRestartOpen(true);
               }}
             >
@@ -335,7 +352,7 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
                     >
                       <FileText className='size-3.5' aria-hidden />
                     </Button>
-                    {pod.role === 'master' || pod.role === 'worker' ? (
+                    {pod.role === 'master' || pod.role === 'worker' || pod.role === 'hybrid' ? (
                       <Button
                         type='button'
                         variant='ghost'
@@ -362,7 +379,13 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
         <Dialog open onOpenChange={() => setScaleOpen(false)}>
           <DialogContent title={t('cluster.k8s.adjustReplicas')} className='arc-compact w-[min(94vw,480px)]!'>
             <div className='space-y-3'>
-              {hasMasterWorkload ? (
+              {isHybrid && hasHybridWorkload ? (
+                <div className='space-y-1'>
+                  <label className='text-xs text-muted-foreground'>{t('cluster.roles.hybrid')}</label>
+                  <Input type='number' min={0} max={50} label={t('cluster.roles.hybrid')} value={scaleMaster} onChange={(e) => setScaleMaster(e.target.value)} />
+                </div>
+              ) : null}
+              {!isHybrid && hasMasterWorkload ? (
                 <div className='space-y-1'>
                   <label className='text-xs text-muted-foreground'>{t('cluster.roles.master')}</label>
                   <Input type='number' min={0} max={50} label={t('cluster.roles.master')} value={scaleMaster} onChange={(e) => setScaleMaster(e.target.value)} />

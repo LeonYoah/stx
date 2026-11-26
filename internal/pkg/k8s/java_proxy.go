@@ -176,10 +176,17 @@ func (p *JavaProxyManager) ensureJarConfigMap(ctx context.Context, clientset kub
 // resolveTargetPodTemplate reads the target master (preferred) or worker workload pod
 // template for cloning.
 func (p *JavaProxyManager) resolveTargetPodTemplate(ctx context.Context, clientset kubernetes.Interface, cfg *SessionConfig) (*corev1.PodSpec, error) {
-	for _, target := range []struct{ kind, name string }{
+	proxyTargets := []struct{ kind, name string }{
 		{cfg.MasterWorkloadKind, cfg.MasterWorkloadName},
 		{cfg.WorkerWorkloadKind, cfg.WorkerWorkloadName},
-	} {
+	}
+	if cfg.IsHybrid() {
+		// hybrid 形态克隆对象只能是混合 StatefulSet：分离 master/worker 不存在，按序查找只会 404。
+		// Hybrid topology can only clone the mixed StatefulSet: separated master/worker
+		// do not exist and probing them in order only 404s.
+		proxyTargets = []struct{ kind, name string }{{"StatefulSet", cfg.HybridWorkloadName}}
+	}
+	for _, target := range proxyTargets {
 		if target.name == "" {
 			continue
 		}

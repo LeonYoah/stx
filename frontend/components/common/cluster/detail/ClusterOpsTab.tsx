@@ -67,6 +67,9 @@ export interface ClusterOpsTabProps {
   upgradeTasksTotal: number;
   onUpgradeTasksPageChange: (page: number) => void;
   onOpenUpgradeTask: (task: UpgradeTaskSummary) => void;
+  /** K8s 集群升级走镜像 Tag 替换而非二进制升级向导。K8s upgrades swap the image tag instead of the binary upgrade wizard. */
+  isKubernetes?: boolean;
+  onOpenK8sUpgrade?: () => void;
 }
 
 export function ClusterOpsTab({
@@ -87,7 +90,16 @@ export function ClusterOpsTab({
   upgradeTasksTotal,
   onUpgradeTasksPageChange,
   onOpenUpgradeTask,
+  isKubernetes = false,
+  onOpenK8sUpgrade,
 }: ClusterOpsTabProps) {
+  const openUpgradeEntry = () => {
+    if (isKubernetes) {
+      onOpenK8sUpgrade?.();
+    } else {
+      router.push(`/clusters/${clusterId}/upgrade/prepare`);
+    }
+  };
   const t = useTranslations();
   const router = useRouter();
   const upgradeTotalPages = Math.max(
@@ -116,9 +128,8 @@ export function ClusterOpsTab({
           <Button
             type='button'
             size='sm'
-            onClick={() =>
-              router.push(`/clusters/${clusterId}/upgrade/prepare`)
-            }
+            onClick={openUpgradeEntry}
+            data-testid='cluster-ops-upgrade-entry'
           >
             <Activity className='size-3.5' aria-hidden />
             {t('stUpgrade.entry')}
@@ -286,7 +297,7 @@ export function ClusterOpsTab({
                   type='button'
                   size='sm'
                   onClick={() =>
-                    router.push(`/clusters/${clusterId}/upgrade/prepare`)
+                    openUpgradeEntry()
                   }
                 >
                   <Activity className='size-3.5' aria-hidden />

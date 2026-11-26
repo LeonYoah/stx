@@ -126,6 +126,7 @@ import {RuntimeStorageFileExplorer} from './RuntimeStorageFileExplorer';
 import {ClusterActions} from './ClusterActions';
 import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
 import {K8sNodesPanel} from './K8sNodesPanel';
+import {K8sUpgradeImageDialog} from './K8sUpgradeImageDialog';
 import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
 import {
   baselinePidsFromNodes,
@@ -636,6 +637,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   // 启停/重启后递增，驱动节点页 ProcessEventList 有界静默轮询（与主状态轮询同窗口）。
   // Bumped after lifecycle ops so Nodes-tab ProcessEventList starts a bounded silent poll (same window as status).
   const [lifecyclePollEpoch, setLifecyclePollEpoch] = useState(0);
+  const [k8sUpgradeOpen, setK8sUpgradeOpen] = useState(false);
 
   const refreshMainStatusAfterLifecycle = useCallback(
     async (
@@ -1646,13 +1648,33 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     );
   }
 
-  const canDelete =
-    cluster.status !== ClusterStatus.RUNNING &&
-    cluster.status !== ClusterStatus.DEPLOYING;
-  const webUIProxyURL = webUINode ? `/api/v1/clusters/${clusterId}/webui/` : '';
-  const webUIMasterAddress = webUINode
-    ? `${webUINode.host_ip || webUINode.host_name || '-'}:${webUINode.api_port}`
-    : '';
+  const isK8sCluster = Boolean(cluster?.infra_type && cluster.infra_type !== 'bare_metal');
+  const k8sCfg = useMemo(() => {
+    const raw = (cluster?.config as Record<string, unknown> | undefined)?.['kubernetes'];
+    return (raw || {}) as Record<string, unknown>;
+  }, [cluster?.config]);
+
+  // K8s 集群删除即资源生命周期（解绑/卸载），后端允许运行态删除，前端对齐。
+  // For K8s clusters deletion IS the resource lifecycle; the backend permits deleting
+  // running clusters and the frontend matches it.
+  const canDelete = isK8sCluster
+    ? cluster.status !== ClusterStatus.DEPLOYING
+    : cluster.status !== ClusterStatus.RUNNING &&
+      cluster.status !== ClusterStatus.DEPLOYING;
+  // WebUI 可用性门控：物理机依赖引擎节点 API 端口；K8s 由 master_http_port 决定，
+  // iframe 统一走 /webui/ 反代（后端 proxyK8sWebUI 已实现 K8s 转发）。
+  // WebUI availability: bare metal relies on the engine node API port; K8s depends on
+  // master_http_port. The iframe always proxies through /webui/ (backend proxyK8sWebUI
+  // already forwards K8s traffic).
+  const hasWebUI = isK8sCluster
+    ? Number(k8sCfg?.master_http_port) > 0
+    : Boolean(webUINode);
+  const webUIProxyURL = hasWebUI ? `/api/v1/clusters/${clusterId}/webui/` : '';
+  const webUIMasterAddress = isK8sCluster
+    ? `${(k8sCfg?.namespace as string | undefined) ?? '-'}/${((k8sCfg?.master_service_name || k8sCfg?.cluster_service_name) as string | undefined) ?? 'master'}:${(k8sCfg?.master_http_port as number | undefined) ?? 0}`
+    : webUINode
+      ? `${webUINode.host_ip || webUINode.host_name || '-'}:${webUINode.api_port}`
+      : '';
 
   const renderRuntimeStorageSpec = (
     spec: RuntimeStorageSpec | undefined,
@@ -1882,17 +1904,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
 
   // K8s 集群判定与节点面板一致：任何非 bare_metal infra_type 都走 K8s 视图。
   // K8s detection mirrors the nodes panel: any non-bare_metal infra_type uses K8s views.
-  const isK8sCluster = Boolean(cluster?.infra_type && cluster.infra_type !== 'bare_metal');
-  const k8sCfg = useMemo(() => {
-    const raw = (cluster?.config as Record<string, unknown> | undefined)?.['kubernetes'];
-    return (raw || {}) as Record<string, unknown>;
-  }, [cluster?.config]);
 
   const runtimeViewOptions: Array<{value: RuntimeSubView; label: string}> = [
     {value: 'checkpoint', label: t('cluster.list.runtimeViews.checkpoint')},
     {value: 'imap', label: t('cluster.list.runtimeViews.imap')},
     {value: 'proxy', label: t('cluster.list.runtimeViews.proxy')},
-    ...(webUINode
+    ...(hasWebUI
       ? [{value: 'webui' as const, label: t('cluster.list.runtimeViews.webui')}]
       : []),
   ];
@@ -1909,7 +1926,16 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     {
       label: t('stUpgrade.entry'),
       icon: <Activity className='size-3.5' aria-hidden />,
-      onSelect: () => router.push(`/clusters/${clusterId}/upgrade/prepare`),
+      onSelect: () => {
+        // K8s 集群升级即换镜像 Tag（不可变镜像），无二进制分发升级向导。
+        // K8s upgrades mean swapping the image tag (immutable image); there is no
+        // binary-distribution upgrade wizard.
+        if (isK8sCluster) {
+          setK8sUpgradeOpen(true);
+        } else {
+          router.push(`/clusters/${clusterId}/upgrade/prepare`);
+        }
+      },
     },
     {
       label: t('common.edit'),
@@ -2484,7 +2510,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               ) : null}
 
               {/* 内嵌 SeaTunnel Web UI（仅 webUINode 存在时可用） */}
-              {runtimeView === 'webui' && webUINode ? (
+              {runtimeView === 'webui' && hasWebUI ? (
                 <div className='overflow-hidden rounded-(--radius-panel) border border-(--border) bg-card'>
                   <div className='flex flex-wrap items-center justify-between gap-3 border-b-[0.5px] border-border/80 px-5 py-3.5'>
                     <div className='flex min-w-0 items-center gap-2'>
@@ -2564,10 +2590,25 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               upgradeTasksTotal={upgradeTasksTotal}
               onUpgradeTasksPageChange={setUpgradeTasksPage}
               onOpenUpgradeTask={openUpgradeTaskDetail}
+              isKubernetes={isK8sCluster}
+              onOpenK8sUpgrade={() => setK8sUpgradeOpen(true)}
             />
           ) : null}
         </ArcTabsContent>
       </ArcTabs>
+
+      {isK8sCluster ? (
+        <K8sUpgradeImageDialog
+          open={k8sUpgradeOpen}
+          onOpenChange={setK8sUpgradeOpen}
+          clusterId={clusterId}
+          currentImage={(k8sCfg?.image as string | undefined) ?? ''}
+          onUpgraded={() => {
+            void loadClusterData({silent: true});
+            setLifecyclePollEpoch((n) => n + 1);
+          }}
+        />
+      ) : null}
 
       <DirtyCloseDialog
         open={pendingRoute !== null}

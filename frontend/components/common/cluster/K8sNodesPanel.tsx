@@ -27,6 +27,7 @@ import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {SearchField} from '@/components/arc/search-field/search-field';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {ConfirmDialog, NeutralChip, SoftChip, TableCard} from '@/components/common/layout';
+import {LogViewerDialog} from './LogViewerDialog';
 import layout from '@/components/common/layout/list-detail.module.css';
 import {
   Table,
@@ -67,8 +68,6 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
   const [scaleMaster, setScaleMaster] = useState('1');
   const [scaleWorker, setScaleWorker] = useState('1');
   const [logPod, setLogPod] = useState<string | null>(null);
-  const [logText, setLogText] = useState('');
-  const [logLoading, setLogLoading] = useState(false);
   const [restartConfirm, setRestartConfirm] = useState<'master' | 'worker' | null>(null);
 
   const k8sCfg = useMemo(() => {
@@ -165,19 +164,35 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
     }
   };
 
-  const openPodLogs = async (podName: string) => {
+  const openPodLogs = (podName: string) => {
     setLogPod(podName);
-    setLogText('');
-    setLogLoading(true);
-    try {
-      const content = await services.cluster.getK8sPodLogs(clusterId, podName);
-      setLogText(content);
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setLogLoading(false);
-    }
   };
+
+  // kubectl logs 只有 tail 语义：行数下传给后端，grep 过滤在客户端做（结果集已由 tailLines 约束）。
+  // kubectl logs only has tail semantics: the line count goes to the backend while grep
+  // filtering happens client-side (the result set is already bounded by tailLines).
+  const logFetcher = useCallback(
+    async (params: {lines: number; filter?: string}) => {
+      if (!logPod) {
+        return {error: t('cluster.getLogsError')};
+      }
+      try {
+        const content = await services.cluster.getK8sPodLogs(clusterId, logPod, params.lines);
+        if (params.filter) {
+          const needle = params.filter.toLowerCase();
+          const filtered = content
+            .split('\n')
+            .filter((line) => line.toLowerCase().includes(needle))
+            .join('\n');
+          return {logs: filtered};
+        }
+        return {logs: content};
+      } catch (e) {
+        return {error: (e as Error).message};
+      }
+    },
+    [clusterId, logPod, t],
+  );
 
   return (
     <div className='space-y-3' data-testid='k8s-nodes-panel'>
@@ -281,7 +296,7 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
                       iconOnly
                       aria-label={t('cluster.k8s.podLogs')}
                       title={t('cluster.k8s.podLogs')}
-                      onClick={() => void openPodLogs(pod.name)}
+                      onClick={() => openPodLogs(pod.name)}
                     >
                       <FileText className='size-3.5' aria-hidden />
                     </Button>
@@ -349,22 +364,21 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
       ) : null}
 
       {logPod ? (
-        <Dialog open onOpenChange={() => setLogPod(null)}>
-          <DialogContent title={`${t('cluster.k8s.podLogs')} · ${logPod}`} className='arc-compact w-[min(94vw,820px)]!'>
-            <pre className='h-96 overflow-auto rounded-md border border-border/60 bg-muted/30 p-3 font-mono text-xs whitespace-pre-wrap'>
-              {logLoading ? t('common.loading') : (logText || t('common.noData'))}
-            </pre>
-            <div className='mt-4 flex justify-end gap-2'>
-              <Button size='sm' variant='secondary' disabled={logLoading} onClick={() => void openPodLogs(logPod)}>
-                <RefreshCw className='size-3.5' aria-hidden />
-                {t('common.refresh')}
-              </Button>
-              <Button size='sm' variant='secondary' onClick={() => setLogPod(null)}>
-                {t('common.close')}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <LogViewerDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setLogPod(null);
+          }}
+          title={
+            <span className='flex flex-wrap items-center gap-2'>
+              <FileText className='size-4 shrink-0 text-primary' aria-hidden />
+              <span>{t('cluster.k8s.podLogs')}</span>
+              <NeutralChip className='font-mono tabular-nums'>{logPod}</NeutralChip>
+            </span>
+          }
+          fetcher={logFetcher}
+          capabilities={{modes: false, date: false}}
+        />
       ) : null}
     </div>
   );

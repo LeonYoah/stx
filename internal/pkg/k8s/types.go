@@ -196,9 +196,6 @@ type SessionJVMConfig struct {
 // SessionRuntimeConfig 高级运行参数。
 // SessionRuntimeConfig carries advanced runtime toggles.
 type SessionRuntimeConfig struct {
-	// EnableHTTPServer 是否启用引擎 HTTP 服务（2.3.9+ 默认开）。
-	// EnableHTTPServer toggles the engine HTTP service (default on for 2.3.9+).
-	EnableHTTPServer *bool `json:"enable_http_server,omitempty"`
 }
 
 // SessionStorageSpec Checkpoint/IMAP 存储草稿：类型 + 连接参数。

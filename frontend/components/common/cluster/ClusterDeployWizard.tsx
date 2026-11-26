@@ -152,6 +152,27 @@ export function ClusterDeployWizard({
     [],
   );
   const [precheckRunning, setPrecheckRunning] = useState(false);
+  // K8s 预检结果提升到向导：未通过/未运行时 precheck 步禁止进入部署。
+  // The Kubernetes precheck outcome is lifted into the wizard: the precheck step
+  // blocks advancing to deploy until it has run and passed.
+  const [k8sPrecheckPassed, setK8sPrecheckPassed] = useState<boolean | null>(null);
+  // 表单关键输入变化后预检结果作废，必须重新运行。
+  // Precheck results go stale once key inputs change and must be re-run.
+  useEffect(() => {
+    setK8sPrecheckPassed(null);
+  }, [
+    k8sForm.host_id,
+    k8sForm.namespace,
+    k8sForm.cluster_code,
+    k8sForm.name,
+    k8sForm.deployment_mode,
+    k8sForm.master_memory,
+    k8sForm.worker_memory,
+    k8sForm.hybrid_memory,
+    k8sForm.jvm_xmx,
+    k8sForm.event_report_enabled,
+    k8sForm.stx_callback_url,
+  ]);
 
   // Load available hosts / 加载可用主机
   const loadHosts = useCallback(async () => {
@@ -575,6 +596,14 @@ export function ClusterDeployWizard({
           }
           return null;
         }
+        case 'precheck':
+          // 预检未跑完或未通过一律阻断部署按钮，reason 供 tooltip 说明。
+          // An unfinished or failed precheck always blocks the deploy advance;
+          // the reason feeds the tooltip.
+          if (k8sPrecheckPassed === null) {
+            return t('cluster.k8s.precheckRunning');
+          }
+          return k8sPrecheckPassed ? null : t('cluster.k8s.precheckBlocked');
         case 'deploy':
           return deployStatus === 'success' ? null : '';
         case 'complete':
@@ -666,8 +695,7 @@ export function ClusterDeployWizard({
     allPrechecksPassed,
     infraTarget,
     k8sForm,
-    t,
-  ]);
+    t,, k8sPrecheckPassed]);
 
   const canProceed = useCallback(() => proceedBlockReason() === null, [proceedBlockReason]);
 
@@ -1204,7 +1232,12 @@ export function ClusterDeployWizard({
         case 'config':
           return <K8sConfigContent form={k8sForm} patch={patchK8s} />;
         case 'precheck':
-          return <K8sPrecheckContent form={k8sForm} />;
+          return (
+            <K8sPrecheckContent
+              form={k8sForm}
+              onResult={(result) => setK8sPrecheckPassed(result === null ? null : result.passed)}
+            />
+          );
         case 'deploy':
           return (
             <ClusterDeployStep

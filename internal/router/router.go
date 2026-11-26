@@ -866,9 +866,14 @@ func Serve() {
 				// 容器镜像管理（须注册在 /:version 之前）
 				// Container image management (register before /:version)
 				packageRouter.GET("/images", installerHandler.ListContainerImages)
-				packageRouter.POST("/images", installerHandler.CreateContainerImage)
-				packageRouter.PUT("/images/:id", installerHandler.UpdateContainerImage)
-				packageRouter.DELETE("/images/:id", installerHandler.DeleteContainerImage)
+				// 写操作仅管理员：镜像注册表影响所有 K8s 集群的部署与升级供应链，
+				// 普通用户只读不出写，防止低权限账号注入带后门的私有镜像。
+				// Writes are admin-only: the image registry feeds the deploy/upgrade supply
+				// chain of every Kubernetes cluster, so regular users stay read-only to stop
+				// low-privilege accounts injecting backdoored private images.
+				packageRouter.POST("/images", admin.LoginAdminRequired(), installerHandler.CreateContainerImage)
+				packageRouter.PUT("/images/:id", admin.LoginAdminRequired(), installerHandler.UpdateContainerImage)
+				packageRouter.DELETE("/images/:id", admin.LoginAdminRequired(), installerHandler.DeleteContainerImage)
 
 				// 离线资产包（须注册在 /:version 之前，避免被版本参数吞掉）
 				// Offline asset bundles (register before /:version so Gin does not swallow the path)

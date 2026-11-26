@@ -26,13 +26,14 @@ import (
 
 func TestRenderSeatunnelYAMLRuntimeOverrides(t *testing.T) {
 	cfg := &SessionConfig{MasterHTTPPort: 8080}
-	off := false
-	cfg.Runtime = &SessionRuntimeConfig{EnableHTTPServer: &off}
+	cfg.Runtime = &SessionRuntimeConfig{}
 	cfg.Checkpoint = &SessionStorageSpec{
 		Enabled: true, StorageType: "S3", Namespace: "ckpt", Endpoint: "https://s3.example.com", Bucket: "bkt", AccessKey: "ak", SecretKey: "sk",
 	}
 	out := renderSeatunnelYAML(cfg)
-	assert.Contains(t, out, "enable-http: false")
+	// enable-http 恒 true：关闭路径已从渲染与类型中移除。
+	// enable-http is always true: the disable path is removed from rendering and types.
+	assert.Contains(t, out, "enable-http: true")
 	// 旁路渲染已移除：event-report-http 只允许由 sync 事件通道 PatchEventReportHTTP 写入。
 	// The bypass rendering is removed: event-report-http may only be written by the
 	// sync event channel through PatchEventReportHTTP.

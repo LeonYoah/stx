@@ -2165,7 +2165,9 @@
       "stxCallbackUrl": "STX callback URL (optional)",
       "stxCallbackUrlPlaceholder": "http://stx-api:17800 (leave empty for the global external URL)",
       "stxCallbackUrlHint": "Engine pods call back the control plane at this address to report job events; falls back to the global external_url when empty",
-      "stxCallbackUrlLoopbackError": "A loopback address (127.x/localhost) resolves to the container itself inside engine pods and can never report; use a pod-reachable control-plane address"
+      "stxCallbackUrlLoopbackError": "A loopback address (127.x/localhost) resolves to the container itself inside engine pods and can never report; use a pod-reachable control-plane address",
+      "precheckRunning": "Precheck not finished yet; wait or re-run it",
+      "enableHttpLockedHint": "The engine HTTP service is always on: job submission, monitoring and event reporting all depend on it and it cannot be disabled"
     }
   },
   "audit": {

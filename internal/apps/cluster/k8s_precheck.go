@@ -21,25 +21,34 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	urlpkg "net/url"
 	"strings"
 
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/gin-gonic/gin"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // K8sPrecheckRequest 创建向导预检输入：主机 + namespace + 部署规格。
 // K8sPrecheckRequest is the deploy-wizard precheck input: host, namespace, and spec.
 type K8sPrecheckRequest struct {
-	HostID           uint   `json:"host_id" binding:"required,min=1"`
-	Namespace        string `json:"namespace"`
-	ClusterName      string `json:"cluster_name"`
-	DeploymentMode   string `json:"deployment_mode"`
-	Image            string `json:"image"`
-	ImagePullSecrets string `json:"image_pull_secrets"`
-	ServiceAccount   string `json:"service_account"`
-	CheckpointPVC    string `json:"checkpoint_pvc"`
+	HostID             uint   `json:"host_id" binding:"required,min=1"`
+	Namespace          string `json:"namespace"`
+	ClusterName        string `json:"cluster_name"`
+	ClusterCode        string `json:"cluster_code"`
+	DeploymentMode     string `json:"deployment_mode"`
+	Image              string `json:"image"`
+	ImagePullSecrets   string `json:"image_pull_secrets"`
+	ServiceAccount     string `json:"service_account"`
+	CheckpointPVC      string `json:"checkpoint_pvc"`
+	MasterMemory       string `json:"master_memory"`
+	WorkerMemory       string `json:"worker_memory"`
+	HybridMemory       string `json:"hybrid_memory"`
+	JvmXmx             string `json:"jvm_xmx"`
+	EnableEventChannel bool   `json:"enable_event_channel"`
+	STXCallbackURL     string `json:"stx_callback_url"`
 }
 
 // K8sPrecheckItem 单项预检结果。
@@ -117,8 +126,17 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 	// 资源冲突：同名 StatefulSet/Service/ConfigMap 已存在时阻塞部署。
 	// Resource conflicts: existing same-name workloads/services/configmaps block deploy.
 	conflicts := []string{}
-	if trimmed := strings.TrimSpace(req.ClusterName); trimmed != "" {
-		names := k8s.ResourceNamesFor(strings.ToLower(trimmed))
+	// 命名口径必须与 CreateKubernetes 完全一致：显式 cluster_code 优先，
+	// 否则回退 SanitizeClusterCode(cluster_name)，否则预检与实部署检查的就不是同一批资源。
+	// The naming must match CreateKubernetes exactly: an explicit cluster_code wins,
+	// otherwise fall back to SanitizeClusterCode(cluster_name); otherwise precheck and
+	// the real deploy would examine different resources.
+	code := strings.TrimSpace(req.ClusterCode)
+	if code == "" {
+		code = SanitizeClusterCode(req.ClusterName, 0)
+	}
+	if code != "" {
+		names := k8s.ResourceNamesFor(code)
 		for _, name := range []string{names.MasterSTS, names.WorkerSTS, names.MasterSTS + "-hybrid"} {
 			if _, err := clientset.AppsV1().StatefulSets(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
 				conflicts = append(conflicts, "StatefulSet/"+name)
@@ -167,12 +185,65 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 		add("referenced_objects", "info", true, "引用的 PVC/Secret/ServiceAccount 均存在或未引用")
 	}
 
-	// 配比校验：hybrid 模式副本数与形态合法性。
-	// Sizing validation: hybrid replicas and topology sanity.
-	if req.DeploymentMode == "hybrid" {
-		add("sizing", "info", true, "hybrid 形态：单 StatefulSet 承载 master+worker 角色")
+	// 配比真校验：JVM 堆不得超过容器内存 80%（与创建向导红线一致）；
+	// 事件通道开启时回调地址不得回环。两项失败均为 error 级阻断。
+	// Real sizing validation: the JVM heap must not exceed 80% of container memory
+	// (same red line as the deploy wizard); with the event channel on, the callback
+	// address must not be loopback. Both failures are error-level blockers.
+	sizingProblems := []string{}
+	if xmxMi := k8s.JVMHeapMaxMi("-Xmx" + strings.TrimSpace(req.JvmXmx)); xmxMi > 0 {
+		memories := []struct {
+			role string
+			raw  string
+		}{}
+		if req.DeploymentMode == "hybrid" {
+			memories = append(memories, struct {
+				role string
+				raw  string
+			}{"hybrid", req.HybridMemory})
+		} else {
+			memories = append(memories,
+				struct {
+					role string
+					raw  string
+				}{"master", req.MasterMemory},
+				struct {
+					role string
+					raw  string
+				}{"worker", req.WorkerMemory})
+		}
+		for _, mem := range memories {
+			raw := strings.TrimSpace(mem.raw)
+			if raw == "" {
+				continue
+			}
+			quantity, parseErr := resource.ParseQuantity(raw)
+			if parseErr != nil {
+				sizingProblems = append(sizingProblems, fmt.Sprintf("%s 内存 %q 无法解析", mem.role, raw))
+				continue
+			}
+			containerMi := int(quantity.Value() / (1024 * 1024))
+			if containerMi > 0 && xmxMi*5 > containerMi*4 {
+				sizingProblems = append(sizingProblems, fmt.Sprintf("JVM 堆 %dMi 超过 %s 容器内存 %dMi 的 80%%（%dMi）", xmxMi, mem.role, containerMi, containerMi*4/5))
+			}
+		}
+	}
+	if req.EnableEventChannel {
+		if override := strings.TrimSpace(req.STXCallbackURL); override != "" {
+			if parsed, parseErr := urlpkg.Parse(override); parseErr != nil || parsed == nil || IsLoopbackCallbackHost(parsed.Hostname()) {
+				sizingProblems = append(sizingProblems, "事件通道回调地址为回环地址，引擎 Pod 内无法到达控制面")
+			}
+		}
+	}
+	if len(sizingProblems) > 0 {
+		add("sizing", "error", false, strings.Join(sizingProblems, "；"))
 	} else {
-		add("sizing", "info", true, "separated 形态：master/worker 分离部署")
+		add("sizing", "info", true, "JVM 堆与容器内存配比合规"+func() string {
+			if req.EnableEventChannel {
+				return "，事件通道回调地址可达性预检通过"
+			}
+			return ""
+		}())
 	}
 	return result, nil
 }

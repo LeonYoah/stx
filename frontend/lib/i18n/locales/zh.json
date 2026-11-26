@@ -2165,7 +2165,9 @@
       "stxCallbackUrl": "STX 回调地址（可选）",
       "stxCallbackUrlPlaceholder": "http://stx-api:17800（留空使用全局外部地址）",
       "stxCallbackUrlHint": "引擎 Pod 通过该地址回调控制面上报作业事件；留空时使用系统全局 external_url",
-      "stxCallbackUrlLoopbackError": "回环地址（127.x/localhost）在引擎 Pod 内解析为容器自身，无法上报，请填写 Pod 可达的控制面地址"
+      "stxCallbackUrlLoopbackError": "回环地址（127.x/localhost）在引擎 Pod 内解析为容器自身，无法上报，请填写 Pod 可达的控制面地址",
+      "precheckRunning": "预检尚未完成，请等待或重新运行",
+      "enableHttpLockedHint": "引擎 HTTP 服务始终启用：控制面的作业提交、监控与事件上报均依赖该接口，不可关闭"
     }
   },
   "audit": {

@@ -260,7 +260,6 @@ export interface K8sWizardFormState {
   data_size: string;
   jvm_xms: string;
   jvm_xmx: string;
-  enable_http_server: boolean;
   event_report_enabled: boolean;
   stx_callback_url: string;
   checkpoint: {
@@ -311,7 +310,6 @@ export const INITIAL_K8S_WIZARD_FORM: K8sWizardFormState = {
   data_size: '',
   jvm_xms: '512m',
   jvm_xmx: '1536m',
-  enable_http_server: true,
   event_report_enabled: false,
   stx_callback_url: '',
   checkpoint: {

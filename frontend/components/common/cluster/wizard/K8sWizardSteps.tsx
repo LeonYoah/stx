@@ -249,13 +249,11 @@ export function K8sConfigContent({form, patch}: StepProps) {
       </div>
 
       <div className='space-y-2 rounded-lg border p-3'>
-        <label className='flex items-center gap-2 text-sm font-medium'>
-          <Checkbox
-            checked={form.enable_http_server}
-            onCheckedChange={(checked) => patch({enable_http_server: checked === true})}
-          />
-          {t('cluster.k8s.enableHttp')}
-        </label>
+        <div className='flex items-center gap-2 text-sm font-medium' data-testid='k8s-enable-http-locked'>
+          <Checkbox checked disabled />
+          <span>{t('cluster.k8s.enableHttp')}</span>
+          <span className='text-xs font-normal text-muted-foreground'>{t('cluster.k8s.enableHttpLockedHint')}</span>
+        </div>
         <label className='flex items-center gap-2 text-sm font-medium'>
           <Checkbox
             checked={form.event_report_enabled}
@@ -303,7 +301,7 @@ interface K8sPrecheckResult {
 
 // K8sPrecheckContent 第 4 步：调真实预检端点展示分项结果。
 // K8sPrecheckContent is step 4: runs the real precheck endpoint and shows items.
-export function K8sPrecheckContent({form}: {form: K8sWizardFormState}) {
+export function K8sPrecheckContent({form, onResult}: {form: K8sWizardFormState; onResult?: (result: K8sPrecheckResult | null) => void}) {
   const t = useTranslations();
   const [result, setResult] = useState<K8sPrecheckResult | null>(null);
   const [running, setRunning] = useState(false);
@@ -317,14 +315,24 @@ export function K8sPrecheckContent({form}: {form: K8sWizardFormState}) {
         host_id: form.host_id,
         namespace: form.namespace,
         cluster_name: form.name,
+        cluster_code: form.cluster_code,
         deployment_mode: form.deployment_mode,
+        image: form.image,
         image_pull_secrets: form.image_pull_secrets,
         service_account: form.service_account,
         checkpoint_pvc: form.checkpoint_pvc,
+        master_memory: form.master_memory,
+        worker_memory: form.worker_memory,
+        hybrid_memory: form.hybrid_memory,
+        jvm_xmx: form.jvm_xmx,
+        enable_event_channel: form.event_report_enabled,
+        stx_callback_url: form.event_report_enabled ? form.stx_callback_url.trim() : '',
       });
       setResult(response.data);
+      onResult?.(response.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      onResult?.(null);
     } finally {
       setRunning(false);
     }
@@ -401,9 +409,7 @@ export function buildK8sCreatePayload(form: K8sWizardFormState): Record<string, 
     jvm: {xms: form.jvm_xms, xmx: form.jvm_xmx},
     enable_event_channel: form.event_report_enabled,
     stx_callback_url: form.event_report_enabled ? form.stx_callback_url.trim() : '',
-    runtime: {
-      enable_http_server: form.enable_http_server,
-    },
+    runtime: {},
     checkpoint: form.checkpoint.enabled ? form.checkpoint : undefined,
     imap: form.imap.enabled ? form.imap : undefined,
   };

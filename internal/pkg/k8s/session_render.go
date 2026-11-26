@@ -34,10 +34,12 @@ import (
 // master_http_port and telemetry metrics stay enabled; Runtime/Checkpoint drafts
 // render dynamically when the deploy wizard supplied them.
 func renderSeatunnelYAML(cfg *SessionConfig) string {
+	// enable-http 恒为 true：控制面一切运行时能力（/overview、作业提交、事件、监控）
+	// 都依赖引擎 REST，关闭等于创建即残废，因此不暴露关闭路径。
+	// enable-http is always true: every control-plane runtime capability (/overview,
+	// job submission, events, metrics) depends on the engine REST API, so turning it
+	// off yields a dead-on-arrival cluster and the disable path is not exposed.
 	enableHTTP := "true"
-	if cfg.Runtime != nil && cfg.Runtime.EnableHTTPServer != nil && !*cfg.Runtime.EnableHTTPServer {
-		enableHTTP = "false"
-	}
 	checkpointPlugin := `          namespace: /tmp/seatunnel/checkpoint_snapshot/
           storage.type: hdfs
           fs.defaultFS: file:///tmp/`

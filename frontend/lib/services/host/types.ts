@@ -26,6 +26,12 @@
 /* eslint-disable no-unused-vars */
 
 /**
+ * Kubernetes host authentication mode
+ * Kubernetes 主机认证方式
+ */
+export type K8sAuthMode = 'kubeconfig' | 'token';
+
+/**
  * Host type enumeration
  * 主机类型枚举
  */
@@ -141,7 +147,7 @@ export interface HostInfo {
   /** Kubernetes version / Kubernetes 版本 */
   k8s_version?: string;
   /** Kubernetes auth mode / K8s 认证方式 */
-  k8s_auth_mode?: 'kubeconfig' | 'token' | 'in_cluster';
+  k8s_auth_mode?: K8sAuthMode;
   /** Whether kubeconfig is stored (never returns plaintext) / 是否已存 kubeconfig（永不回明文） */
   has_k8s_kubeconfig?: boolean;
   /** Whether token is stored / 是否已存 token */
@@ -183,7 +189,7 @@ export interface CreateHostRequest {
   docker_cert_path?: string;
 
   // kubernetes fields / Kubernetes 字段
-  /** Kubernetes API URL (required for kubernetes) / K8s API 地址（K8s 必填） */
+  /** Kubernetes API URL (required for token mode; auto-extracted for kubeconfig) / K8s API 地址（token 模式必填，kubeconfig 自动解析） */
   k8s_api_url?: string;
   /** Kubernetes namespace / K8s 命名空间 */
   k8s_namespace?: string;
@@ -192,7 +198,7 @@ export interface CreateHostRequest {
   /** Service account token / 服务账户令牌 */
   k8s_token?: string;
   /** Auth mode / 认证方式 */
-  k8s_auth_mode?: 'kubeconfig' | 'token' | 'in_cluster';
+  k8s_auth_mode?: K8sAuthMode;
   /** CA certificate PEM / CA 证书 PEM */
   k8s_ca_cert?: string;
   /** Skip TLS verification / 跳过 TLS 校验 */
@@ -253,7 +259,7 @@ export interface UpdateHostRequest {
   /** Service account token / 服务账户令牌 */
   k8s_token?: string;
   /** Auth mode / 认证方式 */
-  k8s_auth_mode?: 'kubeconfig' | 'token' | 'in_cluster';
+  k8s_auth_mode?: K8sAuthMode;
   /** CA certificate PEM / CA 证书 PEM */
   k8s_ca_cert?: string;
   /** Skip TLS verification / 跳过 TLS 校验 */

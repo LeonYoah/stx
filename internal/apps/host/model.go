@@ -158,8 +158,8 @@ type Host struct {
 	K8sKubeconfig string `json:"k8s_kubeconfig" gorm:"type:text"`
 	K8sToken      string `json:"k8s_token" gorm:"type:text"`
 	K8sVersion    string `json:"k8s_version" gorm:"size:20"`
-	// K8sAuthMode 认证模式：kubeconfig / token / in_cluster。
-	// K8sAuthMode is the auth mode: kubeconfig / token / in_cluster.
+	// K8sAuthMode 认证模式：kubeconfig / token。
+	// K8sAuthMode is the auth mode: kubeconfig / token.
 	K8sAuthMode string `json:"k8s_auth_mode" gorm:"size:20;default:kubeconfig"`
 	// K8sCACert 是 token 模式下可选的 CA 证书（PEM 原文，非密级信息）。
 	// K8sCACert is the optional CA certificate for token mode (PEM, not secret-grade).

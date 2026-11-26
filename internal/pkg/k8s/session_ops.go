@@ -212,6 +212,9 @@ func (s *SessionManager) GetReplicas(ctx context.Context, cfg *SessionConfig, ro
 	} else {
 		kind, name = cfg.WorkerWorkloadKind, cfg.WorkerWorkloadName
 	}
+	if strings.TrimSpace(name) == "" {
+		return 0, fmt.Errorf("k8s: %s workload name is empty", role)
+	}
 	switch kind {
 	case "StatefulSet", "":
 		sts, err := clientset.AppsV1().StatefulSets(cfg.Namespace).Get(ctx, name, metav1.GetOptions{})

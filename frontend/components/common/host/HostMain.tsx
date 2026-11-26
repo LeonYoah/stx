@@ -598,7 +598,12 @@ export function HostMain({initialHostId = null}: HostMainProps) {
           }}
           narrow={narrow}
           title={drawerHost?.name || t('host.title')}
-          meta={drawerHost?.ip_address || drawerHost?.description}
+          meta={
+            drawerHost?.ip_address ||
+            drawerHost?.k8s_api_url ||
+            drawerHost?.docker_api_url ||
+            drawerHost?.description
+          }
           nav={detailNav}
           flyOrigin={flyOriginRef}
           nameSlot='title'

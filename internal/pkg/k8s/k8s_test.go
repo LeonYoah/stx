@@ -445,8 +445,18 @@ users:
 		if cfg.Host != "https://k8s.example:6443" {
 			t.Fatalf("unexpected host %q", cfg.Host)
 		}
+		serverURL, err := ParseKubeconfigServerURL(kubeconfig)
+		if err != nil {
+			t.Fatalf("ParseKubeconfigServerURL error: %v", err)
+		}
+		if serverURL != "https://k8s.example:6443" {
+			t.Fatalf("unexpected extracted server url %q", serverURL)
+		}
 	})
-	t.Run("unsupported mode", func(t *testing.T) {
+	t.Run("unsupported mode including removed in_cluster", func(t *testing.T) {
+		if _, err := BuildRESTConfig(&Credentials{AuthMode: "in_cluster"}); err == nil {
+			t.Fatal("expected in_cluster auth mode to be rejected")
+		}
 		if _, err := BuildRESTConfig(&Credentials{AuthMode: "bogus"}); err == nil {
 			t.Fatal("expected error")
 		}

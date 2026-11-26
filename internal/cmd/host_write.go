@@ -165,11 +165,11 @@ func resolveFileReferenceFlag(command *cobra.Command, name string) string {
 // addK8sCredentialFlags 登记 K8s 凭据类参数。
 // addK8sCredentialFlags registers K8s credential flags.
 func addK8sCredentialFlags(command *cobra.Command) {
-	command.Flags().String("k8s-auth-mode", "", "Kubernetes auth mode: kubeconfig, token, or in_cluster")
+	command.Flags().String("k8s-auth-mode", "", "Kubernetes auth mode: kubeconfig or token")
 	command.Flags().String("k8s-kubeconfig", "", "Kubeconfig content or @path/to/kubeconfig")
 	command.Flags().String("k8s-token", "", "Bearer token or @path/to/token")
 	command.Flags().String("k8s-ca-cert", "", "CA certificate PEM or @path/to/ca.crt (token mode)")
-	command.Flags().Bool("k8s-insecure-skip-tls", false, "Skip API server TLS verification (test only)")
+	command.Flags().Bool("k8s-insecure-skip-tls", false, "Skip API server TLS verification (token mode, test only)")
 }
 
 // addHostFields 登记主机新增和修改共用的非敏感参数。

@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/utils/secretbox"
 )
 
@@ -187,62 +188,76 @@ func (s *Service) validateDockerHost(req *CreateHostRequest, host *Host) error {
 // validateK8sHost validates and sets fields for kubernetes host type.
 // validateK8sHost 验证并设置 Kubernetes 类型的字段。
 func (s *Service) validateK8sHost(req *CreateHostRequest, host *Host) error {
-	// 先规范化 auth_mode 再按模式校验凭据：in_cluster 无需任何凭据，
-	// kubeconfig 必须给 kubeconfig（仅 token 无法 BuildRESTConfig），token 必须 URL+token 齐全。
-	// Normalize auth_mode first, then validate credentials per mode: in_cluster needs
-	// none, kubeconfig requires the kubeconfig itself (a bare token cannot build a
-	// REST config), token requires both the API URL and the token.
+	// 仅支持 kubeconfig 与 token 两种互斥认证模式：
+	// - kubeconfig：自带 API Server 与 TLS 信息，后端校验语法并自动回填 k8s_api_url，忽略 token/CA/跳过校验字段。
+	// - token：显式提供 k8s_api_url + bearer token（可选 CA 证书或跳过 TLS 校验），忽略 kubeconfig 字段。
+	// Only kubeconfig and token auth modes are supported and mutually exclusive:
+	// - kubeconfig: embeds API server and TLS config; validated on save with k8s_api_url auto-extracted.
+	// - token: requires explicit k8s_api_url + bearer token (optional CA cert or insecure skip TLS).
 	authMode := strings.TrimSpace(req.K8sAuthMode)
 	if authMode == "" {
 		authMode = "kubeconfig"
 	}
-	switch authMode {
-	case "in_cluster":
-		// in_cluster 从 Pod 内 ServiceAccount 自动装配，外部 URL 与凭据均可为空。
-		// in_cluster assembles credentials from the in-pod ServiceAccount, so both the
-		// external URL and credentials may be empty.
-		if req.K8sAPIURL != "" && !ValidateK8sAPIURL(req.K8sAPIURL) {
-			return ErrK8sAPIURLInvalid
-		}
-	case "kubeconfig":
-		if !ValidateK8sAPIURL(req.K8sAPIURL) {
-			return ErrK8sAPIURLInvalid
-		}
-		if strings.TrimSpace(req.K8sKubeconfig) == "" {
-			return ErrK8sCredentialsRequired
-		}
-	case "token":
-		if !ValidateK8sAPIURL(req.K8sAPIURL) || strings.TrimSpace(req.K8sAPIURL) == "" {
-			return ErrK8sAPIURLInvalid
-		}
-		if strings.TrimSpace(req.K8sToken) == "" {
-			return ErrK8sCredentialsRequired
-		}
-	default:
-		return fmt.Errorf("host: unsupported k8s auth_mode %q", authMode)
-	}
 
-	host.K8sAPIURL = req.K8sAPIURL
-	host.K8sNamespace = req.K8sNamespace
+	host.K8sAuthMode = authMode
+	host.K8sNamespace = strings.TrimSpace(req.K8sNamespace)
 	if host.K8sNamespace == "" {
 		host.K8sNamespace = "default"
 	}
-	host.K8sAuthMode = authMode
-	host.K8sCACert = req.K8sCACert
-	host.K8sInsecureSkipTLS = req.K8sInsecureSkipTLS
-	// 凭据加密落库（enc:v1: 前缀）；加密失败直接报错，绝不静默降级明文。
-	// Credentials are encrypted at rest (enc:v1: prefix); encryption failures surface as
-	// errors and never silently degrade to plaintext storage.
-	kubeconfigEnc, err := secretbox.Encrypt(req.K8sKubeconfig)
-	if err != nil {
-		return err
+
+	switch authMode {
+	case "kubeconfig":
+		if strings.TrimSpace(req.K8sKubeconfig) == "" {
+			return ErrK8sCredentialsRequired
+		}
+		serverURL, err := k8s.ParseKubeconfigServerURL(req.K8sKubeconfig)
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrK8sKubeconfigInvalid, err)
+		}
+		if serverURL != "" {
+			host.K8sAPIURL = serverURL
+		} else if strings.TrimSpace(req.K8sAPIURL) != "" {
+			if !ValidateK8sAPIURL(strings.TrimSpace(req.K8sAPIURL)) {
+				return ErrK8sAPIURLInvalid
+			}
+			host.K8sAPIURL = strings.TrimRight(strings.TrimSpace(req.K8sAPIURL), "/")
+		}
+		// 凭据加密落库（enc:v1: 前缀）；加密失败直接报错，绝不静默降级明文。
+		// Credentials are encrypted at rest (enc:v1: prefix); encryption failures surface as
+		// errors and never silently degrade to plaintext storage.
+		kubeconfigEnc, err := secretbox.Encrypt(req.K8sKubeconfig)
+		if err != nil {
+			return err
+		}
+		host.K8sKubeconfig = kubeconfigEnc
+		host.K8sToken = ""
+		host.K8sCACert = ""
+		host.K8sInsecureSkipTLS = false
+	case "token":
+		apiURL := strings.TrimSpace(req.K8sAPIURL)
+		if !ValidateK8sAPIURL(apiURL) {
+			return ErrK8sAPIURLInvalid
+		}
+		token := strings.TrimSpace(req.K8sToken)
+		if token == "" {
+			return ErrK8sCredentialsRequired
+		}
+		tokenEnc, err := secretbox.Encrypt(token)
+		if err != nil {
+			return err
+		}
+		host.K8sAPIURL = strings.TrimRight(apiURL, "/")
+		host.K8sKubeconfig = ""
+		host.K8sToken = tokenEnc
+		host.K8sInsecureSkipTLS = req.K8sInsecureSkipTLS
+		if !req.K8sInsecureSkipTLS {
+			host.K8sCACert = strings.TrimSpace(req.K8sCACert)
+		} else {
+			host.K8sCACert = ""
+		}
+	default:
+		return fmt.Errorf("%w: %q", ErrK8sAuthModeInvalid, authMode)
 	}
-	tokenEnc, err := secretbox.Encrypt(req.K8sToken)
-	if err != nil {
-		return err
-	}
-	host.K8sKubeconfig = kubeconfigEnc
-	host.K8sToken = tokenEnc
 	// K8s hosts don't need Agent, status will be updated after API connection test
 	// K8s 主机不需要 Agent，状态将在 API 连接测试后更新
 	return nil
@@ -376,72 +391,80 @@ func (s *Service) updateDockerFields(req *UpdateHostRequest, host *Host) error {
 // updateK8sFields updates kubernetes specific fields.
 // updateK8sFields 更新 Kubernetes 特定字段。
 func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
-	if req.K8sAPIURL != nil {
-		if !ValidateK8sAPIURL(*req.K8sAPIURL) {
-			return ErrK8sAPIURLInvalid
-		}
-		host.K8sAPIURL = *req.K8sAPIURL
-	}
-
-	if req.K8sNamespace != nil {
-		host.K8sNamespace = *req.K8sNamespace
-	}
-
-	// 留空保留原值（跨层指南错误九）；仅显式传入非空新值时重新加密覆盖。
-	// Empty input preserves the stored credential (cross-layer pitfall #9); only explicit
-	// non-empty new values are re-encrypted and overwritten.
-	if req.K8sKubeconfig != nil && strings.TrimSpace(*req.K8sKubeconfig) != "" {
-		enc, err := secretbox.Encrypt(*req.K8sKubeconfig)
-		if err != nil {
-			return err
-		}
-		host.K8sKubeconfig = enc
-	}
-
-	if req.K8sToken != nil && strings.TrimSpace(*req.K8sToken) != "" {
-		enc, err := secretbox.Encrypt(*req.K8sToken)
-		if err != nil {
-			return err
-		}
-		host.K8sToken = enc
-	}
-
+	authMode := strings.TrimSpace(host.K8sAuthMode)
 	if req.K8sAuthMode != nil {
-		host.K8sAuthMode = *req.K8sAuthMode
+		authMode = strings.TrimSpace(*req.K8sAuthMode)
 	}
-	// CA 证书与编辑弹窗"留空保留原值"提示保持一致，空串不覆盖已有证书。
-	// Keep CA cert aligned with the edit dialog's "leave empty to keep" hint so empty input
-	// never clears an existing certificate.
-	if req.K8sCACert != nil && strings.TrimSpace(*req.K8sCACert) != "" {
-		host.K8sCACert = *req.K8sCACert
-	}
-	if req.K8sInsecureSkipTLS != nil {
-		host.K8sInsecureSkipTLS = *req.K8sInsecureSkipTLS
-	}
-	// 切换 auth_mode 后的合并校验：新模式所需凭据既未传入且库中也为空时拒绝保存，
-	// 防止保存出一个永远连不上的主机。
-	// Post-merge validation after an auth_mode switch: reject the save when the new
-	// mode's required credential was neither provided nor already stored, so a host
-	// that can never connect is never persisted.
-	authMode := host.K8sAuthMode
 	if authMode == "" {
 		authMode = "kubeconfig"
 	}
+	if authMode != "kubeconfig" && authMode != "token" {
+		return fmt.Errorf("%w: %q", ErrK8sAuthModeInvalid, authMode)
+	}
+	host.K8sAuthMode = authMode
+
+	if req.K8sNamespace != nil {
+		ns := strings.TrimSpace(*req.K8sNamespace)
+		if ns == "" {
+			ns = "default"
+		}
+		host.K8sNamespace = ns
+	}
+
+	// 按目标认证模式只更新对应字段，并做切换后的合并校验：
+	// 留空保留原值（跨层指南错误九）；若切换模式后库中与入参均缺失必需凭据则拒绝保存。
+	// Apply only the fields belonging to the active auth mode and validate post-merge:
+	// empty secrets keep existing values (cross-layer pitfall #9); switching modes without
+	// the target mode's required credential is rejected.
 	switch authMode {
-	case "in_cluster":
 	case "kubeconfig":
+		if req.K8sKubeconfig != nil && strings.TrimSpace(*req.K8sKubeconfig) != "" {
+			serverURL, err := k8s.ParseKubeconfigServerURL(*req.K8sKubeconfig)
+			if err != nil {
+				return fmt.Errorf("%w: %v", ErrK8sKubeconfigInvalid, err)
+			}
+			enc, err := secretbox.Encrypt(*req.K8sKubeconfig)
+			if err != nil {
+				return err
+			}
+			host.K8sKubeconfig = enc
+			if serverURL != "" {
+				host.K8sAPIURL = serverURL
+			}
+		}
 		if strings.TrimSpace(host.K8sKubeconfig) == "" {
 			return ErrK8sCredentialsRequired
 		}
 	case "token":
+		if req.K8sAPIURL != nil {
+			apiURL := strings.TrimSpace(*req.K8sAPIURL)
+			if !ValidateK8sAPIURL(apiURL) {
+				return ErrK8sAPIURLInvalid
+			}
+			host.K8sAPIURL = strings.TrimRight(apiURL, "/")
+		}
+		if req.K8sToken != nil && strings.TrimSpace(*req.K8sToken) != "" {
+			enc, err := secretbox.Encrypt(strings.TrimSpace(*req.K8sToken))
+			if err != nil {
+				return err
+			}
+			host.K8sToken = enc
+		}
+		// CA 证书与编辑弹窗"留空保留原值"提示保持一致，空串不覆盖已有证书。
+		// Keep CA cert aligned with the edit dialog's "leave empty to keep" hint so empty input
+		// never clears an existing certificate.
+		if req.K8sCACert != nil && strings.TrimSpace(*req.K8sCACert) != "" {
+			host.K8sCACert = strings.TrimSpace(*req.K8sCACert)
+		}
+		if req.K8sInsecureSkipTLS != nil {
+			host.K8sInsecureSkipTLS = *req.K8sInsecureSkipTLS
+		}
+		if strings.TrimSpace(host.K8sAPIURL) == "" || !ValidateK8sAPIURL(host.K8sAPIURL) {
+			return ErrK8sAPIURLInvalid
+		}
 		if strings.TrimSpace(host.K8sToken) == "" {
 			return ErrK8sCredentialsRequired
 		}
-		if strings.TrimSpace(host.K8sAPIURL) == "" {
-			return ErrK8sAPIURLInvalid
-		}
-	default:
-		return fmt.Errorf("host: unsupported k8s auth_mode %q", authMode)
 	}
 	return nil
 }

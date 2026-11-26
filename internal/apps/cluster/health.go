@@ -433,10 +433,27 @@ func (s *Service) evaluateK8sClusterHealth(ctx context.Context, cluster *Cluster
 	// external kubectl scale or a downscale the persisted config can be stale and would
 	// false-positive unhealthy; the persisted value is only a fallback.
 	want := 0
-	masterLive, masterErr := ops.GetReplicas(ctx, cfg, "master")
-	workerLive, workerErr := ops.GetReplicas(ctx, cfg, "worker")
-	if masterErr == nil && workerErr == nil {
-		want = masterLive + workerLive
+	liveQueried := false
+	liveOK := true
+	liveTotal := 0
+	if strings.TrimSpace(cfg.MasterWorkloadName) != "" {
+		liveQueried = true
+		if n, err := ops.GetReplicas(ctx, cfg, "master"); err == nil {
+			liveTotal += n
+		} else {
+			liveOK = false
+		}
+	}
+	if strings.TrimSpace(cfg.WorkerWorkloadName) != "" {
+		liveQueried = true
+		if n, err := ops.GetReplicas(ctx, cfg, "worker"); err == nil {
+			liveTotal += n
+		} else {
+			liveOK = false
+		}
+	}
+	if liveQueried && liveOK {
+		want = liveTotal
 	} else {
 		want = cfg.MasterReplicas + cfg.WorkerReplicas
 	}

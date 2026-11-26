@@ -28,9 +28,11 @@
 'use client';
 
 import React, {useState, useCallback, useEffect, useMemo, useRef} from 'react';
+import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Button} from '@/components/arc/button/button';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {
   ConfirmDialog,
   DirtyCloseDialog,
@@ -74,6 +76,13 @@ import {ClusterPrecheckStep} from './wizard/ClusterPrecheckStep';
 import {ClusterPluginsStep} from './wizard/ClusterPluginsStep';
 import {ClusterDeployStep} from './wizard/ClusterDeployStep';
 import {ClusterCompleteStep} from './wizard/ClusterCompleteStep';
+import {
+  INITIAL_K8S_DEPLOY_FORM,
+  K8sDeployClusterPanel,
+  type K8sDeployFormState,
+} from './K8sDeployClusterPanel';
+
+type DeployInfraTarget = 'bare_metal' | 'kubernetes';
 
 export interface ClusterDeployWizardProps {
   /** Whether the dialog is open / 对话框是否打开 */
@@ -90,7 +99,14 @@ export function ClusterDeployWizard({
   onComplete,
 }: ClusterDeployWizardProps) {
   const t = useTranslations();
+  const router = useRouter();
   const reducedMotion = useReducedMotion() ?? false;
+  const [infraTarget, setInfraTarget] =
+    useState<DeployInfraTarget>('bare_metal');
+  const [k8sForm, setK8sForm] = useState<K8sDeployFormState>(
+    INITIAL_K8S_DEPLOY_FORM,
+  );
+  const [k8sDeploying, setK8sDeploying] = useState(false);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   // 记录上一步索引以决定过渡方向 / Track the previous index for the slide direction
   const prevStepRef = useRef(0);
@@ -932,29 +948,43 @@ export function ClusterDeployWizard({
    * Whether the user has entered anything worth protecting.
    * 用户是否已有需要保护的输入（用于脏态关闭确认）。
    */
-  const hasUserInput = useMemo(
-    () =>
+  const hasUserInput = useMemo(() => {
+    if (infraTarget === 'kubernetes') {
+      return (
+        k8sForm.name.trim().length > 0 ||
+        k8sForm.description.trim().length > 0
+      );
+    }
+    return (
       config.name.trim().length > 0 ||
       config.description.trim().length > 0 ||
       selectedHosts.length > 0 ||
-      config.selectedPlugins.length > 0,
-    [
-      config.name,
-      config.description,
-      selectedHosts.length,
-      config.selectedPlugins.length,
-    ],
-  );
+      config.selectedPlugins.length > 0
+    );
+  }, [
+    infraTarget,
+    k8sForm.name,
+    k8sForm.description,
+    config.name,
+    config.description,
+    selectedHosts.length,
+    config.selectedPlugins.length,
+  ]);
   const dirtyGuardActive =
     open &&
     hasUserInput &&
-    currentStep.id !== 'deploy' &&
-    currentStep.id !== 'complete' &&
-    !deploying;
+    (infraTarget === 'kubernetes'
+      ? !k8sDeploying
+      : currentStep.id !== 'deploy' &&
+        currentStep.id !== 'complete' &&
+        !deploying);
   useBeforeUnload(dirtyGuardActive);
 
   /** Reset everything and actually close / 复位全部状态并真正关闭弹窗 */
   const closeNow = useCallback(() => {
+    setInfraTarget('bare_metal');
+    setK8sForm(INITIAL_K8S_DEPLOY_FORM);
+    setK8sDeploying(false);
     setCurrentStepIndex(0);
     setConfig(defaultClusterDeployConfig);
     setHostsWithRole([]);
@@ -970,11 +1000,110 @@ export function ClusterDeployWizard({
     onOpenChange(false);
   }, [onOpenChange]);
 
+  const k8sBlockReason = useMemo((): string | null => {
+    if (
+      k8sForm.cluster_code.length > 0 &&
+      !isValidClusterCode(k8sForm.cluster_code)
+    ) {
+      return t('cluster.clusterCodeInvalid');
+    }
+    if (
+      !k8sForm.host_id ||
+      !k8sForm.namespace.trim() ||
+      !k8sForm.name.trim() ||
+      !k8sForm.image.trim()
+    ) {
+      return t('cluster.k8s.nextDisabledK8s');
+    }
+    return null;
+  }, [k8sForm, t]);
+
+  const handleK8sDeploy = useCallback(async () => {
+    if (k8sBlockReason || k8sDeploying) {
+      return;
+    }
+    setK8sDeploying(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: k8sForm.name.trim(),
+        cluster_code: k8sForm.cluster_code.trim() || undefined,
+        description: k8sForm.description.trim() || undefined,
+        version: k8sForm.version.trim() || undefined,
+        host_id: k8sForm.host_id,
+        namespace: k8sForm.namespace.trim(),
+        management_source: 'stx_deployed',
+        image: k8sForm.image.trim(),
+        master_replicas: k8sForm.master_replicas,
+        worker_replicas: k8sForm.worker_replicas,
+        master_http_port: k8sForm.master_http_port,
+        hazelcast_port: k8sForm.hazelcast_port,
+      };
+      if (k8sForm.master_cpu.trim()) {
+        payload.master_cpu = k8sForm.master_cpu.trim();
+      }
+      if (k8sForm.master_memory.trim()) {
+        payload.master_memory = k8sForm.master_memory.trim();
+      }
+      if (k8sForm.worker_cpu.trim()) {
+        payload.worker_cpu = k8sForm.worker_cpu.trim();
+      }
+      if (k8sForm.worker_memory.trim()) {
+        payload.worker_memory = k8sForm.worker_memory.trim();
+      }
+      if (k8sForm.checkpoint_pvc.trim()) {
+        payload.checkpoint_pvc = k8sForm.checkpoint_pvc.trim();
+      }
+      if (k8sForm.data_storage_class.trim()) {
+        payload.data_storage_class = k8sForm.data_storage_class.trim();
+      }
+      if (k8sForm.data_size.trim()) {
+        payload.data_size = k8sForm.data_size.trim();
+      }
+
+      const created = (await services.cluster.createKubernetesCluster(
+        payload,
+      )) as
+        | {
+            cluster?: {id?: number};
+            proxy_status?: {
+              healthy?: boolean;
+              message?: string;
+              pod_events?: string[];
+            };
+          }
+        | undefined;
+      const proxyStatus = created?.proxy_status;
+      if (proxyStatus && !proxyStatus.healthy) {
+        // 伴生 Proxy 探活异常时不阻断集群创建，展示 Pod 事件便于详情页重试。
+        // Companion proxy readiness warning never blocks saving; surface pod events for retry in detail view.
+        const events = (proxyStatus.pod_events || []).slice(0, 3).join(' · ');
+        toast.warning(
+          `${t('cluster.k8s.proxyUnhealthy')}: ${proxyStatus.message || ''}${events ? ` · ${events}` : ''}`,
+        );
+      } else {
+        toast.success(t('cluster.wizard.deploySuccess'));
+      }
+      if (created?.cluster?.id) {
+        onComplete?.(created.cluster.id);
+      }
+      closeNow();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t('cluster.wizard.deployFailed'),
+      );
+    } finally {
+      setK8sDeploying(false);
+    }
+  }, [k8sBlockReason, k8sDeploying, k8sForm, onComplete, closeNow, t]);
+
   /**
    * Close requests route through the right confirmation instead of a native confirm().
    * 关闭请求先走对应确认弹窗，替代浏览器原生 confirm()。
    */
   const handleClose = useCallback(() => {
+    if (k8sDeploying) {
+      return;
+    }
     if (deploying) {
       setDeployCancelOpen(true);
       return;
@@ -984,7 +1113,7 @@ export function ClusterDeployWizard({
       return;
     }
     closeNow();
-  }, [deploying, dirtyGuardActive, closeNow]);
+  }, [k8sDeploying, deploying, dirtyGuardActive, closeNow]);
 
   // Handle complete callback / 处理完成并查看集群
   const handleComplete = useCallback(() => {
@@ -1105,112 +1234,195 @@ export function ClusterDeployWizard({
           <span className='flex items-center gap-2.5'>
             <Layers className='size-4 shrink-0 text-primary' aria-hidden />
             <span>{t('cluster.wizard.title')}</span>
-            <NeutralChip className='font-mono tabular-nums'>
-              {currentStepIndex + 1} / {WIZARD_STEPS.length}
-            </NeutralChip>
+            {infraTarget === 'bare_metal' ? (
+              <NeutralChip className='font-mono tabular-nums'>
+                {currentStepIndex + 1} / {WIZARD_STEPS.length}
+              </NeutralChip>
+            ) : null}
           </span>
         }
-        description={t(currentStep.descKey)}
+        description={
+          infraTarget === 'kubernetes'
+            ? t('cluster.k8s.deployDesc')
+            : t(currentStep.descKey)
+        }
       >
-        {/* Stepper bar / 现代化步骤条 */}
-        <ClusterWizardStepper
-          steps={WIZARD_STEPS}
-          currentStepIndex={currentStepIndex}
-          onStepClick={(index) => setCurrentStepIndex(index)}
-          deploying={deploying}
-          stepErrors={{
-            ...(precheckHasRun && !allPrechecksPassed
-              ? {precheck: t('cluster.wizard.precheckFailed')}
-              : {}),
-            ...(deployStatus === 'failed'
-              ? {deploy: t('cluster.wizard.deployFailed')}
-              : {}),
-          }}
-          allComplete={currentStep.id === 'complete'}
-          readOnly={
-            deploying ||
-            currentStep.id === 'deploy' ||
-            currentStep.id === 'complete'
-          }
-        />
+        {/* 目标基础设施切换栏 / Target infrastructure switcher */}
+        {!deploying &&
+          !k8sDeploying &&
+          (infraTarget === 'kubernetes' ||
+            (currentStep.id !== 'deploy' && currentStep.id !== 'complete')) && (
+            <div className='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b-[0.5px] border-border/80 px-6 py-2.5'>
+              <span className='text-xs font-medium text-foreground'>
+                {t('cluster.k8s.targetEnvironment')}
+              </span>
+              <SegmentedControl
+                label={t('cluster.k8s.targetEnvironment')}
+                value={infraTarget}
+                onValueChange={(value) =>
+                  setInfraTarget(value as DeployInfraTarget)
+                }
+                options={[
+                  {value: 'bare_metal', label: t('host.types.bareMetal')},
+                  {value: 'kubernetes', label: t('host.types.kubernetes')},
+                ]}
+              />
+            </div>
+          )}
 
-        {/* Step Content / 步骤主体内容区（轻量方向性过渡） */}
-        <div className='min-h-0 flex-1 overflow-hidden px-6 py-4'>
-          <motion.div
-            key={currentStepIndex}
-            className='h-full min-h-0'
-            initial={
-              reducedMotion
-                ? {opacity: 0}
-                : {opacity: 0, x: stepDirection === 'back' ? -12 : 12}
-            }
-            animate={{opacity: 1, x: 0}}
-            transition={{
-              duration: reducedMotion ? 0 : 0.15,
-              ease: [0.22, 1, 0.36, 1],
-            }}
-          >
-            {renderStepContent()}
-          </motion.div>
-        </div>
-
-        {/* Footer / 底部操作栏 */}
-        {currentStep.id !== 'complete' && (
-          <div className='flex shrink-0 items-center justify-between border-t-[0.5px] border-border/80 px-6 py-3'>
-            <Button
-              type='button'
-              variant='secondary'
-              size='sm'
-              onClick={handlePrevious}
-              disabled={currentStepIndex === 0 || currentStep.id === 'deploy'}
-            >
-              <ChevronLeft className='size-3.5' aria-hidden />
-              {t('common.previous')}
-            </Button>
-
-            <div className='flex items-center gap-2'>
+        {infraTarget === 'kubernetes' ? (
+          <>
+            <div className='min-h-0 flex-1 overflow-hidden px-6 py-4'>
+              <K8sDeployClusterPanel
+                active={open && infraTarget === 'kubernetes'}
+                form={k8sForm}
+                onChange={setK8sForm}
+                onNavigateToHosts={() => {
+                  closeNow();
+                  router.push('/hosts');
+                }}
+              />
+            </div>
+            <div className='flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border/80 px-6 py-3'>
               <Button
                 type='button'
                 variant='ghost'
                 size='sm'
+                disabled={k8sDeploying}
                 onClick={handleClose}
               >
                 <X className='size-3.5' aria-hidden />
                 {t('common.cancel')}
               </Button>
+              <DisabledReasonTooltip reason={k8sBlockReason}>
+                <Button
+                  type='button'
+                  size='sm'
+                  loading={k8sDeploying}
+                  onClick={() => {
+                    if (k8sBlockReason || k8sDeploying) {
+                      return;
+                    }
+                    void handleK8sDeploy();
+                  }}
+                  aria-disabled={
+                    Boolean(k8sBlockReason) || k8sDeploying ? 'true' : undefined
+                  }
+                  className={
+                    Boolean(k8sBlockReason) || k8sDeploying
+                      ? 'opacity-60'
+                      : undefined
+                  }
+                >
+                  {t('cluster.wizard.startDeploy')}
+                  <PlayCircle className='size-3.5' aria-hidden />
+                </Button>
+              </DisabledReasonTooltip>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Stepper bar / 现代化步骤条 */}
+            <ClusterWizardStepper
+              steps={WIZARD_STEPS}
+              currentStepIndex={currentStepIndex}
+              onStepClick={(index) => setCurrentStepIndex(index)}
+              deploying={deploying}
+              stepErrors={{
+                ...(precheckHasRun && !allPrechecksPassed
+                  ? {precheck: t('cluster.wizard.precheckFailed')}
+                  : {}),
+                ...(deployStatus === 'failed'
+                  ? {deploy: t('cluster.wizard.deployFailed')}
+                  : {}),
+              }}
+              allComplete={currentStep.id === 'complete'}
+              readOnly={
+                deploying ||
+                currentStep.id === 'deploy' ||
+                currentStep.id === 'complete'
+              }
+            />
 
-              {currentStep.id !== 'deploy' && (
-                <DisabledReasonTooltip reason={proceedBlockReason()}>
+            {/* Step Content / 步骤主体内容区（轻量方向性过渡） */}
+            <div className='min-h-0 flex-1 overflow-hidden px-6 py-4'>
+              <motion.div
+                key={currentStepIndex}
+                className='h-full min-h-0'
+                initial={
+                  reducedMotion
+                    ? {opacity: 0}
+                    : {opacity: 0, x: stepDirection === 'back' ? -12 : 12}
+                }
+                animate={{opacity: 1, x: 0}}
+                transition={{
+                  duration: reducedMotion ? 0 : 0.15,
+                  ease: [0.22, 1, 0.36, 1],
+                }}
+              >
+                {renderStepContent()}
+              </motion.div>
+            </div>
+
+            {/* Footer / 底部操作栏 */}
+            {currentStep.id !== 'complete' && (
+              <div className='flex shrink-0 items-center justify-between border-t-[0.5px] border-border/80 px-6 py-3'>
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={handlePrevious}
+                  disabled={currentStepIndex === 0 || currentStep.id === 'deploy'}
+                >
+                  <ChevronLeft className='size-3.5' aria-hidden />
+                  {t('common.previous')}
+                </Button>
+
+                <div className='flex items-center gap-2'>
                   <Button
                     type='button'
+                    variant='ghost'
                     size='sm'
-                    onClick={() => {
-                      if (!canProceed() || deploying) {
-                        return;
-                      }
-                      handleNext();
-                    }}
-                    aria-disabled={!canProceed() || deploying ? 'true' : undefined}
-                    className={
-                      !canProceed() || deploying ? 'opacity-60' : undefined
-                    }
+                    onClick={handleClose}
                   >
-                    {currentStep.id === 'plugins' ? (
-                      <>
-                        {t('cluster.wizard.startDeploy')}
-                        <PlayCircle className='size-3.5' aria-hidden />
-                      </>
-                    ) : (
-                      <>
-                        {t('common.next')}
-                        <ChevronRight className='size-3.5' aria-hidden />
-                      </>
-                    )}
+                    <X className='size-3.5' aria-hidden />
+                    {t('common.cancel')}
                   </Button>
-                </DisabledReasonTooltip>
-              )}
-            </div>
-          </div>
+
+                  {currentStep.id !== 'deploy' && (
+                    <DisabledReasonTooltip reason={proceedBlockReason()}>
+                      <Button
+                        type='button'
+                        size='sm'
+                        onClick={() => {
+                          if (!canProceed() || deploying) {
+                            return;
+                          }
+                          handleNext();
+                        }}
+                        aria-disabled={!canProceed() || deploying ? 'true' : undefined}
+                        className={
+                          !canProceed() || deploying ? 'opacity-60' : undefined
+                        }
+                      >
+                        {currentStep.id === 'plugins' ? (
+                          <>
+                            {t('cluster.wizard.startDeploy')}
+                            <PlayCircle className='size-3.5' aria-hidden />
+                          </>
+                        ) : (
+                          <>
+                            {t('common.next')}
+                            <ChevronRight className='size-3.5' aria-hidden />
+                          </>
+                        )}
+                      </Button>
+                    </DisabledReasonTooltip>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
       </DialogContent>

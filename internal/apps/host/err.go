@@ -59,6 +59,12 @@ var (
 	// ErrK8sCredentialsRequired indicates K8s credentials are required.
 	// ErrK8sCredentialsRequired 表示需要 K8s 凭证。
 	ErrK8sCredentialsRequired = errors.New("host: kubernetes host requires kubeconfig or token")
+	// ErrK8sAuthModeInvalid indicates the Kubernetes auth mode is unsupported.
+	// ErrK8sAuthModeInvalid 表示不支持的 Kubernetes 认证方式。
+	ErrK8sAuthModeInvalid = errors.New("host: unsupported kubernetes auth mode, must be kubeconfig or token")
+	// ErrK8sKubeconfigInvalid indicates the kubeconfig content cannot be parsed.
+	// ErrK8sKubeconfigInvalid 表示 kubeconfig 内容无法解析。
+	ErrK8sKubeconfigInvalid = errors.New("host: invalid kubeconfig content")
 )
 
 // Error codes for host management operations.

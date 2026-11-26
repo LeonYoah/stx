@@ -28,17 +28,42 @@
 import {useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/arc/input/input';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Select} from '@/components/arc/select/select';
 import {Switch} from '@/components/arc/switch/switch';
 import {Label} from '@/components/ui/label';
 import {Textarea} from '@/components/ui/textarea';
 import {toast} from '@/lib/toast';
 import services from '@/lib/services';
-import {HostType, CreateHostRequest, HostInfo} from '@/lib/services/host/types';
+import {
+  HostType,
+  CreateHostRequest,
+  HostInfo,
+  K8sAuthMode,
+} from '@/lib/services/host/types';
 import {cn} from '@/lib/utils';
 import {HostInstallGuideContent} from './HostInstallGuideContent';
+
+const INITIAL_FORM_DATA: CreateHostRequest = {
+  name: '',
+  host_type: HostType.BARE_METAL,
+  description: '',
+  ip_address: '',
+  ssh_port: 22,
+  docker_api_url: '',
+  docker_tls_enabled: false,
+  docker_cert_path: '',
+  k8s_api_url: '',
+  k8s_namespace: 'default',
+  k8s_kubeconfig: '',
+  k8s_token: '',
+  k8s_auth_mode: 'kubeconfig',
+  k8s_ca_cert: '',
+  k8s_insecure_skip_tls: false,
+};
 
 interface CreateHostDialogProps {
   open: boolean;
@@ -61,44 +86,19 @@ export function CreateHostDialog({
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
   const [createdHost, setCreatedHost] = useState<HostInfo | null>(null);
-  const [formData, setFormData] = useState<CreateHostRequest>({
-    name: '',
-    host_type: HostType.BARE_METAL,
-    description: '',
-    ip_address: '',
-    ssh_port: 22,
-    docker_api_url: '',
-    docker_tls_enabled: false,
-    docker_cert_path: '',
-    k8s_api_url: '',
-    k8s_namespace: 'default',
-    k8s_kubeconfig: '',
-    k8s_token: '',
-  });
+  const [formData, setFormData] = useState<CreateHostRequest>(() => ({
+    ...INITIAL_FORM_DATA,
+  }));
 
+  const k8sAuthMode: K8sAuthMode =
+    formData.k8s_auth_mode === 'token' ? 'token' : 'kubeconfig';
 
   /**
    * Reset form data
    * 重置表单数据
    */
   const resetForm = () => {
-    setFormData({
-      name: '',
-      host_type: HostType.BARE_METAL,
-      description: '',
-      ip_address: '',
-      ssh_port: 22,
-      docker_api_url: '',
-      docker_tls_enabled: false,
-      docker_cert_path: '',
-      k8s_api_url: '',
-      k8s_namespace: 'default',
-      k8s_kubeconfig: '',
-      k8s_token: '',
-      k8s_auth_mode: 'kubeconfig' as const,
-      k8s_ca_cert: '',
-      k8s_insecure_skip_tls: false,
-    });
+    setFormData({...INITIAL_FORM_DATA});
     setStep(1);
     setCreatedHost(null);
   };
@@ -151,26 +151,28 @@ export function CreateHostDialog({
     }
 
     if (formData.host_type === HostType.KUBERNETES) {
-      if (!formData.k8s_api_url || formData.k8s_api_url.trim().length === 0) {
-        toast.error(t('host.errors.k8sUrlRequired'));
-        return false;
-      }
-      // Validate K8s API URL format / 验证 K8s API URL 格式
-      if (
-        !formData.k8s_api_url.startsWith('https://') &&
-        !formData.k8s_api_url.startsWith('http://')
-      ) {
-        toast.error(t('host.errors.k8sUrlInvalid'));
-        return false;
-      }
-      // K8s requires either kubeconfig or token / K8s 需要 kubeconfig 或 token
-      if (formData.k8s_auth_mode === 'kubeconfig' && !formData.k8s_kubeconfig && !formData.k8s_token) {
-        toast.error(t('host.errors.k8sCredentialsRequired'));
-        return false;
-      }
-      if (formData.k8s_auth_mode === 'token' && !formData.k8s_token) {
-        toast.error(t('host.errors.k8sCredentialsRequired'));
-        return false;
+      if (k8sAuthMode === 'kubeconfig') {
+        if (!formData.k8s_kubeconfig || formData.k8s_kubeconfig.trim().length === 0) {
+          toast.error(t('host.errors.k8sKubeconfigRequired'));
+          return false;
+        }
+      } else {
+        if (!formData.k8s_api_url || formData.k8s_api_url.trim().length === 0) {
+          toast.error(t('host.errors.k8sUrlRequired'));
+          return false;
+        }
+        // Validate K8s API URL format / 验证 K8s API URL 格式
+        if (
+          !formData.k8s_api_url.startsWith('https://') &&
+          !formData.k8s_api_url.startsWith('http://')
+        ) {
+          toast.error(t('host.errors.k8sUrlInvalid'));
+          return false;
+        }
+        if (!formData.k8s_token || formData.k8s_token.trim().length === 0) {
+          toast.error(t('host.errors.k8sTokenRequired'));
+          return false;
+        }
       }
     }
 
@@ -186,7 +188,35 @@ export function CreateHostDialog({
 
     setLoading(true);
     try {
-      const result = await services.host.createHostSafe(formData);
+      let payload: CreateHostRequest = formData;
+      if (formData.host_type === HostType.KUBERNETES) {
+        // 按认证方式收敛提交字段，避免另一模式的草稿残留干扰后端校验。
+        // Scope payload strictly to the active auth mode so draft fields from the other mode never leak.
+        payload =
+          k8sAuthMode === 'kubeconfig'
+            ? {
+                name: formData.name.trim(),
+                host_type: HostType.KUBERNETES,
+                description: formData.description,
+                k8s_auth_mode: 'kubeconfig',
+                k8s_namespace: formData.k8s_namespace?.trim() || 'default',
+                k8s_kubeconfig: formData.k8s_kubeconfig?.trim(),
+              }
+            : {
+                name: formData.name.trim(),
+                host_type: HostType.KUBERNETES,
+                description: formData.description,
+                k8s_auth_mode: 'token',
+                k8s_api_url: formData.k8s_api_url?.trim(),
+                k8s_namespace: formData.k8s_namespace?.trim() || 'default',
+                k8s_token: formData.k8s_token?.trim(),
+                k8s_insecure_skip_tls: Boolean(formData.k8s_insecure_skip_tls),
+                k8s_ca_cert: formData.k8s_insecure_skip_tls
+                  ? ''
+                  : formData.k8s_ca_cert?.trim() || '',
+              };
+      }
+      const result = await services.host.createHostSafe(payload);
       if (result.success && result.data) {
         const created = result.data;
         // 触发父级回调刷新表格数据 / Notify parent to refresh host list
@@ -218,9 +248,10 @@ export function CreateHostDialog({
       <DialogContent
         title={dialogTitle}
         className={cn(
+          'arc-compact',
           step === 2
             ? 'w-[min(calc(100vw-2rem),700px)]!'
-            : 'w-[min(calc(100vw-2rem),540px)]!',
+            : 'w-[min(calc(100vw-2rem),560px)]!',
         )}
         bodyClassName='max-h-[min(85dvh,720px)] overflow-y-auto'
       >
@@ -260,9 +291,12 @@ export function CreateHostDialog({
                 label={`${t('host.hostType')} *`}
                 value={formData.host_type}
                 onValueChange={(value) => {
-                  // Docker / Kubernetes 暂不支持，仅允许选择物理机/虚拟机。
-                  // Docker and Kubernetes are not yet supported; only bare metal can be selected.
-                  if (value === HostType.BARE_METAL) {
+                  // 仅 Docker 暂未支持；物理机/虚拟机与 Kubernetes 均已开放接入。
+                  // Only Docker remains unsupported; bare metal and Kubernetes are both enabled.
+                  if (
+                    value === HostType.BARE_METAL ||
+                    value === HostType.KUBERNETES
+                  ) {
                     setFormData({...formData, host_type: value});
                   }
                 }}
@@ -272,16 +306,13 @@ export function CreateHostDialog({
                     label: t('host.types.bareMetal'),
                   },
                   {
+                    value: HostType.KUBERNETES,
+                    label: t('host.types.kubernetes'),
+                  },
+                  {
                     value: HostType.DOCKER,
                     label: t('host.types.unsupportedOption', {
                       type: t('host.types.docker'),
-                    }),
-                    disabled: true,
-                  },
-                  {
-                    value: HostType.KUBERNETES,
-                    label: t('host.types.unsupportedOption', {
-                      type: t('host.types.kubernetes'),
                     }),
                     disabled: true,
                   },
@@ -357,33 +388,23 @@ export function CreateHostDialog({
               ) : null}
 
               {formData.host_type === HostType.KUBERNETES ? (
-                <>
-                  <Input
-                    id='k8s_api_url'
-                    label={`${t('host.k8sApiUrl')} *`}
-                    value={formData.k8s_api_url}
-                    onChange={(e) =>
-                      setFormData({...formData, k8s_api_url: e.target.value})
-                    }
-                    placeholder='https://kubernetes.default.svc:6443'
-                  />
-                  <div className='space-y-2'>
-                    <Label htmlFor='k8s_auth_mode'>{t('host.k8sAuthMode')}</Label>
-                    <select
-                      id='k8s_auth_mode'
-                      className='w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm'
-                      value={formData.k8s_auth_mode || 'kubeconfig'}
-                      onChange={(e) =>
+                <div className='space-y-4 border-t-[0.5px] border-border/80 pt-4'>
+                  <div className='space-y-1.5'>
+                    <Label>{t('host.k8sAuthMode')}</Label>
+                    <SegmentedControl
+                      label={t('host.k8sAuthMode')}
+                      value={k8sAuthMode}
+                      onValueChange={(value) =>
                         setFormData({
                           ...formData,
-                          k8s_auth_mode: e.target.value as 'kubeconfig' | 'token' | 'in_cluster',
+                          k8s_auth_mode: value as K8sAuthMode,
                         })
                       }
-                    >
-                      <option value='kubeconfig'>kubeconfig</option>
-                      <option value='token'>token</option>
-                      <option value='in_cluster'>in_cluster</option>
-                    </select>
+                      options={[
+                        {value: 'kubeconfig', label: 'Kubeconfig'},
+                        {value: 'token', label: 'Token'},
+                      ]}
+                    />
                   </div>
                   <Input
                     id='k8s_namespace'
@@ -396,64 +417,87 @@ export function CreateHostDialog({
                       })
                     }
                     placeholder='default'
+                    className='font-mono text-xs'
                   />
-                  <div className='space-y-2'>
-                    <Label htmlFor='k8s_kubeconfig'>
-                      {t('host.kubeconfig')}
-                    </Label>
-                    <Textarea
-                      id='k8s_kubeconfig'
-                      value={formData.k8s_kubeconfig}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          k8s_kubeconfig: e.target.value,
-                        })
-                      }
-                      placeholder={t('host.kubeconfigPlaceholder')}
-                      rows={3}
-                    />
-                  </div>
-                  <div className='space-y-2'>
-                    <Label htmlFor='k8s_token'>{t('host.token')}</Label>
-                    <Textarea
-                      id='k8s_token'
-                      value={formData.k8s_token}
-                      onChange={(e) =>
-                        setFormData({...formData, k8s_token: e.target.value})
-                      }
-                      placeholder={t('host.tokenPlaceholder')}
-                      rows={2}
-                    />
-                    <p className='text-xs text-muted-foreground'>
-                      {t('host.k8sCredentialsHint')}
-                    </p>
-                  </div>
-                  {formData.k8s_auth_mode !== 'in_cluster' ? (
-                    <div className='space-y-2'>
-                      <Label htmlFor='k8s_ca_cert'>{t('host.k8sCaCert')}</Label>
+                  {k8sAuthMode === 'kubeconfig' ? (
+                    <div className='space-y-1.5'>
+                      <Label htmlFor='k8s_kubeconfig'>
+                        {t('host.kubeconfig')} *
+                      </Label>
                       <Textarea
-                        id='k8s_ca_cert'
-                        value={formData.k8s_ca_cert}
+                        id='k8s_kubeconfig'
+                        value={formData.k8s_kubeconfig}
                         onChange={(e) =>
-                          setFormData({...formData, k8s_ca_cert: e.target.value})
+                          setFormData({
+                            ...formData,
+                            k8s_kubeconfig: e.target.value,
+                          })
                         }
-                        placeholder={t('host.k8sCaCertPlaceholder')}
-                        rows={2}
+                        placeholder={t('host.kubeconfigPlaceholder')}
+                        className='font-mono text-xs'
+                        rows={6}
                       />
+                      <p className='text-xs text-muted-foreground'>
+                        {t('host.k8sKubeconfigAutoHint')}
+                      </p>
                     </div>
-                  ) : null}
-                  <label className='flex items-center gap-2 text-sm'>
-                    <input
-                      type='checkbox'
-                      checked={formData.k8s_insecure_skip_tls || false}
-                      onChange={(e) =>
-                        setFormData({...formData, k8s_insecure_skip_tls: e.target.checked})
-                      }
-                    />
-                    {t('host.k8sInsecureSkipTLS')}
-                  </label>
-                </>
+                  ) : (
+                    <>
+                      <Input
+                        id='k8s_api_url'
+                        label={`${t('host.k8sApiUrl')} *`}
+                        value={formData.k8s_api_url}
+                        onChange={(e) =>
+                          setFormData({...formData, k8s_api_url: e.target.value})
+                        }
+                        placeholder='https://kubernetes.default.svc:6443'
+                        className='font-mono text-xs'
+                      />
+                      <div className='space-y-1.5'>
+                        <Label htmlFor='k8s_token'>{t('host.token')} *</Label>
+                        <Textarea
+                          id='k8s_token'
+                          value={formData.k8s_token}
+                          onChange={(e) =>
+                            setFormData({...formData, k8s_token: e.target.value})
+                          }
+                          placeholder={t('host.tokenPlaceholder')}
+                          className='font-mono text-xs'
+                          rows={3}
+                        />
+                      </div>
+                      <Checkbox
+                        id='k8s_insecure_skip_tls'
+                        checked={Boolean(formData.k8s_insecure_skip_tls)}
+                        onCheckedChange={(checked) =>
+                          setFormData({
+                            ...formData,
+                            k8s_insecure_skip_tls: checked === true,
+                          })
+                        }
+                        label={t('host.k8sInsecureSkipTLS')}
+                      />
+                      {!formData.k8s_insecure_skip_tls ? (
+                        <div className='space-y-1.5'>
+                          <Label htmlFor='k8s_ca_cert'>{t('host.k8sCaCert')}</Label>
+                          <Textarea
+                            id='k8s_ca_cert'
+                            value={formData.k8s_ca_cert}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                k8s_ca_cert: e.target.value,
+                              })
+                            }
+                            placeholder={t('host.k8sCaCertPlaceholder')}
+                            className='font-mono text-xs'
+                            rows={3}
+                          />
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </div>
               ) : null}
             </div>
 

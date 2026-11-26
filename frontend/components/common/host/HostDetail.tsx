@@ -391,6 +391,12 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
                     </dd>
                   </div>
                   <div className={layout.detailKvItem}>
+                    <dt className={layout.detailKvKey}>{t('host.k8sAuthMode')}</dt>
+                    <dd className={layout.detailKvVal}>
+                      {host.k8s_auth_mode === 'token' ? 'Token' : 'Kubeconfig'}
+                    </dd>
+                  </div>
+                  <div className={layout.detailKvItem}>
                     <dt className={layout.detailKvKey}>{t('host.namespace')}</dt>
                     <dd className={cn(layout.detailKvVal, 'font-mono')}>
                       {host.k8s_namespace || 'default'}

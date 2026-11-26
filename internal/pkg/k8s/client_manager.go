@@ -44,9 +44,6 @@ const (
 	// AuthModeToken 使用 API URL + Bearer Token（可选 CA）认证。
 	// AuthModeToken authenticates with API URL + bearer token (optional CA).
 	AuthModeToken AuthMode = "token"
-	// AuthModeInCluster 控制面自身运行在集群内，使用 Pod ServiceAccount。
-	// AuthModeInCluster uses the pod ServiceAccount when the control plane runs inside the cluster.
-	AuthModeInCluster AuthMode = "in_cluster"
 )
 
 // Credentials 是构建 K8s 客户端所需的明文凭据（已解密）。
@@ -134,9 +131,23 @@ func (m *ClientManager) Invalidate(hostID uint) {
 	delete(m.cache, hostID)
 }
 
-// BuildRESTConfig 从凭据构建 rest.Config；kubeconfig 优先解析内嵌 API URL，token 模式要求显式 API URL。
-// BuildRESTConfig builds a rest.Config from credentials; kubeconfig mode uses the embedded
-// API URL, token mode requires an explicit API URL.
+// ParseKubeconfigServerURL 解析 kubeconfig 内容并提取内嵌的 API Server 地址。
+// ParseKubeconfigServerURL validates kubeconfig YAML and extracts its embedded API server URL.
+func ParseKubeconfigServerURL(kubeconfig string) (string, error) {
+	if strings.TrimSpace(kubeconfig) == "" {
+		return "", fmt.Errorf("k8s: kubeconfig content is required")
+	}
+	cfg, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeconfig))
+	if err != nil {
+		return "", fmt.Errorf("k8s: invalid kubeconfig: %w", err)
+	}
+	return strings.TrimRight(strings.TrimSpace(cfg.Host), "/"), nil
+}
+
+// BuildRESTConfig 从凭据构建 rest.Config；kubeconfig 模式直接解析内嵌连接与 TLS 配置，
+// token 模式使用显式 API URL + Bearer Token（可选 CA 或跳过 TLS 校验）。
+// BuildRESTConfig builds a rest.Config from credentials; kubeconfig mode parses embedded
+// server and TLS config directly, while token mode uses explicit API URL + bearer token.
 func BuildRESTConfig(cred *Credentials) (*rest.Config, error) {
 	if cred == nil {
 		return nil, fmt.Errorf("k8s: credentials are required")
@@ -146,12 +157,6 @@ func BuildRESTConfig(cred *Credentials) (*rest.Config, error) {
 		mode = AuthModeKubeconfig
 	}
 	switch mode {
-	case AuthModeInCluster:
-		cfg, err := rest.InClusterConfig()
-		if err != nil {
-			return nil, fmt.Errorf("k8s: in-cluster config unavailable: %w", err)
-		}
-		return cfg, nil
 	case AuthModeKubeconfig:
 		if strings.TrimSpace(cred.Kubeconfig) == "" {
 			return nil, fmt.Errorf("k8s: kubeconfig content is required for kubeconfig auth mode")
@@ -175,7 +180,7 @@ func BuildRESTConfig(cred *Credentials) (*rest.Config, error) {
 				Insecure: cred.InsecureSkipTLS,
 			},
 		}
-		if strings.TrimSpace(cred.CACert) != "" {
+		if !cred.InsecureSkipTLS && strings.TrimSpace(cred.CACert) != "" {
 			cfg.TLSClientConfig.CAData = []byte(cred.CACert)
 		}
 		return cfg, nil

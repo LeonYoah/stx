@@ -19,6 +19,7 @@ package host
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1195,11 +1196,32 @@ func TestUpdateK8sHostPreservesCACertWhenEmpty(t *testing.T) {
 	}
 }
 
-// TestValidateK8sHostAuthModes 覆盖三种 auth_mode 的正反例：
-// in_cluster 免凭据、kubeconfig 必须 kubeconfig、token 必须 URL+token、未知模式报错。
-// TestValidateK8sHostAuthModes covers positive and negative cases of the three auth modes:
-// in_cluster needs no credentials, kubeconfig requires the kubeconfig, token requires
-// both URL and token, and unknown modes are rejected.
+func sampleTestKubeconfig(server string) string {
+	return `apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: ` + server + `
+    insecure-skip-tls-verify: true
+  name: test
+contexts:
+- context:
+    cluster: test
+    user: test
+  name: test
+current-context: test
+users:
+- name: test
+  user:
+    token: test-token
+`
+}
+
+// TestValidateK8sHostAuthModes 覆盖 kubeconfig/token 两种互斥认证模式的正反例：
+// kubeconfig 自动解析 API URL、拒收损坏 YAML，token 要求 URL+token，in_cluster 与未知模式均报错。
+// TestValidateK8sHostAuthModes covers positive and negative cases of the two exclusive auth modes:
+// kubeconfig auto-extracts the API URL and rejects broken YAML, token requires URL+token,
+// and in_cluster as well as unknown modes are rejected.
 func TestValidateK8sHostAuthModes(t *testing.T) {
 	secretbox.SetSecret("test-secret-k8s-auth-modes")
 	t.Cleanup(func() { secretbox.SetSecret("") })
@@ -1210,55 +1232,65 @@ func TestValidateK8sHostAuthModes(t *testing.T) {
 	svc := NewService(NewRepository(db), cluster.NewRepository(db), nil)
 	ctx := context.Background()
 
-	create := func(req *CreateHostRequest) error {
-		req.Name = "k8s-auth-" + req.K8sAuthMode + "-" + req.K8sAPIURL
-		_, err := svc.Create(ctx, req)
-		return err
+	seq := 0
+	create := func(req *CreateHostRequest) (*Host, error) {
+		seq++
+		req.Name = fmt.Sprintf("k8s-auth-%d", seq)
+		return svc.Create(ctx, req)
 	}
 
-	// in_cluster：无需任何凭据，URL 可空。
-	// in_cluster: no credentials needed, URL may be empty.
-	if err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "in_cluster"}); err != nil {
-		t.Fatalf("in_cluster without credentials should pass: %v", err)
-	}
-	if err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "in_cluster", K8sAPIURL: "https://10.0.0.11:6443"}); err != nil {
-		t.Fatalf("in_cluster with url should pass: %v", err)
+	// in_cluster 已下线：必须拒绝并归类为 ErrK8sAuthModeInvalid（HTTP 400）。
+	// in_cluster is removed: must fail with ErrK8sAuthModeInvalid (HTTP 400).
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "in_cluster"}); !errors.Is(err, ErrK8sAuthModeInvalid) {
+		t.Fatalf("in_cluster must be rejected with ErrK8sAuthModeInvalid, got: %v", err)
 	}
 
-	// kubeconfig：必须非空 kubeconfig，仅 token 不得通过。
-	// kubeconfig: a non-empty kubeconfig is required, a bare token must not pass.
-	if err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "kubeconfig", K8sAPIURL: "https://10.0.0.12:6443", K8sKubeconfig: "apiVersion: v1\nclusters: []"}); err != nil {
-		t.Fatalf("kubeconfig mode with kubeconfig should pass: %v", err)
+	// kubeconfig：无需单独填 API URL，自动从 kubeconfig 解析 server 地址。
+	// kubeconfig: no separate API URL required; server URL is extracted from kubeconfig.
+	createdKC, err := create(&CreateHostRequest{
+		HostType:      HostTypeKubernetes,
+		K8sAuthMode:   "kubeconfig",
+		K8sKubeconfig: sampleTestKubeconfig("https://10.0.0.12:6443/"),
+	})
+	if err != nil {
+		t.Fatalf("kubeconfig mode without explicit api url should pass: %v", err)
 	}
-	if err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "kubeconfig", K8sAPIURL: "https://10.0.0.13:6443", K8sToken: "bare-token"}); err == nil {
-		t.Fatal("kubeconfig mode with only token must fail")
+	if createdKC.K8sAPIURL != "https://10.0.0.12:6443" {
+		t.Fatalf("expected auto-extracted k8s_api_url %q, got %q", "https://10.0.0.12:6443", createdKC.K8sAPIURL)
 	}
-	if err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "kubeconfig", K8sAPIURL: "https://10.0.0.14:6443"}); err == nil {
-		t.Fatal("kubeconfig mode without kubeconfig must fail")
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "kubeconfig", K8sKubeconfig: "not: [valid"}); !errors.Is(err, ErrK8sKubeconfigInvalid) {
+		t.Fatalf("broken kubeconfig must fail with ErrK8sKubeconfigInvalid, got: %v", err)
+	}
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "kubeconfig", K8sAPIURL: "https://10.0.0.13:6443", K8sToken: "bare-token"}); !errors.Is(err, ErrK8sCredentialsRequired) {
+		t.Fatalf("kubeconfig mode with only token must fail with ErrK8sCredentialsRequired, got: %v", err)
+	}
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "kubeconfig"}); !errors.Is(err, ErrK8sCredentialsRequired) {
+		t.Fatalf("kubeconfig mode without kubeconfig must fail with ErrK8sCredentialsRequired, got: %v", err)
 	}
 
 	// token：URL+token 缺一不可。
 	// token: both the URL and the token are mandatory.
-	if err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "token", K8sAPIURL: "https://10.0.0.15:6443", K8sToken: "tok"}); err != nil {
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "token", K8sAPIURL: "https://10.0.0.15:6443", K8sToken: "tok"}); err != nil {
 		t.Fatalf("token mode with url+token should pass: %v", err)
 	}
-	if err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "token", K8sAPIURL: "https://10.0.0.16:6443"}); err == nil {
-		t.Fatal("token mode without token must fail")
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "token", K8sAPIURL: "https://10.0.0.16:6443"}); !errors.Is(err, ErrK8sCredentialsRequired) {
+		t.Fatalf("token mode without token must fail with ErrK8sCredentialsRequired, got: %v", err)
 	}
-	if err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "token", K8sToken: "tok"}); err == nil {
-		t.Fatal("token mode without url must fail")
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "token", K8sToken: "tok"}); !errors.Is(err, ErrK8sAPIURLInvalid) {
+		t.Fatalf("token mode without url must fail with ErrK8sAPIURLInvalid, got: %v", err)
 	}
 
 	// 未知模式必须明确报错。
-	// Unknown modes must raise a clear error.
-	if err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "bogus", K8sAPIURL: "https://10.0.0.17:6443", K8sToken: "tok"}); err == nil {
-		t.Fatal("unknown auth mode must fail")
+	// Unknown modes must raise ErrK8sAuthModeInvalid.
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "bogus", K8sAPIURL: "https://10.0.0.17:6443", K8sToken: "tok"}); !errors.Is(err, ErrK8sAuthModeInvalid) {
+		t.Fatalf("unknown auth mode must fail with ErrK8sAuthModeInvalid, got: %v", err)
 	}
 }
 
-// TestUpdateK8sHostAuthModeSwitchValidation 验证切换 auth_mode 时若新模式所需凭据缺失则拒绝保存。
-// TestUpdateK8sHostAuthModeSwitchValidation verifies switching auth_mode is rejected when
-// the new mode's required credential is neither provided nor already stored.
+// TestUpdateK8sHostAuthModeSwitchValidation 验证切换 auth_mode 时若新模式所需凭据缺失则拒绝保存，
+// 更新 kubeconfig 时同步刷新解析出的 API URL，且拒绝切到已下线的 in_cluster。
+// TestUpdateK8sHostAuthModeSwitchValidation verifies mode switching requires the new mode's
+// credentials, updating kubeconfig refreshes the extracted API URL, and in_cluster is rejected.
 func TestUpdateK8sHostAuthModeSwitchValidation(t *testing.T) {
 	secretbox.SetSecret("test-secret-k8s-auth-switch")
 	t.Cleanup(func() { secretbox.SetSecret("") })
@@ -1272,19 +1304,29 @@ func TestUpdateK8sHostAuthModeSwitchValidation(t *testing.T) {
 	created, err := svc.Create(ctx, &CreateHostRequest{
 		Name:          "k8s-auth-switch",
 		HostType:      HostTypeKubernetes,
-		K8sAPIURL:     "https://10.0.0.20:6443",
 		K8sAuthMode:   "kubeconfig",
-		K8sKubeconfig: "apiVersion: v1\nclusters: []",
+		K8sKubeconfig: sampleTestKubeconfig("https://10.0.0.20:6443"),
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
+	// 更新新的 kubeconfig 时自动刷新提取出的 K8sAPIURL。
+	// Updating kubeconfig automatically refreshes the extracted K8sAPIURL.
+	updatedKC := sampleTestKubeconfig("https://10.0.0.21:6443")
+	refreshed, err := svc.Update(ctx, created.ID, &UpdateHostRequest{K8sKubeconfig: &updatedKC})
+	if err != nil {
+		t.Fatalf("update kubeconfig: %v", err)
+	}
+	if refreshed.K8sAPIURL != "https://10.0.0.21:6443" {
+		t.Fatalf("expected refreshed api url https://10.0.0.21:6443, got %q", refreshed.K8sAPIURL)
+	}
+
 	// 切到 token 模式但不给 token：库中无 token，必须报错。
 	// Switching to token mode without providing a token must fail since none is stored.
 	tokenMode := "token"
-	if _, err := svc.Update(ctx, created.ID, &UpdateHostRequest{K8sAuthMode: &tokenMode}); err == nil {
-		t.Fatal("switching to token mode without a token must fail")
+	if _, err := svc.Update(ctx, created.ID, &UpdateHostRequest{K8sAuthMode: &tokenMode}); !errors.Is(err, ErrK8sCredentialsRequired) {
+		t.Fatalf("switching to token mode without a token must fail, got: %v", err)
 	}
 
 	// 同时传入 token 则可以切换。
@@ -1294,10 +1336,10 @@ func TestUpdateK8sHostAuthModeSwitchValidation(t *testing.T) {
 		t.Fatalf("switching to token mode with token should pass: %v", err)
 	}
 
-	// 切回 in_cluster 永远合法。
-	// Switching back to in_cluster is always valid.
+	// 切到已下线的 in_cluster 必须拒绝。
+	// Switching to removed in_cluster must be rejected.
 	inCluster := "in_cluster"
-	if _, err := svc.Update(ctx, created.ID, &UpdateHostRequest{K8sAuthMode: &inCluster}); err != nil {
-		t.Fatalf("switching to in_cluster should pass: %v", err)
+	if _, err := svc.Update(ctx, created.ID, &UpdateHostRequest{K8sAuthMode: &inCluster}); !errors.Is(err, ErrK8sAuthModeInvalid) {
+		t.Fatalf("switching to in_cluster must fail with ErrK8sAuthModeInvalid, got: %v", err)
 	}
 }

@@ -23,12 +23,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 )
@@ -579,4 +581,105 @@ func (p *JavaProxyManager) GetProxyStatus(ctx context.Context, cfg *SessionConfi
 		}
 	}
 	return status, nil
+}
+
+// resolveProxyDeploymentName 解析伴生 Proxy Deployment 名称（配置优先，默认确定性命名）。
+// resolveProxyDeploymentName resolves the companion proxy deployment name (config first,
+// deterministic default otherwise).
+func resolveProxyDeploymentName(cfg *SessionConfig, clusterCode string) string {
+	deploymentName, _, _ := ProxyResourceNames(clusterCode)
+	if cfg.JavaProxy.DeploymentName != "" {
+		deploymentName = cfg.JavaProxy.DeploymentName
+	}
+	return deploymentName
+}
+
+// StopProxy 将伴生 Proxy Deployment 副本缩为 0；保留 Deployment/Service/jar ConfigMap 以便快速拉起。
+// StopProxy scales the companion proxy deployment to zero replicas while keeping the
+// Deployment/Service/jar ConfigMap so a later start comes up quickly.
+func (p *JavaProxyManager) StopProxy(ctx context.Context, cfg *SessionConfig, clusterCode string) error {
+	clientset, err := p.manager.Clientset(ctx, cfg.HostID)
+	if err != nil {
+		return err
+	}
+	deploymentName := resolveProxyDeploymentName(cfg, clusterCode)
+	dep, err := clientset.AppsV1().Deployments(cfg.Namespace).Get(ctx, deploymentName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("k8s: get proxy deployment failed: %w", err)
+	}
+	if !isOwnedByCluster(dep.Labels, clusterCode) {
+		return errResourceConflict("deployment", deploymentName)
+	}
+	patch := []byte(`{"spec":{"replicas":0}}`)
+	if _, err := clientset.AppsV1().Deployments(cfg.Namespace).Patch(ctx, deploymentName, types.MergePatchType, patch, metav1.PatchOptions{}); err != nil {
+		return fmt.Errorf("k8s: stop proxy deployment failed: %w", err)
+	}
+	return nil
+}
+
+// RestartProxy 先 EnsureProxy 收敛 jar/配置/副本为 1，再打 restartedAt 注解强制滚动重建：
+// 仅改 jvm_opts 时 PodSpec 可能无差异，无注解则不会触发重建。
+// RestartProxy first converges jar/config/replicas via EnsureProxy, then stamps the
+// restartedAt annotation to force a rollout: a jvm_opts-only change may leave the PodSpec
+// unchanged, which would otherwise never restart the pod.
+func (p *JavaProxyManager) RestartProxy(ctx context.Context, cfg *SessionConfig, clusterCode string, clusterID uint, epoch string) error {
+	if _, err := p.EnsureProxy(ctx, cfg, clusterCode, clusterID, epoch); err != nil {
+		return err
+	}
+	clientset, err := p.manager.Clientset(ctx, cfg.HostID)
+	if err != nil {
+		return err
+	}
+	deploymentName := resolveProxyDeploymentName(cfg, clusterCode)
+	restartedAt := time.Now().UTC().Format(time.RFC3339)
+	patch := []byte(fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":%q}}}}}`, restartedAt))
+	if _, err := clientset.AppsV1().Deployments(cfg.Namespace).Patch(ctx, deploymentName, types.MergePatchType, patch, metav1.PatchOptions{}); err != nil {
+		return fmt.Errorf("k8s: restart proxy deployment failed: %w", err)
+	}
+	return nil
+}
+
+// GetProxyLogs 拉取活跃伴生 Proxy Pod 的最近日志；优先选 Running 中最新的 Pod。
+// GetProxyLogs fetches recent logs of the active companion proxy pod, preferring the
+// newest Running pod.
+func (p *JavaProxyManager) GetProxyLogs(ctx context.Context, cfg *SessionConfig, clusterCode string, tailLines int64) (string, string, error) {
+	clientset, err := p.manager.Clientset(ctx, cfg.HostID)
+	if err != nil {
+		return "", "", err
+	}
+	deploymentName := resolveProxyDeploymentName(cfg, clusterCode)
+	dep, err := clientset.AppsV1().Deployments(cfg.Namespace).Get(ctx, deploymentName, metav1.GetOptions{})
+	if err != nil {
+		return "", "", fmt.Errorf("k8s: get proxy deployment failed: %w", err)
+	}
+	selector := labels.SelectorFromSet(dep.Spec.Selector.MatchLabels).String()
+	pods, err := clientset.CoreV1().Pods(cfg.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		return "", "", fmt.Errorf("k8s: list proxy pods failed: %w", err)
+	}
+	if len(pods.Items) == 0 {
+		return "", "", fmt.Errorf("k8s: no proxy pod found")
+	}
+	best := -1
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if pod.Status.Phase != corev1.PodRunning {
+			continue
+		}
+		if best < 0 || pod.CreationTimestamp.After(pods.Items[best].CreationTimestamp.Time) {
+			best = i
+		}
+	}
+	if best < 0 {
+		best = 0
+	}
+	podName := pods.Items[best].Name
+	if tailLines <= 0 {
+		tailLines = 200
+	}
+	raw, err := clientset.CoreV1().Pods(cfg.Namespace).GetLogs(podName, &corev1.PodLogOptions{TailLines: &tailLines}).Do(ctx).Raw()
+	if err != nil {
+		return "", "", fmt.Errorf("k8s: read proxy pod logs failed: %w", err)
+	}
+	return podName, string(raw), nil
 }

@@ -2210,6 +2210,13 @@ func (s *Service) executeOperation(ctx context.Context, clusterID uint, operatio
 		return nil, err
 	}
 
+	// K8s 集群生命周期统一走工作负载缩容/滚动重启，无节点 Agent 语义。
+	// K8s cluster lifecycle is uniformly implemented via workload scaling and rollout
+	// restarts; there is no node-agent semantics.
+	if cluster.IsKubernetes() {
+		return s.executeK8sLifecycleOperation(ctx, cluster, operation)
+	}
+
 	result := &OperationResult{
 		ClusterID:   clusterID,
 		Operation:   operation,

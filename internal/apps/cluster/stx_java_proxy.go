@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
@@ -99,6 +100,23 @@ func (s *Service) GetSTXJavaProxyServiceLog(
 	if err != nil {
 		return nil, err
 	}
+	if clusterInfo.IsKubernetes() {
+		cfg := clusterInfo.K8sSessionConfig()
+		if cfg == nil {
+			return nil, fmt.Errorf("cluster: k8s session config missing")
+		}
+		mode := cfg.JavaProxy.Mode
+		if mode == k8s.JavaProxyModeDisabled || mode == k8s.JavaProxyModeExternal {
+			return nil, fmt.Errorf("cluster: proxy logs are unavailable in %s mode", mode)
+		}
+		proxyMgr := k8s.NewJavaProxyManager(s.k8sManager, s.k8sJarLoader)
+		podName, logs, err := proxyMgr.GetProxyLogs(ctx, cfg, clusterInfo.EffectiveClusterCode(), int64(lines))
+		result := &STXJavaProxyLogPreviewResult{ClusterID: clusterID, LogPath: podName, Lines: lines, Logs: logs}
+		if err != nil {
+			return result, err
+		}
+		return result, nil
+	}
 	node, hostInfo, err := s.pickSTXJavaProxyNode(ctx, clusterID)
 	if err != nil {
 		return nil, err
@@ -141,6 +159,16 @@ func (s *Service) GetSTXJavaProxyServiceLog(
 }
 
 func (s *Service) executeSTXJavaProxyCommand(ctx context.Context, clusterID uint, commandType string) (*STXJavaProxyStatus, error) {
+	clusterInfo, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return nil, err
+	}
+	// K8s 集群没有物理机 Agent，必须在 Agent 检查之前分流到 K8s 适配层。
+	// K8s clusters have no bare-metal agent, so they must branch into the K8s
+	// adapter before the agent availability checks.
+	if clusterInfo.IsKubernetes() {
+		return s.executeK8sSTXJavaProxyCommand(ctx, clusterInfo, commandType)
+	}
 	if s.agentSender == nil {
 		return nil, fmt.Errorf("agent sender is not configured")
 	}
@@ -148,10 +176,6 @@ func (s *Service) executeSTXJavaProxyCommand(ctx context.Context, clusterID uint
 		return nil, fmt.Errorf("host provider is not configured")
 	}
 
-	clusterInfo, err := s.repo.GetByID(ctx, clusterID, false)
-	if err != nil {
-		return nil, err
-	}
 	node, hostInfo, err := s.pickSTXJavaProxyNode(ctx, clusterID)
 	if err != nil {
 		return nil, err
@@ -235,6 +259,26 @@ func (s *Service) UpdateSTXJavaProxyConfig(
 		}
 		ports.JavaProxyPort = proxyCfg.Port
 		clusterInfo.Config["ports"] = ports
+	}
+
+	// K8s 集群的 Proxy 运行参数真相在 Config["kubernetes"].java_proxy 里（EnsureProxy 读它渲染
+	// Deployment），两处必须同步落库，否则重启后新参数不生效。
+	// For K8s clusters the proxy runtime parameters live in Config["kubernetes"].java_proxy
+	// (EnsureProxy renders the Deployment from it), so both locations must be persisted in
+	// sync or a restart would not pick up the new values.
+	if clusterInfo.IsKubernetes() {
+		if k8sRaw, ok := clusterInfo.Config["kubernetes"].(map[string]interface{}); ok {
+			proxyRaw, _ := k8sRaw["java_proxy"].(map[string]interface{})
+			if proxyRaw == nil {
+				proxyRaw = map[string]interface{}{}
+			}
+			proxyRaw["jvm_opts"] = proxyCfg.JvmOpts
+			if proxyCfg.Port > 0 {
+				proxyRaw["port"] = proxyCfg.Port
+			}
+			k8sRaw["java_proxy"] = proxyRaw
+			clusterInfo.Config["kubernetes"] = k8sRaw
+		}
 	}
 
 	if err := s.repo.Update(ctx, clusterInfo); err != nil {

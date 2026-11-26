@@ -422,11 +422,6 @@ func (s *Service) evaluateK8sClusterHealth(ctx context.Context, cluster *Cluster
 			ready++
 		}
 	}
-	statusInfo.RunningNodes = ready
-	if !expectRunning {
-		statusInfo.HealthStatus = HealthStatusUnknown
-		return
-	}
 	// 期望副本数优先取 Workload 实时 spec.replicas 之和：外部 kubectl scale 或
 	// 缩容后持久化配置可能过期，按旧值比对会误报不健康；读取失败才回落持久化配置。
 	// The expected replica count prefers the live sum of workload spec.replicas: after an
@@ -459,6 +454,25 @@ func (s *Service) evaluateK8sClusterHealth(ctx context.Context, cluster *Cluster
 	}
 	if want <= 0 {
 		want = len(pods)
+	}
+	// 节点计数必须在任何返回前写入：列表页在线比例与详情概览卡都读这三个字段。
+	// Node counts must be written before any return: the list page online ratio and the
+	// detail overview card both read these fields.
+	statusInfo.RunningNodes = ready
+	statusInfo.OnlineNodes = ready
+	total := want
+	if len(pods) > total {
+		total = len(pods)
+	}
+	statusInfo.TotalNodes = total
+	offline := total - ready
+	if offline < 0 {
+		offline = 0
+	}
+	statusInfo.OfflineNodes = offline
+	if !expectRunning {
+		statusInfo.HealthStatus = HealthStatusUnknown
+		return
 	}
 	if want == 0 {
 		reasons = append(reasons, locale.Pick(ctx, "未发现运行中的引擎 Pod", "no engine pods found"))

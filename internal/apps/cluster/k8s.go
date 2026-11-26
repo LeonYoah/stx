@@ -509,12 +509,36 @@ func (s *Service) UpgradeK8sImage(ctx context.Context, cluster *Cluster, image s
 		}
 	}
 	cfg.Image = image
+	// 镜像 Tag 即引擎版本（latest/digest 除外）：升级后顶栏版本标签必须同步，否则展示漂移。
+	// The image tag is the engine version (except latest/digest): after an upgrade the
+	// header version label must stay in sync or it drifts.
+	if tag := imageTagVersion(image); tag != "" {
+		cluster.Version = tag
+	}
 	k8sJSON, err := k8sConfigJSON(cfg)
 	if err != nil {
 		return err
 	}
 	cluster.Config["kubernetes"] = k8sJSON
 	return s.repo.Update(ctx, cluster)
+}
+
+// imageTagVersion 提取镜像 Tag 作为版本号；digest 引用与 latest 不视为具体版本。
+// imageTagVersion extracts the image tag as a version; digest references and latest do
+// not count as concrete versions.
+func imageTagVersion(image string) string {
+	if strings.Contains(image, "@sha256:") {
+		return ""
+	}
+	idx := strings.LastIndex(image, ":")
+	if idx < 0 || strings.Contains(image[idx+1:], "/") {
+		return ""
+	}
+	tag := strings.TrimSpace(image[idx+1:])
+	if tag == "" || tag == "latest" {
+		return ""
+	}
+	return tag
 }
 
 // GetK8sPods 返回集群 Pod 投影（节点表数据源）。
@@ -894,4 +918,100 @@ func (s *Service) ListK8sImageConnectors(ctx context.Context, clusterID uint) ([
 		}
 	}
 	return out, nil
+}
+
+// executeK8sLifecycleOperation 实现 K8s 集群统一的 Start/Stop/Restart：
+// Stop 先快照实时副本数再缩 0，Start 恢复快照副本（至少 1），Restart 全量滚动重启。
+// executeK8sLifecycleOperation implements the unified K8s Start/Stop/Restart lifecycle:
+// Stop snapshots live replicas before scaling to zero, Start restores the snapshot (at
+// least one), Restart rolls every configured workload.
+func (s *Service) executeK8sLifecycleOperation(ctx context.Context, cluster *Cluster, operation OperationType) (*OperationResult, error) {
+	cfg, err := s.requireK8sSession(cluster)
+	if err != nil {
+		return nil, err
+	}
+	ops := k8s.NewSessionManager(s.k8sManager)
+	result := &OperationResult{ClusterID: cluster.ID, Operation: operation, Success: true, NodeResults: []*NodeOperationResult{}}
+
+	persist := func() error {
+		k8sJSON, err := k8sConfigJSON(cfg)
+		if err != nil {
+			return err
+		}
+		cluster.Config["kubernetes"] = k8sJSON
+		return s.repo.Update(ctx, cluster)
+	}
+
+	switch operation {
+	case OperationRestart:
+		if err := ops.RolloutRestart(ctx, cfg, ""); err != nil {
+			return nil, err
+		}
+		cluster.Status = ClusterStatusRunning
+		if err := persist(); err != nil {
+			return nil, err
+		}
+		s.beginMemberGrace(cluster.ID)
+		result.Message = "kubernetes workloads rolled"
+		return result, nil
+
+	case OperationStop:
+		// 快照实时副本：外部 kubectl scale 修改过的也要以真实值为准，否则 Start 恢复错误副本数。
+		// Snapshot live replicas: even externally kubectl-scaled values must win, or Start
+		// would restore the wrong replica count.
+		if cfg.MasterWorkloadName != "" {
+			if n, err := ops.GetReplicas(ctx, cfg, "master"); err == nil && n > 0 {
+				cfg.MasterReplicas = n
+			}
+		}
+		if cfg.WorkerWorkloadName != "" {
+			if n, err := ops.GetReplicas(ctx, cfg, "worker"); err == nil && n > 0 {
+				cfg.WorkerReplicas = n
+			}
+		}
+		if cfg.WorkerWorkloadName != "" {
+			if err := ops.Scale(ctx, cfg, "worker", 0); err != nil {
+				return nil, err
+			}
+		}
+		if cfg.MasterWorkloadName != "" {
+			if err := ops.Scale(ctx, cfg, "master", 0); err != nil {
+				return nil, err
+			}
+		}
+		cluster.Status = ClusterStatusStopped
+		if err := persist(); err != nil {
+			return nil, err
+		}
+		result.Message = "kubernetes workloads scaled to zero"
+		return result, nil
+
+	case OperationStart:
+		masterTarget := cfg.MasterReplicas
+		if masterTarget < 1 {
+			masterTarget = 1
+		}
+		workerTarget := cfg.WorkerReplicas
+		if workerTarget < 1 {
+			workerTarget = 1
+		}
+		if cfg.MasterWorkloadName != "" {
+			if err := ops.Scale(ctx, cfg, "master", masterTarget); err != nil {
+				return nil, err
+			}
+		}
+		if cfg.WorkerWorkloadName != "" {
+			if err := ops.Scale(ctx, cfg, "worker", workerTarget); err != nil {
+				return nil, err
+			}
+		}
+		cluster.Status = ClusterStatusRunning
+		if err := persist(); err != nil {
+			return nil, err
+		}
+		s.beginMemberGrace(cluster.ID)
+		result.Message = "kubernetes workloads scaled back"
+		return result, nil
+	}
+	return nil, fmt.Errorf("cluster: unsupported operation %q for kubernetes cluster", operation)
 }

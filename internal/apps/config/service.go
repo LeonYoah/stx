@@ -152,11 +152,20 @@ func (s *Service) GetByCluster(ctx context.Context, clusterID uint) ([]*ConfigIn
 		}
 		sort.Strings(names)
 		for _, name := range names {
+			// IsTemplate=true 是前端主预览/编辑对象的识别契约；ConfigMap 条目本身就是唯一真相，
+			// 天然"与模板一致"且已同步。
+			// IsTemplate=true is the frontend's contract for the primary preview/edit target;
+			// ConfigMap entries are the single source of truth, so they are inherently
+			// template-matched and synced.
 			out = append(out, &ConfigInfo{
-				ClusterID:  clusterID,
-				ConfigType: ConfigType(name),
-				FilePath:   name,
-				Content:    files[name],
+				ClusterID:     clusterID,
+				ConfigType:    ConfigType(name),
+				FilePath:      name,
+				Content:       files[name],
+				IsTemplate:    true,
+				Version:       1,
+				MatchTemplate: true,
+				SyncStatus:    ConfigSyncStatusSynced,
 			})
 		}
 		return out, nil

@@ -295,8 +295,6 @@ export function DagNodeDrawer({
               <CopyButton
                 value={vertex.rawName}
                 label={t('copy')}
-                copiedLabel={t('copied')}
-                failedLabel={t('copyFailed')}
                 iconOnly
                 variant='plain'
               />
@@ -366,8 +364,6 @@ export function DagNodeDrawer({
                 <CopyButton
                   value={table}
                   label={t('copyTableName')}
-                  copiedLabel={t('copied')}
-                  failedLabel={t('copyFailed')}
                   iconOnly
                   variant='plain'
                 />

@@ -1153,7 +1153,8 @@
       "done": "Done & Close",
       "viewHostDetail": "View Host Details",
       "installLater": "Run on Host Later",
-      "pendingAlert": "This host does not have an Agent installed yet, preventing resource monitoring or task dispatch. Please copy and run the command below on the target machine."
+      "pendingAlert": "This host does not have an Agent installed yet, preventing resource monitoring or task dispatch. Please copy and run the command below on the target machine.",
+      "copyInstallCommand": "Copy install command"
     },
     "types": {
       "bareMetal": "Physical/VM",
@@ -4473,7 +4474,7 @@
         "details": "Check details",
         "investigate": "Further investigation",
         "copy": "Copy",
-        "copied": "Investigation note copied",
+        "copied": "Copied",
         "copyFailed": "Copy failed",
         "zeroTitle": "No findings to review in this run",
         "zeroScope": "Only the checks performed within this time window produced no findings.",
@@ -5234,7 +5235,7 @@
     "curatedCopy": "Copy",
     "curatedCreateCopyHint": "Create an editable copy from this template",
     "curatedCopyScript": "Copy Script",
-    "curatedScriptCopied": "HOCON script copied to clipboard",
+    "curatedScriptCopied": "Copied",
     "curatedCopyScriptFailed": "Failed to copy script",
     "curatedPreviewTitle": "Template Script Preview",
     "curatedPreviewScriptHeading": "HOCON Script Content",
@@ -5555,7 +5556,7 @@
     "realtime": "Realtime Streaming",
     "copyPath": "Copy Path",
     "copyJson": "Copy Full State JSON",
-    "copied": "Copied to clipboard",
+    "copied": "Copied",
     "sourceStateNotice": "Source State Notice",
     "showTechnicalDetails": "Show Technical Details",
     "hideTechnicalDetails": "Hide Technical Details",
@@ -6096,7 +6097,9 @@
     "metricFlowZeroTitle": "All-zero metrics",
     "metricFlowItemCount": "{count} items",
     "metricFlowEndpoints": "{count} endpoints",
-    "metricFlowSearchEmpty": "No links match \"{query}\""
+    "metricFlowSearchEmpty": "No links match \"{query}\"",
+    "copyCheckpoint": "Copy checkpoint",
+    "copyError": "Copy error"
   },
   "troubleshooting": {
     "title": "Playbooks",

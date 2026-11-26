@@ -24,7 +24,6 @@ import {useTheme} from 'next-themes';
 import {
   ChevronDown,
   ChevronUp,
-  Copy,
   CopyPlus,
   Eye,
   FileCode,
@@ -53,7 +52,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {cn, copyToClipboard} from '@/lib/utils';
+import {cn} from '@/lib/utils';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import type {
   SyncCuratedSection,
   SyncCuratedTemplateView,
@@ -197,22 +197,6 @@ export function CuratedTemplatesManagePanel({
     });
   }, [items, origin, query, sections]);
 
-  /**
-   * 复制 HOCON 脚本到剪贴板
-   * Copy HOCON script to clipboard
-   */
-  const handleCopyScript = async (content: string) => {
-    if (!content) {
-      toast.info(t('curatedPreviewEmpty'));
-      return;
-    }
-    try {
-      await copyToClipboard(content);
-      toast.success(t('curatedScriptCopied'));
-    } catch {
-      toast.error(t('curatedCopyScriptFailed'));
-    }
-  };
 
   /**
    * 切换卡片内联脚本速览的展开/收起
@@ -671,17 +655,13 @@ export function CuratedTemplatesManagePanel({
                     <Eye className='size-3 mr-1 text-primary' />
                     {t('curatedPreview')}
                   </Button>
-                  <Button
-                    type='button'
-                    size='sm'
-                    variant='ghost'
-                    className='h-6 px-1.5 text-[10px]'
-                    onClick={() => void handleCopyScript(item.content || '')}
-                    title={t('curatedCopyScript')}
-                  >
-                    <Copy className='size-3 mr-1' />
-                    {t('curatedCopyScript')}
-                  </Button>
+                  <CopyButton
+                    value={item.content || ''}
+                    label={t('curatedCopyScript')}
+                    variant='plain'
+                    disabled={!item.content}
+                    className='h-6 min-h-0 px-1.5 text-[10px]'
+                  />
                   <Button
                     type='button'
                     size='sm'
@@ -759,16 +739,13 @@ export function CuratedTemplatesManagePanel({
                         HOCON ({item.section})
                       </span>
                       <div className='flex items-center gap-1'>
-                        <Button
-                          type='button'
-                          variant='ghost'
-                          size='sm'
-                          className='h-5 px-1.5 text-[10px]'
-                          onClick={() => void handleCopyScript(item.content || '')}
-                        >
-                          <Copy className='size-2.5 mr-1' />
-                          {t('curatedCopyScript')}
-                        </Button>
+                        <CopyButton
+                          value={item.content || ''}
+                          label={t('curatedCopyScript')}
+                          variant='plain'
+                          disabled={!item.content}
+                          className='h-5 min-h-0 px-1.5 text-[10px]'
+                        />
                         <Button
                           type='button'
                           variant='ghost'
@@ -848,16 +825,13 @@ export function CuratedTemplatesManagePanel({
                   <Loader2 className='size-3 animate-spin text-muted-foreground ml-1' />
                 ) : null}
               </span>
-              <Button
-                type='button'
+              <CopyButton
+                value={previewContent || ''}
+                label={t('curatedCopyScript')}
                 variant='outline'
-                size='sm'
+                disabled={!previewContent}
                 className='h-7 px-2.5 text-xs'
-                onClick={() => void handleCopyScript(previewContent)}
-              >
-                <Copy className='size-3 mr-1.5' />
-                {t('curatedCopyScript')}
-              </Button>
+              />
             </div>
             <div className='flex-1 min-h-0 rounded-lg border border-border/60 overflow-hidden bg-background shadow-xs'>
               <MonacoEditor
@@ -881,15 +855,12 @@ export function CuratedTemplatesManagePanel({
 
           <div className='px-5 py-3.5 border-t border-border/60 bg-muted/15 flex items-center justify-between shrink-0'>
             <div className='flex items-center gap-2'>
-              <ArcButton
-                type='button'
-                variant='secondary'
-                size='sm'
-                onClick={() => void handleCopyScript(previewContent)}
-              >
-                <Copy className='size-3.5' />
-                {t('curatedCopyScript')}
-              </ArcButton>
+              <CopyButton
+                value={previewContent || ''}
+                label={t('curatedCopyScript')}
+                variant='outline'
+                disabled={!previewContent}
+              />
             </div>
             <div className='flex items-center gap-2'>
               {previewItem && isOwned(previewItem) ? (
@@ -1044,17 +1015,13 @@ export function CuratedTemplatesManagePanel({
                   />
                 </div>
                 <div className='flex items-center gap-2'>
-                  <Button
-                    type='button'
+                  <CopyButton
+                    value={editContent}
+                    label={t('curatedCopyScript')}
                     variant='outline'
-                    size='sm'
-                    className='h-6 px-2 text-[11px]'
                     disabled={!editContent.trim()}
-                    onClick={() => void handleCopyScript(editContent)}
-                  >
-                    <Copy className='size-3 mr-1' />
-                    {t('curatedCopyScript')}
-                  </Button>
+                    className='h-6 px-2 text-[11px]'
+                  />
                 </div>
               </div>
               <div className='flex-1 min-h-[280px] rounded-lg border border-border/60 overflow-hidden bg-background shadow-xs'>

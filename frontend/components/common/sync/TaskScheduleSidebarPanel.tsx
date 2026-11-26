@@ -51,6 +51,7 @@ import {
   dolphinPushBlockedReason,
   getRunModeLabel,
 } from '@/components/common/sync/sync-studio-utils';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 export interface TaskScheduleValue {
   enabled: boolean;
@@ -378,7 +379,7 @@ export function TaskScheduleSidebarPanel({
                 setCopyingScript(true);
                 try {
                   const script = await SyncService.getDolphinScript(taskId);
-                  await navigator.clipboard.writeText(
+                  await writeClipboard(
                     `${script.script}\n${script.env_notes}`,
                   );
                   toast.success(t('dolphinScriptCopied'));

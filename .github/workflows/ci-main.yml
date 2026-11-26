@@ -78,6 +78,9 @@ jobs:
       - name: i18n policy baseline ratchet
         run: python3 scripts/check_i18n_policy.py --baseline scripts/i18n_baseline.json
 
+      - name: Copy conventions gate
+        run: python3 scripts/check_copy_conventions.py
+
   # 安装脚本轻量门禁：语法 / shellcheck、安装链路不依赖 python3、download-lib / install-core 单测。
   # Lightweight installer gate: syntax / shellcheck, no python3 in the install path, download-lib / install-core tests.
   install-scripts-test:

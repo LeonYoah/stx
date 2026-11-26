@@ -25,7 +25,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock,
-  Copy,
   History,
   Loader2,
   Package,
@@ -56,6 +55,7 @@ import {AgentNodeList, AgentVersionsPanel} from './AgentNodesPanel';
 import {ExecuteActions} from './ExecuteActions';
 import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
 import {toast} from '@/lib/toast';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 // 去掉可选的 v 前缀，便于比较与展示版本号
 // Strip an optional leading v so versions compare and render consistently
@@ -652,19 +652,12 @@ export function SystemUpgradeMain() {
               <code className='truncate text-foreground select-all'>
                 {status.docker_compose_upgrade_cmd || 'docker compose pull && docker compose up -d'}
               </code>
-              <Button
-                type='button'
-                size='sm'
-                variant='ghost'
-                className='h-7 shrink-0 text-xs gap-1 hover:bg-background'
-                onClick={() => {
-                  navigator.clipboard.writeText(status.docker_compose_upgrade_cmd || 'docker compose pull && docker compose up -d');
-                  toast.success(t('dockerNoticeCopied'));
-                }}
-              >
-                <Copy className='h-3.5 w-3.5' />
-                {t('dockerNoticeCopy')}
-              </Button>
+              <CopyButton
+                value={status.docker_compose_upgrade_cmd || 'docker compose pull && docker compose up -d'}
+                label={t('dockerNoticeCopy')}
+                variant='plain'
+                className='h-7 shrink-0 px-2 text-xs hover:bg-background'
+              />
             </div>
           </CardContent>
         </Card>

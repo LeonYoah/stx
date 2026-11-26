@@ -184,8 +184,6 @@ export function ErrorGroupDetail({
                 <CopyButton
                   value={group.sample_message || group.title}
                   label={t('copySummary')}
-                  copiedLabel={t('copiedLabel')}
-                  failedLabel={t('copyFailedLabel')}
                   variant='plain'
                   className='h-6 px-1.5 text-xs'
                   disabled={!group.sample_message && !group.title}
@@ -295,7 +293,6 @@ export function ErrorGroupDetail({
                 emphasisPattern={STACK_EVIDENCE_EMPHASIS}
                 expandLabel={t('expandEvidence')}
                 copyLabel={t('copyEvidence')}
-                copiedLabel={t('copiedEvidence')}
               />
             </div>
           </>

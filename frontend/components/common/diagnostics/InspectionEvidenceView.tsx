@@ -20,12 +20,11 @@
 import Link from 'next/link';
 import {useId, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {ArrowUpRight, Copy, FileSearch, Search} from 'lucide-react';
-import {toast} from '@/lib/toast';
+import {ArrowUpRight, FileSearch, Search} from 'lucide-react';
 import type {DiagnosticsInspectionFinding} from '@/lib/services/diagnostics';
-import {Button} from '@/components/ui/button';
 import {cn} from '@/lib/utils';
 import {localizeDiagnosticsText} from './text-utils';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 interface InspectionFindingCardProps {
   finding: DiagnosticsInspectionFinding;
@@ -71,15 +70,6 @@ export function InspectionFindingCard({
   const severity = severityStyles[finding.severity];
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailsId = useId();
-
-  const copyRecommendation = async () => {
-    try {
-      await navigator.clipboard.writeText(recommendation);
-      toast.success(t('evidence.copied'));
-    } catch {
-      toast.error(t('evidence.copyFailed'));
-    }
-  };
 
   return (
     <article
@@ -172,16 +162,12 @@ export function InspectionFindingCard({
                           <span className='text-xs font-medium text-foreground'>
                             {t('evidence.investigate')}
                           </span>
-                          <Button
-                            type='button'
-                            variant='ghost'
-                            size='sm'
-                            className='h-7 gap-1 px-2 text-xs'
-                            onClick={() => void copyRecommendation()}
-                          >
-                            <Copy aria-hidden='true' className='h-3.5 w-3.5' />
-                            {t('evidence.copy')}
-                          </Button>
+                          <CopyButton
+                            value={recommendation}
+                            label={t('evidence.copy')}
+                            variant='plain'
+                            className='h-7 px-2 text-xs'
+                          />
                         </div>
                         <p className='mt-1 max-w-3xl whitespace-pre-wrap leading-relaxed text-muted-foreground'>
                           {recommendation}

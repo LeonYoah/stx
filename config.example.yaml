@@ -41,7 +41,7 @@ app:
   # 若部署后实际通过 IP / 内网域名访问，却误填为 "localhost"，常见现象是：
   # 登录接口成功，但后续 /api/v1/auth/user-info 等接口全部返回 401。
   session_domain: ""
-  session_age: 86400
+  session_age: 604800
   # 仅当浏览器始终通过 HTTPS 访问时再设为 true。
   session_secure: false
   session_http_only: true

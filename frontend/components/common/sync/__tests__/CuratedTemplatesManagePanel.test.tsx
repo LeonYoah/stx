@@ -23,7 +23,6 @@ import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {render, screen, fireEvent, waitFor} from '@testing-library/react';
 import {CuratedTemplatesManagePanel} from '../CuratedTemplatesManagePanel';
 import services from '@/lib/services';
-import {copyToClipboard} from '@/lib/utils';
 import {toast} from '@/lib/toast';
 
 // Radix Tooltip 打开时测量尺寸，jsdom 没有 ResizeObserver，这里给个空实现
@@ -106,14 +105,10 @@ vi.mock('@/lib/toast', () => ({
   },
 }));
 
-// Mock copyToClipboard
-vi.mock('@/lib/utils', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/utils')>('@/lib/utils');
-  return {
-    ...actual,
-    copyToClipboard: vi.fn().mockResolvedValue(undefined),
-  };
-});
+// jsdom 没有 Clipboard API，补一个可断言的实现
+// jsdom lacks the Clipboard API; stub an assertable implementation
+const clipboardWriteText = vi.fn().mockResolvedValue(undefined);
+Object.assign(navigator, {clipboard: {writeText: clipboardWriteText}});
 
 // Mock services
 vi.mock('@/lib/services', () => ({
@@ -252,8 +247,7 @@ describe('CuratedTemplatesManagePanel', () => {
     fireEvent.click(copyScriptButtons[0]);
 
     await waitFor(() => {
-      expect(copyToClipboard).toHaveBeenCalledWith(mockTemplates[0].content);
-      expect(toast.success).toHaveBeenCalledWith('HOCON 脚本已复制到剪贴板');
+      expect(clipboardWriteText).toHaveBeenCalledWith(mockTemplates[0].content);
     });
   });
 

@@ -166,7 +166,7 @@ func (s *Service) GetRuntimeStorageDetails(ctx context.Context, clusterID uint) 
 // CleanupIMAPStorage 在 IMAP 使用 LOCAL_FILE 时清理所有在线节点上的本地 IMAP 目录。
 func (s *Service) CleanupIMAPStorage(ctx context.Context, clusterID uint) (*RuntimeStorageCleanupResult, error) {
 	if clusterObj, getErr := s.Get(ctx, clusterID); getErr == nil && clusterObj.IsKubernetes() {
-		return nil, errors.New(k8sLocalFileUnsupported)
+		return nil, errors.New(k8sLocalFileUnsupported(ctx))
 	}
 	details, err := s.GetRuntimeStorageDetails(ctx, clusterID)
 	if err != nil {

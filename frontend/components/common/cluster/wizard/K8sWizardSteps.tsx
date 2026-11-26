@@ -68,19 +68,6 @@ export function jvmHeapToMi(input: string): number {
   return (match[2] || 'm').toLowerCase() === 'g' ? value * 1024 : value;
 }
 
-// validateJvmVsContainer JVM 堆不得超过容器内存的 80%，返回错误文案或空串。
-// validateJvmVsContainer enforces heap ≤ 80% of container memory, returning the
-// error copy or an empty string.
-export function validateJvmVsContainer(xmx: string, containerMemory: string): string {
-  const heapMi = jvmHeapToMi(xmx);
-  const containerMi = memoryToMi(containerMemory);
-  if (!heapMi || !containerMi) return '';
-  if (heapMi > containerMi * 0.8) {
-    return `Xmx ${heapMi}Mi 超过容器内存 ${containerMi}Mi 的 80% 上限，请调低堆内存或调大容器内存`;
-  }
-  return '';
-}
-
 
 // k8sVersionCapabilities 版本能力兜底：K8s 集群版本可任意自定义（私有镜像），
 // 无服务端能力矩阵时按版本规则推导，3.x 全量放行、2.3.x 仅基础项。

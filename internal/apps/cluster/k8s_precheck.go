@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/gin-gonic/gin"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -92,26 +93,26 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 
 	clientset, err := s.k8sManager.Clientset(ctx, req.HostID)
 	if err != nil {
-		add("api_connectivity", "error", false, fmt.Sprintf("Kubernetes API 不可达: %v", err))
+		add("api_connectivity", "error", false, fmt.Sprintf(locale.Pick(ctx, "Kubernetes API 不可达: %v", "Kubernetes API unreachable: %v"), err))
 		return result, nil
 	}
 	// 连通性：读 namespace 即证明 API 与基本权限可用。
 	// Connectivity: reading the namespace proves the API and basic permissions.
 	if _, err := clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{}); err != nil {
 		if apierrors.IsNotFound(err) {
-			add("api_connectivity", "warning", true, fmt.Sprintf("API 可达，但 namespace %q 不存在，部署时将自动创建", namespace))
+			add("api_connectivity", "warning", true, fmt.Sprintf(locale.Pick(ctx, "API 可达，但 namespace %q 不存在，部署时将自动创建", "API reachable, but namespace %q does not exist and will be created at deploy time"), namespace))
 		} else {
-			add("api_connectivity", "error", false, fmt.Sprintf("读取 namespace 失败: %v", err))
+			add("api_connectivity", "error", false, fmt.Sprintf(locale.Pick(ctx, "读取 namespace 失败: %v", "failed to read namespace: %v"), err))
 		}
 	} else {
-		add("api_connectivity", "info", true, fmt.Sprintf("API 可达，namespace %q 存在", namespace))
+		add("api_connectivity", "info", true, fmt.Sprintf(locale.Pick(ctx, "API 可达，namespace %q 存在", "API reachable, namespace %q exists"), namespace))
 	}
 
 	// RBAC SelfSubjectAccessReview。
 	// RBAC via SelfSubjectAccessReview.
 	rbacItems, err := s.k8sManager.PrecheckRBAC(ctx, req.HostID, namespace)
 	if err != nil {
-		add("rbac", "error", false, fmt.Sprintf("RBAC 预检失败: %v", err))
+		add("rbac", "error", false, fmt.Sprintf(locale.Pick(ctx, "RBAC 预检失败: %v", "RBAC precheck failed: %v"), err))
 	} else {
 		denied := []string{}
 		for _, item := range rbacItems {
@@ -120,9 +121,9 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 			}
 		}
 		if len(denied) > 0 {
-			add("rbac", "error", false, fmt.Sprintf("缺少权限: %s", strings.Join(denied, ", ")))
+			add("rbac", "error", false, fmt.Sprintf(locale.Pick(ctx, "缺少权限: %s", "missing permissions: %s"), strings.Join(denied, ", ")))
 		} else {
-			add("rbac", "info", true, "RBAC 权限齐备")
+			add("rbac", "info", true, locale.Pick(ctx, "RBAC 权限齐备", "RBAC permissions complete"))
 		}
 	}
 
@@ -155,9 +156,9 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 		}
 	}
 	if len(conflicts) > 0 {
-		add("resource_conflict", "error", false, fmt.Sprintf("已存在同名资源: %s", strings.Join(conflicts, ", ")))
+		add("resource_conflict", "error", false, fmt.Sprintf(locale.Pick(ctx, "已存在同名资源: %s", "conflicting resources already exist: %s"), strings.Join(conflicts, ", ")))
 	} else {
-		add("resource_conflict", "info", true, "无同名资源冲突")
+		add("resource_conflict", "info", true, locale.Pick(ctx, "无同名资源冲突", "no conflicting resources"))
 	}
 
 	// pvc / secrets / serviceaccount 存在性：引用了就必须在。
@@ -183,9 +184,9 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 		}
 	}
 	if len(missing) > 0 {
-		add("referenced_objects", "error", false, fmt.Sprintf("引用对象不存在: %s", strings.Join(missing, ", ")))
+		add("referenced_objects", "error", false, fmt.Sprintf(locale.Pick(ctx, "引用对象不存在: %s", "referenced objects do not exist: %s"), strings.Join(missing, ", ")))
 	} else {
-		add("referenced_objects", "info", true, "引用的 PVC/Secret/ServiceAccount 均存在或未引用")
+		add("referenced_objects", "info", true, locale.Pick(ctx, "引用的 PVC/Secret/ServiceAccount 均存在或未引用", "referenced PVC/Secret/ServiceAccount all exist or are unused"))
 	}
 
 	// 配比真校验：JVM 堆不得超过容器内存 80%（与创建向导红线一致）；
@@ -235,7 +236,7 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 		}
 		containerMi := int(quantity.Value() / (1024 * 1024))
 		if containerMi > 0 && rh.heapMi*5 > containerMi*4 {
-			sizingProblems = append(sizingProblems, fmt.Sprintf("%s 堆 %dMi 超过容器内存 %dMi 的 80%%（%dMi）", rh.role, rh.heapMi, containerMi, containerMi*4/5))
+			sizingProblems = append(sizingProblems, fmt.Sprintf(locale.Pick(ctx, "%s 堆 %dMi 超过容器内存 %dMi 的 80%%（%dMi）", "%s heap %dMi exceeds 80%% of container memory %dMi (%dMi)"), rh.role, rh.heapMi, containerMi, containerMi*4/5))
 		}
 	}
 	if xmxMi := k8s.JVMHeapMaxMi("-Xmx" + strings.TrimSpace(req.JvmXmx)); xmxMi > 0 && req.MasterHeapMB <= 0 && req.WorkerHeapMB <= 0 && req.HybridHeapMB <= 0 {
@@ -266,28 +267,28 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 			}
 			quantity, parseErr := resource.ParseQuantity(raw)
 			if parseErr != nil {
-				sizingProblems = append(sizingProblems, fmt.Sprintf("%s 内存 %q 无法解析", mem.role, raw))
+				sizingProblems = append(sizingProblems, fmt.Sprintf(locale.Pick(ctx, "%s 内存 %q 无法解析", "%s memory %q is unparseable"), mem.role, raw))
 				continue
 			}
 			containerMi := int(quantity.Value() / (1024 * 1024))
 			if containerMi > 0 && xmxMi*5 > containerMi*4 {
-				sizingProblems = append(sizingProblems, fmt.Sprintf("JVM 堆 %dMi 超过 %s 容器内存 %dMi 的 80%%（%dMi）", xmxMi, mem.role, containerMi, containerMi*4/5))
+				sizingProblems = append(sizingProblems, fmt.Sprintf(locale.Pick(ctx, "JVM 堆 %dMi 超过 %s 容器内存 %dMi 的 80%%（%dMi）", "JVM heap %dMi exceeds 80%% of %s container memory %dMi (%dMi)"), xmxMi, mem.role, containerMi, containerMi*4/5))
 			}
 		}
 	}
 	if req.EnableEventChannel {
 		if override := strings.TrimSpace(req.STXCallbackURL); override != "" {
 			if parsed, parseErr := urlpkg.Parse(override); parseErr != nil || parsed == nil || IsLoopbackCallbackHost(parsed.Hostname()) {
-				sizingProblems = append(sizingProblems, "事件通道回调地址为回环地址，引擎 Pod 内无法到达控制面")
+				sizingProblems = append(sizingProblems, locale.Pick(ctx, "事件通道回调地址为回环地址，引擎 Pod 内无法到达控制面", "event channel callback address is loopback; engine pods cannot reach the control plane"))
 			}
 		}
 	}
 	if len(sizingProblems) > 0 {
 		add("sizing", "error", false, strings.Join(sizingProblems, "；"))
 	} else {
-		add("sizing", "info", true, "JVM 堆与容器内存配比合规"+func() string {
+		add("sizing", "info", true, locale.Pick(ctx, "JVM 堆与容器内存配比合规", "JVM heap and container memory sizing compliant")+func() string {
 			if req.EnableEventChannel {
-				return "，事件通道回调地址可达性预检通过"
+				return locale.Pick(ctx, "，事件通道回调地址可达性预检通过", "; event channel callback reachability precheck passed")
 			}
 			return ""
 		}())

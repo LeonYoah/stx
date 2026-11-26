@@ -18,6 +18,7 @@
 package cluster
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,7 @@ import (
 
 func TestApplyK8sLocalFileBoundary(t *testing.T) {
 	spec := &RuntimeStorageSpec{Kind: "checkpoint", Enabled: true, StorageType: "LOCAL_FILE", SizeAvailable: true, CleanupSupported: true, TotalSizeBytes: 100, Nodes: []*RuntimeStorageNodeStat{{}}}
-	applyK8sLocalFileBoundary(spec)
+	applyK8sLocalFileBoundary(context.Background(), spec)
 	assert.False(t, spec.SizeAvailable)
 	assert.False(t, spec.CleanupSupported)
 	assert.Nil(t, spec.Nodes)
@@ -35,20 +36,20 @@ func TestApplyK8sLocalFileBoundary(t *testing.T) {
 
 func TestApplyK8sLocalFileBoundarySkipsExternal(t *testing.T) {
 	spec := &RuntimeStorageSpec{Kind: "checkpoint", Enabled: true, StorageType: "S3", SizeAvailable: true}
-	applyK8sLocalFileBoundary(spec)
+	applyK8sLocalFileBoundary(context.Background(), spec)
 	assert.True(t, spec.SizeAvailable)
 	assert.Empty(t, spec.Warning)
 }
 
 func TestK8sRuntimeStorageBoundaryError(t *testing.T) {
-	assert.Nil(t, k8sRuntimeStorageBoundaryError("S3"))
-	assert.Nil(t, k8sRuntimeStorageBoundaryError("s3"))
-	err := k8sRuntimeStorageBoundaryError("LOCAL_FILE")
+	assert.Nil(t, k8sRuntimeStorageBoundaryError(context.Background(), "S3"))
+	assert.Nil(t, k8sRuntimeStorageBoundaryError(context.Background(), "s3"))
+	err := k8sRuntimeStorageBoundaryError(context.Background(), "LOCAL_FILE")
 	assert.ErrorContains(t, err, "不支持在控制面浏览")
-	err = k8sRuntimeStorageBoundaryError("")
+	err = k8sRuntimeStorageBoundaryError(context.Background(), "")
 	assert.ErrorContains(t, err, "不支持在控制面浏览")
-	err = k8sRuntimeStorageBoundaryError("HDFS")
+	err = k8sRuntimeStorageBoundaryError(context.Background(), "HDFS")
 	assert.ErrorContains(t, err, "暂不支持通过 HTTP 代理")
-	err = k8sRuntimeStorageBoundaryError("OSS")
+	err = k8sRuntimeStorageBoundaryError(context.Background(), "OSS")
 	assert.ErrorContains(t, err, "暂不支持通过 HTTP 代理")
 }

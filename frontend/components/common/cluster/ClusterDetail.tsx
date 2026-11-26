@@ -315,6 +315,18 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [stxJavaProxyRestartOnSave, setStxJavaProxyRestartOnSave] =
     useState(true);
   const [stxJavaProxySaving, setStxJavaProxySaving] = useState(false);
+  // 代理状态轮询定时器：串行链式调度 + 卸载/恢复健康/重复提交立即清理，
+  // 不再一次甩 12 个无人回收的 setTimeout。
+  // Proxy status polling timer: serial chained scheduling with immediate cleanup on
+  // unmount, recovery, or resubmission — no more 12 fire-and-forget setTimeouts.
+  const proxyPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearProxyPollTimer = useCallback(() => {
+    if (proxyPollTimerRef.current !== null) {
+      clearTimeout(proxyPollTimerRef.current);
+      proxyPollTimerRef.current = null;
+    }
+  }, []);
+  useEffect(() => clearProxyPollTimer, [clearProxyPollTimer]);
   const [runtimeStorageLoading, setRuntimeStorageLoading] = useState(false);
   const [runtimeStorageValidationLoading, setRuntimeStorageValidationLoading] =
     useState<'checkpoint' | 'imap' | null>(null);
@@ -954,9 +966,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         await services.cluster.getStxJavaProxyStatusSafe(clusterId);
       if (!result.success || !result.data) {
         setStxJavaProxy(null);
-        return;
+        return null;
       }
       setStxJavaProxy(result.data);
+      return result.data;
     } finally {
       setStxJavaProxyLoading(false);
     }
@@ -1092,11 +1105,30 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       // the status endpoint keeps hitting the old pod, so poll until the fresh instance
       // reports instead of leaving the detail page pinned to stale heap values.
       if (stxJavaProxyRestartOnSave) {
-        for (let attempt = 1; attempt <= 12; attempt++) {
-          setTimeout(() => {
-            void loadStxJavaProxyStatus();
-          }, attempt * 5000);
-        }
+        clearProxyPollTimer();
+        let attempt = 0;
+        const chain = async () => {
+          attempt += 1;
+          const status = await loadStxJavaProxyStatus();
+          // 恢复健康（实例-ready 且堆内存已刷新）或超过 12 次即停止链式轮询。
+          // The chained poll stops once health recovers (instance ready with refreshed
+          // heap) or after 12 attempts.
+          const healthy = Boolean(
+            status &&
+            typeof status === 'object' &&
+            ((status as {healthy?: boolean}).healthy || (status as {status?: string}).status === 'running'),
+          );
+          if (!healthy && attempt < 12) {
+            proxyPollTimerRef.current = setTimeout(() => {
+              void chain();
+            }, 5000);
+          } else {
+            proxyPollTimerRef.current = null;
+          }
+        };
+        proxyPollTimerRef.current = setTimeout(() => {
+          void chain();
+        }, 5000);
       }
     } finally {
       setStxJavaProxySaving(false);
@@ -1107,6 +1139,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     stxJavaProxyRestartOnSave,
     t,
     loadStxJavaProxyStatus,
+    clearProxyPollTimer,
   ]);
 
   const handleStartInspection = useCallback(async () => {

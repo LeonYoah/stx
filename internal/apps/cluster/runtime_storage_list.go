@@ -120,9 +120,9 @@ func (s *Service) ListRuntimeStorage(
 			return nil, resolveErr
 		}
 		if resolved == nil {
-			return nil, errors.New(k8sLocalFileUnsupported)
+			return nil, errors.New(k8sLocalFileUnsupported(ctx))
 		}
-		if boundaryErr := k8sRuntimeStorageBoundaryError(resolved.StorageType); boundaryErr != nil {
+		if boundaryErr := k8sRuntimeStorageBoundaryError(ctx, resolved.StorageType); boundaryErr != nil {
 			return nil, boundaryErr
 		}
 		items, resolvedPath, listErr := listS3RuntimeStorage(ctx, resolved, path, recursive, limit)

@@ -29,17 +29,26 @@ import (
 	"time"
 
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 )
 
 // k8sLocalFileWarning K8s LOCAL_FILE 的统一边界提示：容器内文件控制面不可达且重建即丢。
 // k8sLocalFileWarning is the uniform boundary note for LOCAL_FILE on Kubernetes:
 // in-container files are unreachable from the control plane and lost on pod recreation.
-const k8sLocalFileWarning = "Kubernetes 本地文件存储（LOCAL_FILE）位于 Pod 容器内，不支持跨 Pod 容量统计与文件清理，且 Pod 重建后数据会丢失；生产环境建议切换为 S3 / OSS / HDFS 外部共享存储"
+func k8sLocalFileWarning(ctx context.Context) string {
+	return locale.Pick(ctx,
+		"Kubernetes 本地文件存储（LOCAL_FILE）位于 Pod 容器内，不支持跨 Pod 容量统计与文件清理，且 Pod 重建后数据会丢失；生产环境建议切换为 S3 / OSS / HDFS 外部共享存储",
+		"Kubernetes local file storage (LOCAL_FILE) lives inside pod containers: cross-pod sizing and cleanup are unsupported, data is lost when pods are recreated, and production should switch to external shared storage (S3 / OSS / HDFS)")
+}
 
 // k8sLocalFileUnsupported 操作级拒绝文案（浏览/预览/反序列化/清理）。
 // k8sLocalFileUnsupported is the operation-level rejection for browse/preview/inspect/cleanup.
-const k8sLocalFileUnsupported = "Kubernetes 本地文件存储不支持在控制面浏览、预览、反序列化或清理容器内文件，请配置 S3 / OSS / HDFS 外部存储"
+func k8sLocalFileUnsupported(ctx context.Context) string {
+	return locale.Pick(ctx,
+		"Kubernetes 本地文件存储不支持在控制面浏览、预览、反序列化或清理容器内文件，请配置 S3 / OSS / HDFS 外部存储",
+		"Kubernetes local file storage cannot be browsed, previewed, inspected or cleaned up from the control plane; configure external storage (S3 / OSS / HDFS)")
+}
 
 // readK8sRuntimeConfigFiles 读取集群 ConfigMap 中的 seatunnel.yaml 与 hazelcast 配置内容。
 // readK8sRuntimeConfigFiles reads seatunnel.yaml and the hazelcast config from the cluster ConfigMap.
@@ -66,7 +75,7 @@ func (s *Service) readK8sRuntimeConfigFiles(ctx context.Context, clusterObj *Clu
 
 // applyK8sLocalFileBoundary LOCAL_FILE 规格附加 K8s 边界标志与警告。
 // applyK8sLocalFileBoundary marks a LOCAL_FILE spec with the Kubernetes boundary flags.
-func applyK8sLocalFileBoundary(spec *RuntimeStorageSpec) {
+func applyK8sLocalFileBoundary(ctx context.Context, spec *RuntimeStorageSpec) {
 	if spec == nil || !spec.Enabled || !strings.EqualFold(spec.StorageType, "LOCAL_FILE") {
 		return
 	}
@@ -75,7 +84,7 @@ func applyK8sLocalFileBoundary(spec *RuntimeStorageSpec) {
 	spec.Nodes = nil
 	spec.TotalSizeBytes = 0
 	if spec.Warning == "" {
-		spec.Warning = k8sLocalFileWarning
+		spec.Warning = k8sLocalFileWarning(ctx)
 	}
 }
 
@@ -96,8 +105,8 @@ func (s *Service) getK8sRuntimeStorageDetails(ctx context.Context, clusterObj *C
 	if imap == nil {
 		imap = &RuntimeStorageSpec{Kind: "imap", StorageType: "DISABLED"}
 	}
-	applyK8sLocalFileBoundary(checkpoint)
-	applyK8sLocalFileBoundary(imap)
+	applyK8sLocalFileBoundary(ctx, checkpoint)
+	applyK8sLocalFileBoundary(ctx, imap)
 
 	// 外部 S3 存储可以直接用解析出的连接配置做容量统计；其他外部类型暂无控制面统计通道。
 	// External S3 storage can be sized directly with the parsed connection config; other
@@ -146,14 +155,16 @@ func (s *Service) resolveK8sRuntimeStorageResolved(ctx context.Context, clusterO
 // k8sRuntimeStorageBoundaryError 按存储类型给出 K8s 操作边界错误；S3 返回 nil 表示可直连。
 // k8sRuntimeStorageBoundaryError maps a storage type to its Kubernetes operation boundary;
 // S3 yields nil because direct access works.
-func k8sRuntimeStorageBoundaryError(storageType string) error {
+func k8sRuntimeStorageBoundaryError(ctx context.Context, storageType string) error {
 	switch strings.ToUpper(strings.TrimSpace(storageType)) {
 	case "", "LOCAL_FILE", "DISABLED":
-		return errors.New(k8sLocalFileUnsupported)
+		return errors.New(k8sLocalFileUnsupported(ctx))
 	case "S3":
 		return nil
 	default:
-		return errors.New("Kubernetes 集群当前暂不支持通过 HTTP 代理浏览/反序列化该外部存储类型（S3 支持浏览与预览）")
+		return errors.New(locale.Pick(ctx,
+			"Kubernetes 集群当前暂不支持通过 HTTP 代理浏览/反序列化该外部存储类型（S3 支持浏览与预览）",
+			"Kubernetes clusters cannot browse/deserialize this external storage type through the HTTP proxy yet (S3 supports browse and preview)"))
 	}
 }
 
@@ -168,7 +179,7 @@ func (s *Service) k8sProxyHTTPProbe(ctx context.Context, clusterObj *Cluster, ki
 	}
 	mode := cfg.JavaProxy.Mode
 	if mode == k8s.JavaProxyModeDisabled {
-		return false, "", errors.New("STX Java Proxy 已禁用，无法校验外部存储连通性")
+		return false, "", errors.New(locale.Pick(ctx, "STX Java Proxy 已禁用，无法校验外部存储连通性", "STX Java Proxy is disabled; external storage connectivity cannot be validated"))
 	}
 	var base string
 	var client *http.Client
@@ -177,7 +188,7 @@ func (s *Service) k8sProxyHTTPProbe(ctx context.Context, clusterObj *Cluster, ki
 		// External mode connects straight to the user-provided proxy without in-cluster service resolution.
 		base = strings.TrimRight(strings.TrimSpace(cfg.JavaProxy.ExternalURL), "/")
 		if base == "" {
-			return false, "", errors.New("STX Java Proxy external 模式缺少 external_url，无法校验外部存储连通性")
+			return false, "", errors.New(locale.Pick(ctx, "STX Java Proxy external 模式缺少 external_url，无法校验外部存储连通性", "STX Java Proxy external mode is missing external_url; external storage connectivity cannot be validated"))
 		}
 		client = &http.Client{Timeout: 20 * time.Second}
 	} else {
@@ -199,7 +210,7 @@ func (s *Service) k8sProxyHTTPProbe(ctx context.Context, clusterObj *Cluster, ki
 		transport := k8s.NewTransport(s.k8sManager, cfg.HostID, targetNs, cfg.AccessMode, cfg.ExternalBaseURL)
 		resolvedBase, resolveErr := transport.ServiceBaseURL(ctx, serviceName, port)
 		if resolveErr != nil {
-			return false, "", fmt.Errorf("STX Java Proxy 不可达，无法校验外部存储连通性: %w", resolveErr)
+			return false, "", fmt.Errorf("%s: %w", locale.Pick(ctx, "STX Java Proxy 不可达，无法校验外部存储连通性", "STX Java Proxy unreachable; external storage connectivity cannot be validated"), resolveErr)
 		}
 		base = strings.TrimRight(resolvedBase, "/")
 		transportClient, clientErr := transport.HTTPClient(ctx, 20*time.Second)
@@ -218,7 +229,7 @@ func (s *Service) k8sProxyHTTPProbe(ctx context.Context, clusterObj *Cluster, ki
 	})
 	resp, err := client.Post(base+"/api/v1/storage/"+kind+"/probe", "application/json", bytes.NewReader(body))
 	if err != nil {
-		return false, "", fmt.Errorf("STX Java Proxy 探活请求失败: %w", err)
+		return false, "", fmt.Errorf("%s: %w", locale.Pick(ctx, "STX Java Proxy 探活请求失败", "STX Java Proxy probe request failed"), err)
 	}
 	defer resp.Body.Close()
 	payload, _ := io.ReadAll(resp.Body)
@@ -229,7 +240,7 @@ func (s *Service) k8sProxyHTTPProbe(ctx context.Context, clusterObj *Cluster, ki
 		Error   string `json:"error"`
 	}
 	if err := json.Unmarshal(payload, &parsed); err != nil {
-		return false, "", fmt.Errorf("STX Java Proxy 探活响应解析失败: %w", err)
+		return false, "", fmt.Errorf("%s: %w", locale.Pick(ctx, "STX Java Proxy 探活响应解析失败", "failed to parse STX Java Proxy probe response"), err)
 	}
 	if parsed.Error != "" && parsed.Message == "" {
 		parsed.Message = parsed.Error
@@ -260,12 +271,12 @@ func (s *Service) validateK8sRuntimeStorage(ctx context.Context, clusterObj *Clu
 	switch storageType {
 	case "", "LOCAL_FILE":
 		host.Success = true
-		host.Message = "Kubernetes 本地文件存储位于 Pod 容器内，无需连通性校验；注意 Pod 重建后数据会丢失"
+		host.Message = locale.Pick(ctx, "Kubernetes 本地文件存储位于 Pod 容器内，无需连通性校验；注意 Pod 重建后数据会丢失", "Kubernetes local file storage lives inside pods and needs no connectivity probe; note data is lost when pods are recreated")
 		result.Success = true
-		result.Warning = k8sLocalFileWarning
+		result.Warning = k8sLocalFileWarning(ctx)
 	case "DISABLED":
 		host.Success = true
-		host.Message = "IMAP 外部存储已禁用"
+		host.Message = locale.Pick(ctx, "IMAP 外部存储已禁用", "IMAP external storage is disabled")
 		result.Success = true
 	default:
 		probeConfig, buildErr := installerapp.BuildEngineStorageProbeConfig(&installerapp.EngineStorageProbeFields{
@@ -311,7 +322,7 @@ func (s *Service) applyK8sRuntimeStorage(ctx context.Context, clusterObj *Cluste
 	content := seatunnelYAML
 	if kind == installerapp.RuntimeStorageValidationIMAP {
 		if strings.TrimSpace(hazelcastYAML) == "" {
-			return nil, errors.New("集群 ConfigMap 中缺少 hazelcast 配置，无法写入 IMAP 存储")
+			return nil, errors.New(locale.Pick(ctx, "集群 ConfigMap 中缺少 hazelcast 配置，无法写入 IMAP 存储", "the cluster ConfigMap lacks hazelcast config; IMAP storage cannot be written"))
 		}
 		content = hazelcastYAML
 		// hybrid 用 hazelcast.yaml，separated 用 hazelcast-master.yaml：按 ConfigMap 实有文件回写。
@@ -361,7 +372,7 @@ func (s *Service) applyK8sRuntimeStorage(ctx context.Context, clusterObj *Cluste
 			return nil, probeErr
 		}
 		if !success {
-			return nil, fmt.Errorf("外部存储连通性校验失败，未写入配置: %s", message)
+			return nil, fmt.Errorf("%s: %s", locale.Pick(ctx, "外部存储连通性校验失败，未写入配置", "external storage connectivity validation failed; config not written"), message)
 		}
 	}
 
@@ -375,7 +386,7 @@ func (s *Service) applyK8sRuntimeStorage(ctx context.Context, clusterObj *Cluste
 	result := &ApplyRuntimeStorageResult{
 		Saved:           true,
 		RestartRequired: true,
-		Message:         "配置已写入集群 ConfigMap，滚动重启后生效",
+		Message:         locale.Pick(ctx, "配置已写入集群 ConfigMap，滚动重启后生效", "config written to the cluster ConfigMap; effective after a rolling restart"),
 	}
 	return result, nil
 }

@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestApplyK8sLocalFileBoundary(t *testing.T) {
@@ -52,4 +53,16 @@ func TestK8sRuntimeStorageBoundaryError(t *testing.T) {
 	assert.ErrorContains(t, err, "暂不支持通过 HTTP 代理")
 	err = k8sRuntimeStorageBoundaryError(context.Background(), "OSS")
 	assert.ErrorContains(t, err, "暂不支持通过 HTTP 代理")
+}
+
+// TestK8sStorageBlankKeysBackfill 校验留空密钥从当前 YAML 回填：与主机侧行为一致，
+// 回填探活前发生，留空不等于清空。
+// TestK8sStorageBlankKeysBackfill verifies blank keys backfill from the current YAML:
+// mirroring host behavior, backfill happens before probing, and blank never means clear.
+func TestK8sStorageBlankKeysBackfill(t *testing.T) {
+	current := "seatunnel:\n  engine:\n    checkpoint:\n      storage:\n        type: hdfs\n        plugin-config:\n          storage.type: s3\n          fs.s3a.access.key: ak-existing\n          fs.s3a.secret.key: sk-existing\n"
+	cfg := parseCheckpointValidationConfigFromYAML(current)
+	require.NotNil(t, cfg)
+	assert.Equal(t, "ak-existing", cfg.StorageAccessKey)
+	assert.Equal(t, "sk-existing", cfg.StorageSecretKey)
 }

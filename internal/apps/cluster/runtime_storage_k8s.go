@@ -338,6 +338,33 @@ func (s *Service) applyK8sRuntimeStorage(ctx context.Context, clusterObj *Cluste
 		}
 	}
 
+	// 留空的 access_key/secret_key 用 ConfigMap 当前值回填（与主机侧一致）：
+	// 用户只想改 endpoint/bucket 时不必重复输入密钥，探活与写回都用回填后的完整凭据。
+	// Blank access_key/secret_key are backfilled from the current ConfigMap values
+	// (mirroring host behavior): users editing only endpoint/bucket need not re-enter
+	// credentials, and both probe and write-back use the backfilled values.
+	if strings.TrimSpace(req.AccessKey) == "" || strings.TrimSpace(req.SecretKey) == "" {
+		if kind == installerapp.RuntimeStorageValidationCheckpoint {
+			if current := parseCheckpointValidationConfigFromYAML(content); current != nil {
+				if strings.TrimSpace(req.AccessKey) == "" {
+					req.AccessKey = current.StorageAccessKey
+				}
+				if strings.TrimSpace(req.SecretKey) == "" {
+					req.SecretKey = current.StorageSecretKey
+				}
+			}
+		} else if kind == installerapp.RuntimeStorageValidationIMAP {
+			if current := parseIMAPValidationConfigFromYAML(content); current != nil {
+				if strings.TrimSpace(req.AccessKey) == "" {
+					req.AccessKey = current.StorageAccessKey
+				}
+				if strings.TrimSpace(req.SecretKey) == "" {
+					req.SecretKey = current.StorageSecretKey
+				}
+			}
+		}
+	}
+
 	// 外部存储先探活：失败直接返回，不写回 ConfigMap；LOCAL_FILE/DISABLED 无需探活。
 	// External storage is probed first: a failure returns early without writing back;
 	// LOCAL_FILE/DISABLED need no probe.

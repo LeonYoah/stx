@@ -20,7 +20,8 @@
 import {useCallback, useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/arc/button/button';
-import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {Drawer, DrawerContent, useDrawerItem} from '@/components/arc/drawer/drawer';
+import {ActionButton} from '@/components/arc/action-button/action-button';
 import {Input} from '@/components/arc/input/input';
 import {Skeleton} from '@/components/arc/skeleton/skeleton';
 import {ConfirmMorph} from '@/components/arc/confirm-morph/confirm-morph';
@@ -54,10 +55,12 @@ export function ContainerRegistryPanel() {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [testingId, setTestingId] = useState<number | null>(null);
-  const [probing, setProbing] = useState(false);
   const [probeResult, setProbeResult] = useState<{ok: boolean; text: string} | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  // 抽屉滑出动画期间保留最后编辑的行，内容不先消失。
+  // Keep the edited row mounted while the drawer slides out.
+  const drawerRow = useDrawerItem(editingId != null ? items.find((row) => row.id === editingId) ?? null : null);
+  void drawerRow;
 
   const load = useCallback(() => {
     setLoading(true);
@@ -119,7 +122,6 @@ export function ContainerRegistryPanel() {
   // The in-dialog test probes the form values without persisting anything and
   // reports inline.
   const probe = async () => {
-    setProbing(true);
     setProbeResult(null);
     try {
       const result = await probeRegistry({host: host.trim(), username: username.trim(), password});
@@ -133,13 +135,10 @@ export function ContainerRegistryPanel() {
       }
     } catch (err) {
       setProbeResult({ok: false, text: `${t('probeFailed')}: ${err instanceof Error ? err.message : String(err)}`});
-    } finally {
-      setProbing(false);
     }
   };
 
   const testRow = async (id: number) => {
-    setTestingId(id);
     try {
       const row = await testContainerRegistry(id);
       // 原地替换该行，不触发整表骨架重载——全量刷新会被误读成页面刷新。
@@ -154,8 +153,7 @@ export function ContainerRegistryPanel() {
             : item,
         ),
       );
-    } finally {
-      setTestingId(null);
+      throw err;
     }
   };
 
@@ -193,7 +191,21 @@ export function ContainerRegistryPanel() {
       sortable: true,
       render: (_value, row) => (
         <span className='font-mono text-xs'>
-          {row.host}
+          {row.is_system ? (
+            row.host
+          ) : (
+            <button
+              type='button'
+              className='text-primary underline-offset-2 hover:underline'
+              onClick={(event) => {
+                event.stopPropagation();
+                openEdit(row);
+              }}
+              data-testid={`registry-open-${row.id}`}
+            >
+              {row.host}
+            </button>
+          )}
           {row.is_system ? (
             <span className='ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px]'>{t('officialBadge')}</span>
           ) : null}
@@ -223,33 +235,23 @@ export function ContainerRegistryPanel() {
       width: 220,
       render: (_value, row) => (
         <span className='inline-flex items-center gap-2'>
-          <Button
-            type='button'
-            variant='ghost'
-            size='sm'
-            disabled={testingId === row.id}
-            onClick={() => testRow(row.id)}
-            data-testid={`registry-test-${row.id}`}
-          >
-            {testingId === row.id ? t('testing') : t('test')}
-          </Button>
+          <span onClick={(event) => event.stopPropagation()}>
+            <ActionButton
+              label={t('test')}
+              pendingLabel={t('testing')}
+              successLabel={t('probeOk')}
+              onAction={() => testRow(row.id)}
+              data-testid={`registry-test-${row.id}`}
+            />
+          </span>
           {row.is_system ? null : (
-            <>
-              <Button
-                type='button'
-                variant='ghost'
-                size='sm'
-                onClick={() => openEdit(row)}
-                data-testid={`registry-edit-${row.id}`}
-              >
-                {t('edit')}
-              </Button>
+            <span onClick={(event) => event.stopPropagation()}>
               <ConfirmMorph
                 label={t('delete')}
                 confirmLabel={t('deleteConfirm')}
                 onConfirm={() => deleteContainerRegistry(row.id).then(load)}
               />
-            </>
+            </span>
           )}
         </span>
       ),
@@ -304,10 +306,10 @@ export function ContainerRegistryPanel() {
           onSelectionChange={setSelectedKeys}
         />
       )}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent
+      <Drawer open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DrawerContent
           title={editingId != null ? t('editDialogTitle') : t('dialogTitle')}
-          className='arc-compact w-[min(94vw,480px)]!'
+          
         >
           <div className='space-y-3'>
             <Input
@@ -332,16 +334,14 @@ export function ContainerRegistryPanel() {
               onChange={(event) => setPassword(event.target.value)}
             />
             <div className='flex items-center gap-2'>
-              <Button
-                type='button'
-                variant='secondary'
-                size='sm'
-                disabled={probing || !host.trim()}
-                onClick={probe}
+              <ActionButton
+                label={t('probeFirst')}
+                pendingLabel={t('testing')}
+                successLabel={t('probeOk')}
+                disabled={!host.trim()}
+                onAction={probe}
                 data-testid='registry-probe'
-              >
-                {probing ? t('testing') : t('probeFirst')}
-              </Button>
+              />
               {probeResult ? (
                 <p
                   className={`text-xs ${probeResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}
@@ -367,8 +367,8 @@ export function ContainerRegistryPanel() {
               {submitting ? t('submitting') : editingId != null ? t('submitEdit') : t('submit')}
             </Button>
           </div>
-        </DialogContent>
-      </Dialog>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }

@@ -1960,7 +1960,7 @@
       "cancel": "Cancel",
       "confirmAction": "Confirm",
       "never": "never",
-      "description": "When enabled, the engine pushes schema changes and CDC delay to STX, allowing you to view DDL timelines and CDC delay monitoring in job details.",
+      "description": "Job submission and status sync use control-plane polling by default, so disabling this channel does not affect regular jobs. When enabled, the engine additionally pushes schema-change events (DDL timeline) and CDC lag metrics for delay alerting.",
       "unsupported": "Cluster version {version} does not support event reporting (requires SeaTunnel 2.3.12+).",
       "lastEvent": "Last event: {time}",
       "counters": "received {received} · duplicates {duplicates} · dropped {dropped}",
@@ -1994,7 +1994,13 @@
           "body": "A new token is written to seatunnel.yaml. Until the restart the engine keeps the old token, so reports are rejected."
         }
       },
-      "purposeLine": "Shows DDL timelines and CDC delay in job details once enabled."
+      "purposeLine": "Regular jobs do not depend on this channel; enable it only when you need CDC lag alerting and the schema-change timeline.",
+      "callbackOverrideLabel": "STX callback URL override",
+      "callbackSave": "Save",
+      "callbackSaved": "Callback URL override saved",
+      "callbackInheritHint": "Empty inherits the platform default external address: {url}. In Kubernetes, make sure engine pods can reach it (prefer an in-cluster Service DNS name).",
+      "callbackOverrideHint": "Cluster-level override active: engine pods report events to this address, which must be reachable from inside the cluster.",
+      "callbackLoopbackHint": "A loopback address (127.0.0.1/localhost) inside a pod resolves to the container itself, not the STX control plane — reporting will always fail. Use a cluster-reachable address."
     },
     "observe": {
       "open": "Open SeaTunnel cluster observation",

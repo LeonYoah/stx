@@ -450,7 +450,7 @@ export class SyncService extends BaseService {
    */
   static async updateEventChannel(
     clusterId: number,
-    request: {enabled?: boolean; rotate_token?: boolean},
+    request: {enabled?: boolean; rotate_token?: boolean; stx_callback_url?: string},
   ): Promise<SyncEventChannelStatus> {
     return this.put<SyncEventChannelStatus>(`/event-channels/${clusterId}`, request);
   }

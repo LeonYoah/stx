@@ -48,16 +48,17 @@ var safeTaskNamePattern = regexp.MustCompile(`^[\p{L}\p{N}._-]+$`)
 
 // Service provides sync studio control-plane behavior.
 type Service struct {
-	repo                    *Repository
-	engineClient            EngineClient
-	runtimeResolver         ClusterRuntimeResolver
-	configToolClient        ConfigToolClient
-	configToolResolver      ConfigToolResolver
-	jobIDGenerator          *JobIDGenerator
-	agentSender             AgentCommandSender
-	executionTargetResolver ExecutionTargetResolver
-	clusterLogProvider      ClusterLogProvider
-	clusterVersionProvider  ClusterVersionProvider
+	repo                       *Repository
+	engineClient               EngineClient
+	runtimeResolver            ClusterRuntimeResolver
+	configToolClient           ConfigToolClient
+	configToolResolver         ConfigToolResolver
+	jobIDGenerator             *JobIDGenerator
+	agentSender                AgentCommandSender
+	executionTargetResolver    ExecutionTargetResolver
+	clusterLogProvider         ClusterLogProvider
+	clusterVersionProvider     ClusterVersionProvider
+	clusterK8sCallbackProvider ClusterK8sCallbackProvider
 	// installedPluginProvider 提供集群已安装插件名（installed_plugins），
 	// 用于区分引擎裸 API-06 措辞是真缺连接器还是已安装但初始化失败。
 	// installedPluginProvider lists a cluster's installed plugin names (installed_plugins),
@@ -98,6 +99,15 @@ type Service struct {
 // ClusterVersionProvider provides SeaTunnel cluster version lookup.
 type ClusterVersionProvider interface {
 	GetClusterVersion(ctx context.Context, clusterID uint) (string, error)
+}
+
+// ClusterK8sCallbackProvider 解耦提供 K8s 集群识别与 stx_callback_url 覆写读写（router 接线，避免循环依赖）。
+// ClusterK8sCallbackProvider decouples Kubernetes cluster detection and stx_callback_url
+// override access (wired in the router to avoid a circular dependency).
+type ClusterK8sCallbackProvider interface {
+	IsKubernetesCluster(ctx context.Context, clusterID uint) bool
+	GetK8sSTXCallbackURL(ctx context.Context, clusterID uint) (string, error)
+	SetK8sSTXCallbackURL(ctx context.Context, clusterID uint, callbackURL string) error
 }
 
 // InstalledPluginProvider lists the platform's installed plugin names for a cluster.

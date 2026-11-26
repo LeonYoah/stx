@@ -27,6 +27,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	urlpkg "net/url"
 	"strconv"
 	"strings"
 	gosync "sync"
@@ -111,32 +112,47 @@ func (s *Service) SetEventReportConfigApplier(applier EventReportConfigApplier) 
 type UpdateEventChannelRequest struct {
 	Enabled     *bool `json:"enabled"`
 	RotateToken bool  `json:"rotate_token"`
+	// STXCallbackURL 仅对 K8s 集群有效：非 nil 时持久化集群级回调地址覆写，
+	// 显式传空串表示清除覆写回归全局 app.external_url。
+	// STXCallbackURL only applies to Kubernetes clusters: a non-nil value persists a
+	// cluster-level callback override, while an explicit empty string clears it back
+	// to the global app.external_url.
+	STXCallbackURL *string `json:"stx_callback_url,omitempty"`
 }
 
 // EventChannelStatus 是事件通道的对外视图；token 只以 token_set 表示，永不返回原文。
 // EventChannelStatus is the public view of an event channel; the token is only exposed as token_set.
 type EventChannelStatus struct {
-	ClusterID         uint                          `json:"cluster_id"`
-	Enabled           bool                          `json:"enabled"`
-	State             string                        `json:"state"`
-	TokenSet          bool                          `json:"token_set"`
-	URL               string                        `json:"url"`
-	Version           string                        `json:"version"`
-	Supported         bool                          `json:"supported"`
-	ReportNonTerminal bool                          `json:"report_non_terminal"`
-	RestartRequired   bool                          `json:"restart_required"`
-	ConfigAppliedAt   *time.Time                    `json:"config_applied_at,omitempty"`
-	ConfigApplyError  string                        `json:"config_apply_error,omitempty"`
-	LastEventAt       *time.Time                    `json:"last_event_at,omitempty"`
-	LastBatchAt       *time.Time                    `json:"last_batch_at,omitempty"`
-	ReceivedCount     int64                         `json:"received_count"`
-	DuplicateCount    int64                         `json:"duplicate_count"`
-	DroppedCount      int64                         `json:"dropped_count"`
-	ParseErrorCount   int64                         `json:"parse_error_count"`
-	AuthFailCount     int64                         `json:"auth_fail_count"`
-	ExpectMissedAt    *time.Time                    `json:"expect_missed_at,omitempty"`
-	ExpectSatisfiedAt *time.Time                    `json:"expect_satisfied_at,omitempty"`
-	Configs           []EngineEventReportNodeResult `json:"configs,omitempty"`
+	ClusterID         uint       `json:"cluster_id"`
+	Enabled           bool       `json:"enabled"`
+	State             string     `json:"state"`
+	TokenSet          bool       `json:"token_set"`
+	URL               string     `json:"url"`
+	Version           string     `json:"version"`
+	Supported         bool       `json:"supported"`
+	ReportNonTerminal bool       `json:"report_non_terminal"`
+	RestartRequired   bool       `json:"restart_required"`
+	ConfigAppliedAt   *time.Time `json:"config_applied_at,omitempty"`
+	ConfigApplyError  string     `json:"config_apply_error,omitempty"`
+	LastEventAt       *time.Time `json:"last_event_at,omitempty"`
+	LastBatchAt       *time.Time `json:"last_batch_at,omitempty"`
+	ReceivedCount     int64      `json:"received_count"`
+	DuplicateCount    int64      `json:"duplicate_count"`
+	DroppedCount      int64      `json:"dropped_count"`
+	ParseErrorCount   int64      `json:"parse_error_count"`
+	AuthFailCount     int64      `json:"auth_fail_count"`
+	ExpectMissedAt    *time.Time `json:"expect_missed_at,omitempty"`
+	ExpectSatisfiedAt *time.Time `json:"expect_satisfied_at,omitempty"`
+	// IsKubernetes 标识 K8s 集群（前端据此展示回调地址覆写输入）。
+	// IsKubernetes marks Kubernetes clusters (the frontend shows the callback override input).
+	IsKubernetes bool `json:"is_kubernetes"`
+	// STXCallbackURL 当前集群级回调覆写；空串表示继承全局 app.external_url。
+	// STXCallbackURL is the cluster-level callback override; empty inherits global app.external_url.
+	STXCallbackURL string `json:"stx_callback_url"`
+	// DefaultURL 不应用集群覆写时的默认接收地址（前端展示"继承值"参考）。
+	// DefaultURL is the receiver URL without the cluster override (frontend reference display).
+	DefaultURL string                        `json:"default_url"`
+	Configs    []EngineEventReportNodeResult `json:"configs,omitempty"`
 }
 
 // EngineEventIngestResult 是接收端对一批事件的处理摘要。
@@ -226,14 +242,47 @@ func newEventTokenNonce() (string, error) {
 	return hex.EncodeToString(buffer), nil
 }
 
-// engineEventsURL 返回写入 seatunnel.yaml 的接收地址。
-// engineEventsURL returns the receiver URL written into seatunnel.yaml.
+// engineEventsURL 返回全局默认接收地址（不应用集群级覆写）。
+// engineEventsURL returns the global default receiver URL without any cluster override.
 func engineEventsURL(clusterID uint) string {
 	base := strings.TrimRight(strings.TrimSpace(config.GetExternalURL()), "/")
 	if base == "" {
 		return ""
 	}
 	return base + "/api/v1/sync/engine-events/" + strconv.FormatUint(uint64(clusterID), 10)
+}
+
+// resolveEngineEventsURL 两级回调地址解析：K8s 集群存在 stx_callback_url 覆写时优先使用，
+// 否则回退全局 app.external_url，再拼接事件接收路径。
+// resolveEngineEventsURL resolves the callback in two levels: a Kubernetes cluster's
+// stx_callback_url override wins, otherwise the global app.external_url is the base.
+func (s *Service) resolveEngineEventsURL(ctx context.Context, clusterID uint) string {
+	base := ""
+	if s.clusterK8sCallbackProvider != nil && s.clusterK8sCallbackProvider.IsKubernetesCluster(ctx, clusterID) {
+		if override, err := s.clusterK8sCallbackProvider.GetK8sSTXCallbackURL(ctx, clusterID); err == nil {
+			base = strings.TrimRight(strings.TrimSpace(override), "/")
+		}
+	}
+	if base == "" {
+		return engineEventsURL(clusterID)
+	}
+	return base + "/api/v1/sync/engine-events/" + strconv.FormatUint(uint64(clusterID), 10)
+}
+
+// isLoopbackCallbackHost 判定回调主机是否为回环/未指定地址：Pod 内的 127.0.0.1/localhost
+// 指向容器自身而非 STX 控制面，写进引擎配置必然上报失败，必须拦截。
+// isLoopbackCallbackHost reports whether the callback host is loopback/unspecified:
+// inside a pod 127.0.0.1/localhost resolves to the container itself rather than the STX
+// control plane, so writing it into engine config guarantees report failure.
+func isLoopbackCallbackHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" || host == "localhost" || host == "::1" || host == "[::1]" || host == "0.0.0.0" || host == "::" {
+		return true
+	}
+	if strings.HasPrefix(host, "127.") {
+		return true
+	}
+	return false
 }
 
 // eventChannelState 根据通道记录计算状态。
@@ -268,11 +317,18 @@ func (s *Service) clusterVersion(ctx context.Context, clusterID uint) string {
 func (s *Service) toEventChannelStatus(ctx context.Context, clusterID uint, channel *EngineEventChannel) *EventChannelStatus {
 	version := s.clusterVersion(ctx, clusterID)
 	status := &EventChannelStatus{
-		ClusterID: clusterID,
-		State:     EventChannelStateDisabled,
-		URL:       engineEventsURL(clusterID),
-		Version:   version,
-		Supported: seatunnel.SupportsJobStateEvents(version),
+		ClusterID:  clusterID,
+		State:      EventChannelStateDisabled,
+		URL:        s.resolveEngineEventsURL(ctx, clusterID),
+		DefaultURL: engineEventsURL(clusterID),
+		Version:    version,
+		Supported:  seatunnel.SupportsJobStateEvents(version),
+	}
+	if s.clusterK8sCallbackProvider != nil && s.clusterK8sCallbackProvider.IsKubernetesCluster(ctx, clusterID) {
+		status.IsKubernetes = true
+		if override, err := s.clusterK8sCallbackProvider.GetK8sSTXCallbackURL(ctx, clusterID); err == nil {
+			status.STXCallbackURL = strings.TrimSpace(override)
+		}
 	}
 	if channel == nil {
 		return status
@@ -355,6 +411,25 @@ func (s *Service) updateEventChannel(ctx context.Context, actor executionapp.Act
 	userID := uint(actor.UserID)
 	now := s.events.clock()
 
+	// 集群级回调地址覆写持久化：先于任何 ConfigMap 写入，失败不得脏改。
+	// The cluster-level callback override is persisted before any ConfigMap write so
+	// a failure never leaves dirty state.
+	isK8s := s.clusterK8sCallbackProvider != nil && s.clusterK8sCallbackProvider.IsKubernetesCluster(ctx, clusterID)
+	if req.STXCallbackURL != nil {
+		override := strings.TrimSpace(*req.STXCallbackURL)
+		switch {
+		case isK8s:
+			if err := s.clusterK8sCallbackProvider.SetK8sSTXCallbackURL(ctx, clusterID, override); err != nil {
+				return nil, err
+			}
+		case override != "":
+			// 非 K8s 集群回环地址由 Pod 外部环境解析不存在问题，拒绝无意义覆写而非静默忽略。
+			// Non-Kubernetes clusters have no in-pod resolution problem, so a meaningless
+			// override is rejected instead of silently ignored.
+			return nil, ErrEventChannelCallbackNotApplicable
+		}
+	}
+
 	var settings *EngineEventReportSettings
 	if enable {
 		version := strings.TrimSpace(versionOverride)
@@ -364,9 +439,16 @@ func (s *Service) updateEventChannel(ctx context.Context, actor executionapp.Act
 		if !seatunnel.SupportsJobStateEvents(version) {
 			return nil, ErrEventChannelVersionUnsupported
 		}
-		url := engineEventsURL(clusterID)
+		url := s.resolveEngineEventsURL(ctx, clusterID)
 		if url == "" {
 			return nil, ErrEventChannelExternalURLMissing
+		}
+		if isK8s {
+			if parsed, parseErr := urlpkg.Parse(url); parseErr == nil {
+				if isLoopbackCallbackHost(parsed.Hostname()) {
+					return nil, ErrEventChannelCallbackLoopback
+				}
+			}
 		}
 		if config.Config == nil || strings.TrimSpace(config.Config.App.SessionSecret) == "" {
 			return nil, ErrEventChannelSecretMissing

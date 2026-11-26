@@ -95,13 +95,15 @@ var (
 	ErrDolphinPushNoNewVersion         = errors.New("sync: dolphin push requires a new published version")
 	ErrDolphinUnsupportedVersion       = errors.New("sync: only DolphinScheduler 3.x is supported")
 	// 事件通道错误 / Event channel errors.
-	ErrEventChannelNotFound           = errors.New("sync: engine event channel not found")
-	ErrEventChannelVersionUnsupported = errors.New("sync: engine event reporting requires SeaTunnel 2.3.12 or later")
-	ErrEventChannelExternalURLMissing = errors.New("sync: app.external_url must be configured so SeaTunnel can reach STX")
-	ErrEventChannelSecretMissing      = errors.New("sync: app.session_secret must be configured to sign engine event tokens")
-	ErrEventChannelApplierMissing     = errors.New("sync: seatunnel.yaml config applier is not configured")
-	ErrEventChannelUnauthorized       = errors.New("sync: invalid engine event token")
-	ErrEventChannelPermissionDenied   = errors.New("sync: only administrators can change the engine event channel")
+	ErrEventChannelNotFound              = errors.New("sync: engine event channel not found")
+	ErrEventChannelVersionUnsupported    = errors.New("sync: engine event reporting requires SeaTunnel 2.3.12 or later")
+	ErrEventChannelExternalURLMissing    = errors.New("sync: app.external_url must be configured so SeaTunnel can reach STX")
+	ErrEventChannelSecretMissing         = errors.New("sync: app.session_secret must be configured to sign engine event tokens")
+	ErrEventChannelApplierMissing        = errors.New("sync: seatunnel.yaml config applier is not configured")
+	ErrEventChannelUnauthorized          = errors.New("sync: invalid engine event token")
+	ErrEventChannelPermissionDenied      = errors.New("sync: only administrators can change the engine event channel")
+	ErrEventChannelCallbackLoopback      = errors.New("sync: callback URL host is loopback; inside engine pods 127.0.0.1/localhost resolves to the container itself, not the STX control plane - configure a cluster-reachable stx_callback_url override or fix the global app.external_url")
+	ErrEventChannelCallbackNotApplicable = errors.New("sync: stx_callback_url override only applies to Kubernetes clusters")
 )
 
 // 写操作结果未知与超时配置相关错误。

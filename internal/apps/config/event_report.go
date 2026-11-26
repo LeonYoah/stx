@@ -189,6 +189,37 @@ func encodeYAMLDocument(root *yaml.Node) (string, error) {
 // template and every node config. Configs are patched one by one instead of overwriting nodes with the template so
 // node-specific settings survive; node configs keep Update's push-then-commit semantics with pending on failure.
 func (s *Service) ApplyEventReportConfig(ctx context.Context, clusterID uint, settings *EventReportSettings, userID uint) (*EventReportApplyResult, error) {
+	// K8s 集群唯一真相是集群内 ConfigMap：直接 patch seatunnel.yaml 写回，
+	// subPath 挂载须滚动重启才生效（RestartRequired 由上层 channel 置位）。
+	// For Kubernetes clusters the in-cluster ConfigMap is the single source of truth:
+	// patch seatunnel.yaml in place and write it back; the subPath mount needs a rolling
+	// restart to take effect (the caller marks RestartRequired).
+	if s.k8sConfigMapSource != nil && s.k8sConfigMapSource.IsKubernetesCluster(ctx, clusterID) {
+		files, err := s.k8sConfigMapSource.ReadK8sConfigMapByID(ctx, clusterID)
+		if err != nil {
+			return nil, err
+		}
+		base, ok := files["seatunnel.yaml"]
+		if !ok {
+			return nil, ErrSeatunnelConfigMissing
+		}
+		outcome := EventReportNodeResult{Template: true}
+		patched, patchErr := PatchEventReportHTTP(base, settings)
+		if patchErr != nil {
+			outcome.Error = patchErr.Error()
+			return &EventReportApplyResult{Configs: []EventReportNodeResult{outcome}}, nil
+		}
+		if patched != base {
+			outcome.Changed = true
+			if err := s.k8sConfigMapSource.WriteK8sConfigMapFileByID(ctx, clusterID, "seatunnel.yaml", patched); err != nil {
+				outcome.Error = err.Error()
+			} else {
+				outcome.Pushed = true
+			}
+		}
+		return &EventReportApplyResult{Configs: []EventReportNodeResult{outcome}}, nil
+	}
+
 	configs, err := s.repo.ListByCluster(ctx, clusterID)
 	if err != nil {
 		return nil, err

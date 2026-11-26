@@ -128,6 +128,7 @@ func (s *Service) NormalizeContent(_ context.Context, req *NormalizeConfigReques
 type K8sConfigMapSource interface {
 	IsKubernetesCluster(ctx context.Context, clusterID uint) bool
 	ReadK8sConfigMapByID(ctx context.Context, clusterID uint) (map[string]string, error)
+	WriteK8sConfigMapFileByID(ctx context.Context, clusterID uint, fileName, content string) error
 }
 
 // SetK8sConfigMapSource 注入 K8s ConfigMap 读取通道。

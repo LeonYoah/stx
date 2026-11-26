@@ -19,6 +19,7 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"gorm.io/driver/sqlite"
@@ -379,4 +380,12 @@ func (f fakeK8sConfigMapSource) IsKubernetesCluster(_ context.Context, _ uint) b
 
 func (f fakeK8sConfigMapSource) ReadK8sConfigMapByID(_ context.Context, _ uint) (map[string]string, error) {
 	return f.files, nil
+}
+
+func (f fakeK8sConfigMapSource) WriteK8sConfigMapFileByID(_ context.Context, _ uint, fileName, content string) error {
+	if f.files == nil {
+		return fmt.Errorf("no configmap")
+	}
+	f.files[fileName] = content
+	return nil
 }

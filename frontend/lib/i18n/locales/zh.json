@@ -1960,7 +1960,7 @@
       "cancel": "取消",
       "confirmAction": "确认",
       "never": "从未",
-      "description": "开启后引擎把表结构变更和 CDC 延迟推送给 STX，可在作业详情中查看 DDL 事件时间线与 CDC 延迟监控。",
+      "description": "作业提交与状态同步默认走控制面定时轮询，关闭本通道不影响普通作业运行。开启后引擎额外推送 Schema 变更事件（DDL 时间线）与 CDC 延迟指标，用于延迟告警。",
       "unsupported": "当前集群版本 {version} 不支持事件上报（需要 SeaTunnel 2.3.12 及以上）。",
       "lastEvent": "最近事件：{time}",
       "counters": "已接收 {received} · 重复 {duplicates} · 丢弃 {dropped}",
@@ -1994,7 +1994,13 @@
           "body": "会生成新令牌并写入 seatunnel.yaml。重启前引擎仍使用旧令牌，期间上报将被拒绝。"
         }
       },
-      "purposeLine": "用于在作业详情中查看 DDL 事件时间线与 CDC 延迟。"
+      "purposeLine": "常规作业运行不依赖本通道；仅在需要 CDC 延迟告警与 Schema 变更时间线时开启。",
+      "callbackOverrideLabel": "STX 回调地址覆写",
+      "callbackSave": "保存",
+      "callbackSaved": "回调地址覆写已保存",
+      "callbackInheritHint": "留空则继承平台默认对外地址：{url}。K8s 内请确保引擎 Pod 能主动访问该地址（同集群建议填内部 Service DNS）。",
+      "callbackOverrideHint": "集群级覆写已生效：引擎 Pod 将使用该地址上报事件，需可从集群内部访问。",
+      "callbackLoopbackHint": "回环地址（127.0.0.1/localhost）在 Pod 内指向容器自身而非 STX 控制面，上报必然失败，请改为集群内可达地址。"
     },
     "observe": {
       "open": "跳转到 SeaTunnel 集群观测",

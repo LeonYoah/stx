@@ -3322,6 +3322,61 @@ func (s *Service) IsKubernetesCluster(ctx context.Context, clusterID uint) bool 
 	return c.IsKubernetes()
 }
 
+// WriteK8sConfigMapFileByID 按集群 ID 写 ConfigMap 单文件（config 域事件上报/运行时存储直写用，不触发滚动重启）。
+// WriteK8sConfigMapFileByID writes one ConfigMap file by cluster ID without triggering a
+// rolling restart (used by the config domain for event-report and runtime-storage writes).
+func (s *Service) WriteK8sConfigMapFileByID(ctx context.Context, clusterID uint, fileName, content string) error {
+	c, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return ErrClusterNotFound
+	}
+	return s.WriteK8sConfigMapFile(ctx, c, fileName, content, false)
+}
+
+// GetK8sSTXCallbackURL 读取集群级 STX 回调地址覆写；非 K8s 集群或无覆写返回空串。
+// GetK8sSTXCallbackURL reads the cluster-level STX callback override; non-Kubernetes
+// clusters or missing overrides yield an empty string.
+func (s *Service) GetK8sSTXCallbackURL(ctx context.Context, clusterID uint) (string, error) {
+	c, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return "", err
+	}
+	if c == nil {
+		return "", ErrClusterNotFound
+	}
+	cfg := c.K8sSessionConfig()
+	if cfg == nil {
+		return "", nil
+	}
+	return strings.TrimSpace(cfg.STXCallbackURL), nil
+}
+
+// SetK8sSTXCallbackURL 持久化集群级回调地址覆写（空串清除覆写）；仅 K8s 集群合法。
+// SetK8sSTXCallbackURL persists the cluster-level callback override (empty clears it);
+// only valid for Kubernetes clusters.
+func (s *Service) SetK8sSTXCallbackURL(ctx context.Context, clusterID uint, callbackURL string) error {
+	c, err := s.repo.GetByID(ctx, clusterID, true)
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return ErrClusterNotFound
+	}
+	if !c.IsKubernetes() {
+		return fmt.Errorf("cluster: stx_callback_url override only applies to kubernetes clusters")
+	}
+	raw, ok := c.Config["kubernetes"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("cluster: kubernetes session config missing")
+	}
+	raw["stx_callback_url"] = strings.TrimSpace(callbackURL)
+	c.Config["kubernetes"] = raw
+	return s.repo.Update(ctx, c)
+}
+
 // ReadK8sConfigMapByID 按集群 ID 读取 ConfigMap（config 域可选能力断言用）。
 // ReadK8sConfigMapByID reads the ConfigMap by cluster ID (used by the config domain's
 // optional capability assertion).

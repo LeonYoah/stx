@@ -2199,12 +2199,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 k8sConfigMapName={(k8sCfg?.configmap_name as string | undefined) ?? undefined}
                 k8sNamespace={(k8sCfg?.namespace as string | undefined) ?? undefined}
               />
-              {!isK8sCluster ? (
-                <EngineEventChannelCard
-                  clusterId={clusterId}
-                  onConfigChanged={handleConfigChanged}
-                />
-              ) : null}
+              <EngineEventChannelCard
+                clusterId={clusterId}
+                onConfigChanged={handleConfigChanged}
+              />
             </>
           ) : null}
         </ArcTabsContent>

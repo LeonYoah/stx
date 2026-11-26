@@ -88,6 +88,9 @@ export function EngineEventChannelCard({
   const [refreshing, setRefreshing] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [callbackInput, setCallbackInput] = useState('');
+  const [callbackSaving, setCallbackSaving] = useState(false);
+  const callbackDirtyRef = useRef(false);
   const loadedRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -95,7 +98,11 @@ export function EngineEventChannelCard({
       setRefreshing(true);
     }
     try {
-      setStatus(await services.sync.getEventChannel(clusterId));
+      const next = await services.sync.getEventChannel(clusterId);
+      setStatus(next);
+      if (!callbackDirtyRef.current) {
+        setCallbackInput(next.stx_callback_url || '');
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     } finally {
@@ -134,6 +141,23 @@ export function EngineEventChannelCard({
     } finally {
       setSubmitting(false);
       setPendingAction(null);
+    }
+  };
+
+  const saveCallbackOverride = async () => {
+    setCallbackSaving(true);
+    try {
+      const next = await services.sync.updateEventChannel(clusterId, {
+        stx_callback_url: callbackInput.trim(),
+      });
+      setStatus(next);
+      callbackDirtyRef.current = false;
+      setCallbackInput(next.stx_callback_url || '');
+      toast.success(t('callbackSaved'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCallbackSaving(false);
     }
   };
 
@@ -254,6 +278,51 @@ export function EngineEventChannelCard({
             {status.url ? (
               <div className='overflow-x-auto whitespace-nowrap font-mono text-[11px] text-muted-foreground'>
                 {t('url', {url: status.url})}
+              </div>
+            ) : null}
+            {status.is_kubernetes ? (
+              <div className='space-y-1.5 rounded-(--radius-panel) border border-border/60 bg-muted/20 px-3 py-2.5' data-testid='k8s-callback-override'>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <input
+                    type='text'
+                    value={callbackInput}
+                    onChange={(e) => {
+                      callbackDirtyRef.current = true;
+                      setCallbackInput(e.target.value);
+                    }}
+                    placeholder='http://stx.stx-system.svc.cluster.local:17800'
+                    aria-label={t('callbackOverrideLabel')}
+                    className='h-7 min-w-0 flex-1 rounded-md border border-border bg-transparent px-2 font-mono text-[11px] outline-none focus:border-primary'
+                  />
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='secondary'
+                    disabled={callbackSaving || callbackInput.trim() === (status.stx_callback_url || '')}
+                    onClick={() => void saveCallbackOverride()}
+                    data-testid='k8s-callback-save'
+                  >
+                    {t('callbackSave')}
+                  </Button>
+                </div>
+                <p className='text-[11px] leading-relaxed text-muted-foreground'>
+                  {callbackInput.trim() === ''
+                    ? t('callbackInheritHint', {url: status.default_url || '-'})
+                    : t('callbackOverrideHint')}
+                </p>
+                {/^(localhost|127\.|\[?::1\]?|0\.0\.0\.0)/i.test(
+                  (() => {
+                    try {
+                      return new URL(callbackInput.trim() || status.url || '').hostname;
+                    } catch {
+                      return '';
+                    }
+                  })(),
+                ) ? (
+                  <p className='text-[11px] text-amber-700 dark:text-amber-300' data-testid='k8s-callback-loopback-warning'>
+                    {t('callbackLoopbackHint')}
+                  </p>
+                ) : null}
               </div>
             ) : null}
             {status.state === 'pending_restart' ? (

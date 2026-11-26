@@ -924,6 +924,7 @@ func Serve() {
 			syncService.SetExecutionTargetResolver(syncapp.NewDefaultExecutionTargetResolver(clusterRepo, hostRepo))
 			syncService.SetClusterLogProvider(clusterService)
 			syncService.SetClusterVersionProvider(clusterService)
+			syncService.SetClusterK8sCallbackProvider(clusterService)
 			syncService.SetClusterDiscoveryProvider(clusterService)
 			syncService.SetConfigToolClient(syncapp.NewDefaultConfigToolClient())
 			configToolResolver := syncapp.NewDefaultConfigToolResolver(clusterService)

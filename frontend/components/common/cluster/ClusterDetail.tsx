@@ -95,6 +95,7 @@ import {
   ClusterInfo,
   ClusterStatus,
   ClusterStatusInfo,
+  K8sPodInfo,
   NodeInfo,
   OperationType,
   RuntimeStorageDetails,
@@ -638,6 +639,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   // Bumped after lifecycle ops so Nodes-tab ProcessEventList starts a bounded silent poll (same window as status).
   const [lifecyclePollEpoch, setLifecyclePollEpoch] = useState(0);
   const [k8sUpgradeOpen, setK8sUpgradeOpen] = useState(false);
+  const [k8sPods, setK8sPods] = useState<K8sPodInfo[]>([]);
 
   const refreshMainStatusAfterLifecycle = useCallback(
     async (
@@ -1905,6 +1907,17 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   // K8s 集群判定与节点面板一致：任何非 bare_metal infra_type 都走 K8s 视图。
   // K8s detection mirrors the nodes panel: any non-bare_metal infra_type uses K8s views.
 
+  useEffect(() => {
+    if (!isK8sCluster) {
+      setK8sPods([]);
+      return;
+    }
+    services.cluster
+      .getK8sPods(clusterId)
+      .then(setK8sPods)
+      .catch(() => setK8sPods([]));
+  }, [clusterId, isK8sCluster, lifecyclePollEpoch]);
+
   const runtimeViewOptions: Array<{value: RuntimeSubView; label: string}> = [
     {value: 'checkpoint', label: t('cluster.list.runtimeViews.checkpoint')},
     {value: 'imap', label: t('cluster.list.runtimeViews.imap')},
@@ -2095,6 +2108,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             <ClusterOverviewTab
               cluster={cluster}
               clusterStatus={clusterStatus}
+              k8sPods={k8sPods}
               nodes={nodes}
               nodeJavaRuntimes={nodeJavaRuntimes}
               webUINode={webUINode}

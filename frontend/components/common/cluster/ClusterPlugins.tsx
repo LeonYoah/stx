@@ -362,17 +362,22 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
               aria-hidden
             />
           </Button>
-          <Button type='button' size='sm' onClick={goToPluginsPage}>
-            <Plus className='size-3.5' aria-hidden />
-            {t('plugin.addPlugin')}
-          </Button>
+          {!isK8sCluster ? (
+            <Button type='button' size='sm' onClick={goToPluginsPage}>
+              <Plus className='size-3.5' aria-hidden />
+              {t('plugin.addPlugin')}
+            </Button>
+          ) : null}
         </div>
       </div>
 
       {/* 列表 + DetailHost 右侧常驻详情栏（#178 联动压缩 + 名称飞入 + J/K 切换） */}
       {/* List + persistent DetailHost rail (#178 linked motion + name fly-in + J/K nav) */}
       <div className={layout.split}>
-        <div className={layout.listCol} data-mcols='cluster-plugins'>
+        <div
+            className={layout.listCol}
+            data-mcols={isK8sCluster ? 'cluster-plugins-k8s' : 'cluster-plugins'}
+          >
           {isK8sCluster ? (
             <p className='mb-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground'>
               {t('cluster.k8s.immutablePluginHint')}
@@ -553,7 +558,7 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
 
                     {/* 版本 / Version */}
                     <span className='truncate font-mono text-xs tabular-nums text-foreground'>
-                      {plugin.version}
+                      {plugin.version || '—'}
                     </span>
 
                     {/* 安装时间 / Installed at */}

@@ -126,6 +126,7 @@ import {RuntimeStorageFileExplorer} from './RuntimeStorageFileExplorer';
 import {ClusterActions} from './ClusterActions';
 import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
 import {K8sNodesPanel} from './K8sNodesPanel';
+import {K8sConfigMapEditor} from '@/components/common/cluster/K8sConfigMapEditor';
 import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
 import {
   baselinePidsFromNodes,
@@ -1880,6 +1881,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     );
   };
 
+  // K8s 集群判定与节点面板一致：任何非 bare_metal infra_type 都走 K8s 视图。
+  // K8s detection mirrors the nodes panel: any non-bare_metal infra_type uses K8s views.
+  const isK8sCluster = Boolean(cluster?.infra_type && cluster.infra_type !== 'bare_metal');
+
   const runtimeViewOptions: Array<{value: RuntimeSubView; label: string}> = [
     {value: 'checkpoint', label: t('cluster.list.runtimeViews.checkpoint')},
     {value: 'imap', label: t('cluster.list.runtimeViews.imap')},
@@ -2123,17 +2128,26 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
 
         <ArcTabsContent value='configs' className='space-y-4'>
           {activeTab === 'configs' ? (
-            <>
-              <ClusterConfigs
-                clusterId={clusterId}
-                deploymentMode={cluster.deployment_mode}
-                onConfigChanged={handleConfigChanged}
-              />
-              <EngineEventChannelCard
-                clusterId={clusterId}
-                onConfigChanged={handleConfigChanged}
-              />
-            </>
+            isK8sCluster ? (
+              // K8s 集群配置唯一真相是集群内 ConfigMap：无节点/模板/下发概念，
+              // 直接复用共用编辑器，保存后滚动重启生效。
+              // For K8s clusters the in-cluster ConfigMap is the single source of truth —
+              // there are no nodes, templates or push semantics; the shared editor is
+              // rendered directly and saving rolls the cluster.
+              <K8sConfigMapEditor clusterId={clusterId} heightClass='h-96' />
+            ) : (
+              <>
+                <ClusterConfigs
+                  clusterId={clusterId}
+                  deploymentMode={cluster.deployment_mode}
+                  onConfigChanged={handleConfigChanged}
+                />
+                <EngineEventChannelCard
+                  clusterId={clusterId}
+                  onConfigChanged={handleConfigChanged}
+                />
+              </>
+            )
           ) : null}
         </ArcTabsContent>
 

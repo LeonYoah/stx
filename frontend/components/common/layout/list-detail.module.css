@@ -258,6 +258,11 @@
   --cols: 24px minmax(0, 1.8fr) 108px 92px 136px 36px;
 }
 
+/* K8s 只读插件行无多选列。K8s read-only plugin rows have no checkbox column. */
+.listCol[data-mcols='cluster-plugins-k8s'] :is(.row, .rowHead) {
+  --cols: minmax(0, 1.8fr) 108px 92px 136px 36px;
+}
+
 /* 审计日志：操作人 / 令牌 / 来源 / 动作 / 资源类型 / 资源名 / 命令 / IP / 时间。
    Audit logs: actor / token / source / action / resource type / name / commands / IP / time. */
 
@@ -1225,6 +1230,13 @@
   }
   .listCol[data-mcols='cluster-plugins'] :is(.row, .rowHead) > :nth-child(3),
   .listCol[data-mcols='cluster-plugins'] :is(.row, .rowHead) > :nth-child(5) {
+    display: none;
+  }
+  .listCol[data-mcols='cluster-plugins-k8s'] :is(.row, .rowHead) {
+    --cols: minmax(0, 1fr) 72px 36px;
+  }
+  .listCol[data-mcols='cluster-plugins-k8s'] :is(.row, .rowHead) > :nth-child(2),
+  .listCol[data-mcols='cluster-plugins-k8s'] :is(.row, .rowHead) > :nth-child(4) {
     display: none;
   }
   /* 窄屏审计行只留操作人 + 动作。Narrow audit rows keep actor + action. */

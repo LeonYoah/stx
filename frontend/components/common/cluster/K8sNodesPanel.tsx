@@ -26,6 +26,7 @@ import {Select} from '@/components/arc/select/select';
 import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import type {K8sPodInfo} from '@/lib/services/cluster/types';
+import {K8sConfigMapEditor} from './K8sConfigMapEditor';
 
 interface K8sNodesPanelProps {
   clusterId: number;
@@ -45,10 +46,6 @@ export function K8sNodesPanel({clusterId}: K8sNodesPanelProps) {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeImage, setUpgradeImage] = useState('');
   const [cmOpen, setCmOpen] = useState(false);
-  const [cmFiles, setCmFiles] = useState<Record<string, string>>({});
-  const [cmSelected, setCmSelected] = useState('');
-  const [cmContent, setCmContent] = useState('');
-  const [cmDirty, setCmDirty] = useState(false);
   const [logPod, setLogPod] = useState<string | null>(null);
   const [logText, setLogText] = useState('');
   const [logLoading, setLogLoading] = useState(false);
@@ -113,18 +110,8 @@ export function K8sNodesPanel({clusterId}: K8sNodesPanelProps) {
     }
   };
 
-  const openConfigMap = async () => {
+  const openConfigMap = () => {
     setCmOpen(true);
-    try {
-      const files = await services.cluster.getK8sConfigMap(clusterId);
-      setCmFiles(files);
-      const first = Object.keys(files).sort()[0] || '';
-      setCmSelected(first);
-      setCmContent(first ? files[first] : '');
-      setCmDirty(false);
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
   };
 
   const openPodLogs = async (podName: string) => {
@@ -176,7 +163,7 @@ export function K8sNodesPanel({clusterId}: K8sNodesPanelProps) {
         <Button size='sm' variant='secondary' disabled={operating} onClick={() => setUpgradeOpen(true)}>
           {t('cluster.k8s.upgradeImage')}
         </Button>
-        <Button size='sm' variant='secondary' onClick={() => void openConfigMap()}>
+        <Button size='sm' variant='secondary' onClick={() => openConfigMap()}>
           ConfigMap
         </Button>
         <Button size='sm' variant='secondary' disabled={operating} onClick={() => void retryProxy()}>
@@ -261,37 +248,9 @@ export function K8sNodesPanel({clusterId}: K8sNodesPanelProps) {
       {cmOpen ? (
         <Dialog open onOpenChange={() => setCmOpen(false)}>
           <DialogContent title='ConfigMap' className='arc-compact w-[min(94vw,720px)]!'>
-            <div className='space-y-2'>
-              <Select
-                value={cmSelected}
-                options={Object.keys(cmFiles).sort().map((k) => ({value: k, label: k}))}
-                onValueChange={(v) => {
-                  setCmSelected(v);
-                  setCmContent(cmFiles[v] || '');
-                  setCmDirty(false);
-                }}
-              />
-              <textarea
-                className='h-72 w-full rounded-md border border-input bg-transparent p-2 font-mono text-xs'
-                value={cmContent}
-                onChange={(e) => { setCmContent(e.target.value); setCmDirty(true); }}
-              />
-            </div>
-            <div className='mt-4 flex justify-end gap-2'>
+            <K8sConfigMapEditor clusterId={clusterId} />
+            <div className='mt-4 flex justify-end'>
               <Button size='sm' variant='secondary' onClick={() => setCmOpen(false)}>{t('common.close')}</Button>
-              <Button
-                size='sm'
-                disabled={!cmDirty || operating}
-                onClick={() => {
-                  setOperating(true);
-                  services.cluster.updateK8sConfigMapFile(clusterId, cmSelected, cmContent, true)
-                    .then(() => { toast.success(t('common.success')); setCmDirty(false); })
-                    .catch((e) => toast.error((e as Error).message))
-                    .finally(() => setOperating(false));
-                }}
-              >
-                {t('cluster.k8s.saveAndRestart')}
-              </Button>
             </div>
           </DialogContent>
         </Dialog>

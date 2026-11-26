@@ -38,7 +38,7 @@ func addClusterWriteCommands(root *cobra.Command, storeProvider authStoreProvide
 		panic("generated cluster command is missing")
 	}
 	clusterCommand.AddCommand(newClusterCreateCommand(storeProvider), newClusterUpdateCommand(storeProvider))
-	clusterCommand.AddCommand(newClusterKubernetesCreateCommand(storeProvider), newClusterK8sConfigmapUpdateCommand(storeProvider))
+	clusterCommand.AddCommand(newClusterKubernetesCreateCommand(storeProvider), newClusterK8sConfigmapUpdateCommand(storeProvider), newClusterK8sPrecheckCommand(storeProvider))
 
 	logModeCommand := &cobra.Command{
 		Use:   "log-mode",
@@ -503,6 +503,61 @@ func newClusterK8sConfigmapUpdateCommand(storeProvider authStoreProvider) *cobra
 	addSecureWriteFlags(command, &options)
 	command.Flags().StringVar(&contentFile, "content-file", "", "File whose content replaces the configmap entry")
 	command.Flags().BoolVar(&restart, "restart", false, "Roll restart master/worker after the update")
+	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
+	return command
+}
+
+// newClusterK8sPrecheckCommand 创建向导 K8s 预检（只读校验，无需 --confirm）。
+// newClusterK8sPrecheckCommand runs the deploy-wizard precheck (read-only validation,
+// no confirmation needed).
+func newClusterK8sPrecheckCommand(storeProvider authStoreProvider) *cobra.Command {
+	var hostID int64
+	var namespace, clusterName, deploymentMode, pullSecrets, serviceAccount, checkpointPVC, requestFile string
+	command := &cobra.Command{
+		Use:     "k8s-precheck",
+		Short:   "Pre-deploy validation for a Kubernetes cluster",
+		Example: "stx cluster k8s-precheck --host-id 1 --namespace default",
+		Args:    usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, args []string) error {
+			body, err := requestBodyFromFile(requestFile)
+			if err != nil {
+				return err
+			}
+			if body == nil {
+				if hostID <= 0 {
+					return clioutput.NewError(clioutput.CodeUsage, "--host-id is required", clioutput.ExitUsage, false)
+				}
+				body = map[string]any{
+					"host_id":            hostID,
+					"namespace":          namespace,
+					"cluster_name":       clusterName,
+					"deployment_mode":    deploymentMode,
+					"image_pull_secrets": pullSecrets,
+					"service_account":    serviceAccount,
+					"checkpoint_pvc":     checkpointPVC,
+				}
+			}
+			// 预检是只读校验（R0），不走写操作确认链。
+			// Precheck is a read-only validation (R0) and bypasses the write confirmation chain.
+			client, err := clientForNamespace(storeProvider, "")
+			if err != nil {
+				return err
+			}
+			var data any
+			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, "/api/v1/clusters/k8s/precheck", body, nil, &data)
+			if err != nil {
+				return err
+			}
+			return renderWriteResult(command, "cluster.k8s-precheck", requestID, data, "")
+		},
+	}
+	command.Flags().Int64Var(&hostID, "host-id", 0, "Kubernetes host ID")
+	command.Flags().StringVar(&namespace, "namespace", "", "Target namespace")
+	command.Flags().StringVar(&clusterName, "cluster-name", "", "Planned cluster name for conflict checks")
+	command.Flags().StringVar(&deploymentMode, "deployment-mode", "", "separated or hybrid")
+	command.Flags().StringVar(&pullSecrets, "image-pull-secrets", "", "Comma separated pull secret names")
+	command.Flags().StringVar(&serviceAccount, "service-account", "", "Service account name")
+	command.Flags().StringVar(&checkpointPVC, "checkpoint-pvc", "", "Checkpoint PVC name")
 	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
 	return command
 }

@@ -116,31 +116,3 @@ func newPackageImageUpdateCommand(storeProvider authStoreProvider) *cobra.Comman
 	addContainerImageFlags(command, &fields)
 	return command
 }
-
-// newPackageImageDeleteCommand stx package image delete。
-// newPackageImageDeleteCommand deletes a registered container image.
-func newPackageImageDeleteCommand(storeProvider authStoreProvider) *cobra.Command {
-	var options packageWriteOptions
-	command := &cobra.Command{
-		Use:     "delete <id>",
-		Short:   "Delete a registered container image",
-		Example: "stx package image delete 1 --confirm",
-		Args:    usageArgs(cobra.ExactArgs(1)),
-		RunE: func(command *cobra.Command, args []string) error {
-			client, headers, err := preparePackageWrite(command, storeProvider, "package.image.delete", &options,
-				"deleting a container image removes it from later Kubernetes deploy choices")
-			if err != nil {
-				return err
-			}
-			var data any
-			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodDelete,
-				"/api/v1/packages/images/"+args[0], nil, headers, &data)
-			if err != nil {
-				return err
-			}
-			return renderPackageResult(command, "package.image.delete", requestID, data, "")
-		},
-	}
-	addPackageWriteFlags(command, &options)
-	return command
-}

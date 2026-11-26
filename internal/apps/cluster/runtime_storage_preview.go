@@ -18,10 +18,10 @@
 package cluster
 
 import (
-	"errors"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	neturl "net/url"

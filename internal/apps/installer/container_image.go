@@ -174,13 +174,13 @@ func (s *Service) UpdateContainerImage(ctx context.Context, id uint, req *Contai
 			}
 		}
 		return tx.Model(&ContainerImage{}).Where("id = ?", id).Updates(map[string]interface{}{
-			"name":              req.Name,
-			"image":             req.Image,
-			"seatunnel_version": req.SeatunnelVersion,
-			"image_pull_policy": req.ImagePullPolicy,
+			"name":               req.Name,
+			"image":              req.Image,
+			"seatunnel_version":  req.SeatunnelVersion,
+			"image_pull_policy":  req.ImagePullPolicy,
 			"image_pull_secrets": strings.TrimSpace(req.ImagePullSecrets),
-			"is_default":        req.IsDefault,
-			"description":       strings.TrimSpace(req.Description),
+			"is_default":         req.IsDefault,
+			"description":        strings.TrimSpace(req.Description),
 		}).Error
 	})
 	if err != nil {

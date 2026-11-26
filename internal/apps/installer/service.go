@@ -18,7 +18,6 @@
 package installer
 
 import (
-	"gorm.io/gorm"
 	"archive/tar"
 	"compress/gzip"
 	"context"
@@ -28,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/LeonYoah/stx/internal/pkg/locale"
+	"gorm.io/gorm"
 	"io"
 	"mime/multipart"
 	"net"

@@ -5,7 +5,7 @@
 - 模块3 DONE a57382c8+style fixup（Proxy内存联动+enable_http切版本）
 - 模块4 DONE 61ce5854（Runtime Storage K8s边界+ConfigMap/S3打通；卷克隆前缀/tmp/seatunnel修复）
 - 模块5 DONE 后端7460ff37+前端本次提交（packages第3Tab+K8sImagePicker+升级弹窗picker+target_version同步）
-- 模块6 未开始：统一6步创建向导（最大块）
+- 模块6 进行中：后端一 DONE 6ccb9677（SessionConfig扩展+动态渲染）；后端二本次提交（precheck端点+CLI+operation）；剩余：hybrid deploy支持+前端向导改造（最大块）
 - 模块7 未开始：全量测试+minikube E2E场景A-G
 - 环境：/tmp/stx-api 二进制在:17800（后端改动后需重build+重启）；admin/admin123 cookie /tmp/ck.txt；前端pnpm dev:3000；集群seatunnel-adopted-demo id=10 host minikube-e2e id=1
 - 测试命令：TZ=UTC go test -race ./internal/...；前端pnpm exec tsc --noEmit && pnpm test；route_baseline用 go run ./internal/operation/cmd/contract-report -write -root .

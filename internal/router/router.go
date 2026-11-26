@@ -410,6 +410,9 @@ func Serve() {
 				// Cluster CRUD 集群增删改查
 				clusterRouter.POST("", clusterHandler.CreateCluster)
 				clusterRouter.POST("/kubernetes", clusterHandler.CreateKubernetesCluster)
+				// 创建向导预检：无集群 ID 前置（部署前校验，不落库）。
+				// Deploy wizard precheck: no cluster ID yet (pre-deploy validation, nothing persisted).
+				clusterRouter.POST("/k8s/precheck", clusterHandler.K8sPrecheckHandler)
 				clusterRouter.POST("/:id/k8s/scale", clusterHandler.ScaleK8s)
 				clusterRouter.POST("/:id/k8s/rollout-restart", clusterHandler.RolloutRestartK8s)
 				clusterRouter.POST("/:id/k8s/upgrade-image", clusterHandler.UpgradeK8sImage)

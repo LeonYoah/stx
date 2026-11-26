@@ -549,5 +549,16 @@ func (s *Service) evaluateK8sClusterHealth(ctx context.Context, cluster *Cluster
 		statusInfo.HealthStatus = HealthStatusUnhealthy
 		return
 	}
+	if cluster.Status == ClusterStatusDeploying {
+		// deploying 自动收敛 running：Pod 全部就绪且 /overview 200 才会走到这里，
+		// 持久化一次避免每轮健康检查重复写库；K8s 路径在本函数内 return，收敛必须放在这里。
+		// Deploying converges to running: reaching here means every pod is Ready and
+		// /overview answered 200; persist once. The K8s path returns inside this
+		// function, so the convergence must live here rather than the bare-metal path.
+		cluster.Status = ClusterStatusRunning
+		if err := s.repo.Update(ctx, cluster); err != nil {
+			statusInfo.HealthReasons = append(statusInfo.HealthReasons, locale.Pick(ctx, "状态收敛写入失败: "+err.Error(), "status convergence write failed: "+err.Error()))
+		}
+	}
 	statusInfo.HealthStatus = HealthStatusHealthy
 }

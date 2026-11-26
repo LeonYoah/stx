@@ -225,7 +225,11 @@ export function ContainerRegistryPanel() {
       key: 'repo_count',
       label: t('colRepos'),
       numeric: true,
-      render: (_value, row) => <span className='text-xs text-muted-foreground'>{row.catalog_repos?.length ?? 0}</span>,
+      render: (_value, row) => (
+        <span className='text-xs text-muted-foreground'>
+          {row.is_system || row.probe_status === 'reachable' ? '—' : (row.catalog_repos?.length ?? 0)}
+        </span>
+      ),
     },
     {
       key: 'actions',
@@ -312,7 +316,6 @@ export function ContainerRegistryPanel() {
         }}
         narrow={narrow}
         title={editingId != null ? t('editDialogTitle') : t('dialogTitle')}
-        meta={editingRow?.host}
         drawerWidth='w-[min(92vw,480px)]'
       >
         <div className='space-y-3 px-4 py-3'>
@@ -320,8 +323,6 @@ export function ContainerRegistryPanel() {
               label={t('hostLabel')}
               value={host}
               placeholder='harbor.example.com 或 192.168.49.4:5000'
-              readOnly={editingId != null}
-              disabled={editingId != null}
               onChange={(event) => setHost(event.target.value)}
               data-testid='registry-host-input'
             />

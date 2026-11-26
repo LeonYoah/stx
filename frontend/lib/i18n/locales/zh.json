@@ -2189,7 +2189,8 @@
       "proxyHeap": "JVM 堆",
       "proxyDerivedMemory": "容器内存自动联动：limits {limit} / requests {request}",
       "checkpointPvcPlaceholder": "checkpoint PVC 名（可选，持久化本地快照）",
-      "imapSyncFromCheckpoint": "从 Checkpoint 复制配置"
+      "imapSyncFromCheckpoint": "从 Checkpoint 复制配置",
+      "storageEndpoint": "端点"
     }
   },
   "audit": {

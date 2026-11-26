@@ -19,17 +19,10 @@
 
 import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
-import {Checkbox} from '@/components/ui/checkbox';
-import {Button} from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import {Input} from '@/components/arc/input/input';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {Button} from '@/components/arc/button/button';
+import {Select} from '@/components/arc/select/select';
 import {K8sImagePicker} from '@/components/common/k8s/K8sImagePicker';
 import {RadioCards} from '@/components/arc/radio-cards/radio-cards';
 import {isValidClusterCode, recommendClusterCode} from '@/lib/cluster-code';
@@ -119,8 +112,8 @@ export function K8sBasicContent({form, patch}: StepProps) {
     <div className='space-y-4' data-testid='k8s-basic-step'>
       <div className='grid grid-cols-2 gap-4'>
         <div className='space-y-1.5'>
-          <Label>{t('cluster.name')}</Label>
           <Input
+            label={t('cluster.name')}
             value={form.name}
             onChange={(e) => {
               const next: Partial<K8sWizardFormState> = {name: e.target.value};
@@ -134,8 +127,8 @@ export function K8sBasicContent({form, patch}: StepProps) {
           />
         </div>
         <div className='space-y-1.5'>
-          <Label>{t('cluster.k8s.version')}</Label>
           <Input
+            label={t('cluster.k8s.version')}
             value={form.version}
             onChange={(e) => {
               setVersionTouched(true);
@@ -151,7 +144,7 @@ export function K8sBasicContent({form, patch}: StepProps) {
       </div>
 
       <div className='space-y-1.5'>
-        <Label>{t('cluster.k8s.deploymentMode')}</Label>
+        <p className='text-sm font-medium'>{t('cluster.k8s.deploymentMode')}</p>
         <RadioCards
           layout='grid'
           value={form.deployment_mode}
@@ -174,7 +167,7 @@ export function K8sBasicContent({form, patch}: StepProps) {
       </div>
 
       <div className='space-y-1.5'>
-        <Label>{t('cluster.k8s.image')}</Label>
+        <p className='text-sm font-medium'>{t('cluster.k8s.image')}</p>
         <K8sImagePicker
           value={form.image}
           onChange={(next) =>
@@ -189,8 +182,8 @@ export function K8sBasicContent({form, patch}: StepProps) {
       </div>
       <div className='grid grid-cols-2 gap-4'>
         <div className='space-y-1.5'>
-          <Label>{t('cluster.clusterCode')}</Label>
           <Input
+            label={t('cluster.clusterCode')}
             value={form.cluster_code}
             onChange={(e) => {
               setCodeTouched(true);
@@ -204,8 +197,7 @@ export function K8sBasicContent({form, patch}: StepProps) {
           ) : null}
         </div>
         <div className='space-y-1.5'>
-          <Label>{t('cluster.description')}</Label>
-          <Input value={form.description} onChange={(e) => patch({description: e.target.value})} />
+          <Input label={t('cluster.description')} value={form.description} onChange={(e) => patch({description: e.target.value})} />
         </div>
       </div>
     </div>
@@ -260,32 +252,29 @@ export function K8sConfigContent({form, patch}: StepProps) {
   const storageEditor = (kind: 'checkpoint' | 'imap') => {
     const storage = form[kind];
     return (
-      <div className='space-y-2 rounded-lg border p-3' data-testid={`k8s-${kind}-editor`}>
-        <label className='flex items-center gap-2 text-sm font-medium'>
-          <Checkbox
+      <div className='space-y-2 border-t-[0.5px] border-border/80 pt-3' data-testid={`k8s-${kind}-editor`}>
+        <Checkbox
+            label={t(`cluster.k8s.${kind}Title`)}
             checked={storage.enabled}
             onCheckedChange={(checked) => patchStorage(kind, {enabled: checked === true})}
           />
-          {t(`cluster.k8s.${kind}Title`)}
-        </label>
         {storage.enabled ? (
           <>
             <div className='grid grid-cols-2 gap-3'>
               <Select
+                aria-label='storage type'
                 value={storage.storage_type}
                 onValueChange={(value) => patchStorage(kind, {storage_type: value})}
-              >
-                <SelectTrigger data-testid={`k8s-${kind}-type`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='LOCAL_FILE'>LOCAL_FILE</SelectItem>
-                  <SelectItem value='S3'>S3</SelectItem>
-                  <SelectItem value='OSS'>OSS</SelectItem>
-                  <SelectItem value='HDFS'>HDFS</SelectItem>
-                </SelectContent>
-              </Select>
+                options={[
+                  {value: 'LOCAL_FILE', label: 'LOCAL_FILE'},
+                  {value: 'S3', label: 'S3'},
+                  {value: 'OSS', label: 'OSS'},
+                  {value: 'HDFS', label: 'HDFS'},
+                ]}
+                data-testid={`k8s-${kind}-type`}
+              />
               <Input
+                label={t('cluster.k8s.storageNamespace')}
                 placeholder={t('cluster.k8s.storageNamespace')}
                 value={storage.namespace}
                 onChange={(e) => patchStorage(kind, {namespace: e.target.value})}
@@ -298,6 +287,7 @@ export function K8sConfigContent({form, patch}: StepProps) {
                 </p>
                 {kind === 'checkpoint' ? (
                   <Input
+                    label={t('cluster.k8s.checkpointPvc')}
                     placeholder={t('cluster.k8s.checkpointPvcPlaceholder')}
                     value={form.checkpoint_pvc}
                     onChange={(e) => patch({checkpoint_pvc: e.target.value})}
@@ -309,26 +299,27 @@ export function K8sConfigContent({form, patch}: StepProps) {
               <div className='space-y-2'>
                 <div className='grid grid-cols-2 gap-3'>
                   <Input
+                    label={t('cluster.k8s.storageEndpoint')}
                     placeholder={storage.storage_type === 'HDFS' ? 'hdfs://namenode:8020' : 'endpoint'}
                     value={storage.endpoint}
                     onChange={(e) => patchStorage(kind, {endpoint: e.target.value})}
                     data-testid={`k8s-${kind}-endpoint`}
                   />
                   {storage.storage_type !== 'HDFS' ? (
-                    <Input placeholder='bucket' value={storage.bucket} onChange={(e) => patchStorage(kind, {bucket: e.target.value})} />
+                    <Input label='bucket' value={storage.bucket} onChange={(e) => patchStorage(kind, {bucket: e.target.value})} />
                   ) : null}
                   {storage.storage_type !== 'HDFS' ? (
-                    <Input placeholder='access key' value={storage.access_key} onChange={(e) => patchStorage(kind, {access_key: e.target.value})} />
+                    <Input label='access key' value={storage.access_key} onChange={(e) => patchStorage(kind, {access_key: e.target.value})} />
                   ) : null}
                   {storage.storage_type !== 'HDFS' ? (
-                    <Input placeholder='secret key' type='password' value={storage.secret_key} onChange={(e) => patchStorage(kind, {secret_key: e.target.value})} />
+                    <Input label='secret key' type='password' value={storage.secret_key} onChange={(e) => patchStorage(kind, {secret_key: e.target.value})} />
                   ) : null}
                 </div>
                 {kind === 'imap' ? (
                   <Button
                     type='button'
                     size='sm'
-                    variant='outline'
+                    variant='secondary'
                     onClick={() => patchStorage('imap', {
                       storage_type: form.checkpoint.storage_type,
                       namespace: form.checkpoint.namespace,
@@ -354,8 +345,8 @@ export function K8sConfigContent({form, patch}: StepProps) {
     <div className='space-y-4' data-testid='k8s-config-step'>
       <div className='grid grid-cols-2 gap-4'>
         <div className='space-y-1.5'>
-          <Label>{t('cluster.k8s.masterHttpPort')}</Label>
           <Input
+            label={t('cluster.k8s.masterHttpPort')}
             type='number'
             value={form.master_http_port}
             onChange={(e) => patch({master_http_port: Number(e.target.value) || 8080})}
@@ -363,8 +354,8 @@ export function K8sConfigContent({form, patch}: StepProps) {
           />
         </div>
         <div className='space-y-1.5'>
-          <Label>{t('cluster.k8s.hazelcastPort')}</Label>
           <Input
+            label={t('cluster.k8s.hazelcastPort')}
             type='number'
             value={form.hazelcast_port}
             onChange={(e) => patch({hazelcast_port: Number(e.target.value) || 5801})}
@@ -373,12 +364,12 @@ export function K8sConfigContent({form, patch}: StepProps) {
         </div>
       </div>
 
-      <div className='space-y-2 rounded-lg border p-3'>
+      <div className='space-y-2 border-t-[0.5px] border-border/80 pt-3'>
         <p className='text-sm font-medium'>{t('cluster.k8s.jvmTitle')}</p>
         {form.deployment_mode === 'hybrid' ? (
           <div className='space-y-1.5'>
-            <Label>{t('cluster.k8s.hybridHeapMb')}</Label>
             <Input
+              label={t('cluster.k8s.hybridHeapMb')}
               type='number'
               min={256}
               value={form.hybrid_heap_mb}
@@ -395,8 +386,8 @@ export function K8sConfigContent({form, patch}: StepProps) {
         ) : (
           <div className='grid grid-cols-2 gap-3'>
             <div className='space-y-1.5'>
-              <Label>{t('cluster.k8s.masterHeapMb')}</Label>
               <Input
+                label={t('cluster.k8s.masterHeapMb')}
                 type='number'
                 min={256}
                 value={form.master_heap_mb}
@@ -409,8 +400,8 @@ export function K8sConfigContent({form, patch}: StepProps) {
               ) : null}
             </div>
             <div className='space-y-1.5'>
-              <Label>{t('cluster.k8s.workerHeapMb')}</Label>
               <Input
+                label={t('cluster.k8s.workerHeapMb')}
                 type='number'
                 min={256}
                 value={form.worker_heap_mb}
@@ -429,25 +420,23 @@ export function K8sConfigContent({form, patch}: StepProps) {
         ) : null}
       </div>
 
-      <div className='space-y-2 rounded-lg border p-3'>
+      <div className='space-y-2 border-t-[0.5px] border-border/80 pt-3'>
         <div className='flex items-center gap-2 text-sm font-medium' data-testid='k8s-enable-http-locked'>
-          <Checkbox checked disabled />
-          <span>{t('cluster.k8s.enableHttp')}</span>
+          <Checkbox checked disabled label={t('cluster.k8s.enableHttp')} />
+          <span className='sr-only'>{t('cluster.k8s.enableHttp')}</span>
           <span className='text-xs font-normal text-muted-foreground'>{t('cluster.k8s.enableHttpLockedHint')}</span>
         </div>
-        <label className='flex items-center gap-2 text-sm font-medium'>
-          <Checkbox
+        <Checkbox
+            label={t('cluster.k8s.eventReport')}
             checked={form.event_report_enabled}
             onCheckedChange={(checked) => patch({event_report_enabled: checked === true})}
             data-testid='k8s-event-report-toggle'
           />
-          {t('cluster.k8s.eventReport')}
-        </label>
         <p className='text-xs text-muted-foreground'>{t('cluster.k8s.eventReportHint')}</p>
         {form.event_report_enabled ? (
           <div className='space-y-1'>
-            <label className='text-xs text-muted-foreground'>{t('cluster.k8s.stxCallbackUrl')}</label>
             <Input
+              label={t('cluster.k8s.stxCallbackUrl')}
               value={form.stx_callback_url}
               onChange={(e) => patch({stx_callback_url: e.target.value})}
               placeholder={t('cluster.k8s.stxCallbackUrlPlaceholder')}
@@ -462,39 +451,34 @@ export function K8sConfigContent({form, patch}: StepProps) {
         ) : null}
       </div>
 
-      <div className='space-y-2 rounded-lg border p-3' data-testid='k8s-proxy-section'>
+      <div className='space-y-2 border-t-[0.5px] border-border/80 pt-3' data-testid='k8s-proxy-section'>
         <p className='text-sm font-medium'>{t('cluster.k8s.proxyTitle')}</p>
         <div className='grid grid-cols-3 gap-3'>
           <div className='space-y-1.5'>
-            <Label>{t('cluster.k8s.proxyMode')}</Label>
-            <Select value={form.java_proxy_mode} onValueChange={(value) => patch({java_proxy_mode: value})}>
-              <SelectTrigger data-testid='k8s-proxy-mode'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='managed'>{t('cluster.k8s.proxyModeManaged')}</SelectItem>
-                <SelectItem value='reuse_cluster'>{t('cluster.k8s.proxyModeReuse')}</SelectItem>
-                <SelectItem value='external'>{t('cluster.k8s.proxyModeExternal')}</SelectItem>
-                <SelectItem value='disabled'>{t('cluster.k8s.proxyModeDisabled')}</SelectItem>
-              </SelectContent>
-            </Select>
+            <Select
+              label={t('cluster.k8s.proxyMode')}
+              value={form.java_proxy_mode}
+              onValueChange={(value) => patch({java_proxy_mode: value})}
+              options={[
+                  {value: 'managed', label: t('cluster.k8s.proxyModeManaged')},
+                  {value: 'reuse_cluster', label: t('cluster.k8s.proxyModeReuse')},
+                  {value: 'external', label: t('cluster.k8s.proxyModeExternal')},
+                  {value: 'disabled', label: t('cluster.k8s.proxyModeDisabled')},
+                ]}
+              data-testid='k8s-proxy-mode'
+            />
           </div>
           <div className='space-y-1.5'>
-            <Label>{t('cluster.k8s.proxyPort')}</Label>
-            <Input value={form.java_proxy_port} onChange={(e) => patch({java_proxy_port: e.target.value})} placeholder='18080' data-testid='k8s-proxy-port' />
+            <Input label={t('cluster.k8s.proxyPort')} value={form.java_proxy_port} onChange={(e) => patch({java_proxy_port: e.target.value})} placeholder='18080' data-testid='k8s-proxy-port' />
           </div>
           <div className='space-y-1.5'>
-            <Label>{t('cluster.k8s.proxyHeap')}</Label>
-            <Select value={form.java_proxy_heap} onValueChange={(value) => patch({java_proxy_heap: value})}>
-              <SelectTrigger data-testid='k8s-proxy-heap'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {['512m', '1024m', '2048m', '4096m'].map((heap) => (
-                  <SelectItem key={heap} value={heap}>{heap}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Select
+              label={t('cluster.k8s.proxyHeap')}
+              value={form.java_proxy_heap}
+              onValueChange={(value) => patch({java_proxy_heap: value})}
+              options={['512m', '1024m', '2048m', '4096m'].map((heap) => ({value: heap, label: heap}))}
+              data-testid='k8s-proxy-heap'
+            />
           </div>
         </div>
         {form.java_proxy_mode === 'managed' ? (
@@ -605,7 +589,7 @@ export function K8sPrecheckContent({form, onResult}: {form: K8sWizardFormState; 
     <div className='space-y-3' data-testid='k8s-precheck-step'>
       <div className='flex items-center justify-between'>
         <p className='text-sm text-muted-foreground'>{t('cluster.k8s.precheckDesc')}</p>
-        <Button size='sm' variant='outline' onClick={() => void run()} disabled={running} data-testid='k8s-precheck-rerun'>
+        <Button size='sm' variant='secondary' onClick={() => void run()} disabled={running} data-testid='k8s-precheck-rerun'>
           {running ? t('common.loading') : t('cluster.k8s.precheckRerun')}
         </Button>
       </div>

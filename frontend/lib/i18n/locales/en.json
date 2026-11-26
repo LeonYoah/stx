@@ -2189,7 +2189,8 @@
       "proxyHeap": "JVM heap",
       "proxyDerivedMemory": "Container memory derives automatically: limits {limit} / requests {request}",
       "checkpointPvcPlaceholder": "checkpoint PVC name (optional, persists local snapshots)",
-      "imapSyncFromCheckpoint": "Copy from checkpoint config"
+      "imapSyncFromCheckpoint": "Copy from checkpoint config",
+      "storageEndpoint": "Endpoint"
     }
   },
   "audit": {

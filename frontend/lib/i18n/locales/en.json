@@ -1809,7 +1809,8 @@
       "saveAndApply": "Save Configuration",
       "saving": "Saving...",
       "configSuccess": "Java Proxy configuration updated successfully",
-      "configFailed": "Failed to update Java Proxy configuration"
+      "configFailed": "Failed to update Java Proxy configuration",
+      "k8sMemorySyncHint": "The container memory limit will automatically sync to {memory} (including off-heap and Metaspace headroom); saving with restart rolls the proxy pod."
     },
     "activeAlertsBanner": {
       "title": "{count} active alerts detected",

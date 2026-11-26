@@ -34,3 +34,12 @@ describe('nextEventChannelEnabled', () => {
     expect(nextEventChannelEnabled(false, true, true)).toBe(false);
   });
 });
+
+describe('nextEventChannelEnabled 复用于 enable_http 版本切换', () => {
+  it('切到不支持版本强制 false，切回支持版本且用户未手动改过时恢复默认 true', () => {
+    const offIn238 = nextEventChannelEnabled(false, true, false);
+    expect(offIn238).toBe(false);
+    expect(nextEventChannelEnabled(true, offIn238, false)).toBe(true);
+    expect(nextEventChannelEnabled(true, false, true)).toBe(false);
+  });
+});

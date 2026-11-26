@@ -1809,7 +1809,8 @@
       "saveAndApply": "保存配置",
       "saving": "保存中...",
       "configSuccess": "Java Proxy 配置已更新",
-      "configFailed": "更新 Java Proxy 配置失败"
+      "configFailed": "更新 Java Proxy 配置失败",
+      "k8sMemorySyncHint": "容器内存上限将自动同步为 {memory}（含堆外与 Metaspace 余量），保存并重启后将滚动重建 Proxy Pod。"
     },
     "activeAlertsBanner": {
       "title": "发现 {count} 个活跃告警",

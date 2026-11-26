@@ -121,6 +121,7 @@ import type {ScaleOperationInfo} from '@/lib/services/cluster/scale.types';
 import {EditNodeDialog} from './EditNodeDialog';
 import {ClusterPlugins} from './ClusterPlugins';
 import {ClusterConfigs} from './ClusterConfigs';
+import {deriveProxyContainerMemory} from '@/lib/k8s-proxy-memory';
 import {EngineEventChannelCard} from './EngineEventChannelCard';
 import {SeaTunnelObserveMenu} from './SeaTunnelObserveMenu';
 import {RuntimeStorageEditor} from './RuntimeStorageEditor';
@@ -3108,6 +3109,14 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 data-testid='stx-java-proxy-jvm-opts-input'
               />
             </div>
+
+            {clusterIsK8s ? (
+              <p className='text-xs text-muted-foreground' data-testid='k8s-proxy-memory-hint'>
+                {t('cluster.stxJavaProxy.k8sMemorySyncHint', {
+                  memory: deriveProxyContainerMemory(stxJavaProxyJvmOptsInput).limitDisplay,
+                })}
+              </p>
+            ) : null}
 
             <div className='border-t-[0.5px] border-border/80 pt-4'>
               <ArcCheckbox

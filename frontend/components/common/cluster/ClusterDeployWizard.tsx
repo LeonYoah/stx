@@ -227,6 +227,10 @@ export function ClusterDeployWizard({
   // 用户手动改过事件通道之后，切换仍支持的版本不再把默认值盖回去。
   // After the user toggles the event channel, later supported versions keep that choice.
   const eventChannelUserSet = useRef(false);
+  // 用户手动改过 REST API 开关后，切回支持版本不再重置默认 true。
+  // After the user toggles the REST API switch, switching back to a supported
+  // version must not reset the default.
+  const httpServiceUserSet = useRef(false);
 
   useEffect(() => {
     if (!open || !resolvedRecommendedVersion || config.version) {
@@ -260,9 +264,11 @@ export function ClusterDeployWizard({
       ...prev,
       runtime: {
         ...prev.runtime,
-        enable_http: versionCapabilities.supports_http_service
-          ? prev.runtime.enable_http
-          : false,
+        enable_http: nextEventChannelEnabled(
+          versionCapabilities.supports_http_service,
+          prev.runtime.enable_http,
+          httpServiceUserSet.current,
+        ),
         enable_event_channel: nextEventChannelEnabled(
           versionCapabilities.supports_event_channel,
           prev.runtime.enable_event_channel,
@@ -1160,6 +1166,9 @@ export function ClusterDeployWizard({
             eventChannelSupported={eventChannelSupported}
             onEventChannelUserSet={() => {
               eventChannelUserSet.current = true;
+            }}
+            onHttpServiceUserSet={() => {
+              httpServiceUserSet.current = true;
             }}
             applyCheckpointToImap={applyCheckpointToImap}
             setHostJavaHome={setHostJavaHome}

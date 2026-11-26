@@ -18,6 +18,8 @@
 package k8s
 
 import (
+	"math"
+	"strconv"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -28,6 +30,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -319,6 +322,113 @@ func splitJVMOpts(opts string) []string {
 	return parts
 }
 
+// parseJVMMemoryFlagMi 提取 jvmOpts 中最后一个有效的 -Xmx/-Xms 堆内存（单位换算 MiB，大小写不敏感）。
+// 取最后一个是因为 JVM 语义上后出现的参数覆盖先出现的。
+// parseJVMMemoryFlagMi extracts the last valid -Xmx/-Xms heap value in MiB
+// (case-insensitive); the last one wins because later JVM flags override earlier ones.
+func parseJVMMemoryFlagMi(jvmOpts, flag string) int {
+	value := 0
+	lower := strings.ToLower(flag)
+	for _, piece := range strings.Fields(jvmOpts) {
+		p := strings.ToLower(strings.TrimSpace(piece))
+		if !strings.HasPrefix(p, lower) {
+			continue
+		}
+		raw := p[len(lower):]
+		if raw == "" {
+			continue
+		}
+		unit := float64(1)
+		last := raw[len(raw)-1]
+		num := raw
+		switch last {
+		case 'k':
+			unit = 1.0 / 1024
+			num = raw[:len(raw)-1]
+		case 'm':
+			num = raw[:len(raw)-1]
+		case 'g':
+			unit = 1024
+			num = raw[:len(raw)-1]
+		}
+		n, err := strconv.ParseFloat(num, 64)
+		if err != nil || n <= 0 {
+			continue
+		}
+		value = int(math.Ceil(n * unit))
+	}
+	return value
+}
+
+func hasJVMFlag(jvmOpts, substr string) bool {
+	lower := strings.ToLower(substr)
+	for _, piece := range strings.Fields(jvmOpts) {
+		if strings.Contains(strings.ToLower(piece), lower) {
+			return true
+		}
+	}
+	return false
+}
+
+func alignUpMi(v, align int) int {
+	if v%align == 0 {
+		return v
+	}
+	return (v/align + 1) * align
+}
+
+func formatMemoryMi(mi int) string {
+	if mi%1024 == 0 {
+		return fmt.Sprintf("%dGi", mi/1024)
+	}
+	return fmt.Sprintf("%dMi", mi)
+}
+
+// deriveProxyContainerResources 按 jvm_opts 推导 Proxy 容器内存配额：
+// 未指定 -Xmx 以 512Mi 为基准堆；limits = xmx + max(512, xmx*0.25)（堆外/Metaspace/线程栈余量）向上 128Mi 对齐；
+// requests = min(limit, max(256, xms+192))，xms 缺省 64Mi。CPU 固定 100m/1 保证 ResourceQuota 命名空间可调度。
+// deriveProxyContainerResources derives the proxy container memory budget from jvm_opts:
+// the heap baseline is 512Mi without -Xmx; limits = xmx + max(512, xmx*0.25) (off-heap,
+// Metaspace and thread-stack headroom) aligned up to 128Mi; requests = min(limit,
+// max(256, xms+192)) with xms defaulting to 64Mi. CPU is fixed at 100m/1 so namespaces
+// with ResourceQuota can schedule the pod.
+func deriveProxyContainerResources(jvmOpts string) corev1.ResourceRequirements {
+	xmxMi := parseJVMMemoryFlagMi(jvmOpts, "-xmx")
+	if xmxMi <= 0 {
+		xmxMi = 512
+	}
+	xmsMi := parseJVMMemoryFlagMi(jvmOpts, "-xms")
+	if xmsMi <= 0 {
+		xmsMi = 64
+	}
+	if xmsMi > xmxMi {
+		xmsMi = xmxMi
+	}
+	overheadMi := int(math.Ceil(float64(xmxMi) * 0.25))
+	if overheadMi < 512 {
+		overheadMi = 512
+	}
+	limitMi := alignUpMi(xmxMi+overheadMi, 128)
+	reqMi := xmsMi + 192
+	if reqMi < 256 {
+		reqMi = 256
+	}
+	reqMi = alignUpMi(reqMi, 64)
+	if reqMi > limitMi {
+		reqMi = limitMi
+	}
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse(formatMemoryMi(reqMi)),
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse(formatMemoryMi(limitMi)),
+			corev1.ResourceCPU:    resource.MustParse("1"),
+		},
+	}
+}
+
 func (p *JavaProxyManager) ensureProxyDeployment(ctx context.Context, clientset kubernetes.Interface, cfg *SessionConfig, deploymentName, jarCMName string, template *corev1.PodSpec, labels map[string]string) error {
 	volumes, mounts, initContainers := cloneProxyVolumes(ctx, clientset, cfg.Namespace, template)
 
@@ -365,7 +475,15 @@ func (p *JavaProxyManager) ensureProxyDeployment(ctx context.Context, clientset 
 		}
 	}
 
-	javaArgs := append(splitJVMOpts(cfg.JavaProxy.JVMOpts),
+	javaArgs := splitJVMOpts(cfg.JavaProxy.JVMOpts)
+	// 未显式指定堆上限时，用 MaxRAMPercentage 让 JVM 按容器 cgroup 限制自适应，
+	// 防止 JVM 默认 1/4 物理内存（看到的是宿主机）撑爆容器。
+	// Without an explicit heap cap, MaxRAMPercentage lets the JVM adapt to the container
+	// cgroup limit instead of defaulting to a fraction of the host memory it observes.
+	if parseJVMMemoryFlagMi(cfg.JavaProxy.JVMOpts, "-xmx") <= 0 && !hasJVMFlag(cfg.JavaProxy.JVMOpts, "maxrampercentage") {
+		javaArgs = append(javaArgs, "-XX:MaxRAMPercentage=70.0")
+	}
+	javaArgs = append(javaArgs,
 		fmt.Sprintf("-Dstx.java.proxy.port=%d", cfg.JavaProxy.Port),
 		"-DSEATUNNEL_HOME="+seaTunnelHomeInPod,
 		"-Dstx.java.proxy.seatunnel.home="+seaTunnelHomeInPod,
@@ -382,6 +500,7 @@ func (p *JavaProxyManager) ensureProxyDeployment(ctx context.Context, clientset 
 		VolumeMounts:    mounts,
 		Env:             env,
 		EnvFrom:         envFrom,
+		Resources:       deriveProxyContainerResources(cfg.JavaProxy.JVMOpts),
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{

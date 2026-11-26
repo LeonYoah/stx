@@ -300,3 +300,36 @@ func TestCloneProxyVolumesDropsDanglingMounts(t *testing.T) {
 		t.Fatalf("expected only plugins mount to survive, got %+v", mounts)
 	}
 }
+
+// TestDeriveProxyContainerResources 验证规格示例：Xmx 推导 limits/requests 换算与对齐。
+// TestDeriveProxyContainerResources verifies the spec examples of the Xmx-derived
+// limits/requests conversion and alignment.
+func TestDeriveProxyContainerResources(t *testing.T) {
+	cases := []struct {
+		jvmOpts   string
+		wantLimit string
+		wantReq   string
+	}{
+		{"-Xmx512m", "1Gi", "256Mi"},
+		{"-Xmx1024m", "1536Mi", "256Mi"},
+		{"-Xmx1024m -Xms128m", "1536Mi", "320Mi"},
+		{"-Xmx2048m -Xms256m", "2560Mi", "448Mi"},
+		{"-Xmx4096m", "5Gi", "256Mi"},
+		{"-Xmx6g", "7680Mi", "256Mi"},
+		{"", "1Gi", "256Mi"},                       // 未指定堆：512Mi 基准 / unspecified heap: 512Mi baseline
+		{"-Xmx1G", "1536Mi", "256Mi"},              // 大写单位 / uppercase unit
+		{"-Xmx512m -Xmx1024m", "1536Mi", "256Mi"},  // 后者覆盖 / last wins
+		{"-Xmxabc", "1Gi", "256Mi"},                // 非法值回退基准 / invalid falls back to baseline
+	}
+	for _, tc := range cases {
+		res := deriveProxyContainerResources(tc.jvmOpts)
+		limit := res.Limits.Memory().String()
+		req := res.Requests.Memory().String()
+		if limit != tc.wantLimit || req != tc.wantReq {
+			t.Errorf("jvmOpts %q: limit=%s req=%s, want limit=%s req=%s", tc.jvmOpts, limit, req, tc.wantLimit, tc.wantReq)
+		}
+		if res.Requests.Cpu().String() != "100m" || res.Limits.Cpu().String() != "1" {
+			t.Errorf("jvmOpts %q: unexpected cpu %+v", tc.jvmOpts, res)
+		}
+	}
+}

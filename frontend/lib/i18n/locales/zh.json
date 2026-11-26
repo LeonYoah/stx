@@ -2123,7 +2123,8 @@
       "podNode": "调度节点",
       "podIP": "Pod IP",
       "namespace": "命名空间",
-      "filterAll": "全部"
+      "filterAll": "全部",
+      "noConfigFile": "ConfigMap 中暂无此配置文件"
     }
   },
   "audit": {

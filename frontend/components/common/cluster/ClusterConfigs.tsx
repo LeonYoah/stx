@@ -406,6 +406,20 @@ export function ClusterConfigs({
     void loadData();
   }, [loadData]);
 
+  // K8s 文件名来自 ConfigMap 实际内容，初始选中的裸机枚举值可能不在其中，
+  // 必须自动校正到第一个真实文件，否则右侧永远空态。
+  // K8s file names come from the actual ConfigMap contents, so the initially selected
+  // bare-metal enum value may not exist; correct it to the first real file or the
+  // right pane stays empty forever.
+  useEffect(() => {
+    if (!isKubernetes || availableConfigTypes.length === 0) {
+      return;
+    }
+    if (!availableConfigTypes.includes(selectedConfigType)) {
+      setSelectedConfigType(availableConfigTypes[0]);
+    }
+  }, [isKubernetes, availableConfigTypes, selectedConfigType]);
+
   // 统计每个配置文件的待同步/异常节点数，在左侧文件清单直接透出
   // Per-file mismatch/pending counts surfaced directly in the left file rail
   const fileAlertCountByType = useMemo(() => {
@@ -1073,7 +1087,7 @@ export function ClusterConfigs({
                 </pre>
               ) : (
                 <p className='py-6 text-center text-xs text-muted-foreground'>
-                  {t('config.noTemplate')}
+                  {isKubernetes ? t('cluster.k8s.noConfigFile') : t('config.noTemplate')}
                 </p>
               )}
             </div>

@@ -27,6 +27,7 @@ import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {SearchField} from '@/components/arc/search-field/search-field';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {ConfirmDialog, NeutralChip, SoftChip, TableCard} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
 import {
   Table,
   TableBody,
@@ -180,7 +181,7 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
 
   return (
     <div className='space-y-3' data-testid='k8s-nodes-panel'>
-      <div className='flex flex-wrap items-center gap-2'>
+      <div className={layout.toolbar}>
         <SegmentedControl
           label={t('cluster.k8s.filterStatus')}
           value={statusFilter}
@@ -201,14 +202,16 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
             {value: 'worker', label: t('cluster.roles.worker')},
           ]}
         />
-        <SearchField
-          label={t('common.search')}
-          value={search}
-          onValueChange={setSearch}
-          placeholder={t('cluster.k8s.searchPods')}
-          className='w-56'
-        />
-        <div className='ml-auto flex items-center gap-2'>
+        <div className={layout.toolbarSearch}>
+          <SearchField
+            label={t('cluster.k8s.searchPods')}
+            value={search}
+            onValueChange={setSearch}
+            placeholder={t('cluster.k8s.searchPods')}
+            clearLabel={t('cluster.list.searchClear')}
+          />
+        </div>
+        <div className={layout.toolbarRight}>
           {hasActiveFilter ? (
             <Button
               type='button'

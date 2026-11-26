@@ -2,9 +2,10 @@
 1. 使用中文进行git提交
 2. **改动前查阅 Spec 规范**：进行任何前端、后端和 UI 改动前，必须先根据 `.trellis/spec/` 对应目录的 `index.md` 索引查阅相关 spec 文档，遵循既定架构契约与设计规范自检无误后再提交。
 3. **Bug 修复与组件规范必须讨论是否加规则检查**：修复 bug（尤其是「同一类问题多处并存」或「组件/写法不统一」类）或沉淀组件规范时，必须先与用户讨论是否需要配套规则检查（eslint 规则 / CI 检查脚本 / spec 条目），经确认后再决定是否实施；不要默认只修点不设防。
+4. **设计第一优先级——收敛复杂度，按需披露**：任何面向用户的交互与流程设计，先在全局视角替用户收敛决策，再呈现界面：**能推断的不询问、能安全默认的不留空、值域封闭的用枚举选择而非自由输入、低频高级选项收进下一层**；每个屏幕只保留完成当前这一步所需的最少决策点，不散射用户注意力。删除、付费、对外暴露、秘钥等无安全默认的决策必须显式询问，不得预勾选。落地口径见 `.trellis/spec/frontend/ui-conventions.md` §3 与 `.trellis/spec/frontend/index.md` 原则 1。
 
 ## 规范查阅与开发流程
-- **前端与 UI 改动**：开发前必读 `.trellis/spec/frontend/index.md` 及其索引文档（特别是 `ui-conventions.md` 中的高信噪比渐进式披露、原子信息防被迫换行、零塌陷加载等通用美学准则）。
+- **前端与 UI 改动**：开发前必读 `.trellis/spec/frontend/index.md` 及其索引文档（特别是 `ui-conventions.md` 中的设计第一优先级「收敛复杂度，按需披露」、高信噪比渐进式披露、原子信息防被迫换行、零塌陷加载等通用美学准则）。
 - **后端改动**：开发前必读 `.trellis/spec/backend/index.md` 及其索引文档（如目录结构、数据库规范、日志规范、错误处理与安全执行准则）。
 - **跨层流转与契约**：必读 `.trellis/spec/guides/cross-layer-thinking-guide.md`，明确数据流边界、格式转换与空值兜底契约。
 - **验证与提交**：开发完成后严格对照 spec 中的一致性检查项（Checklist）自检，验证通过后再进行 commit。
@@ -38,7 +39,7 @@
 
 ## Arc UI
 
-工作台改用 [Arc](https://uiarc.dev/docs/ai) 时，先读 `.claude/skills/arc/SKILL.md`（`.agents/skills/arc/` 是同一份）。组件从 `frontend/` 用 shadcn CLI 安装，注册表已写在 `frontend/components.json` 的 `@uiarc`。不要手写或仿造 Pro 组件。界面文案仍走 next-intl。第一次真正装入组件时，再在根布局引入 `@/components/arc/foundation.css`。
+工作台改用 [Arc](https://uiarc.dev/docs/ai) 时，先读 `.claude/skills/arc/SKILL.md`（`.agents/skills/arc/` 是同一份）。组件从 `frontend/` 用 shadcn CLI 安装，注册表已写在 `frontend/components.json` 的 `@uiarc`。不要手写或仿造 Pro 组件。界面文案仍走 next-intl。`@/components/arc/foundation.css` 已在根布局引入，新装组件无需重复引入。
 
 <!-- TRELLIS:START -->
 # Trellis Instructions
@@ -71,4 +72,4 @@ Cloud Agent 启动后，API 和 Web UI 由环境 start 拉起，一般不用再�
 - 配置：若没有 `config.yaml`，从 `config.example.yaml` 复制。默认 SQLite，文件在 `data/stx.db`。登录不需要 MySQL、PostgreSQL、Java 或 stx-java-proxy。
 - 登录账号：`admin` / `admin123`。
 - 工具链：Go **1.26.10**（以 `go.mod` 为准）。镜像里的 `/usr/bin/go` 更旧，环境会把 1.26.10 装到 `/usr/local/go` 并链接到 `/usr/local/bin/go`。前端使用 Node 22 与 pnpm **10.10.0**（`frontend/package.json` 的 `packageManager`）。
-- 检查命令：`go test ./...`；`cd agent && go test ./...`；`cd frontend && pnpm test`；`cd frontend && pnpm exec tsc --noEmit`。`pnpm lint` 在当前 main 上会报已有的 ESLint 问题，这不是环境没装好。
+- 检查命令：`go test ./...`；`cd agent && go test ./...`；`cd frontend && pnpm test`；`cd frontend && pnpm exec tsc --noEmit`。`pnpm lint` 是 CI 硬门禁（Frontend Lint job），失败会阻塞合并，不是可忽略的既有噪音。

@@ -129,6 +129,12 @@ func TestDeploy_createsFullResourceSet(t *testing.T) {
 	if masterSvc.Spec.Ports[0].Port != 8080 {
 		t.Fatalf("master service port expected 8080, got %d", masterSvc.Spec.Ports[0].Port)
 	}
+	// 端口名对齐上游 application 模式约定（apache/seatunnel#13277），支持按名寻址 services/http:<svc>:<port>/proxy。
+	// The port name follows the upstream application-mode convention (apache/seatunnel#13277),
+	// enabling name-addressed access like services/http:<svc>:<port>/proxy.
+	if masterSvc.Spec.Ports[0].Name != "http" {
+		t.Fatalf("master service port name expected http, got %q", masterSvc.Spec.Ports[0].Name)
+	}
 
 	masterSTS, err := client.AppsV1().StatefulSets("e2e-ns").Get(ctx, "e2e-master", metav1.GetOptions{})
 	if err != nil {

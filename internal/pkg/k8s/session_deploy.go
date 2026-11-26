@@ -377,7 +377,7 @@ func ensureHeadlessServices(ctx context.Context, clientset kubernetes.Interface,
 			ClusterIP: corev1.ClusterIPNone,
 			Selector:  podSelectorLabels(code, "master"),
 			Ports: []corev1.ServicePort{
-				{Name: "master-port", Port: int32(cfg.MasterHTTPPort), TargetPort: intstrPort(cfg.MasterHTTPPort)},
+				{Name: "http", Port: int32(cfg.MasterHTTPPort), TargetPort: intstrPort(cfg.MasterHTTPPort)},
 			},
 		},
 	}
@@ -497,7 +497,7 @@ func ensureSessionStatefulSet(ctx context.Context, clientset kubernetes.Interfac
 		{Name: "hazelcast-port", ContainerPort: int32(cfg.HazelcastPort)},
 	}
 	if role == "master" || role == "hybrid" {
-		ports = append(ports, corev1.ContainerPort{Name: "master-port", ContainerPort: int32(cfg.MasterHTTPPort)})
+		ports = append(ports, corev1.ContainerPort{Name: "http", ContainerPort: int32(cfg.MasterHTTPPort)})
 	}
 
 	tcpProbe := func() *corev1.Probe {

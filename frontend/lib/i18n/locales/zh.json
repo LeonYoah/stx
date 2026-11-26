@@ -2122,7 +2122,8 @@
       "saveAndRollout": "保存并滚动重启使配置生效",
       "podNode": "调度节点",
       "podIP": "Pod IP",
-      "namespace": "命名空间"
+      "namespace": "命名空间",
+      "filterAll": "全部"
     }
   },
   "audit": {

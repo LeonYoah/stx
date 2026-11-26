@@ -27,6 +27,14 @@ import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {SearchField} from '@/components/arc/search-field/search-field';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {ConfirmDialog, NeutralChip, SoftChip, TableCard} from '@/components/common/layout';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import type {K8sPodInfo} from '@/lib/services/cluster/types';
@@ -178,7 +186,7 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
           value={statusFilter}
           onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}
           options={[
-            {value: 'all', label: t('config.filterAll')},
+            {value: 'all', label: t('cluster.k8s.filterAll')},
             {value: 'ready', label: t('cluster.k8s.filterReady')},
             {value: 'abnormal', label: t('cluster.k8s.filterAbnormal')},
           ]}
@@ -188,7 +196,7 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
           value={roleFilter}
           onValueChange={(v) => setRoleFilter(v as typeof roleFilter)}
           options={[
-            {value: 'all', label: t('config.filterAll')},
+            {value: 'all', label: t('cluster.k8s.filterAll')},
             {value: 'master', label: t('cluster.roles.master')},
             {value: 'worker', label: t('cluster.roles.worker')},
           ]}
@@ -233,34 +241,35 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
           />
         }
       >
-        <table className='w-full text-sm'>
-          <thead>
-            <tr className='border-b border-border/60 text-left text-xs text-muted-foreground'>
-              <th className='px-3 py-2 font-medium'>{t('cluster.k8s.podName')}</th>
-              <th className='px-3 py-2 font-medium'>{t('cluster.k8s.podRole')}</th>
-              <th className='px-3 py-2 font-medium'>{t('cluster.k8s.podNode')}</th>
-              <th className='px-3 py-2 font-medium'>{t('cluster.k8s.podIP')}</th>
-              <th className='px-3 py-2 font-medium'>{t('cluster.k8s.podPhase')}</th>
-              <th className='px-3 py-2 font-medium'>{t('cluster.k8s.podRestarts')}</th>
-              <th className='px-3 py-2 text-right font-medium'>{t('plugin.actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
+        <div className='overflow-x-auto'>
+          <Table className='[&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
+            <TableHeader>
+              <TableRow>
+                <TableHead className='pl-4'>{t('cluster.k8s.podName')}</TableHead>
+                <TableHead>{t('cluster.k8s.podRole')}</TableHead>
+                <TableHead>{t('cluster.k8s.podNode')}</TableHead>
+                <TableHead>{t('cluster.k8s.podIP')}</TableHead>
+                <TableHead>{t('cluster.k8s.podPhase')}</TableHead>
+                <TableHead>{t('cluster.k8s.podRestarts')}</TableHead>
+                <TableHead className='pr-4 text-right'>{t('plugin.actions')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
             {filtered.map((pod) => (
-              <tr key={pod.name} className='border-b border-border/40 last:border-0' data-testid={`k8s-pod-row-${pod.name}`}>
-                <td className='px-3 py-2 font-mono text-xs'>{pod.name}</td>
-                <td className='px-3 py-2'>
+              <TableRow key={pod.name} data-testid={`k8s-pod-row-${pod.name}`}>
+                <TableCell className='pl-4 font-mono text-xs'>{pod.name}</TableCell>
+                <TableCell>
                   {pod.role ? <NeutralChip>{t(`cluster.roles.${pod.role}`)}</NeutralChip> : <span className='text-xs text-muted-foreground'>—</span>}
-                </td>
-                <td className='px-3 py-2 text-xs'>{pod.node_name || '-'}</td>
-                <td className='px-3 py-2 font-mono text-xs tabular-nums'>{pod.pod_ip || '-'}</td>
-                <td className='px-3 py-2'>
+                </TableCell>
+                <TableCell className='text-xs'>{pod.node_name || '-'}</TableCell>
+                <TableCell className='font-mono text-xs tabular-nums'>{pod.pod_ip || '-'}</TableCell>
+                <TableCell>
                   <SoftChip tone={pod.ready && pod.phase === 'Running' ? 'emerald' : 'rose'}>
                     {pod.ready && pod.phase === 'Running' ? t('cluster.k8s.filterReady') : pod.phase || t('cluster.k8s.filterAbnormal')}
                   </SoftChip>
-                </td>
-                <td className='px-3 py-2 text-xs tabular-nums'>{pod.restarts}</td>
-                <td className='px-3 py-2'>
+                </TableCell>
+                <TableCell className='text-xs tabular-nums'>{pod.restarts}</TableCell>
+                <TableCell className='pr-4'>
                   <div className='flex justify-end gap-1'>
                     <Button
                       type='button'
@@ -288,11 +297,12 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
                       </Button>
                     ) : null}
                   </div>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+            </TableBody>
+          </Table>
+        </div>
       </TableCard>
 
       {scaleOpen ? (

@@ -2122,7 +2122,8 @@
       "saveAndRollout": "Save and roll-restart to apply",
       "podNode": "Scheduled node",
       "podIP": "Pod IP",
-      "namespace": "Namespace"
+      "namespace": "Namespace",
+      "filterAll": "All"
     }
   },
   "audit": {

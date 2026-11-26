@@ -109,10 +109,28 @@ func (s *SessionManager) SessionPods(ctx context.Context, cfg *SessionConfig, cl
 	if err != nil {
 		return nil, err
 	}
-	// adopted 集群的标签选择器可能不覆盖全部 Pod，再按工作负载命名做一次精确归属。
-	// Adopted clusters may have selectors that do not cover every pod, so match by
-	// workload name as a precise fallback.
-	if len(pods) == 0 {
+	// 引擎节点面板只应呈现引擎工作负载 Pod：STX Java Proxy 等基础设施 Pod 也带
+	// cluster-code 标签，必须从选择器结果中剔除（Proxy 管控统一在运行时 Tab）。
+	// The engine nodes panel must only show engine workload pods: infrastructure pods
+	// like the STX Java Proxy also carry the cluster-code label and must be filtered
+	// out of the selector results (proxy management lives in the runtime tab).
+	engineOnly := pods[:0]
+	for _, pod := range pods {
+		if pod.WorkloadKind == "Deployment" && strings.HasPrefix(pod.WorkloadName, "stx-java-proxy-") {
+			continue
+		}
+		if strings.HasPrefix(pod.Name, "stx-java-proxy-") {
+			continue
+		}
+		engineOnly = append(engineOnly, pod)
+	}
+	pods = engineOnly
+	// 工作负载归属必须恒为增量合并而非空列表兜底：选择器一旦命中任何 Pod（例如 proxy），
+	// 纯 fallback 会把未带标签的引擎 Pod 全部掩盖。
+	// Workload attribution must always merge additively instead of acting as an
+	// empty-list fallback: once the selector hits any pod (e.g. the proxy), a pure
+	// fallback would mask every unlabeled engine pod.
+	if cfg.MasterWorkloadName != "" || cfg.WorkerWorkloadName != "" {
 		clientset, err := s.manager.Clientset(ctx, cfg.HostID)
 		if err != nil {
 			return nil, err
@@ -138,6 +156,10 @@ func (s *SessionManager) SessionPods(ctx context.Context, cfg *SessionConfig, cl
 				}
 			}
 		}
+		seen := map[string]bool{}
+		for _, pod := range pods {
+			seen[pod.Name] = true
+		}
 		for i := range list.Items {
 			pod := &list.Items[i]
 			info := podToInfo(pod)
@@ -147,8 +169,9 @@ func (s *SessionManager) SessionPods(ctx context.Context, cfg *SessionConfig, cl
 					info.WorkloadName = deployName
 				}
 			}
-			if info.WorkloadName == cfg.MasterWorkloadName || info.WorkloadName == cfg.WorkerWorkloadName {
+			if (info.WorkloadName == cfg.MasterWorkloadName || info.WorkloadName == cfg.WorkerWorkloadName) && !seen[info.Name] {
 				pods = append(pods, info)
+				seen[info.Name] = true
 			}
 		}
 	}

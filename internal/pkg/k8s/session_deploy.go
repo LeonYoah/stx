@@ -429,7 +429,7 @@ func ensureSessionStatefulSet(ctx context.Context, clientset kubernetes.Interfac
 	}
 
 	volumeMounts := []corev1.VolumeMount{}
-	for _, key := range sessionConfigMountKeys() {
+	for _, key := range sessionConfigMountKeys(cfg) {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      "seatunnel-configs",
 			MountPath: "/opt/seatunnel/config/" + key,

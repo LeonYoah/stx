@@ -103,6 +103,9 @@ type ResourceRequirement struct {
 type SessionResources struct {
 	Master ResourceRequirement `json:"master"`
 	Worker ResourceRequirement `json:"worker"`
+	// Hybrid 混合形态资源配比（可空，hybrid 模式使用）。
+	// Hybrid is the hybrid-mode resource sizing (nullable, hybrid mode only).
+	Hybrid *ResourceRequirement `json:"hybrid,omitempty"`
 }
 
 // SessionStorage 常驻集群存储配置。
@@ -148,11 +151,76 @@ type SessionConfig struct {
 	Storage   SessionStorage   `json:"storage"`
 	JavaProxy JavaProxyConfig  `json:"java_proxy"`
 
+	// DeploymentMode 部署形态：separated（master+worker 分离）或 hybrid（单进程混合）。
+	// 空值等价 separated，保证既有集群零迁移。
+	// DeploymentMode selects separated (master+worker) or hybrid (single-process) topology;
+	// empty means separated so existing clusters need no migration.
+	DeploymentMode string `json:"deployment_mode,omitempty"`
+	// HybridReplicas hybrid 形态下的副本数。
+	// HybridReplicas is the replica count in hybrid mode.
+	HybridReplicas int `json:"hybrid_replicas,omitempty"`
+	// HybridWorkloadName hybrid 形态的 StatefulSet 名称。
+	// HybridWorkloadName is the StatefulSet name in hybrid mode.
+	HybridWorkloadName string `json:"hybrid_workload_name,omitempty"`
+
+	// JVM 引擎 JVM 参数与容器内存联动（可空走默认渲染）。
+	// JVM carries engine JVM options linked with container memory (nullable, default rendering).
+	JVM *SessionJVMConfig `json:"jvm,omitempty"`
+	// Runtime 高级运行参数（inspect 等开关）。
+	// Runtime carries advanced runtime toggles.
+	Runtime *SessionRuntimeConfig `json:"runtime,omitempty"`
+	// Checkpoint 运行时 Checkpoint 存储草稿（部署时渲染进 seatunnel.yaml）。
+	// Checkpoint is the checkpoint storage draft rendered into seatunnel.yaml at deploy time.
+	Checkpoint *SessionStorageSpec `json:"checkpoint,omitempty"`
+	// IMAP 运行时 IMAP 存储草稿（渲染进 hazelcast yaml）。
+	// IMAP is the IMAP storage draft rendered into the hazelcast yaml.
+	IMAP *SessionStorageSpec `json:"imap,omitempty"`
+
 	// ExtraMounts 预留多条 ConfigMap/Secret 挂载与伴随环境变量，供后续 Hadoop/Kerberos
 	// 挂载包平滑衔接；P1 仅落库不渲染。
 	// ExtraMounts reserves additional ConfigMap/Secret mounts with companion env vars for
 	// future Hadoop/Kerberos mount packs; P1 persists them without rendering.
 	ExtraMounts []ExtraMount `json:"extra_mounts,omitempty"`
+}
+
+// SessionJVMConfig 引擎 JVM 配置：堆内存与附加参数。
+// SessionJVMConfig carries engine JVM heap and extra options.
+type SessionJVMConfig struct {
+	Xms string `json:"xms,omitempty"`
+	Xmx string `json:"xmx,omitempty"`
+	// ExtraOptions 追加 JVM 参数行。
+	// ExtraOptions appends raw JVM option lines.
+	ExtraOptions []string `json:"extra_options,omitempty"`
+}
+
+// SessionRuntimeConfig 高级运行参数。
+// SessionRuntimeConfig carries advanced runtime toggles.
+type SessionRuntimeConfig struct {
+	// EnableHTTPServer 是否启用引擎 HTTP 服务（2.3.9+ 默认开）。
+	// EnableHTTPServer toggles the engine HTTP service (default on for 2.3.9+).
+	EnableHTTPServer *bool `json:"enable_http_server,omitempty"`
+	// EventReportHTTP 引擎事件上报地址（空为关闭）。
+	// EventReportHTTP is the engine event report endpoint (empty means off).
+	EventReportHTTP string `json:"event_report_http,omitempty"`
+}
+
+// SessionStorageSpec Checkpoint/IMAP 存储草稿：类型 + 连接参数。
+// SessionStorageSpec is the checkpoint/IMAP storage draft: type plus connection params.
+type SessionStorageSpec struct {
+	Enabled     bool              `json:"enabled"`
+	StorageType string            `json:"storage_type"` // LOCAL_FILE / S3 / OSS / HDFS / DISABLED
+	Namespace   string            `json:"namespace,omitempty"`
+	Endpoint    string            `json:"endpoint,omitempty"`
+	Bucket      string            `json:"bucket,omitempty"`
+	AccessKey   string            `json:"access_key,omitempty"`
+	SecretKey   string            `json:"secret_key,omitempty"`
+	Extra       map[string]string `json:"extra,omitempty"`
+}
+
+// IsHybrid 判定 hybrid 部署形态。
+// IsHybrid reports hybrid topology.
+func (c *SessionConfig) IsHybrid() bool {
+	return c.DeploymentMode == "hybrid"
 }
 
 // ExtraMount 描述一条附加挂载：来源（ConfigMap/Secret）+ 挂载路径 + 可选环境变量。

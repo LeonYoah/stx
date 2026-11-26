@@ -138,7 +138,7 @@ export function K8sDeployClusterPanel({
     void services.host
       .getHostsSafe({
         current: 1,
-        size: 200,
+        size: 100,
         host_type: HostType.KUBERNETES,
       })
       .then((res) => {

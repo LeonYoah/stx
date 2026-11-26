@@ -163,7 +163,7 @@ export function K8sAdoptClusterSection({
     void services.host
       .getHostsSafe({
         current: 1,
-        size: 200,
+        size: 100,
         host_type: HostType.KUBERNETES,
       })
       .then((res) => {

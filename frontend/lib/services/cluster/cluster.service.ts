@@ -1654,10 +1654,10 @@ export class ClusterService extends BaseService {
   /**
    * Upgrade K8s cluster image tag (immutable image principle) / 升级镜像 Tag（不可变镜像原则）
    */
-  static async upgradeK8sImage(clusterId: number, image: string): Promise<void> {
+  static async upgradeK8sImage(clusterId: number, image: string, targetVersion?: string): Promise<void> {
     const response = await apiClient.post<{error_msg: string}>(
       `${this.basePath}/${clusterId}/k8s/upgrade-image`,
-      {image},
+      {image, target_version: targetVersion || ''},
     );
     if (response.data.error_msg) {
       throw new Error(response.data.error_msg);

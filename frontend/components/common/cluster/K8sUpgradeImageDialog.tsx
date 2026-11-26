@@ -22,6 +22,7 @@ import {useTranslations} from 'next-intl';
 import {Button} from '@/components/arc/button/button';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/arc/input/input';
+import {K8sImagePicker} from '@/components/common/k8s/K8sImagePicker';
 import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 
@@ -49,6 +50,7 @@ export function K8sUpgradeImageDialog({
 }: K8sUpgradeImageDialogProps) {
   const t = useTranslations();
   const [target, setTarget] = useState('');
+  const [targetVersion, setTargetVersion] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const submit = async () => {
@@ -58,7 +60,7 @@ export function K8sUpgradeImageDialog({
     }
     setSubmitting(true);
     try {
-      await services.cluster.upgradeK8sImage(clusterId, image);
+      await services.cluster.upgradeK8sImage(clusterId, image, targetVersion || undefined);
       toast.success(t('common.success'));
       onOpenChange(false);
       setTarget('');
@@ -75,13 +77,18 @@ export function K8sUpgradeImageDialog({
       <DialogContent title={t('cluster.k8s.upgradeImage')} className='arc-compact w-[min(94vw,520px)]!' data-testid='k8s-upgrade-image-dialog'>
         <div className='space-y-3'>
           <Input label={t('cluster.k8s.upgradeCurrentImage')} value={currentImage || '-'} readOnly disabled />
-          <Input
-            label={t('cluster.k8s.upgradeTargetImage')}
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            placeholder='apache/seatunnel:3.1.1'
-            data-testid='k8s-upgrade-target-input'
-          />
+          <div className='space-y-1'>
+            <span className='text-xs font-medium text-foreground'>{t('cluster.k8s.upgradeTargetImage')}</span>
+            <K8sImagePicker
+              value={target}
+              onChange={(next) => {
+                setTarget(next.image);
+                // 识别出版本时随升级同步 cluster.Version。
+                // The resolved version syncs cluster.Version alongside the upgrade.
+                setTargetVersion(next.seatunnelVersion);
+              }}
+            />
+          </div>
           <p className='text-xs text-muted-foreground'>{t('cluster.k8s.upgradeImmutableDesc')}</p>
         </div>
         <div className='mt-4 flex justify-end gap-2'>

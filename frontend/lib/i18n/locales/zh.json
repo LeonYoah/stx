@@ -6903,5 +6903,41 @@
   "theme": {
     "toDark": "切换深色模式",
     "toLight": "切换浅色模式"
+  },
+  "k8s": {
+    "imagePicker": {
+      "placeholder": "选择容器镜像",
+      "customImage": "自定义镜像…",
+      "backToList": "返回列表",
+      "defaultBadge": "默认",
+      "versionRecognized": "识别版本：{version}",
+      "versionUnrecognized": "未识别出版本，请确认镜像 tag"
+    },
+    "images": {
+      "description": "注册 Kubernetes 部署与升级使用的容器镜像；官方预设由版本目录自动生成。",
+      "create": "注册镜像",
+      "saved": "已保存",
+      "deleted": "已删除",
+      "colName": "名称",
+      "colImage": "镜像",
+      "colVersion": "版本",
+      "colPullPolicy": "拉取策略",
+      "colActions": "操作",
+      "edit": "编辑",
+      "delete": "删除",
+      "empty": "尚未注册容器镜像",
+      "defaultBadge": "默认",
+      "officialPresets": "官方预设",
+      "createTitle": "注册容器镜像",
+      "editTitle": "编辑容器镜像",
+      "fieldName": "名称",
+      "fieldVersion": "SeaTunnel 版本（如 2.3.13）",
+      "fieldPullSecrets": "拉取 Secret（逗号分隔）",
+      "fieldDescription": "描述",
+      "fieldDefault": "设为默认镜像",
+      "cancel": "取消",
+      "save": "保存",
+      "tabLabel": "容器镜像"
+    }
   }
 }

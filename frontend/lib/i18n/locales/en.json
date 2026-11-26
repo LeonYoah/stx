@@ -6903,5 +6903,41 @@
   "theme": {
     "toDark": "Switch to dark mode",
     "toLight": "Switch to light mode"
+  },
+  "k8s": {
+    "imagePicker": {
+      "placeholder": "Select a container image",
+      "customImage": "Custom image…",
+      "backToList": "Back to list",
+      "defaultBadge": "Default",
+      "versionRecognized": "Detected version: {version}",
+      "versionUnrecognized": "Version not detected; check the image tag"
+    },
+    "images": {
+      "description": "Register container images used by Kubernetes deploys and upgrades; official presets derive from the version catalog.",
+      "create": "Register image",
+      "saved": "Saved",
+      "deleted": "Deleted",
+      "colName": "Name",
+      "colImage": "Image",
+      "colVersion": "Version",
+      "colPullPolicy": "Pull policy",
+      "colActions": "Actions",
+      "edit": "Edit",
+      "delete": "Delete",
+      "empty": "No container images registered yet",
+      "defaultBadge": "Default",
+      "officialPresets": "Official presets",
+      "createTitle": "Register container image",
+      "editTitle": "Edit container image",
+      "fieldName": "Name",
+      "fieldVersion": "SeaTunnel version (e.g. 2.3.13)",
+      "fieldPullSecrets": "Pull secrets (comma separated)",
+      "fieldDescription": "Description",
+      "fieldDefault": "Mark as default",
+      "cancel": "Cancel",
+      "save": "Save",
+      "tabLabel": "Container images"
+    }
   }
 }

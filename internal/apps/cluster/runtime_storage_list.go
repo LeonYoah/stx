@@ -18,10 +18,10 @@
 package cluster
 
 import (
-	"errors"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	pathpkg "path"

@@ -483,7 +483,7 @@ func (s *Service) RolloutRestartK8s(ctx context.Context, cluster *Cluster, compo
 // UpgradeK8sImage 不可变镜像升级：滚动更新 master/worker 镜像 Tag，并同步滚动伴生 Proxy。
 // UpgradeK8sImage performs immutable-image upgrade: rolls master/worker to the new tag and
 // rolls the companion proxy in sync.
-func (s *Service) UpgradeK8sImage(ctx context.Context, cluster *Cluster, image string) error {
+func (s *Service) UpgradeK8sImage(ctx context.Context, cluster *Cluster, image string, targetVersion ...string) error {
 	cfg, err := s.requireK8sSession(cluster)
 	if err != nil {
 		return err
@@ -491,6 +491,17 @@ func (s *Service) UpgradeK8sImage(ctx context.Context, cluster *Cluster, image s
 	ops := k8s.NewSessionManager(s.k8sManager)
 	if err := ops.UpgradeImage(ctx, cfg, image); err != nil {
 		return err
+	}
+	// 前端识别出的目标版本随升级同步写回，保证集群元数据与运行镜像一致。
+	// The version recognized by the frontend is written back alongside the upgrade so
+	// cluster metadata stays consistent with the running image.
+	if len(targetVersion) > 0 {
+		if version := strings.TrimSpace(targetVersion[0]); version != "" && version != cluster.Version {
+			cluster.Version = version
+			if err := s.repo.Update(ctx, cluster); err != nil {
+				return err
+			}
+		}
 	}
 	// 伴生 Proxy 与集群同镜像，升级需同步滚动否则插件清单版本漂移。
 	// The companion proxy shares the cluster image, so it must roll in sync or the plugin
@@ -734,13 +745,14 @@ func (h *Handler) UpgradeK8sImage(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Image string `json:"image" binding:"required"`
+		Image         string `json:"image" binding:"required"`
+		TargetVersion string `json:"target_version"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error_msg": err.Error()})
 		return
 	}
-	if err := h.service.UpgradeK8sImage(c.Request.Context(), cluster, req.Image); err != nil {
+	if err := h.service.UpgradeK8sImage(c.Request.Context(), cluster, req.Image, req.TargetVersion); err != nil {
 		c.JSON(h.getStatusCodeForError(err), gin.H{"error_msg": err.Error()})
 		return
 	}

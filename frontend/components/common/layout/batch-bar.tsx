@@ -128,7 +128,6 @@ export function BatchBar({
   selectedCount,
   result,
   children,
-  busy = false,
   onClear,
   selectedText,
   clearLabel,

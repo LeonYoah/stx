@@ -153,7 +153,7 @@ function ColumnHandle<T>({
   }, [onLeave]);
 
   const el = thRefs.current[column.key];
-  if (!el || typeof document === "undefined") return null;
+  if (!el || typeof document === "undefined") {return null;}
   const rect = el.getBoundingClientRect();
 
   return createPortal(

@@ -32,6 +32,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { CircleAlert, Copy } from "lucide-react";
 import { motionTokens } from "../lib/motion-tokens";
@@ -68,10 +69,16 @@ function DrawnCheck({ reduced }: { reduced: boolean }) {
   </svg>;
 }
 
-export function CopyButton({ value, label = "Copy", className, iconOnly = false, variant = "outline", disabled, onCopied, copiedLabel = "Copied", failedLabel = "Failed" }: CopyButtonProps) {
+export function CopyButton({ value, label, className, iconOnly = false, variant = "outline", disabled, onCopied, copiedLabel, failedLabel }: CopyButtonProps) {
+  // 反馈与默认 idle 文案由组件统一走 i18n，业务只在特殊场景覆盖，保证全站一致。
+  // Feedback and the default idle label come from i18n inside the component so every usage stays consistent; business code only overrides for special cases.
+  const tCommon = useTranslations("common");
+  const resolvedLabel = label ?? tCommon("copy");
+  const resolvedCopiedLabel = copiedLabel ?? tCommon("copied");
+  const resolvedFailedLabel = failedLabel ?? tCommon("copyFailed");
   const { state, copy } = useCopyFeedback();
   const reduced = useReducedMotion() ?? false;
-  const text = state === "copied" ? copiedLabel : state === "error" ? failedLabel : label;
+  const text = state === "copied" ? resolvedCopiedLabel : state === "error" ? resolvedFailedLabel : resolvedLabel;
   // Each word's natural width, measured off screen (and again when fonts load or the label changes).
   const measures = useRef<Record<string, HTMLSpanElement | null>>({});
   const [widths, setWidths] = useState<Record<string, number>>({});
@@ -83,7 +90,7 @@ export function CopyButton({ value, label = "Copy", className, iconOnly = false,
     const observer = new ResizeObserver(read);
     Object.values(measures.current).forEach(node => { if (node) {observer.observe(node);} });
     return () => observer.disconnect();
-  }, [label, copiedLabel, failedLabel, iconOnly]);
+  }, [resolvedLabel, resolvedCopiedLabel, resolvedFailedLabel, iconOnly]);
   const width = widths[state === "copied" ? "copied" : state === "error" ? "error" : "idle"];
   // The first measured width applies at once; only later changes ease, so the very first copy animates too.
   const [shown, setShown] = useState<number | undefined>(undefined);
@@ -98,7 +105,7 @@ export function CopyButton({ value, label = "Copy", className, iconOnly = false,
     type="button"
     className={[styles.button, iconOnly && styles.iconOnly, variant === "plain" && styles.plain, className].filter(Boolean).join(" ")}
     onClick={() => void handleCopy()}
-    aria-label={label}
+    aria-label={resolvedLabel}
     data-copy-state={state}
     disabled={disabled}
   >
@@ -112,13 +119,13 @@ export function CopyButton({ value, label = "Copy", className, iconOnly = false,
       </AnimatePresence>
     </span>
     {!iconOnly && <motion.span className={styles.label} aria-hidden="true" initial={false} animate={width ? { width } : undefined} transition={reduced || first ? instant : resize}>
-      <span ref={node => { measures.current.idle = node; }} className={styles.measure}>{label}</span>
-      <span ref={node => { measures.current.copied = node; }} className={styles.measure}>{copiedLabel}</span>
-      <span ref={node => { measures.current.error = node; }} className={styles.measure}>{failedLabel}</span>
+      <span ref={node => { measures.current.idle = node; }} className={styles.measure}>{resolvedLabel}</span>
+      <span ref={node => { measures.current.copied = node; }} className={styles.measure}>{resolvedCopiedLabel}</span>
+      <span ref={node => { measures.current.error = node; }} className={styles.measure}>{resolvedFailedLabel}</span>
       <AnimatePresence initial={false}>
         <motion.span key={text} className={styles.text} initial={reduced ? { opacity: 0 } : { opacity: 0, y: 2 }} animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, transition: reduced ? instant : hide }} transition={reduced ? instant : show}>{text}</motion.span>
       </AnimatePresence>
     </motion.span>}
-  </button><span className={styles.srOnly} role="status" aria-live="polite">{state === "idle" ? "" : state === "error" ? `${label}: Could not copy` : `${label}: Copied`}</span></>;
+  </button><span className={styles.srOnly} role="status" aria-live="polite">{state === "idle" ? "" : state === "error" ? `${resolvedLabel}: ${resolvedFailedLabel}` : `${resolvedLabel}: ${resolvedCopiedLabel}`}</span></>;
 }

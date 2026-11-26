@@ -139,7 +139,7 @@ async function handleReceiveRequest(
     }
 
     // 准备转发到后端的请求
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
+     
     const {captcha_token: _captchaToken, ...backendBody} = body;
     const backendUrl = `${resolveBackendBaseURL()}${pathname}`;
 

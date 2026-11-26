@@ -41,6 +41,7 @@ import {
   useOverflowTooltip,
   type OverflowTooltipSide,
 } from './OverflowTooltip';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 export interface TruncatedTextProps {
   /** 完整原文；为空时回退展示 fallback / Full raw text; renders fallback when empty */
@@ -113,7 +114,7 @@ function CopyTextButton({value}: {value: string}) {
       event.stopPropagation();
       event.preventDefault();
       try {
-        await navigator.clipboard.writeText(value);
+        await writeClipboard(value);
         setCopied(true);
         toast.success(t('copied'));
         window.setTimeout(() => setCopied(false), 1600);

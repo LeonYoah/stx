@@ -60,7 +60,6 @@ import {
   MonitorSmartphone,
   Database,
   Layers,
-  Copy,
   MoreHorizontal,
   Cpu,
   SlidersHorizontal,
@@ -147,6 +146,7 @@ import {
 import {useLifecycleStatusPoll} from './useLifecycleStatusPoll';
 import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
 import {useOnboardingOptional} from '@/components/common/onboarding/OnboardingContext';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 interface ClusterDetailProps {
   clusterId: number;
@@ -2955,26 +2955,13 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 {runtimeStoragePreview?.path || '-'}
               </span>
               {runtimeStoragePreview?.path ? (
-                <ArcButton
-                  type='button'
-                  variant='ghost'
-                  size='sm'
+                <CopyButton
+                  value={runtimeStoragePreview.path}
+                  label={t('cluster.runtimeStorage.copyPath')}
+                  variant='plain'
                   iconOnly
-                  onClick={() => {
-                    if (runtimeStoragePreview?.path) {
-                      void navigator.clipboard.writeText(
-                        runtimeStoragePreview.path,
-                      );
-                      toast.success(
-                        t('cluster.runtimeStorage.copyPathSuccess'),
-                      );
-                    }
-                  }}
-                  aria-label={t('cluster.runtimeStorage.copyPath')}
-                  title={t('cluster.runtimeStorage.copyPath')}
-                >
-                  <Copy className='size-3' aria-hidden />
-                </ArcButton>
+                  className='h-5 w-5 min-h-0'
+                />
               ) : null}
             </span>
           }

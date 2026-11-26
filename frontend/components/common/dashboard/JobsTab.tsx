@@ -127,14 +127,14 @@ export function JobsTab({query}: {query: DashboardQuery}) {
     // A nonzero rate below the smallest displayable step must not render as 0
     // (it reads as "no traffic") — show "<step" instead.
     if (key.endsWith('bytes')) {
-      if (value > 0 && value < 1) return {text: '<1', unit: 'B/s'};
+      if (value > 0 && value < 1) {return {text: '<1', unit: 'B/s'};}
       const text = formatBytes(value);
       const index = text.lastIndexOf(' ');
       return index === -1
         ? {text, unit: ''}
         : {text: text.slice(0, index), unit: `${text.slice(index + 1)}/s`};
     }
-    if (value > 0 && value < 0.1) return {text: '<0.1', unit: '/s'};
+    if (value > 0 && value < 0.1) {return {text: '<0.1', unit: '/s'};}
     return {text: formatCompactNumber(value), unit: '/s'};
   };
 

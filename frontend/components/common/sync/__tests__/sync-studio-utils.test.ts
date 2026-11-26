@@ -38,15 +38,12 @@ import {
   countLogicalTables,
   formatMetricDisplayValue,
   getRunModeLabel,
-  isCursorInsideValueRegion,
-  isNodeMatchingScope,
   patchTreeNode,
   formatValueConstraintHints,
   isCursorAtFinishedEnumValue,
   readStudioLayoutPrefs,
   resolveEffectiveStudioLayout,
   resolveEnumSuggestionItems,
-  resolveEnumValueBounds,
   resolveOptionAssignmentContext,
   resolveStudioTopbarTier,
   resolveStudioViewportMode,
@@ -396,7 +393,8 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
           Keyword: 17,
         },
       },
-    };
+     
+    } as any;
 
     it('generates suggestions sorted with custom first, global second, system third', () => {
       const ctx = resolveVariableCompletionContext('password = {{m', 15);
@@ -421,7 +419,8 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
         customVars as any,
         globalVars as any,
         {lineNumber: 5, column: 15},
-      );
+       
+      ) as any[];
 
       expect(items.length).toBeGreaterThanOrEqual(3);
 
@@ -459,7 +458,8 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
         customVars as any,
         [],
         {lineNumber: 5, column: 16},
-      );
+       
+      ) as any[];
       const mysqlpas = items.find((it) => it.label === 'mysqlpas');
       expect(mysqlpas.insertText).toBe('mysqlpas }}');
     });

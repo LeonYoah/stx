@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+import type * as Monaco from 'monaco-editor';
 import type {useTranslations} from 'next-intl';
 import type {
   RuntimeStorageCheckpointInspectJobConfig,
@@ -210,6 +211,7 @@ export interface TemplatePluginItem {
   origin?: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 选项元数据为后端动态 schema / dynamic backend schema
 export type OptionMetadataMap = Record<string, any>;
 
 export type PluginEnumCatalogMap = Partial<
@@ -948,12 +950,12 @@ export function resolveVariableCompletionContext(
 }
 
 export function resolveVariableSuggestions(
-  monaco: any,
+  monaco: typeof Monaco,
   context: VariableCompletionContext,
   customVariables: VariableRow[],
   globalVariables: SyncGlobalVariable[],
   position: {lineNumber: number; column: number},
-): any[] {
+): Monaco.languages.CompletionItem[] {
   const range = {
     startLineNumber: position.lineNumber,
     endLineNumber: position.lineNumber,
@@ -963,7 +965,7 @@ export function resolveVariableSuggestions(
 
   const insertSuffix = context.hasLeadingSpace ? ' }}' : '}}';
   const seenKeys = new Set<string>();
-  const suggestions: any[] = [];
+  const suggestions: Monaco.languages.CompletionItem[] = [];
 
   // 1. 任务自定义变量（最高优先级：前缀 0_，确保模糊搜索与一键回显首选）
   for (const row of customVariables || []) {
@@ -1034,11 +1036,11 @@ export function resolveVariableSuggestions(
 }
 
 export function resolveValueRegionVariableSuggestions(
-  monaco: any,
+  monaco: typeof Monaco,
   customVariables: VariableRow[],
   globalVariables: SyncGlobalVariable[],
   position: {lineNumber: number; column: number},
-): any[] {
+): Monaco.languages.CompletionItem[] {
   const range = {
     startLineNumber: position.lineNumber,
     endLineNumber: position.lineNumber,
@@ -1047,7 +1049,7 @@ export function resolveValueRegionVariableSuggestions(
   };
 
   const seenKeys = new Set<string>();
-  const suggestions: any[] = [];
+  const suggestions: Monaco.languages.CompletionItem[] = [];
 
   for (const row of customVariables || []) {
     const key = row.key?.trim();
@@ -1253,6 +1255,7 @@ function describeConstraintNode(item: Record<string, unknown>): string {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 枚举元数据为动态 schema / dynamic enum metadata
 export function resolveEnumSuggestionItems(metadata: any): Array<{
   label: string;
   value: string;
@@ -1350,7 +1353,7 @@ export function resolveOptionAssignmentContext(
   };
 }
 
-export function resolveEnumValueBounds(lineContent: string, lineNumber: number) {
+export function resolveEnumValueBounds(lineContent: string, _lineNumber: number) {
   const assignmentMatch = lineContent.match(
     /^(\s*(?:#+\s*)?[A-Za-z0-9_.-]+\s*=\s*)(.*)$/,
   );
@@ -1421,10 +1424,10 @@ export function isCursorAtFinishedEnumValue(
   return column >= bounds.endColumn;
 }
 
-export function ensureSyncHoconLanguage(monaco: any) {
+export function ensureSyncHoconLanguage(monaco: typeof Monaco) {
   const languageId = 'sync-hocon';
   const languages = monaco.languages.getLanguages?.() || [];
-  if (!languages.some((item: any) => item.id === languageId)) {
+  if (!languages.some((item: {id: string}) => item.id === languageId)) {
     monaco.languages.register({id: languageId});
     monaco.languages.setMonarchTokensProvider(languageId, {
       tokenizer: {

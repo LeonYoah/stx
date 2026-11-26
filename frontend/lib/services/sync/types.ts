@@ -757,7 +757,7 @@ export interface CreateSyncTaskRequest {
   definition?: SyncJSON;
 }
 
-export interface UpdateSyncTaskRequest extends CreateSyncTaskRequest {}
+export type UpdateSyncTaskRequest = CreateSyncTaskRequest;
 
 export interface SyncTaskPermissions {
   task_id: number;
@@ -787,7 +787,7 @@ export interface CreateSyncGlobalVariableRequest {
   description?: string;
 }
 
-export interface UpdateSyncGlobalVariableRequest extends CreateSyncGlobalVariableRequest {}
+export type UpdateSyncGlobalVariableRequest = CreateSyncGlobalVariableRequest;
 
 export interface PreviewSyncTaskRequest {
   row_limit?: number;

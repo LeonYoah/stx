@@ -16,13 +16,14 @@
  */
 
 import {toast} from '@/lib/toast';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
 
 /**
  * 复制文本并提示；失败时静默（如非安全上下文没有 clipboard）。
  * Copy text and show a toast; failures stay silent (e.g. no clipboard outside secure contexts).
  */
 export function copyText(text: string, successMessage: string) {
-  void navigator.clipboard?.writeText(text).then(
+  void writeClipboard(text).then(
     () => toast.success(successMessage),
     () => undefined,
   );

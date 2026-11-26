@@ -50,7 +50,7 @@ vi.mock('../../lib/use-today', () => ({
 /** 当前（未在退场动画中的）滑动容器；退场元素没有 data-current。 / The live slide container; exiting ones lose data-current. */
 const current = () => {
   const node = screen.getByRole('dialog').querySelector('[data-current]');
-  if (!node) throw new Error('no current slide');
+  if (!node) {throw new Error('no current slide');}
   return within(node as HTMLElement);
 };
 

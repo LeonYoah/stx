@@ -24,11 +24,8 @@ import {
   AlertTriangle,
   BookOpen,
   Calendar,
-  Check,
   ChevronRight,
-  Copy,
   Edit3,
-  ExternalLink,
   FileCode,
   Fingerprint,
   Lightbulb,
@@ -52,7 +49,6 @@ import {
   getLocalizedMemory,
   matchesMemoryKeyword,
   type TroubleshootingMemoryEntry,
-  type TroubleshootingTargetType,
 } from '@/lib/services/troubleshooting';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
@@ -81,6 +77,7 @@ import {ScrollArea} from '@/components/ui/scroll-area';
 import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
 import {SaveMemoryDialog} from './SaveMemoryDialog';
 import {formatDateTz} from '@/lib/timezone';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 export interface TroubleshootingMemoryCenterProps {
   // 可选过滤的集群 ID
@@ -88,13 +85,11 @@ export interface TroubleshootingMemoryCenterProps {
   clusterId?: number;
   // 可选过滤的集群名称
   // Optional cluster name filter
-  clusterName?: string;
   // 宿主注入的集群筛选控件（工具栏末端插槽）。Host-provided cluster filter
   // control rendered at the end of the toolbar slot.
   clusterFilter?: ReactNode;
   // 选定某条排障经验时的外部回调
   // External callback when selecting a memory entry
-  onSelectMemory?: (memory: TroubleshootingMemoryEntry) => void;
   // 自定义类名
   // Custom CSS class name
   className?: string;
@@ -119,9 +114,7 @@ function formatDateTime(value?: string | null): string {
  */
 export function TroubleshootingMemoryCenter({
   clusterId,
-  clusterName,
   clusterFilter,
-  onSelectMemory,
   className,
 }: TroubleshootingMemoryCenterProps) {
   const t = useTranslations('troubleshooting');
@@ -160,7 +153,6 @@ export function TroubleshootingMemoryCenter({
 
   // 复制反馈状态缓存
   // Copied feedback status cache
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // 加载经验数据（预置方案跟随全局语言切分，自定义方案全量加载）
   // Load memory entries from backend and cache (presets follow global language, custom entries display across all languages)
@@ -266,19 +258,6 @@ export function TroubleshootingMemoryCenter({
   }, [activeFilter, memories, searchKeyword]);
 
   // 复制解决方案至剪贴板
-  // Copy verified solution to clipboard
-  const handleCopySolution = useCallback(
-    (id: string, solutionText: string) => {
-      if (!solutionText) {
-        return;
-      }
-      navigator.clipboard.writeText(solutionText);
-      setCopiedId(id);
-      toast.success(t('solutionCopied'));
-      setTimeout(() => setCopiedId(null), 2000);
-    },
-    [t],
-  );
 
   // 打开新建经验弹窗
   // Open dialog to record new memory
@@ -435,7 +414,6 @@ export function TroubleshootingMemoryCenter({
             // 官方经典方案根据全局语言切分自适应，自定义方案保持原样
             // Presets adapt according to global language; custom entries remain as-is
             const entry = getLocalizedMemory(rawEntry, locale) || rawEntry;
-            const isCopied = copiedId === entry.id;
 
             return (
               <Card
@@ -491,19 +469,13 @@ export function TroubleshootingMemoryCenter({
                     </div>
 
                     <div className='flex items-center gap-1 shrink-0'>
-                      <Button
-                        variant='ghost'
-                        size='icon'
-                        onClick={() => handleCopySolution(entry.id, entry.solution)}
-                        className='size-7 text-muted-foreground hover:text-emerald-600'
-                        title={t('copySolution')}
-                      >
-                        {isCopied ? (
-                          <Check className='size-3.5 text-emerald-600' />
-                        ) : (
-                          <Copy className='size-3.5' />
-                        )}
-                      </Button>
+                      <CopyButton
+                        value={entry.solution}
+                        label={t('copySolution')}
+                        variant='plain'
+                        iconOnly
+                        className='size-7 min-h-0'
+                      />
 
                       <Button
                         variant='ghost'
@@ -761,26 +733,11 @@ export function TroubleshootingMemoryCenter({
                               : t('verifiedSolution')}
                           </span>
                         </span>
-                        <Button
-                          variant='outline'
-                          size='sm'
-                          onClick={() =>
-                            handleCopySolution(detail.id, detail.solution)
-                          }
-                          className='h-6 text-[11px] px-2 gap-1 border-emerald-500/30 hover:bg-emerald-500/10'
-                        >
-                          {copiedId === detail.id ? (
-                            <>
-                              <Check className='size-3 text-emerald-600' />
-                              <span>{isEn ? 'Copied' : '已复制'}</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className='size-3' />
-                              <span>{t('copySolution')}</span>
-                            </>
-                          )}
-                        </Button>
+                        <CopyButton
+                          value={detail.solution}
+                          label={t('copySolution')}
+                          className='h-6 text-[11px] px-2 border-emerald-500/30 hover:bg-emerald-500/10'
+                        />
                       </div>
 
                       <pre className='text-xs font-mono whitespace-pre-wrap text-foreground leading-relaxed pt-1.5'>
@@ -873,16 +830,11 @@ export function TroubleshootingMemoryCenter({
                       <Edit3 className='mr-1 size-3.5' />
                       {t('edit')}
                     </Button>
-                    <Button
-                      size='sm'
-                      onClick={() => {
-                        handleCopySolution(detail.id, detail.solution);
-                      }}
+                    <CopyButton
+                      value={detail.solution}
+                      label={t('copySolution')}
                       className='h-8 text-xs'
-                    >
-                      <Copy className='mr-1.5 size-3.5' />
-                      {t('copySolution')}
-                    </Button>
+                    />
                   </div>
                 </DialogFooter>
               </>

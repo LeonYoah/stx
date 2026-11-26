@@ -46,7 +46,7 @@ import styles from "./drawer.module.css";
  */
 export function useDrawerItem<T>(item: T | null | undefined): T | null | undefined {
   const [last, setLast] = useState(item);
-  if (item != null && item !== last) setLast(item);
+  if (item != null && item !== last) {setLast(item);}
   return item ?? last;
 }
 
@@ -62,8 +62,8 @@ export function Drawer({ open: openProp, defaultOpen = false, onOpenChange, ...p
   const open = openProp ?? uncontrolled;
   const setOpen = useCallback((next: boolean) => {
     setFlung(false);
-    if (next) openedAt.current = performance.now();
-    if (openProp === undefined) setUncontrolled(next);
+    if (next) {openedAt.current = performance.now();}
+    if (openProp === undefined) {setUncontrolled(next);}
     onOpenChange?.(next);
   }, [openProp, onOpenChange]);
   const fling = useCallback(() => { setOpen(false); setFlung(true); }, [setOpen]);
@@ -135,24 +135,24 @@ export function DrawerContent({
   // The header is the grab handle. It follows the pointer toward the edge and rubber-bands the other way.
   function panStart(event: PointerEvent) {
     const target = event.target instanceof Element ? event.target : null;
-    if (!draggable || target?.closest("button, a, input, select, textarea, [role='button']")) return;
+    if (!draggable || target?.closest("button, a, input, select, textarea, [role='button']")) {return;}
     // The entrance animates in percent of the panel, so a grab mid-flight converts it to pixels.
     const value = offset.get();
     pan.current = typeof value === "number" ? value : parseFloat(value) / 100 * panelSize();
     offset.stop();
   }
   function panMove(_: PointerEvent, info: PanInfo) {
-    if (pan.current === null) return;
+    if (pan.current === null) {return;}
     const toward = (pan.current + info.offset[axis]) * sign;
     offset.set(sign * (toward >= 0 ? toward : -Math.sqrt(-toward)));
   }
   // Past a third of the panel, or on a quick flick toward the edge, the drawer closes and keeps its velocity; otherwise it springs back.
   function panEnd(_: PointerEvent, info: PanInfo) {
-    if (pan.current === null) return;
+    if (pan.current === null) {return;}
     pan.current = null;
     const toward = Number(offset.get()) * sign;
-    if (toward > panelSize() / 3 || (toward > 0 && info.velocity[axis] * sign > 500)) drawer?.fling();
-    else animate(offset, 0, motionTokens.spring.snappy);
+    if (toward > panelSize() / 3 || (toward > 0 && info.velocity[axis] * sign > 500)) {drawer?.fling();}
+    else {animate(offset, 0, motionTokens.spring.snappy);}
   }
 
   const inner = <>
@@ -204,7 +204,7 @@ export function DrawerContent({
             // Radix reads a click outside on click, so the press that reopens a closing drawer would dismiss it again.
             onInteractOutside={event => {
               onInteractOutside?.(event);
-              if (event.detail.originalEvent.timeStamp < drawer.openedAt.current) event.preventDefault();
+              if (event.detail.originalEvent.timeStamp < drawer.openedAt.current) {event.preventDefault();}
             }}
           >
             <motion.div

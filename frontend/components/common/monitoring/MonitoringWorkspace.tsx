@@ -35,12 +35,10 @@ import {
   TabsTrigger,
 } from '@/components/arc/tabs/tabs';
 import {ModuleNavTabs, WorkspaceHeader} from '@/components/common/layout';
-import {cn} from '@/lib/utils';
 import {AlertsPanel} from './alerts/AlertsPanel';
 import {RulesPanel} from './rules/RulesPanel';
 import {NotifyPanel} from './notify/NotifyPanel';
 import {useMonitoringFiringCount} from './use-firing-count';
-import styles from './monitoring.module.css';
 
 type MonitoringTab = 'alerts' | 'rules' | 'notify';
 

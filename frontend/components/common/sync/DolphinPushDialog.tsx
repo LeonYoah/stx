@@ -36,7 +36,6 @@ import {Label} from '@/components/ui/label';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {HelpHint} from '@/components/common/HelpHint';
 import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
-import {cn} from '@/lib/utils';
 import {SyncService} from '@/lib/services/sync/sync.service';
 import type {
   DolphinProject,

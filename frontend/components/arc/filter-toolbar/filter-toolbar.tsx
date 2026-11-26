@@ -84,15 +84,15 @@ function MorphText({ text }: { text: string }) {
   const width = useMotionValue<number | "auto">("auto");
   useLayoutEffect(() => {
     const node = measure.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
+    if (!node || typeof ResizeObserver === "undefined") {return;}
     let last: string | null = null;
     // The observer reports the layout size, so an entering chip's scale never shrinks the measurement.
     const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
-      const next = Math.ceil(entry.borderBoxSize?.[0]?.inlineSize ?? node.offsetWidth), changed = last !== null && last !== node.textContent;
+      if (!entry) {return;}
+      const next = Math.ceil(entry.borderBoxSize?.[0]?.inlineSize ?? node.offsetWidth); const changed = last !== null && last !== node.textContent;
       last = node.textContent;
       // Only a new value morphs; the first measure and font swaps settle at once.
-      if (changed && !reduced) animate(width as MotionValue<number>, next, motionTokens.spring.morph); else width.jump(next);
+      if (changed && !reduced) {animate(width as MotionValue<number>, next, motionTokens.spring.morph);} else {width.jump(next);}
     });
     observer.observe(node);
     return () => observer.disconnect();
@@ -108,7 +108,7 @@ function useFollowHeight(list: RefObject<HTMLElement | null>, armed: RefObject<n
   const height = useMotionValue<number | "auto">("auto");
   useLayoutEffect(() => {
     const node = list.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
+    if (!node || typeof ResizeObserver === "undefined") {return;}
     let known = false;
     const observer = new ResizeObserver(() => {
       const next = node.offsetHeight;
@@ -126,38 +126,38 @@ function useFollowHeight(list: RefObject<HTMLElement | null>, armed: RefObject<n
 function useReflowGlide(list: RefObject<HTMLElement | null>, armed: RefObject<number>, reduced: boolean) {
   useLayoutEffect(() => {
     const node = list.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
+    if (!node || typeof ResizeObserver === "undefined") {return;}
     type Track = { x: number; y: number; dx: number; dy: number; stop?: () => void };
     const tracks = new Map<Element, Track>();
     const check = () => {
       const now = performance.now();
       for (const child of Array.from(node.children) as HTMLElement[]) {
-        const x = child.offsetLeft, y = child.offsetTop, track = tracks.get(child);
+        const x = child.offsetLeft; const y = child.offsetTop; const track = tracks.get(child);
         if (!track) { tracks.set(child, { x, y, dx: 0, dy: 0 }); continue; }
-        const jx = track.x - x, jy = track.y - y;
+        const jx = track.x - x; const jy = track.y - y;
         track.x = x; track.y = y;
-        if (reduced || now > armed.current || (Math.abs(jy) < 1 && Math.abs(jx) < 40)) continue;
+        if (reduced || now > armed.current || (Math.abs(jy) < 1 && Math.abs(jx) < 40)) {continue;}
         track.stop?.();
-        const fromX = track.dx + jx, fromY = track.dy + jy;
+        const fromX = track.dx + jx; const fromY = track.dy + jy;
         const apply = (progress: number) => { track.dx = fromX * (1 - progress); track.dy = fromY * (1 - progress); child.style.translate = progress >= 1 ? "" : `${track.dx}px ${track.dy}px`; };
         apply(0);
         track.stop = animate(0, 1, { ...motionTokens.spring.smooth, onUpdate: apply, onComplete: () => apply(1) }).stop;
       }
-      for (const child of tracks.keys()) if (child.parentElement !== node) tracks.delete(child);
+      for (const child of tracks.keys()) {if (child.parentElement !== node) {tracks.delete(child);}}
     };
     const observer = new ResizeObserver(check);
-    const watch = () => { for (const child of Array.from(node.children)) observer.observe(child); };
+    const watch = () => { for (const child of Array.from(node.children)) {observer.observe(child);} };
     const mutations = new MutationObserver(() => { watch(); check(); });
     observer.observe(node); watch();
     mutations.observe(node, { childList: true });
-    return () => { observer.disconnect(); mutations.disconnect(); for (const track of tracks.values()) track.stop?.(); };
+    return () => { observer.disconnect(); mutations.disconnect(); for (const track of tracks.values()) {track.stop?.();} };
   }, [armed, list, reduced]);
 }
 
 function describeChange(before: FilterChip[], after: FilterChip[]) {
   const text = (filter: FilterChip) => filter.value ? `${filter.label}: ${filter.value}` : filter.label;
   const removed = before.filter(old => !after.some(filter => filter.id === old.id));
-  if (!after.length && removed.length > 1) return "All filters cleared";
+  if (!after.length && removed.length > 1) {return "All filters cleared";}
   const added = after.filter(filter => !before.some(old => old.id === filter.id));
   const changed = after.filter(filter => before.some(old => old.id === filter.id && old.value !== filter.value));
   return [...added.map(filter => `Added ${text(filter)}`), ...changed.map(filter => `${filter.label} changed to ${filter.value ?? "any"}`), ...removed.map(filter => `Removed ${text(filter)}`)].join(". ");
@@ -178,18 +178,18 @@ function MenuList({ rows, labelledBy, onChoose, onBack, onLeave, radio }: { rows
   const items = () => Array.from(list.current?.querySelectorAll<HTMLElement>("[data-row]") ?? []);
   const move = (item: HTMLElement | undefined) => {
     const node = list.current;
-    if (!item || !node) return;
+    if (!item || !node) {return;}
     item.focus({ preventScroll: true });
-    if (item.offsetTop < node.scrollTop) node.scrollTop = item.offsetTop;
-    else if (item.offsetTop + item.offsetHeight > node.scrollTop + node.clientHeight) node.scrollTop = item.offsetTop + item.offsetHeight - node.clientHeight;
+    if (item.offsetTop < node.scrollTop) {node.scrollTop = item.offsetTop;}
+    else if (item.offsetTop + item.offsetHeight > node.scrollTop + node.clientHeight) {node.scrollTop = item.offsetTop + item.offsetHeight - node.clientHeight;}
   };
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    const all = items(), index = all.indexOf(document.activeElement as HTMLElement);
+    const all = items(); const index = all.indexOf(document.activeElement as HTMLElement);
     const go = (next: number) => { event.preventDefault(); pointer.current = false; move(all[next]); };
-    if (event.key === "ArrowDown") return go(index < 0 ? 0 : (index + 1) % all.length);
-    if (event.key === "ArrowUp") return go(index < 0 ? all.length - 1 : (index - 1 + all.length) % all.length);
-    if (event.key === "Home") return go(0);
-    if (event.key === "End") return go(all.length - 1);
+    if (event.key === "ArrowDown") {return go(index < 0 ? 0 : (index + 1) % all.length);}
+    if (event.key === "ArrowUp") {return go(index < 0 ? all.length - 1 : (index - 1 + all.length) % all.length);}
+    if (event.key === "Home") {return go(0);}
+    if (event.key === "End") {return go(all.length - 1);}
     if (event.key === "ArrowRight" && index >= 0 && rows[index]?.drill) { event.preventDefault(); onChoose(rows[index], true); return; }
     if (event.key === "ArrowLeft" && onBack) { event.preventDefault(); onBack(true); return; }
     if (event.key.length === 1 && /\S/.test(event.key) && !event.metaKey && !event.ctrlKey && !event.altKey) {
@@ -197,28 +197,28 @@ function MenuList({ rows, labelledBy, onChoose, onBack, onLeave, radio }: { rows
       typed.current = { text: now - typed.current.at < 700 ? typed.current.text + event.key.toLowerCase() : event.key.toLowerCase(), at: now };
       const order = [...all.slice(index + (typed.current.text.length > 1 ? 0 : 1)), ...all.slice(0, index + (typed.current.text.length > 1 ? 0 : 1))];
       const match = order.find(item => (item.dataset.text ?? "").toLowerCase().startsWith(typed.current.text));
-      if (match) go(all.indexOf(match));
+      if (match) {go(all.indexOf(match));}
     }
   }
   function onFocus(event: FocusEvent<HTMLDivElement>) {
     const item = (event.target as HTMLElement).closest<HTMLElement>("[data-row]");
-    if (!item) return;
+    if (!item) {return;}
     setCurrent(items().indexOf(item));
     // Keyboard focus also draws the focus ring inside the highlight, where the scrolling list cannot clip it.
-    const glide = pointer.current && !reduced, ring = !pointer.current && item.matches(":focus-visible");
+    const glide = pointer.current && !reduced; const ring = !pointer.current && item.matches(":focus-visible");
     setHighlight(previous => ({ top: item.offsetTop, height: item.offsetHeight, glide: glide && !!previous?.shown, ring, shown: true }));
   }
   function onBlur(event: FocusEvent<HTMLDivElement>) {
     // The highlight fades where it is; it keeps its place so the fade is visible.
-    if (!list.current?.contains(event.relatedTarget as Node | null)) setHighlight(previous => previous && { ...previous, glide: false, ring: false, shown: false });
+    if (!list.current?.contains(event.relatedTarget as Node | null)) {setHighlight(previous => previous && { ...previous, glide: false, ring: false, shown: false });}
   }
   return <div ref={list} className={styles.list} role="menu" aria-labelledby={labelledBy} data-current={present ? "" : undefined} onKeyDown={onKeyDown} onFocus={onFocus} onBlur={onBlur}
-    onPointerLeave={() => { if (pointer.current && list.current?.contains(document.activeElement)) onLeave(); }}>
+    onPointerLeave={() => { if (pointer.current && list.current?.contains(document.activeElement)) {onLeave();} }}>
     <motion.span className={styles.highlight} data-ring={highlight?.ring || undefined} aria-hidden="true" initial={false} animate={highlight ? { y: highlight.top, height: highlight.height, opacity: highlight.shown ? 1 : 0 } : { opacity: 0 }}
       transition={{ default: highlight?.glide ? motionTokens.spring.snappy : still, opacity: { duration: reduced ? 0 : motionTokens.duration.instant } }} />
     {rows.map((row, index) => <button key={row.key} type="button" className={styles.item} role={radio ? "menuitemradio" : "menuitem"} aria-checked={radio ? !!row.checked : undefined}
       tabIndex={index === current ? 0 : -1} data-row={row.key} data-text={row.label}
-      onPointerMove={event => { pointer.current = true; if (document.activeElement !== event.currentTarget) event.currentTarget.focus({ preventScroll: true }); }}
+      onPointerMove={event => { pointer.current = true; if (document.activeElement !== event.currentTarget) {event.currentTarget.focus({ preventScroll: true });} }}
       onClick={(event: MouseEvent<HTMLButtonElement>) => onChoose(row, event.detail === 0)}>
       {row.icon ? <span className={styles.itemIcon} aria-hidden="true">{row.icon}</span> : null}
       <span className={styles.itemLabel}>{row.label}</span>
@@ -235,7 +235,7 @@ function roomFor(node: HTMLElement) {
   const room = { left: 0, top: 0, right: document.documentElement.clientWidth, bottom: window.innerHeight };
   for (let parent = node.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
     const style = getComputedStyle(parent);
-    if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+    if (style.overflowX === "visible" && style.overflowY === "visible") {continue;}
     const box = parent.getBoundingClientRect();
     if (style.overflowX !== "visible") { room.left = Math.max(room.left, box.left); room.right = Math.min(room.right, box.right); }
     if (style.overflowY !== "visible") { room.top = Math.max(room.top, box.top); room.bottom = Math.min(room.bottom, box.bottom); }
@@ -247,9 +247,9 @@ function roomFor(node: HTMLElement) {
  *  button and the panel, and the panel renders in place, so keep its ancestors free of overflow clipping. */
 export function FilterMenu({ fields, onSelect, active = [], label = "Add filter", align = "end" }: FilterMenuProps) {
   const reduced = useReducedMotion() ?? false;
-  const id = useId(), panelId = `${id}panel`, titleId = `${id}title`;
-  const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null), panel = useRef<HTMLDivElement>(null);
-  const phaseRef = useRef<Phase>("closed"), run = useRef(0), focusNext = useRef<FocusRequest | null>(null);
+  const id = useId(); const panelId = `${id}panel`; const titleId = `${id}title`;
+  const root = useRef<HTMLDivElement>(null); const trigger = useRef<HTMLButtonElement>(null); const panel = useRef<HTMLDivElement>(null);
+  const phaseRef = useRef<Phase>("closed"); const run = useRef(0); const focusNext = useRef<FocusRequest | null>(null);
   const [phase, setPhase] = useState<Phase>("closed");
   const [fieldId, setFieldId] = useState<string | null>(null);
   const [direction, setDirection] = useState(1);
@@ -257,29 +257,29 @@ export function FilterMenu({ fields, onSelect, active = [], label = "Add filter"
   // The content scales up from the trigger's center, so it reads as growing out of the button.
   const [origin, setOrigin] = useState("100% 0");
   // The surface is the button's own rounded rectangle. At rest it fills the trigger; while open it springs to the panel.
-  const width = useMotionValue<number | string>("100%"), height = useMotionValue<number | string>("100%");
-  const left = useMotionValue(0), target = useMotionValue(0);
+  const width = useMotionValue<number | string>("100%"); const height = useMotionValue<number | string>("100%");
+  const left = useMotionValue(0); const target = useMotionValue(0);
   // The panel content stays put at its final position while the surface edge travels across it.
   const panelX = useTransform(() => target.get() - left.get());
   // How far the shape has grown from the button (0) to the panel (1). The label and the content read it, so they
   // reveal with the morph, never ahead of the growing edge, and reverse with it when a close interrupts an open.
-  const from = useMotionValue(0), to = useMotionValue(0);
-  const progress = useTransform(() => { const now = width.get(), start = from.get(), end = to.get(); return typeof now !== "number" ? 0 : end > start ? clamp((now - start) / (end - start)) : 1; });
-  const faceOut = useTransform(() => clamp(progress.get() / .35)), contentIn = useTransform(() => clamp((progress.get() - .4) / .5));
+  const from = useMotionValue(0); const to = useMotionValue(0);
+  const progress = useTransform(() => { const now = width.get(); const start = from.get(); const end = to.get(); return typeof now !== "number" ? 0 : end > start ? clamp((now - start) / (end - start)) : 1; });
+  const faceOut = useTransform(() => clamp(progress.get() / .35)); const contentIn = useTransform(() => clamp((progress.get() - .4) / .5));
   // Reduced motion jumps the shape, so progress goes 0 to 1 in one frame and these in-between values never paint.
   const faceStyle = { opacity: useTransform(() => 1 - faceOut.get()), scale: useTransform(() => 1 - faceOut.get() * .04), filter: useTransform(() => faceOut.get() ? blur(faceOut.get() * motionTokens.blur.subtle) : "none") };
   const contentStyle = { opacity: contentIn, transformOrigin: origin, scale: useTransform(() => .96 + contentIn.get() * .04), y: useTransform(() => (1 - contentIn.get()) * (up ? -6 : 6)), filter: useTransform(() => contentIn.get() === 1 ? "none" : blur((1 - contentIn.get()) * motionTokens.blur.soft)) };
-  const open = phase === "open", field = fields.find(entry => entry.id === fieldId) ?? null;
+  const open = phase === "open"; const field = fields.find(entry => entry.id === fieldId) ?? null;
 
   const openMenu = useCallback((focus: FocusRequest) => {
-    const button = trigger.current, content = panel.current;
-    if (!button || !content) return;
-    const rect = button.getBoundingClientRect(), panelWidth = content.offsetWidth + 2, panelHeight = content.offsetHeight + 2;
-    const room = roomFor(root.current ?? button), gutter = 16;
-    const min = room.left + gutter - rect.left, max = room.right - gutter - rect.left - panelWidth, end = rect.width - panelWidth;
+    const button = trigger.current; const content = panel.current;
+    if (!button || !content) {return;}
+    const rect = button.getBoundingClientRect(); const panelWidth = content.offsetWidth + 2; const panelHeight = content.offsetHeight + 2;
+    const room = roomFor(root.current ?? button); const gutter = 16;
+    const min = room.left + gutter - rect.left; const max = room.right - gutter - rect.left - panelWidth; const end = rect.width - panelWidth;
     let x = align === "end" ? (end >= min ? end : 0 <= max ? 0 : end) : (0 <= max ? 0 : end >= min ? end : 0);
     x = Math.round(Math.min(Math.max(x, min), Math.max(min, max)));
-    const below = room.bottom - rect.top, above = rect.bottom - room.top;
+    const below = room.bottom - rect.top; const above = rect.bottom - room.top;
     const nextUp = below < panelHeight + gutter && above > below;
     if (phaseRef.current === "closed") { width.jump(rect.width); height.jump(rect.height); left.jump(0); }
     target.jump(x); from.jump(rect.width); to.jump(panelWidth);
@@ -294,19 +294,19 @@ export function FilterMenu({ fields, onSelect, active = [], label = "Add filter"
 
   const closeMenu = useCallback((restore: false | "keyboard" | "pointer") => {
     const button = trigger.current;
-    if (phaseRef.current !== "open" || !button) return;
+    if (phaseRef.current !== "open" || !button) {return;}
     phaseRef.current = "closing";
     const token = (run.current += 1);
     setPhase("closing");
     // Focus returns to the trigger; its ring shows only when the menu was closed from the keyboard.
-    if (restore) button.focus({ preventScroll: true, focusVisible: restore === "keyboard" } as FocusOptions);
+    if (restore) {button.focus({ preventScroll: true, focusVisible: restore === "keyboard" } as FocusOptions);}
     // Closing is quicker than opening: the snappy spring lands the shape back on the button.
     const transition = reduced ? still : motionTokens.spring.snappy;
     animate(left, 0, transition);
     const rect = button.getBoundingClientRect();
     animate(height as MotionValue<number>, rect.height, transition);
     animate(width as MotionValue<number>, rect.width, { ...transition, onComplete: () => {
-      if (token !== run.current) return;
+      if (token !== run.current) {return;}
       phaseRef.current = "closed";
       width.jump("100%"); height.jump("100%");
       setPhase("closed"); setFieldId(null);
@@ -316,9 +316,9 @@ export function FilterMenu({ fields, onSelect, active = [], label = "Add filter"
   // A new step changes the panel height; the surface follows on the smooth spring instead of snapping.
   useLayoutEffect(() => {
     const content = panel.current;
-    if (!content || typeof ResizeObserver === "undefined") return;
+    if (!content || typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(() => {
-      if (phaseRef.current !== "open") return;
+      if (phaseRef.current !== "open") {return;}
       animate(height as MotionValue<number>, content.offsetHeight + 2, reduced ? still : motionTokens.spring.smooth);
     });
     observer.observe(content);
@@ -327,8 +327,8 @@ export function FilterMenu({ fields, onSelect, active = [], label = "Add filter"
 
   // Focus moves into the panel once it is interactive: an item for keyboard users, the dialog itself for the pointer.
   useLayoutEffect(() => {
-    const request = focusNext.current, content = panel.current;
-    if (!request || !content || phase !== "open") return;
+    const request = focusNext.current; const content = panel.current;
+    if (!request || !content || phase !== "open") {return;}
     focusNext.current = null;
     if (request === "panel") { content.focus({ preventScroll: true }); return; }
     const items = Array.from(content.querySelectorAll<HTMLElement>("[data-current] [data-row]"));
@@ -337,29 +337,29 @@ export function FilterMenu({ fields, onSelect, active = [], label = "Add filter"
   }, [phase, fieldId]);
 
   useEffect(() => {
-    if (phase !== "open") return;
+    if (phase !== "open") {return;}
     const onPointerDown = (event: PointerEvent) => {
-      const node = root.current, hit = event.target as Element | null;
-      if (!node || (hit && node.contains(hit))) return;
+      const node = root.current; const hit = event.target as Element | null;
+      if (!node || (hit && node.contains(hit))) {return;}
       closeMenu(false);
       // A press on empty space hands focus back to the trigger; a press on another control keeps its own focus.
-      if (!hit?.closest?.("button, a[href], input, select, textarea, [tabindex], [contenteditable]")) window.setTimeout(() => {
+      if (!hit?.closest?.("button, a[href], input, select, textarea, [tabindex], [contenteditable]")) {window.setTimeout(() => {
         const focused = document.activeElement;
-        if (!focused || focused === document.body || node.contains(focused)) trigger.current?.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
-      }, 0);
+        if (!focused || focused === document.body || node.contains(focused)) {trigger.current?.focus({ preventScroll: true, focusVisible: false } as FocusOptions);}
+      }, 0);}
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, [closeMenu, phase]);
 
   function onPanelKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.defaultPrevented) return;
+    if (event.defaultPrevented) {return;}
     const items = Array.from(panel.current?.querySelectorAll<HTMLElement>("[data-current] [data-row]") ?? []);
     if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); (event.key === "ArrowDown" ? items[0] : items.at(-1))?.focus({ preventScroll: true }); }
     if (event.key === "ArrowLeft" && field) { event.preventDefault(); goBack(true); }
   }
   function goBack(keyboard: boolean) {
-    if (!field) return;
+    if (!field) {return;}
     focusNext.current = keyboard ? { key: field.id } : "panel";
     setDirection(-1); setFieldId(null);
   }
@@ -368,7 +368,7 @@ export function FilterMenu({ fields, onSelect, active = [], label = "Add filter"
     setDirection(1); setFieldId(row.key);
   }
   function chooseValue(row: Row, keyboard: boolean) {
-    if (!field) return;
+    if (!field) {return;}
     onSelect({ id: field.id, label: field.label, value: row.label }, field);
     closeMenu(keyboard ? "keyboard" : "pointer");
   }
@@ -377,7 +377,7 @@ export function FilterMenu({ fields, onSelect, active = [], label = "Add filter"
   const fieldRows: Row[] = fields.map(entry => ({ key: entry.id, label: entry.label, icon: entry.icon, drill: true,
     meta: <>{current(entry) ? <span className={styles.metaValue}>{current(entry)}</span> : null}<ChevronRight size={15} strokeWidth={1.8} aria-hidden="true" /></> }));
   const valueRows: Row[] = field ? field.options.map(toOption).map(entry => {
-    const text = optionText(entry), checked = current(field) === text;
+    const text = optionText(entry); const checked = current(field) === text;
     return { key: entry.value, label: text, icon: entry.icon, checked, meta: entry.hint != null || checked ? <>{entry.hint != null ? <span className={styles.hint}>{entry.hint}</span> : null}<span className={styles.check} data-on={checked || undefined}><Check size={15} strokeWidth={2} aria-hidden="true" /></span></> : null };
   }) : [];
   // Steps travel in the direction of the move: forward slides in from the end edge, back from the start edge.
@@ -389,9 +389,9 @@ export function FilterMenu({ fields, onSelect, active = [], label = "Add filter"
 
   return <div ref={root} className={styles.menu} data-state={phase} data-y={up ? "up" : "down"}
     onKeyDown={event => { if (event.key === "Escape" && phaseRef.current === "open") { event.preventDefault(); event.stopPropagation(); closeMenu("keyboard"); } }}
-    onBlur={event => { const next = event.relatedTarget as Node | null; if (phaseRef.current === "open" && next && !root.current?.contains(next)) closeMenu(false); }}>
+    onBlur={event => { const next = event.relatedTarget as Node | null; if (phaseRef.current === "open" && next && !root.current?.contains(next)) {closeMenu(false);} }}>
     <button ref={trigger} type="button" className={styles.trigger} data-filter-trigger="" aria-haspopup="dialog" aria-expanded={open} aria-controls={panelId} tabIndex={open ? -1 : undefined}
-      onClick={event => { if (phaseRef.current !== "open") openMenu(event.detail === 0 ? "first" : "panel"); }}
+      onClick={event => { if (phaseRef.current !== "open") {openMenu(event.detail === 0 ? "first" : "panel");} }}
       onKeyDown={event => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); openMenu(event.key === "ArrowDown" ? "first" : "last"); } }}>
       <motion.span className={styles.face} style={faceStyle}>
         <Plus size={15} strokeWidth={1.8} aria-hidden="true" />{label}
@@ -428,11 +428,11 @@ export function FilterMenu({ fields, onSelect, active = [], label = "Add filter"
 
 export function FilterToolbar({ filters, onRemove, onClearAll, children, label = "Active filters", addFilter }: FilterToolbarProps) {
   const reduced = useReducedMotion() ?? false;
-  const root = useRef<HTMLDivElement>(null), list = useRef<HTMLDivElement>(null);
-  const armed = useRef(0), pendingFocus = useRef<number | null>(null);
+  const root = useRef<HTMLDivElement>(null); const list = useRef<HTMLDivElement>(null);
+  const armed = useRef(0); const pendingFocus = useRef<number | null>(null);
   const [seen, setSeen] = useState(filters);
   const [message, setMessage] = useState("");
-  if (seen !== filters) { setSeen(filters); const next = describeChange(seen, filters); if (next) setMessage(next); }
+  if (seen !== filters) { setSeen(filters); const next = describeChange(seen, filters); if (next) {setMessage(next);} }
   const signature = filters.map(filter => `${filter.id}:${filter.value ?? ""}`).join("|");
   // Layout motion runs only for a moment after the filters change, so window resizes and font swaps settle at once.
   useLayoutEffect(() => { armed.current = performance.now() + 900; }, [signature]);
@@ -440,8 +440,8 @@ export function FilterToolbar({ filters, onRemove, onClearAll, children, label =
   useReflowGlide(list, armed, reduced);
   // A removed chip hands focus to its neighbor, or to the Add filter trigger once the list is empty.
   useLayoutEffect(() => {
-    const index = pendingFocus.current, node = root.current;
-    if (index === null || !node) return;
+    const index = pendingFocus.current; const node = root.current;
+    if (index === null || !node) {return;}
     pendingFocus.current = null;
     const next = filters[Math.min(index, filters.length - 1)];
     const target = next ? node.querySelector<HTMLElement>(`[data-chip-remove="${CSS.escape(next.id)}"]`) : node.querySelector<HTMLElement>("[data-filter-trigger]");
@@ -470,7 +470,7 @@ export function FilterToolbar({ filters, onRemove, onClearAll, children, label =
     <motion.div className={styles.frame} style={{ height: frameHeight }}>
       <div ref={list} className={styles.chips}>
         <AnimatePresence initial={false}>
-          {filters.map((filter, index) => <motion.span className={styles.slot} key={filter.id} {...slot(8)}><motion.span className={styles.chip} {...chip}><span className={styles.chipLabel}>{filter.label}{filter.value ? <span className={styles.value}><span className={styles.separator}> · </span><MorphText text={filter.value} /></span> : null}</span><button type="button" data-chip-remove={filter.id} aria-label={`Remove ${filter.label}${filter.value ? `: ${filter.value}` : ""}`} onClick={event => { if (document.activeElement === event.currentTarget) pendingFocus.current = index; onRemove(filter.id); }}><X size={14} strokeWidth={1.8} aria-hidden="true" /></button></motion.span></motion.span>)}
+          {filters.map((filter, index) => <motion.span className={styles.slot} key={filter.id} {...slot(8)}><motion.span className={styles.chip} {...chip}><span className={styles.chipLabel}>{filter.label}{filter.value ? <span className={styles.value}><span className={styles.separator}> · </span><MorphText text={filter.value} /></span> : null}</span><button type="button" data-chip-remove={filter.id} aria-label={`Remove ${filter.label}${filter.value ? `: ${filter.value}` : ""}`} onClick={event => { if (document.activeElement === event.currentTarget) {pendingFocus.current = index;} onRemove(filter.id); }}><X size={14} strokeWidth={1.8} aria-hidden="true" /></button></motion.span></motion.span>)}
         </AnimatePresence>
         {/* The empty note sits over the leading edge instead of in the flow, so it fades in where the chips were rather than riding their collapsing slots across the row. */}
         <AnimatePresence initial={false}>

@@ -325,8 +325,6 @@ export function DeliveriesPanel({
                             variant='plain'
                             value={d.last_error}
                             label={tc('copy')}
-                            copiedLabel={tc('copied')}
-                            failedLabel={tc('copyFailed')}
                           />
                         </div>
                         <pre className={styles.errPopText}>{d.last_error}</pre>

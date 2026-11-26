@@ -10,6 +10,7 @@ check_license:
 check_i18n:
 	python3 -m unittest scripts/check_i18n_policy_test.py
 	python3 scripts/check_i18n_policy.py --baseline scripts/i18n_baseline.json
+	python3 scripts/check_copy_conventions.py
 
 add_apache_license:
 	python3 scripts/add_apache_license.py --git-added --staged

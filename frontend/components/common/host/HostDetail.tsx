@@ -27,11 +27,8 @@ import {useTranslations} from 'next-intl';
 import {Badge} from '@/components/ui/badge';
 import {Progress} from '@/components/ui/progress';
 import {Skeleton} from '@/components/ui/skeleton';
-import {toast} from '@/lib/toast';
 import {
-  Check,
   Clock,
-  Copy,
   Cpu,
   HardDrive,
   MemoryStick,
@@ -39,10 +36,12 @@ import {
 } from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
 import services from '@/lib/services';
+import {toast} from '@/lib/toast';
 import {HostInfo, HostStatus, HostType, K8sTestConnectionResult} from '@/lib/services/host/types';
 import {formatDateTimeTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import layout from '@/components/common/layout/list-detail.module.css';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 interface HostDetailProps {
   host: HostInfo | null;
@@ -110,8 +109,6 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
   const [k8sTestResult, setK8sTestResult] = useState<K8sTestConnectionResult | null>(null);
   const [installCommand, setInstallCommand] = useState<string>('');
   const [loadingCommand, setLoadingCommand] = useState(false);
-  const [copiedInstall, setCopiedInstall] = useState(false);
-  const [copiedUninstall, setCopiedUninstall] = useState(false);
 
   useEffect(() => {
     if (!host || host.host_type !== HostType.BARE_METAL) {
@@ -146,22 +143,6 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
       cancelled = true;
     };
   }, [host]);
-
-  const handleCopyCommand = async (commandText: string, isUninstall = false) => {
-    try {
-      await navigator.clipboard.writeText(commandText);
-      if (isUninstall) {
-        setCopiedUninstall(true);
-        setTimeout(() => setCopiedUninstall(false), 2000);
-      } else {
-        setCopiedInstall(true);
-        setTimeout(() => setCopiedInstall(false), 2000);
-      }
-      toast.success(t('host.commandCopied'));
-    } catch {
-      toast.error(t('host.copyFailed'));
-    }
-  };
 
   const runK8sTest = async () => {
     if (!host) return;
@@ -479,24 +460,12 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
                   <div className='flex items-center justify-between text-xs text-muted-foreground'>
                     <span>{t('host.installCommand')}</span>
                     {installCommand ? (
-                      <Button
-                        type='button'
-                        variant='ghost'
-                        size='sm'
-                        onClick={() =>
-                          void handleCopyCommand(installCommand, false)
-                        }
-                      >
-                        {copiedInstall ? (
-                          <Check
-                            className='size-3.5 text-emerald-500'
-                            aria-hidden
-                          />
-                        ) : (
-                          <Copy className='size-3.5' aria-hidden />
-                        )}
-                        {copiedInstall ? t('common.copied') : t('common.copy')}
-                      </Button>
+                      <CopyButton
+                        value={installCommand}
+                        label={t('common.copy')}
+                        variant='plain'
+                        className='h-7 px-2 text-xs'
+                      />
                     ) : null}
                   </div>
                   <pre className='m-0 select-all overflow-x-auto rounded-[var(--radius-control)] bg-muted/50 px-3 py-2.5 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-foreground dark:bg-muted/30'>
@@ -509,27 +478,12 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
                   <div className='space-y-1.5'>
                     <div className='flex items-center justify-between text-xs text-muted-foreground'>
                       <span>{t('host.uninstallCommand')}</span>
-                      <Button
-                        type='button'
-                        variant='ghost'
-                        size='sm'
-                        onClick={() =>
-                          void handleCopyCommand(
-                            getUninstallCommand(installCommand),
-                            true,
-                          )
-                        }
-                      >
-                        {copiedUninstall ? (
-                          <Check
-                            className='size-3.5 text-emerald-500'
-                            aria-hidden
-                          />
-                        ) : (
-                          <Copy className='size-3.5' aria-hidden />
-                        )}
-                        {copiedUninstall ? t('common.copied') : t('common.copy')}
-                      </Button>
+                      <CopyButton
+                        value={getUninstallCommand(installCommand)}
+                        label={t('common.copy')}
+                        variant='plain'
+                        className='h-7 px-2 text-xs'
+                      />
                     </div>
                     <pre className='m-0 select-all overflow-x-auto rounded-[var(--radius-control)] bg-muted/50 px-3 py-2.5 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-muted-foreground dark:bg-muted/30'>
                       {getUninstallCommand(installCommand)}

@@ -52,7 +52,7 @@ export interface ApiError {
 /**
  * 用户信任等级
  */
-/* eslint-disable no-unused-vars */
+ 
 export enum TrustLevel {
   /** 新用户 */
   NEW_USER = 0,

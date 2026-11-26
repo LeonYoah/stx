@@ -99,7 +99,7 @@ const NEUTRAL = [56, 42, 32];
 const seriesColor = (index: number) => index < 4 ? `var(--series-${index + 1})` : `color-mix(in oklab, var(--foreground) ${NEUTRAL[(index - 4) % NEUTRAL.length]}%, var(--surface))`;
 const OTHER_COLOR = "color-mix(in oklab, var(--foreground) 26%, var(--surface))";
 /** Room left outside the ring for the lift; the gap between segments and their corner radius, in pixels. */
-const LIFT = 4, GROW = 2, MARGIN = 7, GAP = 3, CORNER = 4;
+const LIFT = 4; const GROW = 2; const MARGIN = 7; const GAP = 3; const CORNER = 4;
 const grouped = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 const percent = new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 0 });
 const shareText = (share: number) => share > 0 && share < .01 ? "<1%" : percent.format(share);
@@ -108,11 +108,11 @@ const shareText = (share: number) => share > 0 && share < .01 ? "<1%" : percent.
 function sliceData(data: DonutChartDatum[], groupBelow: number, maxSegments: number, otherLabel: string): Slice[] {
   const parts = data.filter(item => item.value > 0);
   const total = parts.reduce((sum, item) => sum + item.value, 0);
-  if (!total) return [];
+  if (!total) {return [];}
   const ranked = [...parts].sort((a, b) => b.value - a.value);
   const keep = new Set(ranked.filter((item, rank) => item.value / total >= groupBelow && rank < maxSegments - 1).map(item => item.key));
   const rest = parts.filter(item => !keep.has(item.key));
-  if (rest.length < 2) return parts.map(item => ({ ...item }));
+  if (rest.length < 2) {return parts.map(item => ({ ...item }));}
   return [...parts.filter(item => keep.has(item.key)).map(item => ({ ...item })), { key: OTHER, label: otherLabel, value: rest.reduce((sum, item) => sum + item.value, 0), members: rest }];
 }
 
@@ -126,7 +126,7 @@ function layout(slices: Slice[], hidden: Set<string>) {
 /** Half the width, in pixels, of a sector's outer edge once the gap is cut; below a couple of pixels a segment fades rather than drawing a hairline. */
 function breadth(R: number, t0: number, t1: number, gap: number) {
   const turns = t1 - t0;
-  if (turns >= 1 - 1e-6) return Infinity;
+  if (turns >= 1 - 1e-6) {return Infinity;}
   return Math.sin(Math.min(turns * Math.PI, Math.PI / 2)) * R - Math.min(gap / 2, ((1 - turns) * TAU * R) / 2);
 }
 
@@ -138,31 +138,31 @@ const n2 = (value: number) => (Math.round(value * 100) / 100).toString();
  */
 function sector(c: number, R: number, r: number, t0: number, t1: number, gap: number, corner: number) {
   const turns = t1 - t0;
-  if (turns <= 1e-6) return "";
+  if (turns <= 1e-6) {return "";}
   const at = (radius: number, angle: number) => `${n2(c + radius * Math.cos(angle))} ${n2(c + radius * Math.sin(angle))}`;
-  if (turns >= 1 - 1e-6) return `M${at(R, -Math.PI / 2)}A${n2(R)} ${n2(R)} 0 1 1 ${at(R, Math.PI / 2)}A${n2(R)} ${n2(R)} 0 1 1 ${at(R, -Math.PI / 2)}ZM${at(r, -Math.PI / 2)}A${n2(r)} ${n2(r)} 0 1 0 ${at(r, Math.PI / 2)}A${n2(r)} ${n2(r)} 0 1 0 ${at(r, -Math.PI / 2)}Z`;
+  if (turns >= 1 - 1e-6) {return `M${at(R, -Math.PI / 2)}A${n2(R)} ${n2(R)} 0 1 1 ${at(R, Math.PI / 2)}A${n2(R)} ${n2(R)} 0 1 1 ${at(R, -Math.PI / 2)}ZM${at(r, -Math.PI / 2)}A${n2(r)} ${n2(r)} 0 1 0 ${at(r, Math.PI / 2)}A${n2(r)} ${n2(r)} 0 1 0 ${at(r, -Math.PI / 2)}Z`;}
   // Half the gap on each side; a lone segment closes its gap as the rest of the ring empties, so it becomes a whole ring without a jump.
   const p = Math.min(gap / 2, ((1 - turns) * TAU * R) / 2);
-  const a0 = t0 * TAU - Math.PI / 2, a1 = t1 * TAU - Math.PI / 2, half = (a1 - a0) / 2, s = Math.sin(Math.min(half, Math.PI / 2));
-  if (s * R <= p + 1e-6) return "";
+  const a0 = t0 * TAU - Math.PI / 2; const a1 = t1 * TAU - Math.PI / 2; const half = (a1 - a0) / 2; const s = Math.sin(Math.min(half, Math.PI / 2));
+  if (s * R <= p + 1e-6) {return "";}
   const side = (t: number, angle: number, sign: number) => `${n2(c + t * Math.cos(angle) - sign * p * Math.sin(angle))} ${n2(c + t * Math.sin(angle) + sign * p * Math.cos(angle))}`;
   const band = (R - r) / 2;
   const ro = Math.max(0, Math.min(corner, band, s >= .9999 ? Infinity : (s * R - p) / (1 + s)));
-  const dO = Math.asin(Math.min(1, (p + ro) / (R - ro))), tO = Math.sqrt(Math.max(0, (R - ro) ** 2 - (p + ro) ** 2));
+  const dO = Math.asin(Math.min(1, (p + ro) / (R - ro))); const tO = Math.sqrt(Math.max(0, (R - ro) ** 2 - (p + ro) ** 2));
   const bigO = a1 - a0 - 2 * dO > Math.PI ? 1 : 0;
   let d = `M${side(tO, a0, 1)}`;
-  if (ro > .01) d += `A${n2(ro)} ${n2(ro)} 0 0 1 ${at(R, a0 + dO)}`;
+  if (ro > .01) {d += `A${n2(ro)} ${n2(ro)} 0 0 1 ${at(R, a0 + dO)}`;}
   d += `A${n2(R)} ${n2(R)} 0 ${bigO} 1 ${at(R, a1 - dO)}`;
-  if (ro > .01) d += `A${n2(ro)} ${n2(ro)} 0 0 1 ${side(tO, a1, -1)}`;
+  if (ro > .01) {d += `A${n2(ro)} ${n2(ro)} 0 0 1 ${side(tO, a1, -1)}`;}
   if (s * r > p + 1e-6 || s >= .9999) {
     const ri = Math.max(0, Math.min(corner, band, s >= .9999 ? Infinity : (s * r - p) / (1 - s)));
-    const dI = Math.asin(Math.min(1, (p + ri) / (r + ri))), tI = Math.sqrt(Math.max(0, (r + ri) ** 2 - (p + ri) ** 2));
+    const dI = Math.asin(Math.min(1, (p + ri) / (r + ri))); const tI = Math.sqrt(Math.max(0, (r + ri) ** 2 - (p + ri) ** 2));
     const bigI = a1 - a0 - 2 * dI > Math.PI ? 1 : 0;
     d += `L${side(tI, a1, -1)}`;
-    if (ri > .01) d += `A${n2(ri)} ${n2(ri)} 0 0 1 ${at(r, a1 - dI)}`;
+    if (ri > .01) {d += `A${n2(ri)} ${n2(ri)} 0 0 1 ${at(r, a1 - dI)}`;}
     d += `A${n2(r)} ${n2(r)} 0 ${bigI} 0 ${at(r, a0 + dI)}`;
-    if (ri > .01) d += `A${n2(ri)} ${n2(ri)} 0 0 1 ${side(tI, a0, 1)}`;
-  } else d += `L${at(p / s, (a0 + a1) / 2)}`;
+    if (ri > .01) {d += `A${n2(ri)} ${n2(ri)} 0 0 1 ${side(tI, a0, 1)}`;}
+  } else {d += `L${at(p / s, (a0 + a1) / 2)}`;}
   return `${d}Z`;
 }
 
@@ -173,7 +173,7 @@ function Count({ value, format, reduced }: { value: number; format: (value: numb
   const live = useRef<{ mv: MotionValue<number>; format: (value: number) => string; target: number } | null>(null);
   useLayoutEffect(() => {
     const el = node.current;
-    if (!el) return;
+    if (!el) {return;}
     if (!live.current) {
       const state = { mv: motionValue(value), format, target: value };
       state.mv.on("change", now => { el.textContent = state.format(Number.isInteger(state.target) ? Math.round(now) : now); });
@@ -181,7 +181,7 @@ function Count({ value, format, reduced }: { value: number; format: (value: numb
     }
     const state = live.current;
     state.format = format;
-    if (state.target === value && !reduced) { if (!state.mv.isAnimating()) el.textContent = format(value); return; }
+    if (state.target === value && !reduced) { if (!state.mv.isAnimating()) {el.textContent = format(value);} return; }
     state.target = value;
     if (reduced) { state.mv.jump(value); el.textContent = format(value); return; }
     // motion: the centre number counts to its new value, a data readout rather than interface motion.
@@ -224,7 +224,7 @@ export function DonutChart({ data, label, unit = "", formatValue = value => grou
   const [palette, setPalette] = useState(() => new Map(data.map((item, index) => [item.key, index])));
   if (data.some(item => !palette.has(item.key))) {
     const next = new Map(palette);
-    for (const item of data) if (!next.has(item.key)) next.set(item.key, next.size);
+    for (const item of data) {if (!next.has(item.key)) {next.set(item.key, next.size);}}
     setPalette(next);
   }
   const colorFor = (item: Slice) => item.color ?? (item.key === OTHER ? OTHER_COLOR : seriesColor(palette.get(item.key) ?? 0));
@@ -236,7 +236,7 @@ export function DonutChart({ data, label, unit = "", formatValue = value => grou
     setSeenSignature(signature);
     const next = [...slices];
     drawn.forEach((item, index) => {
-      if (next.some(slice => slice.key === item.key)) return;
+      if (next.some(slice => slice.key === item.key)) {return;}
       const before = drawn.slice(0, index).reverse().find(prior => next.some(slice => slice.key === prior.key));
       next.splice(before ? next.findIndex(slice => slice.key === before.key) + 1 : 0, 0, { ...item, value: 0 });
     });
@@ -247,33 +247,33 @@ export function DonutChart({ data, label, unit = "", formatValue = value => grou
   const [ownActive, setOwnActive] = useState<string | null>(defaultActiveKey);
   const selected = activeKey !== undefined ? activeKey : ownActive;
   const [preview, setPreview] = useState<string | null>(null);
-  const select = (key: string | null) => { if (activeKey === undefined) setOwnActive(key); onActiveChange?.(key); };
+  const select = (key: string | null) => { if (activeKey === undefined) {setOwnActive(key);} onActiveChange?.(key); };
   const current = [preview, selected].find(key => key && visible.some(item => item.key === key)) ?? null;
   const activeSlice = visible.find(item => item.key === current) ?? null;
 
   const [announcement, setAnnouncement] = useState("");
   const setHidden = (key: string) => {
     const isHidden = hidden.has(key);
-    if (!isHidden && visible.length <= 1) return;
+    if (!isHidden && visible.length <= 1) {return;}
     const next = isHidden ? hiddenList.filter(item => item !== key) : [...hiddenList, key];
-    if (hiddenKeys === undefined) setOwnHidden(next);
+    if (hiddenKeys === undefined) {setOwnHidden(next);}
     onHiddenKeysChange?.(next);
     const item = slices.find(slice => slice.key === key);
     const nextTotal = slices.reduce((sum, slice) => sum + (next.includes(slice.key) ? 0 : slice.value), 0);
-    if (item) setAnnouncement(`${item.label} ${isHidden ? "shown" : "hidden"}. ${totalLabel} ${formatValue(nextTotal)}${suffix}.`);
+    if (item) {setAnnouncement(`${item.label} ${isHidden ? "shown" : "hidden"}. ${totalLabel} ${formatValue(nextTotal)}${suffix}.`);}
   };
 
   // Geometry in the chart's own units; the SVG scales with its container.
-  const c = size / 2, outer = c - MARGIN, inner = Math.max(8, outer - thickness);
+  const c = size / 2; const outer = c - MARGIN; const inner = Math.max(8, outer - thickness);
   const corner = Math.min(CORNER, thickness / 4);
   const geometry = useRef({ c, outer, inner, corner });
   const segments = useRef(new Map<string, Segment>());
   const paths = useRef(new Map<string, SVGPathElement>());
   const registerPath = useCallback((node: SVGPathElement | null) => {
     const key = node?.dataset.key;
-    if (!node || !key) return;
+    if (!node || !key) {return;}
     paths.current.set(key, node);
-    return () => { if (paths.current.get(key) === node) paths.current.delete(key); };
+    return () => { if (paths.current.get(key) === node) {paths.current.delete(key);} };
   }, []);
 
   // One paint per frame, whatever moved: every path's shape and lift are written straight to the DOM.
@@ -282,17 +282,17 @@ export function DonutChart({ data, label, unit = "", formatValue = value => grou
     for (const [key, node] of paths.current) {
       const segment = segments.current.get(key);
       if (!segment) { node.setAttribute("d", ""); continue; }
-      const start = segment.start.get(), end = segment.end.get(), lift = Math.max(0, segment.lift.get());
+      const start = segment.start.get(); const end = segment.end.get(); const lift = Math.max(0, segment.lift.get());
       const R = outer + lift * GROW;
       node.setAttribute("d", sector(c, R, inner - lift * GROW * .5, start, end, GAP, corner));
       node.setAttribute("fill-opacity", n2(Math.min(1, Math.max(0, (breadth(R, start, end, GAP) - 1) / 3))));
-      const middle = ((start + end) / 2) * TAU - Math.PI / 2, distance = lift * LIFT;
+      const middle = ((start + end) / 2) * TAU - Math.PI / 2; const distance = lift * LIFT;
       node.setAttribute("transform", `translate(${n2(Math.cos(middle) * distance)} ${n2(Math.sin(middle) * distance)})`);
     }
   }, []);
   const schedule = useCallback(() => { frame.render(paint); }, [paint]);
   useLayoutEffect(() => { geometry.current = { c, outer, inner, corner }; paint(); });
-  useEffect(() => () => { cancelFrame(paint); for (const segment of segments.current.values()) segment.off(); segments.current.clear(); }, [paint]);
+  useEffect(() => () => { cancelFrame(paint); for (const segment of segments.current.values()) {segment.off();} segments.current.clear(); }, [paint]);
 
   const targets = useRef(new Map<string, Arc>());
   const latest = useRef({ drawn, slices });
@@ -301,14 +301,14 @@ export function DonutChart({ data, label, unit = "", formatValue = value => grou
   // New data, or a segment shown or hidden, moves every arc from wherever it is on screen, keeping its velocity if it was already moving.
   const shown = inView || reduced;
   useEffect(() => {
-    if (!shown) return;
+    if (!shown) {return;}
     const { drawn: order, slices: now } = latest.current;
     const goal = layout(now, hidden);
     targets.current = goal;
     const first = segments.current.size === 0;
     const place = (index: number) => { const before = order.slice(0, index).reverse().find(item => goal.has(item.key)); return before ? goal.get(before.key)!.end : 0; };
     const drop = (key: string) => {
-      if (latest.current.slices.some(item => item.key === key)) return;
+      if (latest.current.slices.some(item => item.key === key)) {return;}
       segments.current.get(key)?.off();
       segments.current.delete(key);
       setDrawn(list => list.filter(item => item.key !== key));
@@ -321,14 +321,14 @@ export function DonutChart({ data, label, unit = "", formatValue = value => grou
         // A new segment opens from the edge of the one before it, as it is right now.
         const prior = order.slice(0, index).reverse().map(entry => segments.current.get(entry.key)).find(Boolean);
         const from = first ? 0 : prior ? prior.end.get() : 0;
-        const start = motionValue(from), end = motionValue(from), lift = motionValue(0);
+        const start = motionValue(from); const end = motionValue(from); const lift = motionValue(0);
         const offs = [start.on("change", schedule), end.on("change", schedule), lift.on("change", schedule)];
         segment = { start, end, lift, off: () => { offs.forEach(off => off()); start.destroy(); end.destroy(); lift.destroy(); } };
         segments.current.set(item.key, segment);
       }
       if (reduced) {
         segment.start.jump(to.start); segment.end.jump(to.end);
-        if (leaving) drop(item.key);
+        if (leaving) {drop(item.key);}
         return;
       }
       if (first) {
@@ -347,8 +347,8 @@ export function DonutChart({ data, label, unit = "", formatValue = value => grou
   useEffect(() => {
     for (const [key, segment] of segments.current) {
       const to = key === current ? 1 : 0;
-      if (reduced) segment.lift.jump(to);
-      else if (segment.lift.get() !== to || segment.lift.isAnimating()) animate(segment.lift, to, pop);
+      if (reduced) {segment.lift.jump(to);}
+      else if (segment.lift.get() !== to || segment.lift.isAnimating()) {animate(segment.lift, to, pop);}
     }
   }, [current, reduced, drawn, shown]);
 
@@ -356,23 +356,23 @@ export function DonutChart({ data, label, unit = "", formatValue = value => grou
   const svg = useRef<SVGSVGElement>(null);
   const hit = (event: { clientX: number; clientY: number }) => {
     const box = svg.current?.getBoundingClientRect();
-    if (!box || !box.width) return undefined;
-    const scale = size / box.width, x = (event.clientX - box.left) * scale - c, y = (event.clientY - box.top) * scale - c;
+    if (!box || !box.width) {return undefined;}
+    const scale = size / box.width; const x = (event.clientX - box.left) * scale - c; const y = (event.clientY - box.top) * scale - c;
     const radius = Math.hypot(x, y);
-    if (radius < inner - 6 || radius > c) return null;
+    if (radius < inner - 6 || radius > c) {return null;}
     let turn = (Math.atan2(y, x) + Math.PI / 2) / TAU;
-    if (turn < 0) turn += 1;
-    for (const [key, arc] of targets.current) if (arc.end > arc.start && turn >= arc.start && turn < arc.end && visible.some(item => item.key === key)) return key;
+    if (turn < 0) {turn += 1;}
+    for (const [key, arc] of targets.current) {if (arc.end > arc.start && turn >= arc.start && turn < arc.end && visible.some(item => item.key === key)) {return key;}}
     return undefined;
   };
   const onRingMove = (event: PointerEvent<SVGSVGElement>) => {
-    if (event.pointerType !== "mouse") return;
+    if (event.pointerType !== "mouse") {return;}
     const key = hit(event);
-    if (key !== undefined && key !== preview) setPreview(key);
+    if (key !== undefined && key !== preview) {setPreview(key);}
   };
   const onRingClick = (event: MouseEvent<SVGSVGElement>) => {
     const key = hit(event);
-    if (key) select(selected === key ? null : key);
+    if (key) {select(selected === key ? null : key);}
   };
 
   const format = (value: number) => `${formatValue(value)}${suffix}`;
@@ -384,23 +384,23 @@ export function DonutChart({ data, label, unit = "", formatValue = value => grou
   const onLegendKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     if (event.key === "Escape" && selected) { event.preventDefault(); select(null); return; }
     const next = step(event.key, index, slices.length);
-    if (next === undefined) return;
+    if (next === undefined) {return;}
     event.preventDefault();
     rows.current[(next + slices.length) % slices.length]?.focus();
   };
   const onRingKey = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!visible.length) return;
-    if (event.key === "Escape") { event.preventDefault(); setPreview(null); if (selected) select(null); return; }
+    if (!visible.length) {return;}
+    if (event.key === "Escape") { event.preventDefault(); setPreview(null); if (selected) {select(null);} return; }
     if ((event.key === "Enter" || event.key === " ") && current) { event.preventDefault(); select(selected === current ? null : current); return; }
     const index = visible.findIndex(item => item.key === current);
     const next = step(event.key, index < 0 ? (event.key.endsWith("Up") || event.key.endsWith("Left") ? 0 : -1) : index, visible.length);
-    if (next === undefined) return;
+    if (next === undefined) {return;}
     event.preventDefault();
     const item = visible[(next + visible.length) % visible.length]!;
     setPreview(item.key);
     setAnnouncement(describe(item));
   };
-  const onLegendBlur = (event: FocusEvent<HTMLButtonElement>) => { if (!(event.relatedTarget instanceof Node && event.currentTarget.closest("ul")?.contains(event.relatedTarget))) setPreview(null); };
+  const onLegendBlur = (event: FocusEvent<HTMLButtonElement>) => { if (!(event.relatedTarget instanceof Node && event.currentTarget.closest("ul")?.contains(event.relatedTarget))) {setPreview(null);} };
 
   // One readout per segment plus the total; the active one rolls in from the side it sits on, so moving clockwise rolls the drum forward.
   const identity = activeSlice ? activeSlice.key : total ? "__total" : "__empty";
@@ -431,10 +431,10 @@ export function DonutChart({ data, label, unit = "", formatValue = value => grou
         const off = hidden.has(item.key);
         // A row that joins or leaves (a part folding into Other, say) opens or closes its height, so the rows below and the card around them glide instead of jumping.
         return <motion.li key={item.key} className={styles.item} initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={reduced ? { duration: 0 } : spring.smooth}>
-          <button ref={node => { if (node) rows.current[index] = node; }} type="button" className={styles.row} aria-pressed={legendAction === "toggle" ? !off : selected === item.key} aria-label={off ? `${item.label}, hidden` : describe(item)} data-active={item.key === current || undefined} data-pinned={selected === item.key || undefined} data-hidden={off || undefined} style={{ "--slice": colorFor(item) } as CSSProperties}
+          <button ref={node => { if (node) {rows.current[index] = node;} }} type="button" className={styles.row} aria-pressed={legendAction === "toggle" ? !off : selected === item.key} aria-label={off ? `${item.label}, hidden` : describe(item)} data-active={item.key === current || undefined} data-pinned={selected === item.key || undefined} data-hidden={off || undefined} style={{ "--slice": colorFor(item) } as CSSProperties}
             onClick={() => legendAction === "toggle" ? setHidden(item.key) : select(selected === item.key ? null : item.key)}
-            onPointerEnter={event => { if (event.pointerType === "mouse") setPreview(off ? null : item.key); }}
-            onFocus={event => { if (event.currentTarget.matches(":focus-visible")) setPreview(off ? null : item.key); }} onBlur={onLegendBlur} onKeyDown={event => onLegendKey(event, index)}>
+            onPointerEnter={event => { if (event.pointerType === "mouse") {setPreview(off ? null : item.key);} }}
+            onFocus={event => { if (event.currentTarget.matches(":focus-visible")) {setPreview(off ? null : item.key);} }} onBlur={onLegendBlur} onKeyDown={event => onLegendKey(event, index)}>
             <span className={styles.dot} aria-hidden="true" />
             <span className={styles.rowText}>
               <span className={styles.rowLabel}>{item.label}</span>

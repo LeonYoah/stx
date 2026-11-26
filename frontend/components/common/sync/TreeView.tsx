@@ -205,12 +205,12 @@ export function TreeView({
   // 扁平树后必须在整棵树上查找重命名目标，不能只看当前层。
   // After flattening, look up the rename target in the whole tree.
   useEffect(() => {
-    if (renamingNodeId === null) return;
+    if (renamingNodeId === null) {return;}
     const target = findTreeNode(nodes, renamingNodeId);
-    if (!target) return;
+    if (!target) {return;}
     setRenameValue(target.name);
     setTimeout(() => {
-      if (!renameInputRef.current) return;
+      if (!renameInputRef.current) {return;}
       renameInputRef.current.focus();
       const dotIdx = target.name.lastIndexOf('.');
       if (dotIdx > 0 && target.node_type === 'file') {
@@ -267,11 +267,11 @@ export function TreeView({
   };
 
   const handleValueChange = (value: string) => {
-    if (value === CREATE_ROW_VALUE) return;
+    if (value === CREATE_ROW_VALUE) {return;}
     const id = Number(value);
-    if (!Number.isFinite(id)) return;
+    if (!Number.isFinite(id)) {return;}
     const node = findTreeNode(nodes, id);
-    if (node) onSelect(node);
+    if (node) {onSelect(node);}
   };
 
   const handleExpandedChange = (ids: string[]) => {
@@ -290,7 +290,7 @@ export function TreeView({
         : null;
 
   const renderCreateRow = (): ReactNode => {
-    if (!creatingNode) return null;
+    if (!creatingNode) {return null;}
     return (
       <FileTreeFile
         value={CREATE_ROW_VALUE}
@@ -317,8 +317,8 @@ export function TreeView({
             onKeyDown={handleCreateKeyDown}
             onBlur={(e) => {
               const value = e.currentTarget.value.trim();
-              if (value) onCreateCommit?.(value);
-              else onCreateCancel?.();
+              if (value) {onCreateCommit?.(value);}
+              else {onCreateCancel?.();}
             }}
           />
         }
@@ -395,11 +395,11 @@ export function TreeView({
         }
       },
       onDragLeave: () => {
-        if (node.node_type === 'folder') onDragLeave?.(node);
+        if (node.node_type === 'folder') {onDragLeave?.(node);}
       },
       onDrop: (e: DragEvent<HTMLElement>) => {
         e.preventDefault();
-        if (node.node_type === 'folder') onDrop?.(node);
+        if (node.node_type === 'folder') {onDrop?.(node);}
       },
       onDragEnd: () => {
         onDragEnd?.();
@@ -444,7 +444,7 @@ export function TreeView({
           onContextMenu(event, node.node_type, node),
         onDoubleClick: (event: MouseEvent<HTMLElement>) => {
           event.stopPropagation();
-          if (node.can_edit !== false) onRenameStart?.(node);
+          if (node.can_edit !== false) {onRenameStart?.(node);}
         },
         ...nodeDragHandlers(node),
       };

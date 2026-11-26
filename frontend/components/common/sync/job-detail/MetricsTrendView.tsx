@@ -130,7 +130,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
   const canLifetime = useMemo(() => jobLifetimeWindow(job, running, Date.now()) != null, [job, running]);
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    if (!job?.id) return;
+    if (!job?.id) {return;}
     let query: {range?: string; start?: number; end?: number};
     if (selection.kind === 'preset') {
       query = {range: selection.range};
@@ -138,7 +138,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
       query = {start: selection.window.start, end: selection.window.end};
     } else {
       const lifetime = jobLifetimeWindow(job, running, Date.now());
-      if (!lifetime) return;
+      if (!lifetime) {return;}
       // 运行中不传 end，让后端取当前时间，自动刷新时窗口跟着往后长。
       // While running, omit end so the backend uses now and the window grows with each auto refresh.
       query = running ? {start: lifetime.start} : lifetime;
@@ -170,7 +170,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
   }, [job, running, selection]);
 
   useEffect(() => {
-    if (!active || !job?.id) return;
+    if (!active || !job?.id) {return;}
     const ac = new AbortController();
     void load(ac.signal);
     return () => ac.abort();
@@ -178,7 +178,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
 
   useEffect(() => {
     // 自定义起止是固定窗口，刷新也不会有新数据。 / A custom window is fixed, so refreshing would add nothing.
-    if (!active || !autoRefresh || !running || !job?.id || selection.kind === 'custom') return;
+    if (!active || !autoRefresh || !running || !job?.id || selection.kind === 'custom') {return;}
     const timer = window.setInterval(() => {
       void load();
     }, 30_000);
@@ -740,6 +740,6 @@ function HeroStrip({
 }
 
 function fmtNum(n: number) {
-  if (!Number.isFinite(n)) return '-';
+  if (!Number.isFinite(n)) {return '-';}
   return Math.round(n).toLocaleString();
 }

@@ -42,7 +42,9 @@ export type CopyFeedbackState = "idle" | "copied" | "error";
  */
 export async function writeClipboard(text: string): Promise<void> {
   try {
+    // eslint-disable-next-line no-restricted-syntax -- 统一入口本身：clipboard API 优先、execCommand 回落都在这里实现。The unified entry point itself: clipboard API first, execCommand fallback lives here.
     if (navigator.clipboard?.writeText) {
+      // eslint-disable-next-line no-restricted-syntax -- 同上。Same as above.
       await navigator.clipboard.writeText(text);
       return;
     }
@@ -56,7 +58,11 @@ export async function writeClipboard(text: string): Promise<void> {
   area.value = text;
   area.setAttribute("readonly", "");
   area.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;";
-  document.body.appendChild(area);
+  const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"]');
+  const host = active?.closest('[role="dialog"]') as HTMLElement | null
+    ?? (dialogs.length > 0 ? dialogs[dialogs.length - 1] : document.body);
+  host.appendChild(area);
+  area.focus({ preventScroll: true });
   area.select();
   area.setSelectionRange(0, text.length);
   let ok = false;

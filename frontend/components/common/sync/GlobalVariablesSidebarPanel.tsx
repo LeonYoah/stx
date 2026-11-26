@@ -155,7 +155,7 @@ export function GlobalVariablesSidebarPanel({
   const resolveInitialTab = (
     tab?: GlobalVariableTabType | 'vars',
   ): GlobalVariableTabType => {
-    if (tab === 'vars' || !tab) return 'all';
+    if (tab === 'vars' || !tab) {return 'all';}
     return tab;
   };
 

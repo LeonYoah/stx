@@ -148,12 +148,12 @@ const atClock = (day: Date, clock: string, inclusive: boolean) => {
   const [h = 0, m = 0] = clock.split(":").map(Number);
   return new Date(day.getFullYear(), day.getMonth(), day.getDate(), Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, inclusive ? 59 : 0, inclusive ? 999 : 0);
 };
-const DAY_START = "00:00", DAY_END = "23:59";
+const DAY_START = "00:00"; const DAY_END = "23:59";
 /** STX：把手输的时刻规范成 HH:mm（接受 1213、12:13、9），不合法返回 null。 / STX: normalize typed clock text to HH:mm (accepts 1213, 12:13, 9); null when invalid. */
 const normalizeClock = (raw: string): string | null => {
   const match = /^(\d{1,2})(?::?(\d{2}))?$/.exec(raw.trim());
-  if (!match) return null;
-  const h = Number(match[1]), m = Number(match[2] ?? 0);
+  if (!match) {return null;}
+  const h = Number(match[1]); const m = Number(match[2] ?? 0);
   return h < 24 && m < 60 ? `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}` : null;
 };
 
@@ -171,7 +171,7 @@ function ClockField({ label, value, invalid, onCommit }: { label: string; value:
   const commit = () => {
     const next = normalizeClock(text);
     setText(next ?? value);
-    if (next && next !== value) onCommit(next);
+    if (next && next !== value) {onCommit(next);}
   };
   const nudge = (delta: number) => {
     const [h = 0, m = 0] = (normalizeClock(text) ?? value).split(":").map(Number);
@@ -221,8 +221,8 @@ const physical = (visualDuration: number, bounce: number): Transition => {
   return { type: "spring", stiffness: root * root, damping: 2 * (1 - bounce) * root, mass: 1 };
 };
 const { smooth, morph, snappy } = motionTokens.spring;
-const GROW = physical(smooth.visualDuration, 0), SHRINK = physical(snappy.visualDuration, 0), STRETCH = physical(morph.visualDuration, 0), GLIDE = physical(morph.visualDuration, 0), SLIDE = physical(smooth.visualDuration, 0);
-const TRIGGER_RADIUS = 18, PANEL_RADIUS = 26, WIDE_CELL = 36, WIDE_MIN = 712, EDGE = 8;
+const GROW = physical(smooth.visualDuration, 0); const SHRINK = physical(snappy.visualDuration, 0); const STRETCH = physical(morph.visualDuration, 0); const GLIDE = physical(morph.visualDuration, 0); const SLIDE = physical(smooth.visualDuration, 0);
+const TRIGGER_RADIUS = 18; const PANEL_RADIUS = 26; const WIDE_CELL = 36; const WIDE_MIN = 712; const EDGE = 8;
 
 const roll: Variants = {
   enter: (direction: number) => ({ opacity: 0, y: `${direction * .45}em`, filter: `blur(${blur.subtle}px)` }),
@@ -269,8 +269,8 @@ const cellIn = (date: Date, first: Date) => { const index = dayDiff(date, first)
 
 /** One week's slice of the highlight. It grows out of the edge the range arrives from, so hovering reads as stretching. */
 function Bar({ row, segment, reduced }: { row: number; segment: Segment; reduced: boolean }) {
-  const left = useMotionValue(segment?.left ?? 0), width = useMotionValue(segment?.width ?? 0), opacity = useMotionValue(segment ? 1 : 0);
-  const leftPct = useTransform(left, value => `${value}%`), widthPct = useTransform(width, value => `${value}%`);
+  const left = useMotionValue(segment?.left ?? 0); const width = useMotionValue(segment?.width ?? 0); const opacity = useMotionValue(segment ? 1 : 0);
+  const leftPct = useTransform(left, value => `${value}%`); const widthPct = useTransform(width, value => `${value}%`);
   const wasEmpty = useRef(!segment);
   useLayoutEffect(() => {
     if (!segment) { wasEmpty.current = true; animate(opacity, 0, { duration: reduced ? 0 : motionTokens.duration.exit }); return; }
@@ -284,7 +284,7 @@ function Bar({ row, segment, reduced }: { row: number; segment: Segment; reduced
 
 /** A solid end of the range. It glides from day to day and only fades when the end leaves this month. */
 function Thumb({ cell, reduced }: { cell: { row: number; col: number } | null; reduced: boolean }) {
-  const x = useMotionValue(cell?.col ?? 0), y = useMotionValue(cell?.row ?? 0), opacity = useMotionValue(cell ? 1 : 0), scale = useMotionValue(cell ? 1 : .8);
+  const x = useMotionValue(cell?.col ?? 0); const y = useMotionValue(cell?.row ?? 0); const opacity = useMotionValue(cell ? 1 : 0); const scale = useMotionValue(cell ? 1 : .8);
   const transform = useTransform(() => `translate(${x.get() * 100}%, ${y.get() * 100}%) scale(${scale.get()})`);
   const hidden = useRef(!cell);
   useLayoutEffect(() => {
@@ -327,22 +327,22 @@ function Month({ month, range, tabbable, today, minDate, maxDate, weekStartsOn, 
   const titleId = `${idBase}-${keyOf(month)}`;
   const inMonth = (date: Date) => monthDiff(date, month) === 0;
 
-  const lo = range?.start, hi = range?.end;
-  const loKey = lo ? keyOf(lo) : "", hiKey = hi ? keyOf(hi) : "";
+  const lo = range?.start; const hi = range?.end;
+  const loKey = lo ? keyOf(lo) : ""; const hiKey = hi ? keyOf(hi) : "";
   /** Each week's slice of the range, in percent of the row. Keyed by the range's days so bars only move when it does. */
   const segments = useMemo<Segment[]>(() => {
-    if (!loKey || !hiKey) return rows.map(() => null);
-    const start = fromKey(loKey), end = fromKey(hiKey);
+    if (!loKey || !hiKey) {return rows.map(() => null);}
+    const start = fromKey(loKey); const end = fromKey(hiKey);
     const unit = 100 / 7;
     const colOf = (date: Date) => dayDiff(date, first) % 7;
     return rows.map(row => {
       const days = row.filter(date => monthDiff(date, month) === 0);
-      if (!days.length) return null;
-      const rowFirst = days[0]!, rowLast = days[days.length - 1]!;
-      const from = dayDiff(start, rowFirst) > 0 ? start : rowFirst, to = dayDiff(end, rowLast) < 0 ? end : rowLast;
-      if (dayDiff(from, to) <= 0) { const a = colOf(from), b = colOf(to); return { left: a * unit, width: (b - a + 1) * unit }; }
+      if (!days.length) {return null;}
+      const rowFirst = days[0]!; const rowLast = days[days.length - 1]!;
+      const from = dayDiff(start, rowFirst) > 0 ? start : rowFirst; const to = dayDiff(end, rowLast) < 0 ? end : rowLast;
+      if (dayDiff(from, to) <= 0) { const a = colOf(from); const b = colOf(to); return { left: a * unit, width: (b - a + 1) * unit }; }
       // The week sits wholly before or after the range: collapse at the edge the range would grow in from.
-      if (dayDiff(rowLast, start) < 0) return { left: (colOf(rowLast) + 1) * unit, width: 0 };
+      if (dayDiff(rowLast, start) < 0) {return { left: (colOf(rowLast) + 1) * unit, width: 0 };}
       return { left: colOf(rowFirst) * unit, width: 0 };
     });
   }, [first, hiKey, loKey, month, rows]);
@@ -370,7 +370,7 @@ function Month({ month, range, tabbable, today, minDate, maxDate, weekStartsOn, 
         </span>
         {rows.map((row, index) => <div key={index} role="row" className={styles.week}>
           {row.map(date => {
-            if (!inMonth(date)) return <span key={keyOf(date)} role="gridcell" className={styles.blank} />;
+            if (!inMonth(date)) {return <span key={keyOf(date)} role="gridcell" className={styles.blank} />;}
             const key = keyOf(date);
             const disabled = Boolean((minDate && dayDiff(date, minDate) < 0) || (maxDate && dayDiff(date, maxDate) > 0));
             const inRange = Boolean(lo && hi && dayDiff(date, lo) >= 0 && dayDiff(date, hi) <= 0);
@@ -380,7 +380,7 @@ function Month({ month, range, tabbable, today, minDate, maxDate, weekStartsOn, 
               <button type="button" className={styles.day} data-date={key} data-edge={edge || undefined} data-range={inRange || undefined} data-today={isToday || undefined}
                 tabIndex={key === tabbable ? 0 : -1} disabled={disabled} aria-current={isToday ? "date" : undefined}
                 aria-label={formatters.day.format(date)}
-                onClick={() => onPick(date)} onPointerEnter={() => { if (!disabled) onHover(date); }}
+                onClick={() => onPick(date)} onPointerEnter={() => { if (!disabled) {onHover(date);} }}
                 onFocus={() => onFocusDay(date)} onKeyDown={event => onKey(event, date)}>
                 <span>{date.getDate()}</span>
               </button>
@@ -421,11 +421,11 @@ function YearView({ view, shown, today, minDate, maxDate, backHint, formatters, 
   const onMonthKey = (event: ReactKeyboardEvent<HTMLButtonElement>, month: Date) => {
     const step: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -4, ArrowDown: 4 };
     const delta = step[event.key];
-    if (delta === undefined) return;
+    if (delta === undefined) {return;}
     event.preventDefault();
     let next = month.getMonth() + delta;
-    while (next >= 0 && next <= 11 && disabled(cells[next]!)) next += delta;
-    if (next < 0 || next > 11) return;
+    while (next >= 0 && next <= 11 && disabled(cells[next]!)) {next += delta;}
+    if (next < 0 || next > 11) {return;}
     event.currentTarget.closest("[role=grid]")?.querySelector<HTMLButtonElement>(`[data-month="${next}"]`)?.focus();
   };
   return <div className={styles.yearView} style={style}>
@@ -522,10 +522,10 @@ export function DateRangePicker({
     year: new Intl.DateTimeFormat(locale, { year: "numeric" }),
   }), [locale]);
   const format = useCallback((range: DateRange | null) => {
-    if (!range) return placeholder;
+    if (!range) {return placeholder;}
     // STX：带时间时同一天也要显示起止时刻，formatRange 会把相同的日期部分合并。
     // STX: with time, a same-day range still shows both clocks; formatRange merges the shared date part.
-    if (withTime) return range.start.getTime() === range.end.getTime() ? formatters.timed.format(range.start) : formatters.timed.formatRange(range.start, range.end);
+    if (withTime) {return range.start.getTime() === range.end.getTime() ? formatters.timed.format(range.start) : formatters.timed.formatRange(range.start, range.end);}
     return sameDay(range.start, range.end) ? formatters.label.format(range.start) : formatters.label.formatRange(range.start, range.end);
   }, [formatters, placeholder, withTime]);
 
@@ -550,7 +550,7 @@ export function DateRangePicker({
 
   /* ---------- One surface: the trigger's box springs to the panel's box and back ---------- */
   // Before the first measurement the surface simply fills the root and the root wraps the trigger, so server markup already looks right.
-  const width = useMotionValue<number | string>("100%"), height = useMotionValue<number | string>("100%"), radius = useMotionValue(TRIGGER_RADIUS), x = useMotionValue(0), rootWidth = useMotionValue<number | string>("auto");
+  const width = useMotionValue<number | string>("100%"); const height = useMotionValue<number | string>("100%"); const radius = useMotionValue(TRIGGER_RADIUS); const x = useMotionValue(0); const rootWidth = useMotionValue<number | string>("auto");
   const sizes = useRef<{ trigger: Size; panel: Size | null }>({ trigger: { w: 0, h: 0 }, panel: null });
   const live = useRef({ open: false, reduced: false, ready: false });
   const queued = useRef(false);
@@ -560,20 +560,20 @@ export function DateRangePicker({
   const bounds = useCallback(() => {
     const element = boundaryRef.current?.();
     const viewport = { left: 0, right: document.documentElement.clientWidth };
-    if (!element) return viewport;
+    if (!element) {return viewport;}
     const rect = element.getBoundingClientRect();
     return { left: Math.max(viewport.left, rect.left), right: Math.min(viewport.right, rect.right) };
   }, []);
 
   const update = useCallback(() => {
     queued.current = false;
-    const { trigger, panel } = sizes.current, state = live.current;
-    if (!trigger.w) return;
+    const { trigger, panel } = sizes.current; const state = live.current;
+    if (!trigger.w) {return;}
     const openPanel = state.open && panel ? panel : null;
     const target = openPanel ?? trigger;
     let offset = 0;
     if (openPanel && rootRef.current) {
-      const rect = rootRef.current.getBoundingClientRect(), box = bounds();
+      const rect = rootRef.current.getBoundingClientRect(); const box = bounds();
       offset = Math.min(0, box.right - EDGE - (rect.left + openPanel.w));
       offset = Math.max(offset, box.left + EDGE - rect.left);
     }
@@ -589,19 +589,19 @@ export function DateRangePicker({
   }, [bounds, height, radius, rootWidth, width, x]);
 
   const schedule = useCallback(() => {
-    if (queued.current) return;
+    if (queued.current) {return;}
     queued.current = true;
     queueMicrotask(update);
   }, [update]);
 
-  useLayoutEffect(() => { live.current.open = open; live.current.reduced = reduced; if (!open) sizes.current.panel = null; schedule(); }, [open, reduced, schedule]);
+  useLayoutEffect(() => { live.current.open = open; live.current.reduced = reduced; if (!open) {sizes.current.panel = null;} schedule(); }, [open, reduced, schedule]);
 
   useLayoutEffect(() => {
     const node = triggerRef.current;
-    if (!node) return;
+    if (!node) {return;}
     const read = () => { sizes.current.trigger = { w: node.offsetWidth, h: node.offsetHeight }; schedule(); };
     read();
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(read);
     observer.observe(node);
     return () => observer.disconnect();
@@ -609,10 +609,10 @@ export function DateRangePicker({
 
   useLayoutEffect(() => {
     const node = panelRef.current;
-    if (!open || !node) return;
+    if (!open || !node) {return;}
     const read = () => { sizes.current.panel = { w: node.offsetWidth, h: node.offsetHeight }; schedule(); };
     read();
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(read);
     observer.observe(node);
     return () => observer.disconnect();
@@ -622,23 +622,23 @@ export function DateRangePicker({
   // Once it has its size, scroll just enough to bring its bottom into view, never past its top. After closing, the
   // trigger comes back into view if that scroll left it off screen.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {return;}
     const frame = requestAnimationFrame(() => {
       const node = panelRef.current;
-      if (!node) return;
+      if (!node) {return;}
       const rect = node.getBoundingClientRect();
       const overflow = rect.bottom - (window.innerHeight - EDGE);
-      if (overflow <= 0) return;
+      if (overflow <= 0) {return;}
       window.scrollBy({ top: Math.min(overflow, Math.max(0, rect.top - EDGE)), behavior: reduced ? "instant" : "smooth" });
     });
     return () => cancelAnimationFrame(frame);
   }, [open, reduced]);
   useEffect(() => {
-    if (open) return;
+    if (open) {return;}
     const trigger = triggerRef.current;
-    if (!trigger) return;
+    if (!trigger) {return;}
     const rect = trigger.getBoundingClientRect();
-    if (rect.bottom < 0 || rect.top > window.innerHeight) trigger.scrollIntoView({ block: "center", behavior: reduced ? "instant" : "smooth" });
+    if (rect.bottom < 0 || rect.top > window.innerHeight) {trigger.scrollIntoView({ block: "center", behavior: reduced ? "instant" : "smooth" });}
   }, [open, reduced]);
 
   /* ---------- Layout: two months when there is room, one compact month otherwise ---------- */
@@ -650,7 +650,7 @@ export function DateRangePicker({
   }, [bounds, months]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {return;}
     const onResize = () => { const next = measureLayout(); setCompact(next.single); setPanelWidth(next.width); schedule(); };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
@@ -662,7 +662,7 @@ export function DateRangePicker({
   };
 
   const openPanel = () => {
-    if (!today) return;
+    if (!today) {return;}
     const layout = measureLayout();
     setCompact(layout.single);
     setPanelWidth(layout.width);
@@ -679,7 +679,7 @@ export function DateRangePicker({
   };
 
   const close = useCallback((focus: boolean) => {
-    if (focus) pendingFocus.current = "trigger";
+    if (focus) {pendingFocus.current = "trigger";}
     setDirection(0);
     setOpen(false);
     setAnchor(null);
@@ -691,8 +691,8 @@ export function DateRangePicker({
   const timed = (range: DateRange | null): DateRange | null => !range || !withTime ? range : { start: atClock(range.start, clock.start, false), end: atClock(range.end, clock.end, true) };
   const apply = () => {
     const next = timed(anchor ? { start: anchor, end: anchor } : draft);
-    if (!next || next.end.getTime() < next.start.getTime()) return;
-    if (value === undefined) setInner(next);
+    if (!next || next.end.getTime() < next.start.getTime()) {return;}
+    if (value === undefined) {setInner(next);}
     onChange?.(next);
     close(true);
   };
@@ -700,7 +700,7 @@ export function DateRangePicker({
   /* ---------- Focus management ---------- */
   useLayoutEffect(() => {
     const target = pendingFocus.current;
-    if (!target) return;
+    if (!target) {return;}
     if (target === "trigger" && !open) { pendingFocus.current = null; triggerRef.current?.focus({ preventScroll: true }); return; }
     if (target === "day" && open) {
       const node = panelRef.current?.querySelector<HTMLButtonElement>(`[data-current] [data-date="${focusKey}"]`);
@@ -714,10 +714,10 @@ export function DateRangePicker({
   }, [focusKey, open, view, compact, mode]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {return;}
     const down = (event: PointerEvent) => {
       pointerInside.current = Boolean(rootRef.current?.contains(event.target as Node));
-      if (!pointerInside.current) close(false);
+      if (!pointerInside.current) {close(false);}
     };
     const up = () => { pointerInside.current = false; };
     document.addEventListener("pointerdown", down);
@@ -738,21 +738,21 @@ export function DateRangePicker({
     // 移出仍正常关闭。 / STX: a blur during an in-panel pointer press is not leaving — clicking
     // non-focusable content (captions, labels) lets an outer Radix FocusScope pull focus to the dialog
     // container, and the relatedTarget then lands outside the root; keyboard Tab out still closes.
-    if (open && !pointerInside.current && next && !event.currentTarget.contains(next)) close(false);
+    if (open && !pointerInside.current && next && !event.currentTarget.contains(next)) {close(false);}
   };
 
   /* ---------- Month navigation and picking ---------- */
   const goTo = (next: Date) => {
     const delta = monthDiff(next, view);
-    if (!delta) return;
+    if (!delta) {return;}
     setDirection(Math.sign(delta));
     setView(next);
   };
 
   /** Keeps a range on screen: nothing moves when it already fits, otherwise its last month lands on the right. */
   const reveal = (range: DateRange) => {
-    const first = view, last = addMonths(view, count - 1);
-    if (monthDiff(range.start, first) >= 0 && monthDiff(range.end, last) <= 0) return;
+    const first = view; const last = addMonths(view, count - 1);
+    if (monthDiff(range.start, first) >= 0 && monthDiff(range.end, last) <= 0) {return;}
     goTo(viewFor(range, compact, range.end));
   };
 
@@ -782,11 +782,11 @@ export function DateRangePicker({
   const backToDays = () => { setDirection(0); setMode("days"); };
 
   const choosePreset = (preset: DateRangePreset) => {
-    if (!today) return;
+    if (!today) {return;}
     const range = preset.range(today);
     setDraft(range);
     // STX：预设表示整天，时刻回到 00:00–23:59。 / STX: presets mean whole days, so the clock resets to 00:00–23:59.
-    if (withTime) setClock({ start: DAY_START, end: DAY_END });
+    if (withTime) {setClock({ start: DAY_START, end: DAY_END });}
     setAnchor(null);
     setHover(null);
     setFocusKey(keyOf(range.start));
@@ -801,24 +801,24 @@ export function DateRangePicker({
       PageUp: () => shiftMonths(date, event.shiftKey ? -12 : -1), PageDown: () => shiftMonths(date, event.shiftKey ? 12 : 1),
     };
     const move = moves[event.key];
-    if (!move) return;
+    if (!move) {return;}
     event.preventDefault();
     const next = clampDate(move(), minDate, maxDate);
     setFocusKey(keyOf(next));
     setKeyed(true);
-    if (anchor) setHover(next);
+    if (anchor) {setHover(next);}
     pendingFocus.current = "day";
-    const first = view, last = addMonths(view, count - 1);
-    if (monthDiff(next, first) < 0) goTo(monthStart(next));
-    else if (monthDiff(next, last) > 0) goTo(addMonths(monthStart(next), -(count - 1)));
+    const first = view; const last = addMonths(view, count - 1);
+    if (monthDiff(next, first) < 0) {goTo(monthStart(next));}
+    else if (monthDiff(next, last) > 0) {goTo(addMonths(monthStart(next), -(count - 1)));}
   };
 
   const onRailKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const keys = compact ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"];
-    if (!keys.includes(event.key)) return;
+    if (!keys.includes(event.key)) {return;}
     const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-preset]"));
     const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
-    if (at < 0) return;
+    if (at < 0) {return;}
     event.preventDefault();
     buttons[(at + (event.key === keys[1] ? 1 : -1) + buttons.length) % buttons.length]?.focus();
   };
@@ -826,13 +826,13 @@ export function DateRangePicker({
   /** The day that owns the tab stop: the focused day when it is on screen, else the first visible day of the range, else the 1st. */
   const tabbable = useMemo(() => {
     const onScreen = (date: Date) => visible.some(month => monthDiff(date, month) === 0);
-    if (focusKey && onScreen(fromKey(focusKey))) return focusKey;
-    if (shown && onScreen(shown.start)) return keyOf(shown.start);
+    if (focusKey && onScreen(fromKey(focusKey))) {return focusKey;}
+    if (shown && onScreen(shown.start)) {return keyOf(shown.start);}
     return keyOf(visible[0]!);
   }, [focusKey, shown, visible]);
 
   /* ---------- Preset highlight glides between presets ---------- */
-  const gx = useMotionValue(0), gy = useMotionValue(0), gw = useMotionValue(0), gh = useMotionValue(0), go = useMotionValue(0);
+  const gx = useMotionValue(0); const gy = useMotionValue(0); const gw = useMotionValue(0); const gh = useMotionValue(0); const go = useMotionValue(0);
   useLayoutEffect(() => {
     const rail = railRef.current;
     const node = activePreset < 0 ? null : rail?.querySelector<HTMLElement>(`[data-preset="${activePreset}"]`);
@@ -892,7 +892,7 @@ export function DateRangePicker({
                 onClick={() => choosePreset(preset)}>{preset.label}</button>)}
             </div>
 
-            <div className={styles.calendars} onPointerLeave={() => { if (anchor) setHover(null); }}>
+            <div className={styles.calendars} onPointerLeave={() => { if (anchor) {setHover(null);} }}>
               {/* STX：按年选月时箭头按年翻页。 / STX: in the year grid the arrows step by year. */}
               <button type="button" className={styles.navButton} data-side="prev" aria-label={mode === "months" ? previousYearLabel : previousMonthLabel}
                 onClick={() => goTo(addMonths(view, mode === "months" ? -12 : -1))}
@@ -909,7 +909,7 @@ export function DateRangePicker({
                     <Months key={`${keyOf(view)}-${count}`} direction={direction} reduced={reduced}>
                       {visible.map(month => <Month key={keyOf(month)} month={month} range={shown} tabbable={tabbable} today={today} minDate={minDate} maxDate={maxDate}
                         weekStartsOn={weekStartsOn} reduced={reduced} formatters={formatters} idBase={uid} titleHint={chooseMonthLabel} onTitle={enterMonths}
-                        onPick={pick} instant={keyed} onHover={date => { setKeyed(false); if (anchor) setHover(date); }} onKey={onDayKey} onFocusDay={date => setFocusKey(keyOf(date))} />)}
+                        onPick={pick} instant={keyed} onHover={date => { setKeyed(false); if (anchor) {setHover(date);} }} onKey={onDayKey} onFocusDay={date => setFocusKey(keyOf(date))} />)}
                     </Months>
                   ) : (
                     <Months key={`year-${view.getFullYear()}-${count}`} direction={direction} reduced={reduced}>

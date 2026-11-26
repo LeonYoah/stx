@@ -27,7 +27,7 @@
 
 import {Fragment, useCallback, useMemo, useState, type CSSProperties, type ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
-import {Check, Copy, Maximize2} from 'lucide-react';
+import {Copy, Maximize2} from 'lucide-react';
 import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
 import {Button} from '@/components/ui/button';
@@ -38,6 +38,8 @@ import {
   DialogTitle,
   WorkbenchDialogContent,
 } from '@/components/ui/dialog';
+import {writeClipboard} from '@/components/arc/lib/use-copy-feedback';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 export type ExpandableTextPanelTone = 'dark' | 'plain';
 
@@ -122,12 +124,10 @@ export function ExpandableTextPanel({
 }: ExpandableTextPanelProps) {
   const t = useTranslations('common');
   const [expanded, setExpanded] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const resolvedEmpty = emptyLabel ?? t('noContent');
   const resolvedCopyLabel = copyLabel ?? t('copyFullText');
   const resolvedExpandLabel = expandLabel ?? t('expandView');
-  const resolvedCopiedLabel = copiedLabel ?? t('copied');
   const displayText = useMemo(() => {
     const raw = typeof content === 'string' ? content : '';
     return raw.length > 0 ? raw : resolvedEmpty;
@@ -176,12 +176,8 @@ export function ExpandableTextPanel({
       onCopy(text);
       return;
     }
-    void navigator.clipboard.writeText(text).then(
-      () => {
-        setCopied(true);
-        toast.success(t('contentCopied'));
-        window.setTimeout(() => setCopied(false), 2000);
-      },
+    void writeClipboard(text).then(
+      () => undefined,
       () => {
         toast.error(t('copyFailed'));
       },
@@ -243,25 +239,26 @@ export function ExpandableTextPanel({
         </Button>
       ) : null}
       {showCopy && hasContent ? (
-        <Button
-          type='button'
-          variant='outline'
-          size='sm'
-          className='h-7 text-xs gap-1'
-          onClick={handleCopy}
-        >
-          {copied ? (
-            <>
-              <Check className='h-3.5 w-3.5 text-emerald-500' />
-              <span>{resolvedCopiedLabel}</span>
-            </>
-          ) : (
-            <>
-              <Copy className='h-3.5 w-3.5' />
-              <span>{resolvedCopyLabel}</span>
-            </>
-          )}
-        </Button>
+        onCopy ? (
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='h-7 text-xs gap-1'
+            onClick={handleCopy}
+          >
+            <Copy className='h-3.5 w-3.5' />
+            <span>{resolvedCopyLabel}</span>
+          </Button>
+        ) : (
+          <CopyButton
+            value={content as string}
+            label={resolvedCopyLabel}
+            {...(copiedLabel !== undefined ? {copiedLabel} : {})}
+            variant='plain'
+            className='h-7 px-2 text-xs border border-border'
+          />
+        )
       ) : null}
     </div>
   );
@@ -320,25 +317,26 @@ export function ExpandableTextPanel({
               <div className='flex shrink-0 items-center justify-end gap-2 border-b bg-muted/20 px-4 py-2'>
                 {toolbarExtra}
                 {showCopy ? (
-                  <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
-                    className='h-7 text-xs gap-1'
-                    onClick={handleCopy}
-                  >
-                    {copied ? (
-                      <>
-                        <Check className='h-3.5 w-3.5 text-emerald-500' />
-                        <span>{resolvedCopiedLabel}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className='h-3.5 w-3.5' />
-                        <span>{resolvedCopyLabel}</span>
-                      </>
-                    )}
-                  </Button>
+                  onCopy ? (
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      className='h-7 text-xs gap-1'
+                      onClick={handleCopy}
+                    >
+                      <Copy className='h-3.5 w-3.5' />
+                      <span>{resolvedCopyLabel}</span>
+                    </Button>
+                  ) : (
+                    <CopyButton
+                      value={content as string}
+                      label={resolvedCopyLabel}
+                      {...(copiedLabel !== undefined ? {copiedLabel} : {})}
+                      variant='plain'
+                      className='h-7 px-2 text-xs border border-border'
+                    />
+                  )
                 ) : null}
               </div>
             ) : null}

@@ -26,7 +26,8 @@ import {
   type ReactNode,
 } from 'react';
 import {useTranslations} from 'next-intl';
-import {Check, Copy, RefreshCw} from 'lucide-react';
+import {RefreshCw} from 'lucide-react';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import {Button} from '@/components/arc/button/button';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/arc/input/input';
@@ -98,7 +99,6 @@ export function LogViewerDialog({
   const [logContent, setLogContent] = useState<string>('');
   const [logLoading, setLogLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const reqSeqRef = useRef(0);
 
   const fetchLogs = useCallback(async () => {
@@ -138,7 +138,6 @@ export function LogViewerDialog({
     } else {
       setLogContent('');
       setError(null);
-      setCopied(false);
     }
   }, [open, fetchLogs]);
 
@@ -146,20 +145,6 @@ export function LogViewerDialog({
     if (e.key === 'Enter') {
       e.preventDefault();
       void fetchLogs();
-    }
-  };
-
-  const handleCopy = async () => {
-    if (!logContent) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(logContent);
-      setCopied(true);
-      toast.success(t('cluster.logCopied'));
-      window.setTimeout(() => setCopied(false), 1800);
-    } catch {
-      // 忽略剪贴板权限错误 / Ignore clipboard errors
     }
   };
 
@@ -225,20 +210,12 @@ export function LogViewerDialog({
             ) : null}
           </div>
           <div className='flex shrink-0 items-center gap-1.5'>
-            <Button
-              type='button'
-              variant='secondary'
-              size='sm'
-              onClick={() => void handleCopy()}
+            <CopyButton
+              value={logContent}
+              label={t('cluster.copyLog')}
+              className='h-[var(--control-height-sm)]'
               disabled={!logContent}
-            >
-              {copied ? (
-                <Check className='size-3.5 text-emerald-500' aria-hidden />
-              ) : (
-                <Copy className='size-3.5' aria-hidden />
-              )}
-              {t('cluster.copyLog')}
-            </Button>
+            />
             <Button
               type='button'
               variant='secondary'

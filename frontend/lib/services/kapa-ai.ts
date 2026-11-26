@@ -185,6 +185,7 @@ export function initKapaPreinitialization(): void {
 
   if (!window.Kapa) {
     const queue: unknown[][] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kapa 第三方 widget 为无类型的函数对象混合体 / untyped third-party widget global
     const kapaQueue: any = function (...args: unknown[]) {
       queue.push(args);
     };
@@ -205,6 +206,7 @@ function dispatchKapaOpen(query?: string): boolean {
     return false;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kapa 第三方 widget 全局对象 / untyped third-party global
   const kapa = window.Kapa as any;
   if (!kapa) {
     return false;
@@ -300,6 +302,7 @@ export async function openSeaTunnelAskAi(initialQuery?: string): Promise<boolean
   }
 
   const loaded = await ensureKapaWidget();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kapa 第三方 widget 全局对象 / untyped third-party global
   const kapa = window.Kapa as any;
 
   if (!loaded) {

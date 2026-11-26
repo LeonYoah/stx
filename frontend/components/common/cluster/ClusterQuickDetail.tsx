@@ -31,8 +31,6 @@ import {
   ArrowRight,
   Boxes,
   Bug,
-  Check,
-  Copy,
   FileCode2,
   Pencil,
   Play,
@@ -45,7 +43,6 @@ import {Button} from '@/components/arc/button/button';
 import {NeutralChip} from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 import {Skeleton} from '@/components/ui/skeleton';
-import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {formatDateTimeMinuteTz} from '@/lib/timezone';
 import {
@@ -57,6 +54,7 @@ import {
 import type {ClusterMonitoringOverviewData} from '@/lib/services/monitoring';
 import {ClusterStatusChip, NodeStatusChip} from './ClusterStatusChip';
 import {getClusterActionFlags} from './useClusterLifecycle';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 const MAX_PREVIEW_NODES = 5;
 
@@ -79,34 +77,14 @@ function CopyValueButton({
   value: string;
   label: string;
 }) {
-  const t = useTranslations();
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      toast.success(t('cluster.logCopied'));
-      window.setTimeout(() => setCopied(false), 1800);
-    } catch {
-      // 剪贴板不可用时静默忽略 / Ignore when clipboard API is unavailable
-    }
-  };
-
   return (
-    <button
-      type='button'
-      onClick={() => void handleCopy()}
-      className='inline-flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground'
-      aria-label={label}
-      title={label}
-    >
-      {copied ? (
-        <Check className='size-3.5 text-emerald-500' aria-hidden />
-      ) : (
-        <Copy className='size-3.5' aria-hidden />
-      )}
-    </button>
+    <CopyButton
+      value={value}
+      label={label}
+      variant='plain'
+      iconOnly
+      className='h-6 w-6 min-h-0 shrink-0'
+    />
   );
 }
 

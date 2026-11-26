@@ -95,11 +95,11 @@ function Swap({ value, direction, reduced, className }: { value: string; directi
   const width = useMotionValue<number | string>("auto");
   useLayoutEffect(() => {
     const node = inner.current;
-    if (!node) return;
+    if (!node) {return;}
     let settled = false;
     const measure = () => {
       const next = node.getBoundingClientRect().width;
-      if (settled && !reduced) animate(width, next, motionTokens.spring.morph); else width.jump(next);
+      if (settled && !reduced) {animate(width, next, motionTokens.spring.morph);} else {width.jump(next);}
       settled = true;
     };
     measure();
@@ -125,9 +125,9 @@ function SortGlyph({ active, descending, reduced }: { active: boolean; descendin
     if (active) {
       // Turn only while the arrow is visible; a freshly shown arrow starts pointing the right way.
       const visible = state.active || performance.now() - state.hiddenAt < 160;
-      if (visible && !reduced) animate(rotate, descending ? 180 : 0, motionTokens.spring.snappy);
-      else rotate.jump(descending ? 180 : 0);
-    } else if (state.active) state.hiddenAt = performance.now();
+      if (visible && !reduced) {animate(rotate, descending ? 180 : 0, motionTokens.spring.snappy);}
+      else {rotate.jump(descending ? 180 : 0);}
+    } else if (state.active) {state.hiddenAt = performance.now();}
     state.active = active;
   }, [active, descending, reduced, rotate]);
   const transition: Transition = reduced ? instant : active ? { opacity: enter, filter: enter, scale: motionTokens.spring.snappy } : { duration: motionTokens.duration.instant, ease: [...motionTokens.ease.standard] };
@@ -141,7 +141,7 @@ function SelectBox({ checked, mixed = false, label, nav, reduced, onToggle, inpu
   const local = useRef<HTMLInputElement>(null);
   const ref = inputRef ?? local;
   const on = checked || mixed;
-  useLayoutEffect(() => { if (ref.current) ref.current.indeterminate = mixed; }, [mixed, ref]);
+  useLayoutEffect(() => { if (ref.current) {ref.current.indeterminate = mixed;} }, [mixed, ref]);
   const opacity: Transition = { duration: on ? motionTokens.duration.instant : motionTokens.duration.fast, ease: [...motionTokens.ease.standard] };
   return <label className={styles.selectHit}>
     <input ref={ref} type="checkbox" className={styles.selectInput} checked={checked} aria-label={label} data-nav={nav} onChange={event => onToggle((event.nativeEvent as MouseEvent).shiftKey === true)} />
@@ -165,12 +165,12 @@ export function SortableDataTable<T extends Record<string, unknown>>({ rows, col
   const selection = useMemo(() => new Set(selectedKeys ?? internalSelection), [internalSelection, selectedKeys]);
 
   const sortedRows = useMemo(() => {
-    if (!sort) return rows;
+    if (!sort) {return rows;}
     return rows.map((row, index) => ({ row, index })).sort((a, b) => {
       const left = comparable(a.row[sort.key]);
       const right = comparable(b.row[sort.key]);
       // Empty values stay at the bottom in both directions.
-      if (isEmpty(left) || isEmpty(right)) return isEmpty(left) === isEmpty(right) ? a.index - b.index : isEmpty(left) ? 1 : -1;
+      if (isEmpty(left) || isEmpty(right)) {return isEmpty(left) === isEmpty(right) ? a.index - b.index : isEmpty(left) ? 1 : -1;}
       const result = typeof left === "number" && typeof right === "number" ? left - right : collator.compare(String(left), String(right));
       return (sort.direction === "asc" ? result : -result) || a.index - b.index;
     }).map(entry => entry.row);
@@ -189,17 +189,17 @@ export function SortableDataTable<T extends Record<string, unknown>>({ rows, col
   const widths = locked?.signature === signature ? locked.widths : null;
   useLayoutEffect(() => {
     const table = tableRef.current;
-    if (!table || widths) return;
+    if (!table || widths) {return;}
     const measure = () => {
       const total = table.getBoundingClientRect().width;
-      if (!total || getComputedStyle(table).display !== "table") return false;
+      if (!total || getComputedStyle(table).display !== "table") {return false;}
       const next: Record<string, number> = {};
       table.querySelectorAll<HTMLElement>("thead th[data-key]").forEach(cell => { next[cell.dataset.key ?? ""] = cell.getBoundingClientRect().width / total * 100; });
       setLocked({ signature, widths: next });
       return true;
     };
-    if (measure()) return;
-    const observer = new ResizeObserver(() => { if (measure()) observer.disconnect(); });
+    if (measure()) {return;}
+    const observer = new ResizeObserver(() => { if (measure()) {observer.disconnect();} });
     observer.observe(table);
     return () => observer.disconnect();
   }, [signature, widths]);
@@ -215,15 +215,15 @@ export function SortableDataTable<T extends Record<string, unknown>>({ rows, col
       setBand(current => !cell ? null : current?.left === cell.offsetLeft && current.width === cell.offsetWidth ? current : { left: cell.offsetLeft, width: cell.offsetWidth });
     };
     update();
-    if (!table || !key) return;
+    if (!table || !key) {return;}
     // On a phone the header is a scrolling strip of sort controls; keep the active one in view.
     const cell = table.querySelector<HTMLElement>(`thead th[data-key="${CSS.escape(key)}"]`);
     const strip = cell?.parentElement;
     if (cell && strip && strip.scrollWidth > strip.clientWidth && getComputedStyle(table).display !== "table") {
-      const bounds = strip.getBoundingClientRect(), target = cell.getBoundingClientRect(), inset = 8;
+      const bounds = strip.getBoundingClientRect(); const target = cell.getBoundingClientRect(); const inset = 8;
       const start = Math.max(bounds.left, strip.querySelector("th:not([data-key])")?.getBoundingClientRect().right ?? bounds.left) + inset;
       const shift = target.right > bounds.right - inset ? target.right - bounds.right + inset : target.left < start ? target.left - start : 0;
-      if (shift) strip.scrollTo({ left: strip.scrollLeft + shift, behavior: reduced || !seenSort.current ? "auto" : "smooth" });
+      if (shift) {strip.scrollTo({ left: strip.scrollLeft + shift, behavior: reduced || !seenSort.current ? "auto" : "smooth" });}
     }
     seenSort.current = true;
     const observer = new ResizeObserver(update);
@@ -246,7 +246,7 @@ export function SortableDataTable<T extends Record<string, unknown>>({ rows, col
 
   function commit(next: Set<string>) {
     const list = keys.filter(key => next.has(key));
-    if (selectedKeys === undefined) setInternalSelection(list);
+    if (selectedKeys === undefined) {setInternalSelection(list);}
     onSelectionChange?.(list);
     setAnnouncement(list.length ? `${list.length} of ${keys.length} selected` : "Selection cleared");
   }
@@ -267,7 +267,7 @@ export function SortableDataTable<T extends Record<string, unknown>>({ rows, col
   }
 
   function onRowClick(event: ReactMouseEvent<HTMLTableRowElement>, key: string) {
-    if (!selectable || (event.target as HTMLElement).closest("a, button, input, label, select, textarea, [role='button'], [contenteditable='true']") || window.getSelection()?.toString()) return;
+    if (!selectable || (event.target as HTMLElement).closest("a, button, input, label, select, textarea, [role='button'], [contenteditable='true']") || window.getSelection()?.toString()) {return;}
     toggleRow(key, event.shiftKey);
     // Keep the keyboard path where the pointer left off, so arrows continue from this row.
     event.currentTarget.querySelector<HTMLInputElement>("input[type='checkbox']")?.focus({ preventScroll: true });
@@ -279,11 +279,11 @@ export function SortableDataTable<T extends Record<string, unknown>>({ rows, col
     if (event.key === "Escape" && selectedCount) {
       event.preventDefault();
       event.stopPropagation();
-      if (target.dataset.clear !== undefined) clearSelection(); else commit(new Set());
+      if (target.dataset.clear !== undefined) {clearSelection();} else {commit(new Set());}
       return;
     }
     const nav = target.dataset.nav;
-    if (!nav) return;
+    if (!nav) {return;}
     const list = (name: string) => [...event.currentTarget.querySelectorAll<HTMLElement>(`[data-nav="${name}"]`)];
     const items = list(nav);
     const index = items.indexOf(target);
@@ -292,7 +292,7 @@ export function SortableDataTable<T extends Record<string, unknown>>({ rows, col
       : { ArrowDown: [items, index + 1], ArrowUp: index === 0 && selectAllRef.current ? [[selectAllRef.current], 0] : [items, index - 1], Home: [items, 0], End: [items, items.length - 1] };
     const step = steps[event.key];
     const next = step?.[0][step[1]];
-    if (!next) return;
+    if (!next) {return;}
     event.preventDefault();
     next.focus();
   }
@@ -321,7 +321,7 @@ export function SortableDataTable<T extends Record<string, unknown>>({ rows, col
         <tbody role="rowgroup">{sortedRows.length ? sortedRows.map((row, index) => {
           const key = keys[index]!;
           const selected = selectable && selection.has(key);
-          return <motion.tr key={key} role="row" layout={reduced ? false : "position"} layoutDependency={order} transition={motionTokens.spring.smooth} data-selected={selected || undefined} onClick={event => onRowClick(event, key)} onMouseDown={event => { if (selectable && event.shiftKey) event.preventDefault(); }}>
+          return <motion.tr key={key} role="row" layout={reduced ? false : "position"} layoutDependency={order} transition={motionTokens.spring.smooth} data-selected={selected || undefined} onClick={event => onRowClick(event, key)} onMouseDown={event => { if (selectable && event.shiftKey) {event.preventDefault();} }}>
             {selectable ? <td role="cell" className={styles.selectCell}><SelectBox checked={selected} label={`Select ${String(row[columns[0]?.key as string] ?? key)}`} nav="row" reduced={reduced} onToggle={extend => toggleRow(key, extend)} /></td> : null}
             {columns.map((column, columnIndex) => <td key={column.key} role="cell" data-label={column.label} data-primary={columnIndex === 0 || undefined} data-sorted={sort?.key === column.key || undefined} data-numeric={numeric.has(column.key) || undefined}>{column.render ? column.render(row[column.key], row) : String(row[column.key] ?? "–")}</td>)}
           </motion.tr>;

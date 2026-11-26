@@ -19,8 +19,7 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Copy, Eye, Loader2, Plus, Sparkles} from 'lucide-react';
-import {toast} from '@/lib/toast';
+import {Eye, Loader2, Plus, Sparkles} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
@@ -32,7 +31,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {cn, copyToClipboard} from '@/lib/utils';
+import {cn} from '@/lib/utils';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import type {
   SyncCuratedSection,
   SyncCuratedTemplateView,
@@ -283,26 +283,13 @@ export function CuratedTemplatesPanel({
           {/* 预览操作区：复制脚本与插入编辑器 */}
           {/* Preview action toolbar: copy script and insert into editor */}
           <div className='flex items-center gap-1'>
-            <Button
-              type='button'
-              size='sm'
-              variant='ghost'
-              className='h-6 px-1.5 text-[11px]'
+            <CopyButton
+              value={preview || ''}
+              label={t('curatedCopyScript')}
+              variant='plain'
               disabled={!selected || !preview}
-              onClick={async () => {
-                if (!preview) return;
-                try {
-                  await copyToClipboard(preview);
-                  toast.success(t('curatedScriptCopied'));
-                } catch {
-                  toast.error(t('curatedCopyScriptFailed'));
-                }
-              }}
-              title={t('curatedCopyScript')}
-            >
-              <Copy className='size-3 mr-1' />
-              {t('curatedCopyScript')}
-            </Button>
+              className='h-6 min-h-0 px-1.5 text-[11px]'
+            />
             {/* 「插入」旁提示：修改模板请到「模板管理」；禁用时也能触发，故外包 span */}
             {/* Hint next to Insert: edit templates in Template Manage; wrapped in a span so it also fires while disabled */}
             <Tooltip>

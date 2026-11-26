@@ -94,6 +94,20 @@ type K8sClusterCreateRequest struct {
 	CheckpointPVC        string `json:"checkpoint_pvc"`
 	DataStorageClass     string `json:"data_storage_class"`
 	DataSize             string `json:"data_size"`
+	// 统一创建向导扩展字段：均为可选，空值保持既有渲染行为。
+	// Unified wizard extension fields: all optional, empty keeps existing rendering.
+	ImagePullSecrets string `json:"image_pull_secrets"`
+	DeploymentMode   string `json:"deployment_mode"`
+	HybridReplicas   int    `json:"hybrid_replicas"`
+	HybridCPU        string `json:"hybrid_cpu"`
+	HybridMemory     string `json:"hybrid_memory"`
+	// JVM/Runtime/Checkpoint/IMAP 草稿直接复用 k8s 包类型，前后端同构。
+	// JVM/Runtime/Checkpoint/IMAP drafts reuse the k8s package types so frontend and
+	// backend share one shape.
+	JVM        *k8s.SessionJVMConfig     `json:"jvm,omitempty"`
+	Runtime    *k8s.SessionRuntimeConfig `json:"runtime,omitempty"`
+	Checkpoint *k8s.SessionStorageSpec   `json:"checkpoint,omitempty"`
+	IMAP       *k8s.SessionStorageSpec   `json:"imap,omitempty"`
 }
 
 // sessionConfigFromRequest 将请求映射为 SessionConfig 并应用默认值与端口契约校验。
@@ -134,6 +148,20 @@ func sessionConfigFromRequest(req *K8sClusterCreateRequest) (*k8s.SessionConfig,
 	cfg.Storage.CheckpointPVC = req.CheckpointPVC
 	cfg.Storage.DataStorageClass = req.DataStorageClass
 	cfg.Storage.DataSize = req.DataSize
+	cfg.DeploymentMode = strings.ToLower(strings.TrimSpace(req.DeploymentMode))
+	cfg.HybridReplicas = req.HybridReplicas
+	if req.HybridCPU != "" || req.HybridMemory != "" {
+		cfg.Resources.Hybrid = &k8s.ResourceRequirement{CPU: req.HybridCPU, Memory: req.HybridMemory}
+	}
+	for _, secret := range strings.Split(req.ImagePullSecrets, ",") {
+		if trimmed := strings.TrimSpace(secret); trimmed != "" {
+			cfg.ImagePullSecrets = append(cfg.ImagePullSecrets, trimmed)
+		}
+	}
+	cfg.JVM = req.JVM
+	cfg.Runtime = req.Runtime
+	cfg.Checkpoint = req.Checkpoint
+	cfg.IMAP = req.IMAP
 	cfg.ApplyDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err

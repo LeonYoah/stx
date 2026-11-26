@@ -316,10 +316,10 @@ func TestDeriveProxyContainerResources(t *testing.T) {
 		{"-Xmx2048m -Xms256m", "2560Mi", "448Mi"},
 		{"-Xmx4096m", "5Gi", "256Mi"},
 		{"-Xmx6g", "7680Mi", "256Mi"},
-		{"", "1Gi", "256Mi"},                       // 未指定堆：512Mi 基准 / unspecified heap: 512Mi baseline
-		{"-Xmx1G", "1536Mi", "256Mi"},              // 大写单位 / uppercase unit
-		{"-Xmx512m -Xmx1024m", "1536Mi", "256Mi"},  // 后者覆盖 / last wins
-		{"-Xmxabc", "1Gi", "256Mi"},                // 非法值回退基准 / invalid falls back to baseline
+		{"", "1Gi", "256Mi"},                      // 未指定堆：512Mi 基准 / unspecified heap: 512Mi baseline
+		{"-Xmx1G", "1536Mi", "256Mi"},             // 大写单位 / uppercase unit
+		{"-Xmx512m -Xmx1024m", "1536Mi", "256Mi"}, // 后者覆盖 / last wins
+		{"-Xmxabc", "1Gi", "256Mi"},               // 非法值回退基准 / invalid falls back to baseline
 	}
 	for _, tc := range cases {
 		res := deriveProxyContainerResources(tc.jvmOpts)

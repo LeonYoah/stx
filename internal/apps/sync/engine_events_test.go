@@ -716,16 +716,16 @@ func TestUpdateEventChannelK8sCallbackResolution(t *testing.T) {
 // TestIsLoopbackCallbackHost covers boundary inputs of the loopback detection.
 func TestIsLoopbackCallbackHost(t *testing.T) {
 	for host, want := range map[string]bool{
-		"localhost":               true,
-		"127.0.0.1":               true,
-		"127.1.2.3":               true,
-		"::1":                     true,
-		"0.0.0.0":                 true,
-		"":                        true,
-		"10.0.2.2":                false,
-		"stx.stx-system.svc":      false,
-		"192.168.49.1":            false,
-		"localhost.example.com":   false,
+		"localhost":             true,
+		"127.0.0.1":             true,
+		"127.1.2.3":             true,
+		"::1":                   true,
+		"0.0.0.0":               true,
+		"":                      true,
+		"10.0.2.2":              false,
+		"stx.stx-system.svc":    false,
+		"192.168.49.1":          false,
+		"localhost.example.com": false,
 	} {
 		if got := isLoopbackCallbackHost(host); got != want {
 			t.Fatalf("host %q = %v, want %v", host, got, want)

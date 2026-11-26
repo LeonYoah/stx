@@ -2119,7 +2119,10 @@
       "upgradeImmutableDesc": "遵循不可变镜像原则：滚动升级 Master/Worker 与 STX Java Proxy 至新镜像 Tag",
       "deleteAdoptedDesc": "将从控制面解绑该集群并清理 STX 创建的 STX Java Proxy，不会删除或修改用户原有的 SeaTunnel Kubernetes 工作负载。",
       "deleteDeployedDesc": "将卸载控制面部署的 Kubernetes 资源（StatefulSet、Service、ConfigMap 等，不删除外部 PVC）。",
-      "saveAndRollout": "保存并滚动重启使配置生效"
+      "saveAndRollout": "保存并滚动重启使配置生效",
+      "podNode": "调度节点",
+      "podIP": "Pod IP",
+      "namespace": "命名空间"
     }
   },
   "audit": {

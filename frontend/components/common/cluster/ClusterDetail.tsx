@@ -1629,6 +1629,21 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     }
   };
 
+  // hooks 必须全部位于 early return 之前，故 Pod 拉取放在这里而不是渲染区。
+  // All hooks must precede the early returns, so pod loading lives here rather than
+  // in the render section.
+  const clusterIsK8s = Boolean(cluster?.infra_type && cluster.infra_type !== 'bare_metal');
+  useEffect(() => {
+    if (!clusterIsK8s) {
+      setK8sPods([]);
+      return;
+    }
+    services.cluster
+      .getK8sPods(clusterId)
+      .then(setK8sPods)
+      .catch(() => setK8sPods([]));
+  }, [clusterId, clusterIsK8s, lifecyclePollEpoch]);
+
   if (loading && !cluster) {
     return <ClusterDetailSkeleton />;
   }
@@ -1651,10 +1666,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   }
 
   const isK8sCluster = Boolean(cluster?.infra_type && cluster.infra_type !== 'bare_metal');
-  const k8sCfg = useMemo(() => {
-    const raw = (cluster?.config as Record<string, unknown> | undefined)?.['kubernetes'];
-    return (raw || {}) as Record<string, unknown>;
-  }, [cluster?.config]);
+  // 配置查找极廉价，不用 useMemo：本组件存在 early return，hooks 位置受限。
+  // The config lookup is trivially cheap, so no useMemo: this component has early
+  // returns that constrain hook placement.
+  const k8sCfg = ((cluster?.config as Record<string, unknown> | undefined)?.['kubernetes'] || {}) as Record<string, unknown>;
 
   // K8s 集群删除即资源生命周期（解绑/卸载），后端允许运行态删除，前端对齐。
   // For K8s clusters deletion IS the resource lifecycle; the backend permits deleting
@@ -1906,17 +1921,6 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
 
   // K8s 集群判定与节点面板一致：任何非 bare_metal infra_type 都走 K8s 视图。
   // K8s detection mirrors the nodes panel: any non-bare_metal infra_type uses K8s views.
-
-  useEffect(() => {
-    if (!isK8sCluster) {
-      setK8sPods([]);
-      return;
-    }
-    services.cluster
-      .getK8sPods(clusterId)
-      .then(setK8sPods)
-      .catch(() => setK8sPods([]));
-  }, [clusterId, isK8sCluster, lifecyclePollEpoch]);
 
   const runtimeViewOptions: Array<{value: RuntimeSubView; label: string}> = [
     {value: 'checkpoint', label: t('cluster.list.runtimeViews.checkpoint')},

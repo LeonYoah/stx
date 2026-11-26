@@ -2119,7 +2119,10 @@
       "upgradeImmutableDesc": "Following the immutable-image principle: rolls Master/Worker and the STX Java Proxy to the new image tag",
       "deleteAdoptedDesc": "This unbinds the cluster from the control plane and removes the STX Java Proxy created by STX. Your existing SeaTunnel Kubernetes workloads will not be deleted or modified.",
       "deleteDeployedDesc": "This uninstalls the Kubernetes resources deployed by the control plane (StatefulSet, Service, ConfigMap, etc.; external PVCs are not deleted).",
-      "saveAndRollout": "Save and roll-restart to apply"
+      "saveAndRollout": "Save and roll-restart to apply",
+      "podNode": "Scheduled node",
+      "podIP": "Pod IP",
+      "namespace": "Namespace"
     }
   },
   "audit": {

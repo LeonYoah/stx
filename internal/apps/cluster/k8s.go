@@ -1467,7 +1467,7 @@ func (s *Service) validateK8sImageRegistry(ctx context.Context, image string) er
 		return err
 	}
 	if row == nil {
-		return fmt.Errorf("cluster: 镜像仓库 %s 未登记，请先在软件包页登记该仓库 / registry %s is not registered; register it on the packages page first", host, host)
+		return fmt.Errorf("cluster: %s", fmt.Sprintf(locale.Pick(ctx, "镜像仓库 %s 未登记，请先在软件包页登记该仓库", "registry %s is not registered; register it on the packages page first"), host, host))
 	}
 	return nil
 }

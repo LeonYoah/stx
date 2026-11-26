@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/audit"
+	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
@@ -287,14 +288,9 @@ func normalizeCallbackBase(base string) string {
 // inside a pod 127.0.0.1/localhost resolves to the container itself rather than the STX
 // control plane, so writing it into engine config guarantees report failure.
 func isLoopbackCallbackHost(host string) bool {
-	host = strings.ToLower(strings.TrimSpace(host))
-	if host == "" || host == "localhost" || host == "::1" || host == "[::1]" || host == "0.0.0.0" || host == "::" {
-		return true
-	}
-	if strings.HasPrefix(host, "127.") {
-		return true
-	}
-	return false
+	// 权威实现位于 cluster 包，避免两处判定漂移。
+	// The authoritative implementation lives in the cluster package to prevent drift.
+	return clusterapp.IsLoopbackCallbackHost(host)
 }
 
 // eventChannelState 根据通道记录计算状态。
@@ -385,6 +381,24 @@ func (s *Service) EnableEventChannelForInstall(ctx context.Context, clusterID ui
 	}
 	enabled := true
 	_, err := s.updateEventChannel(ctx, executionapp.Actor{IsAdmin: true}, clusterID, &UpdateEventChannelRequest{Enabled: &enabled}, version)
+	return err
+}
+
+// EnableEventChannelForK8sDeploy 供 K8s 一键部署在集群创建后立即开启事件通道：
+// 在 Pod 完成启动前把 HMAC token 与 event-report-http 写入 ConfigMap，
+// stx_callback_url 覆写随通道一并持久化；回环地址由 updateEventChannel 统一拦截。
+// EnableEventChannelForK8sDeploy turns the event channel on right after a Kubernetes
+// one-click deploy: the HMAC token and event-report-http land in the ConfigMap before
+// pods finish starting, the stx_callback_url override persists with the channel, and
+// loopback addresses are rejected by updateEventChannel uniformly.
+func (s *Service) EnableEventChannelForK8sDeploy(ctx context.Context, clusterID uint, version string, callbackURL string) error {
+	enabled := true
+	req := &UpdateEventChannelRequest{Enabled: &enabled}
+	if strings.TrimSpace(callbackURL) != "" {
+		url := strings.TrimSpace(callbackURL)
+		req.STXCallbackURL = &url
+	}
+	_, err := s.updateEventChannel(ctx, executionapp.Actor{IsAdmin: true}, clusterID, req, version)
 	return err
 }
 

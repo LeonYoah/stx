@@ -38,13 +38,6 @@ func renderSeatunnelYAML(cfg *SessionConfig) string {
 	if cfg.Runtime != nil && cfg.Runtime.EnableHTTPServer != nil && !*cfg.Runtime.EnableHTTPServer {
 		enableHTTP = "false"
 	}
-	eventReport := ""
-	if cfg.Runtime != nil && strings.TrimSpace(cfg.Runtime.EventReportHTTP) != "" {
-		eventReport = fmt.Sprintf(`    event-report-http:
-      url: %s
-      report-non-terminal-job-state: true
-`, strings.TrimSpace(cfg.Runtime.EventReportHTTP))
-	}
 	checkpointPlugin := `          namespace: /tmp/seatunnel/checkpoint_snapshot/
           storage.type: hdfs
           fs.defaultFS: file:///tmp/`
@@ -66,7 +59,7 @@ func renderSeatunnelYAML(cfg *SessionConfig) string {
       port: %d
       enable-dynamic-port: false
       port-range: 100
-%s    checkpoint:
+    checkpoint:
       interval: 300000
       timeout: 10000
       storage:
@@ -77,7 +70,7 @@ func renderSeatunnelYAML(cfg *SessionConfig) string {
     telemetry:
       metric:
         enabled: true
-`, enableHTTP, cfg.MasterHTTPPort, eventReport, checkpointPlugin)
+`, enableHTTP, cfg.MasterHTTPPort, checkpointPlugin)
 }
 
 // renderStoragePluginConfig 把存储草稿渲染为 plugin-config 行；LOCAL_FILE 走 file:// 本地路径。

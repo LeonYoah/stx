@@ -27,13 +27,16 @@ import (
 func TestRenderSeatunnelYAMLRuntimeOverrides(t *testing.T) {
 	cfg := &SessionConfig{MasterHTTPPort: 8080}
 	off := false
-	cfg.Runtime = &SessionRuntimeConfig{EnableHTTPServer: &off, EventReportHTTP: "http://stx.example.com/api/v1/engine-events"}
+	cfg.Runtime = &SessionRuntimeConfig{EnableHTTPServer: &off}
 	cfg.Checkpoint = &SessionStorageSpec{
 		Enabled: true, StorageType: "S3", Namespace: "ckpt", Endpoint: "https://s3.example.com", Bucket: "bkt", AccessKey: "ak", SecretKey: "sk",
 	}
 	out := renderSeatunnelYAML(cfg)
 	assert.Contains(t, out, "enable-http: false")
-	assert.Contains(t, out, "url: http://stx.example.com/api/v1/engine-events")
+	// 旁路渲染已移除：event-report-http 只允许由 sync 事件通道 PatchEventReportHTTP 写入。
+	// The bypass rendering is removed: event-report-http may only be written by the
+	// sync event channel through PatchEventReportHTTP.
+	assert.NotContains(t, out, "event-report-http")
 	assert.Contains(t, out, "storage.type: s3")
 	assert.Contains(t, out, "fs.s3a.endpoint: https://s3.example.com")
 	assert.Contains(t, out, "s3.bucket: bkt")

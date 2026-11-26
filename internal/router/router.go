@@ -1301,6 +1301,7 @@ func Serve() {
 			// 将配置初始化器注入安装服务，用于安装后初始化配置
 			installerService.SetConfigInitializer(configService)
 			installerService.SetEventChannelEnabler(syncService)
+			clusterService.SetK8sEventChannelEnabler(syncService)
 			log.Println("[API] Config initializer injected into installer service")
 
 			// Config management routes 配置管理路由

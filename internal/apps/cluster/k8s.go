@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	urlpkg "net/url"
 	"strings"
 	"time"
 
@@ -40,6 +41,11 @@ import (
 // ErrK8sHostInvalid 表示创建 K8s 集群时引用的主机不存在或类型不符。
 // ErrK8sHostInvalid means the referenced host is missing or not a kubernetes host.
 var ErrK8sHostInvalid = errors.New("cluster: k8s host invalid or not kubernetes type")
+
+// ErrEventCallbackLoopback 事件通道回调地址为回环/未指定地址，引擎 Pod 内无法到达控制面。
+// ErrEventCallbackLoopback rejects loopback/unspecified event callback addresses that
+// engine pods can never reach the control plane through.
+var ErrEventCallbackLoopback = errors.New("cluster: event channel callback URL host is loopback; inside engine pods it resolves to the container itself, not the STX control plane")
 
 // SetK8sDependencies 注入 K8s 依赖；jarLoader 读取伴生 Proxy jar 字节，生产实现从 lib/ 加载。
 // SetK8sDependencies injects K8s dependencies; jarLoader loads companion proxy jar bytes
@@ -106,10 +112,12 @@ type K8sClusterCreateRequest struct {
 	// JVM/Runtime/Checkpoint/IMAP 草稿直接复用 k8s 包类型，前后端同构。
 	// JVM/Runtime/Checkpoint/IMAP drafts reuse the k8s package types so frontend and
 	// backend share one shape.
-	JVM        *k8s.SessionJVMConfig     `json:"jvm,omitempty"`
-	Runtime    *k8s.SessionRuntimeConfig `json:"runtime,omitempty"`
-	Checkpoint *k8s.SessionStorageSpec   `json:"checkpoint,omitempty"`
-	IMAP       *k8s.SessionStorageSpec   `json:"imap,omitempty"`
+	EnableEventChannel bool                      `json:"enable_event_channel"`
+	STXCallbackURL     string                    `json:"stx_callback_url"`
+	JVM                *k8s.SessionJVMConfig     `json:"jvm,omitempty"`
+	Runtime            *k8s.SessionRuntimeConfig `json:"runtime,omitempty"`
+	Checkpoint         *k8s.SessionStorageSpec   `json:"checkpoint,omitempty"`
+	IMAP               *k8s.SessionStorageSpec   `json:"imap,omitempty"`
 }
 
 // sessionConfigFromRequest 将请求映射为 SessionConfig 并应用默认值与端口契约校验。
@@ -211,8 +219,9 @@ type K8sProxyStatus struct {
 // CreateKubernetesResult pairs the cluster entity with companion proxy status
 // (proxy failure does not block saving).
 type CreateKubernetesResult struct {
-	Cluster     *Cluster        `json:"cluster"`
-	ProxyStatus *K8sProxyStatus `json:"proxy_status,omitempty"`
+	Cluster             *Cluster        `json:"cluster"`
+	ProxyStatus         *K8sProxyStatus `json:"proxy_status,omitempty"`
+	EventChannelWarning string          `json:"event_channel_warning,omitempty"`
 }
 
 // CreateKubernetes 创建 K8s 集群：stx_deployed 先落 K8s 资源，adopted 直接引用既有 Workload；
@@ -306,6 +315,17 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 			cfg.LabelSelector = k8s.LabelClusterCodeKey + "=" + cluster.EffectiveClusterCode()
 		}
 	}
+	if req.EnableEventChannel && strings.TrimSpace(req.STXCallbackURL) != "" {
+		// 回环预检：用户显式覆写回环地址必然后报失败，在创建任何资源前 400。
+		// Loopback pre-check: an explicit loopback override guarantees report failure,
+		// so reject with 400 before creating any resource.
+		override := strings.TrimSpace(req.STXCallbackURL)
+		parsed, parseErr := urlpkg.Parse(override)
+		if parseErr != nil || parsed == nil || IsLoopbackCallbackHost(parsed.Hostname()) {
+			_ = s.repo.Delete(ctx, cluster.ID)
+			return nil, ErrEventCallbackLoopback
+		}
+	}
 	if cfg.ManagementSource == k8s.ManagementSourceSTXDeployed {
 		// 注册镜像携带私有仓库凭据时，先在目标 namespace 代建 dockerconfigjson Secret
 		// 并并入 imagePullSecrets：用户零 kubectl 操作即可拉取私有镜像。
@@ -338,8 +358,22 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 		return nil, err
 	}
 
+	var eventChannelErr error
+	if req.EnableEventChannel && s.k8sEventChannelEnabler != nil {
+		// 此时 Pod 仍在拉镜像/启动，ConfigMap 写入几乎总是先于引擎进程读取；
+		// 失败不阻断集群创建，返回 warning 由前端提示稍后手工开启。
+		// Pods are still pulling images/starting at this point, so the ConfigMap write
+		// almost always lands before the engine process reads it; a failure does not
+		// block cluster creation and is surfaced as a warning so the user can enable
+		// the channel manually later.
+		eventChannelErr = s.k8sEventChannelEnabler.EnableEventChannelForK8sDeploy(ctx, cluster.ID, req.Version, req.STXCallbackURL)
+	}
 	proxyStatus := s.EnsureK8sJavaProxy(ctx, cluster)
-	return &CreateKubernetesResult{Cluster: cluster, ProxyStatus: proxyStatus}, nil
+	result := &CreateKubernetesResult{Cluster: cluster, ProxyStatus: proxyStatus}
+	if eventChannelErr != nil {
+		result.EventChannelWarning = eventChannelErr.Error()
+	}
+	return result, nil
 }
 
 // EnsureK8sJavaProxy 拉起伴生 Proxy 并探活 /healthz；失败返回状态不报错（不阻断保存）。
@@ -709,6 +743,25 @@ func (s *Service) WriteK8sConfigMapFile(ctx context.Context, cluster *Cluster, f
 	}
 	ops := k8s.NewSessionManager(s.k8sManager)
 	return ops.WriteConfigMapFile(ctx, cfg, fileName, content, restart)
+}
+
+// IsLoopbackCallbackHost 判定回调主机是否为回环/未指定地址：Pod 内的 127.0.0.1/localhost
+// 指向容器自身而非 STX 控制面，写进引擎配置必然上报失败，必须拦截。
+// 该判定是控制面唯一权威实现，sync 包事件通道校验复用此函数。
+// IsLoopbackCallbackHost reports whether the callback host is loopback/unspecified:
+// inside a pod 127.0.0.1/localhost resolves to the container itself rather than the STX
+// control plane, so writing it into engine config guarantees report failure.
+// This is the single authoritative control-plane implementation, reused by the sync
+// package's event channel validation.
+func IsLoopbackCallbackHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" || host == "localhost" || host == "::1" || host == "[::1]" || host == "0.0.0.0" || host == "::" {
+		return true
+	}
+	if strings.HasPrefix(host, "127.") {
+		return true
+	}
+	return false
 }
 
 func (s *Service) requireK8sSession(cluster *Cluster) (*k8s.SessionConfig, error) {
@@ -1200,4 +1253,3 @@ func (s *Service) ensureK8sRegistryCredential(ctx context.Context, cfg *k8s.Sess
 	cfg.ImagePullSecrets = append(cfg.ImagePullSecrets, secretName)
 	return nil
 }
-

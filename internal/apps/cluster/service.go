@@ -251,9 +251,15 @@ type Service struct {
 	memberGraceUntil sync.Map
 	// k8s 依赖三件套：仅 K8s 集群路径消费，裸金属路径零开销。
 	// The k8s dependency trio is only consumed by K8s cluster paths; bare-metal paths carry zero cost.
-	k8sManager         *k8s.ClientManager
-	k8sJarLoader       k8s.ProxyJarLoader
-	k8sHostTypeChecker K8sHostTypeChecker
+	k8sManager *k8s.ClientManager
+	// k8sEventChannelEnabler 在 K8s 一键部署后开启引擎事件通道（router 注入 sync 实现，
+	// 避免 cluster→sync 循环依赖；nil 时跳过注入，集群可后续手工开启）。
+	// k8sEventChannelEnabler turns the engine event channel on after a Kubernetes one-click
+	// deploy (the router injects the sync implementation to avoid a cluster→sync import
+	// cycle); nil skips injection and the channel can be enabled manually later.
+	k8sEventChannelEnabler K8sEventChannelEnabler
+	k8sJarLoader           k8s.ProxyJarLoader
+	k8sHostTypeChecker     K8sHostTypeChecker
 }
 
 // ServiceConfig holds configuration for the Cluster Service.
@@ -269,6 +275,19 @@ type ServiceConfig struct {
 
 // NewService creates a new Service instance.
 // NewService 创建一个新的 Service 实例。
+
+// K8sEventChannelEnabler 由 sync.Service 实现：部署后注入事件通道。
+// K8sEventChannelEnabler is implemented by sync.Service: injects the event channel post-deploy.
+type K8sEventChannelEnabler interface {
+	EnableEventChannelForK8sDeploy(ctx context.Context, clusterID uint, version string, callbackURL string) error
+}
+
+// SetK8sEventChannelEnabler 注入事件通道开启器（router 接线）。
+// SetK8sEventChannelEnabler injects the event channel enabler (router wiring).
+func (s *Service) SetK8sEventChannelEnabler(enabler K8sEventChannelEnabler) {
+	s.k8sEventChannelEnabler = enabler
+}
+
 func NewService(repo *Repository, hostProvider HostProvider, cfg *ServiceConfig) *Service {
 	timeout := 30 * time.Second
 	assetBase := ""

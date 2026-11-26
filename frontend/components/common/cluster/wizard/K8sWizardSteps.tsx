@@ -136,6 +136,19 @@ export function K8sConfigContent({form, patch}: StepProps) {
   const t = useTranslations();
   const containerMemory =
     form.deployment_mode === 'hybrid' ? form.hybrid_memory : form.worker_memory;
+  // 回环地址在引擎 Pod 内解析为容器自身，前端与后端同一规则预检拦截。
+  // Loopback addresses resolve to the container itself inside engine pods; the
+  // frontend pre-checks with the same rule as the backend.
+  const callbackUrlLoopback = (() => {
+    const raw = (form.stx_callback_url || '').trim();
+    if (!raw) return false;
+    try {
+      const host = new URL(raw).hostname.toLowerCase();
+      return host === '' || host === 'localhost' || host === '::1' || host === '[::1]' || host === '0.0.0.0' || host === '::' || host.startsWith('127.');
+    } catch {
+      return false;
+    }
+  })();
   const heapError = validateJvmVsContainer(form.jvm_xmx, containerMemory);
 
   const patchStorage = (kind: 'checkpoint' | 'imap', partial: Record<string, unknown>) =>
@@ -252,6 +265,22 @@ export function K8sConfigContent({form, patch}: StepProps) {
           {t('cluster.k8s.eventReport')}
         </label>
         <p className='text-xs text-muted-foreground'>{t('cluster.k8s.eventReportHint')}</p>
+        {form.event_report_enabled ? (
+          <div className='space-y-1'>
+            <label className='text-xs text-muted-foreground'>{t('cluster.k8s.stxCallbackUrl')}</label>
+            <Input
+              value={form.stx_callback_url}
+              onChange={(e) => patch({stx_callback_url: e.target.value})}
+              placeholder={t('cluster.k8s.stxCallbackUrlPlaceholder')}
+              data-testid='k8s-stx-callback-url'
+            />
+            {callbackUrlLoopback ? (
+              <p className='text-xs font-medium text-destructive' data-testid='k8s-callback-loopback-error'>{t('cluster.k8s.stxCallbackUrlLoopbackError')}</p>
+            ) : (
+              <p className='text-xs text-muted-foreground'>{t('cluster.k8s.stxCallbackUrlHint')}</p>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {storageEditor('checkpoint')}
@@ -370,9 +399,10 @@ export function buildK8sCreatePayload(form: K8sWizardFormState): Record<string, 
     data_storage_class: form.data_storage_class,
     data_size: form.data_size,
     jvm: {xms: form.jvm_xms, xmx: form.jvm_xmx},
+    enable_event_channel: form.event_report_enabled,
+    stx_callback_url: form.event_report_enabled ? form.stx_callback_url.trim() : '',
     runtime: {
       enable_http_server: form.enable_http_server,
-      event_report_http: '',
     },
     checkpoint: form.checkpoint.enabled ? form.checkpoint : undefined,
     imap: form.imap.enabled ? form.imap : undefined,

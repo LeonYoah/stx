@@ -188,14 +188,30 @@ type SessionConfig struct {
 type SessionJVMConfig struct {
 	Xms string `json:"xms,omitempty"`
 	Xmx string `json:"xmx,omitempty"`
+	// MasterHeapMB/WorkerHeapMB/HybridHeapMB 分角色堆上限（MB），>0 时覆盖 Xmx 按角色渲染：
+	// master 控面稳态与 worker 计算负载的内存诉求不同，统一堆 sizing 必然浪费或 OOM。
+	// MasterHeapMB/WorkerHeapMB/HybridHeapMB are per-role heap ceilings in MB; when >0 they
+	// override Xmx per role, because the control-plane master and compute worker have
+	// different memory appetites and one-size heap sizing either wastes or OOMs.
+	MasterHeapMB int `json:"master_heap_mb,omitempty"`
+	WorkerHeapMB int `json:"worker_heap_mb,omitempty"`
+	HybridHeapMB int `json:"hybrid_heap_mb,omitempty"`
 	// ExtraOptions 追加 JVM 参数行。
 	// ExtraOptions appends raw JVM option lines.
 	ExtraOptions []string `json:"extra_options,omitempty"`
 }
 
-// SessionRuntimeConfig 高级运行参数。
-// SessionRuntimeConfig carries advanced runtime toggles.
+// SessionRuntimeConfig 高级运行参数：与裸金属安装参数同一语义，渲染时按版本能力门控。
+// SessionRuntimeConfig carries advanced runtime toggles with the same semantics as the
+// bare-metal install params, gated by version capabilities at render time.
 type SessionRuntimeConfig struct {
+	DynamicSlot             *bool  `json:"dynamic_slot,omitempty"`
+	SlotNum                 *int   `json:"slot_num,omitempty"`
+	SlotAllocationStrategy  string `json:"slot_allocation_strategy,omitempty"`
+	JobScheduleStrategy     string `json:"job_schedule_strategy,omitempty"`
+	HistoryJobExpireMinutes *int   `json:"history_job_expire_minutes,omitempty"`
+	ScheduledDeletionEnable *bool  `json:"scheduled_deletion_enable,omitempty"`
+	JobLogMode              string `json:"job_log_mode,omitempty"`
 }
 
 // SessionStorageSpec Checkpoint/IMAP 存储草稿：类型 + 连接参数。

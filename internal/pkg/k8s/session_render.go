@@ -20,6 +20,8 @@ package k8s
 import (
 	"fmt"
 	"strings"
+
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 // 本文件集中维护 stx_deployed 一键部署渲染进 ConfigMap 的全部配置文件模板，
@@ -46,16 +48,72 @@ func renderSeatunnelYAML(cfg *SessionConfig) string {
 	if cp := cfg.Checkpoint; cp != nil && cp.Enabled {
 		checkpointPlugin = renderStoragePluginConfig(cp, "/tmp/seatunnel/checkpoint_snapshot/")
 	}
+	// 高级运行参数按版本能力动态渲染：键位语义与裸金属 agent 渲染完全一致
+	//（slot-allocate-strategy 而非误拼的 allocation），未配置时保持上游推荐默认。
+	// Advanced runtime toggles render dynamically per version capabilities: key
+	// semantics mirror the bare-metal agent renderer exactly (slot-allocate-strategy,
+	// not the misspelled allocation), and unset fields keep upstream-recommended defaults.
+	version := imageTagVersionString(cfg.Image)
+	caps := seatunnel.CapabilitiesForVersion(version)
+	rt := cfg.Runtime
+	if rt == nil {
+		rt = &SessionRuntimeConfig{}
+	}
+	historyExpire := 1440
+	if caps.SupportsHistoryJobExpireMinutes && rt.HistoryJobExpireMinutes != nil && *rt.HistoryJobExpireMinutes > 0 {
+		historyExpire = *rt.HistoryJobExpireMinutes
+	}
+	dynamicSlot := true
+	if rt.DynamicSlot != nil {
+		dynamicSlot = *rt.DynamicSlot
+	}
+	slotLines := fmt.Sprintf("      dynamic-slot: %t", dynamicSlot)
+	if caps.SupportsDynamicSlot {
+		if caps.SupportsSlotAllocationStrategy {
+			strategy := caps.DefaultSlotAllocationStrategy
+			if strings.TrimSpace(rt.SlotAllocationStrategy) != "" {
+				strategy = strings.ToUpper(strings.TrimSpace(rt.SlotAllocationStrategy))
+			}
+			if strategy != "" {
+				slotLines += fmt.Sprintf("\n      slot-allocate-strategy: %s", strategy)
+			}
+		}
+		if !dynamicSlot && caps.SupportsSlotNum {
+			slotNum := caps.DefaultStaticSlotNum
+			if rt.SlotNum != nil && *rt.SlotNum > 0 {
+				slotNum = *rt.SlotNum
+			}
+			slotLines += fmt.Sprintf("\n      slot-num: %d", slotNum)
+		}
+	}
+	scheduleLine := ""
+	if !dynamicSlot && caps.SupportsJobScheduleStrategy {
+		strategy := caps.DefaultJobScheduleStrategy
+		if strings.TrimSpace(rt.JobScheduleStrategy) != "" {
+			strategy = strings.ToUpper(strings.TrimSpace(rt.JobScheduleStrategy))
+		}
+		if strategy != "" {
+			scheduleLine = fmt.Sprintf("    job-schedule-strategy: %s\n", strategy)
+		}
+	}
+	deletionLine := ""
+	if caps.SupportsScheduledDeletionEnable {
+		deletion := caps.DefaultScheduledDeletionEnable
+		if rt.ScheduledDeletionEnable != nil {
+			deletion = *rt.ScheduledDeletionEnable
+		}
+		deletionLine = fmt.Sprintf("        logs:\n          scheduled-deletion-enable: %t\n", deletion)
+	}
 	return fmt.Sprintf(`seatunnel:
   engine:
-    history-job-expire-minutes: 1440
+    history-job-expire-minutes: %d
     backup-count: 1
     queue-type: blockingqueue
     print-execution-info-interval: 60
     print-job-metrics-info-interval: 60
     classloader-cache-mode: true
-    slot-service:
-      dynamic-slot: true
+%s    slot-service:
+%s
     http:
       enable-http: %s
       port: %d
@@ -72,7 +130,21 @@ func renderSeatunnelYAML(cfg *SessionConfig) string {
     telemetry:
       metric:
         enabled: true
-`, enableHTTP, cfg.MasterHTTPPort, checkpointPlugin)
+%s`, historyExpire, scheduleLine, slotLines, enableHTTP, cfg.MasterHTTPPort, checkpointPlugin, deletionLine)
+}
+
+// imageTagVersionString 提取镜像 tag 供版本能力门控；非语义化 tag 返回空（能力取最新默认）。
+// imageTagVersionString extracts the image tag for version capability gating;
+// non-semver tags yield empty (capabilities fall back to the newest defaults).
+func imageTagVersionString(image string) string {
+	if strings.Contains(image, "@sha256:") {
+		return ""
+	}
+	idx := strings.LastIndex(image, ":")
+	if idx < 0 || strings.Contains(image[idx+1:], "/") {
+		return ""
+	}
+	return strings.TrimPrefix(strings.TrimSpace(image[idx+1:]), "v")
 }
 
 // renderStoragePluginConfig 把存储草稿渲染为 plugin-config 行；LOCAL_FILE 走 file:// 本地路径。
@@ -235,6 +307,35 @@ func renderJVMOptions() string {
 // renderJVMOptionsWithConfig 按 JVM 草稿渲染堆内存与附加参数；空草稿保持保守默认。
 // renderJVMOptionsWithConfig renders heap and extra options from the JVM draft; an
 // empty draft keeps the conservative default.
+// renderJVMOptionsForRole 按角色渲染 JVM 选项：分角色堆上限（MB）优先于统一 Xmx。
+// renderJVMOptionsForRole renders JVM options per role: per-role heap ceilings (MB)
+// win over the shared Xmx.
+func renderJVMOptionsForRole(jvm *SessionJVMConfig, role string) string {
+	if jvm == nil {
+		return renderJVMOptionsWithConfig(nil)
+	}
+	heapMB := 0
+	switch role {
+	case "master":
+		heapMB = jvm.MasterHeapMB
+	case "worker":
+		heapMB = jvm.WorkerHeapMB
+	case "hybrid":
+		heapMB = jvm.HybridHeapMB
+	}
+	if heapMB <= 0 {
+		return renderJVMOptionsWithConfig(jvm)
+	}
+	clone := *jvm
+	clone.Xmx = fmt.Sprintf("%dm", heapMB)
+	if strings.TrimSpace(clone.Xms) == "" {
+		// Xms 缺省取堆上限的一半，避免起步即全额堆造成的虚占。
+		// Xms defaults to half the heap ceiling to avoid idle full-heap reservation.
+		clone.Xms = fmt.Sprintf("%dm", heapMB/2)
+	}
+	return renderJVMOptionsWithConfig(&clone)
+}
+
 func renderJVMOptionsWithConfig(jvm *SessionJVMConfig) string {
 	heap := "-Xms2g -Xmx2g"
 	extra := ""
@@ -311,7 +412,7 @@ func sessionConfigFiles(cfg *SessionConfig, clusterCode string) map[string]strin
 			"seatunnel.yaml":        renderSeatunnelYAML(cfg),
 			"hazelcast.yaml":        renderHazelcastMemberYAML(cfg, clusterCode, "hybrid"),
 			"hazelcast-client.yaml": renderHazelcastClientYAML(cfg, clusterCode),
-			"jvm_options":           renderJVMOptionsWithConfig(cfg.JVM),
+			"jvm_options":           renderJVMOptionsForRole(cfg.JVM, "hybrid"),
 			"jvm_client_options":    renderJVMOptions(),
 			"log4j2.properties":     renderLog4j2(),
 		}
@@ -321,8 +422,8 @@ func sessionConfigFiles(cfg *SessionConfig, clusterCode string) map[string]strin
 		"hazelcast-master.yaml": renderHazelcastMemberYAML(cfg, clusterCode, "master"),
 		"hazelcast-worker.yaml": renderHazelcastMemberYAML(cfg, clusterCode, "worker"),
 		"hazelcast-client.yaml": renderHazelcastClientYAML(cfg, clusterCode),
-		"jvm_master_options":    renderJVMOptionsWithConfig(cfg.JVM),
-		"jvm_worker_options":    renderJVMOptionsWithConfig(cfg.JVM),
+		"jvm_master_options":    renderJVMOptionsForRole(cfg.JVM, "master"),
+		"jvm_worker_options":    renderJVMOptionsForRole(cfg.JVM, "worker"),
 		"jvm_client_options":    renderJVMOptions(),
 		"log4j2.properties":     renderLog4j2(),
 	}

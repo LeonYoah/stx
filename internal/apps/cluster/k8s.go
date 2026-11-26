@@ -127,6 +127,7 @@ type K8sClusterCreateRequest struct {
 func sessionConfigFromRequest(req *K8sClusterCreateRequest) (*k8s.SessionConfig, error) {
 	cfg := &k8s.SessionConfig{
 		HostID:             req.HostID,
+		Version:            req.Version,
 		Namespace:          req.Namespace,
 		ManagementSource:   k8s.ManagementSource(req.ManagementSource),
 		AccessMode:         k8s.AccessMode(req.AccessMode),

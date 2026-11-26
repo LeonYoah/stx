@@ -31,6 +31,61 @@ interface K8sResourcesStepProps {
   onChange: (updater: (prev: K8sWizardFormState) => K8sWizardFormState) => void;
 }
 
+const MEMORY_TIERS = ['1Gi', '2Gi', '4Gi', '8Gi', '16Gi'];
+
+// deriveHeapHint 与后端 1/2 推导口径一致的只读提示：Xmx=容器内存/2，Xms=Xmx/2。
+// deriveHeapHint mirrors the backend 1/2 derivation for the read-only hint:
+// Xmx = container memory / 2, Xms = Xmx / 2.
+function deriveHeapHint(memory: string): string {
+  const match = /^\s*(\d+(?:\.\d+)?)(Mi|Gi)\s*$/i.exec(memory || '');
+  if (!match) return '';
+  let mi = parseFloat(match[1]);
+  if (/gi/i.test(match[2])) mi *= 1024;
+  const xmx = Math.floor(mi / 2);
+  if (xmx < 256) return '';
+  return `-Xms${Math.floor(xmx / 2)}m -Xmx${xmx}m`;
+}
+
+// MemoryTierField 内存档位化输入：常用档位下拉 + 自定义输入兜底 + 堆推导只读小字。
+// MemoryTierField is the tiered memory input: quick-pick dropdown, custom-input
+// fallback, and the read-only heap derivation hint.
+function MemoryTierField({label, value, onChange, testId, customLabel, hintLabel}: {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  testId?: string;
+  customLabel: string;
+  hintLabel: string;
+}) {
+  const isTier = MEMORY_TIERS.includes(value);
+  const tierValue = isTier ? value : '__custom__';
+  const hint = deriveHeapHint(value);
+  return (
+    <div className='space-y-1.5'>
+      <Select
+        label={label}
+        value={tierValue}
+        onValueChange={(next) => {
+          if (next !== '__custom__') onChange(next);
+          else if (isTier) onChange('');
+        }}
+        options={[...MEMORY_TIERS.map((tier) => ({value: tier, label: tier})), {value: '__custom__', label: customLabel}]}
+        data-testid={testId}
+      />
+      {!isTier ? (
+        <Input
+          label={`${label} · ${customLabel}`}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder='3Gi'
+          data-testid={testId ? `${testId}-custom` : undefined}
+        />
+      ) : null}
+      {hint ? <p className='text-xs text-muted-foreground'>{hintLabel.replace('{hint}', hint)}</p> : null}
+    </div>
+  );
+}
+
 // K8sResourcesStep 统一向导第 2 步（K8s）：目标 K8s 主机 + namespace + 形态资源配比。
 // K8sResourcesStep is wizard step 2 for Kubernetes: target host, namespace, and
 // topology resource sizing.
@@ -39,6 +94,8 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
   const [hosts, setHosts] = useState<HostInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [hostError, setHostError] = useState<string | null>(null);
+  const [namespaces, setNamespaces] = useState<string[]>([]);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // 主机清单加载失败必须显式可重试，禁止静默吞错后留下无法解释的空选项。
   // Host list failures surface a retry action; never swallow errors silently.
@@ -65,7 +122,36 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
   const patch = (partial: Partial<K8sWizardFormState>) =>
     onChange((prev) => ({...prev, ...partial}));
 
+  // 仅 1 个可用 K8s 主机时自动默认选中，省掉无信息的单选项点击。
+  // Auto-select when exactly one K8s host is available — a single-option click
+  // carries no information.
+  useEffect(() => {
+    if (!loading && hosts.length === 1 && !form.host_id) {
+      patch({host_id: hosts[0].id});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hosts, loading]);
+
+  // namespace 下拉随主机选择加载；清单仅供快选，用户仍可输入新建。
+  // The namespace dropdown loads with the chosen host; the list is a quick-pick
+  // only — typing a new namespace stays supported.
+  useEffect(() => {
+    if (!form.host_id) {
+      setNamespaces([]);
+      return;
+    }
+    services.host
+      .listK8sNamespaces(form.host_id)
+      .then((list) => {
+        if (Array.isArray(list)) setNamespaces(list);
+      })
+      .catch(() => {
+        setNamespaces([]);
+      });
+  }, [form.host_id]);
+
   const separated = form.deployment_mode !== 'hybrid';
+  const heapHintText = (memory: string) => t('cluster.k8s.heapDerivationHint', {hint: deriveHeapHint(memory) || '-'});
 
   return (
     <div className='space-y-4' data-testid='k8s-resources-step'>
@@ -90,13 +176,26 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
           ) : null}
         </div>
         <div className='space-y-1.5'>
-          <Input
-            label='Namespace'
-            value={form.namespace}
-            onChange={(event) => patch({namespace: event.target.value})}
-            placeholder='default'
-            data-testid='k8s-namespace-input'
-          />
+          {namespaces.length > 0 && namespaces.includes(form.namespace) ? (
+            <Select
+              label='Namespace'
+              value={form.namespace}
+              onValueChange={(value) => patch({namespace: value})}
+              options={namespaces.map((ns) => ({value: ns, label: ns}))}
+              data-testid='k8s-namespace-select'
+            />
+          ) : (
+            <Input
+              label='Namespace'
+              value={form.namespace}
+              onChange={(event) => patch({namespace: event.target.value})}
+              placeholder='default'
+              data-testid='k8s-namespace-input'
+            />
+          )}
+          {namespaces.length > 0 && !namespaces.includes(form.namespace) && form.namespace ? (
+            <p className='text-xs text-muted-foreground'>{t('cluster.k8s.namespaceCreateNew')}: {form.namespace}</p>
+          ) : null}
         </div>
       </div>
 
@@ -116,15 +215,14 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
             <div className='space-y-1.5'>
               <Input label={t('cluster.k8s.masterCpu')} value={form.master_cpu} onChange={(e) => patch({master_cpu: e.target.value})} placeholder='0.5' />
             </div>
-            <div className='space-y-1.5'>
-              <Input
-                label={t('cluster.k8s.masterMemory')}
-                value={form.master_memory}
-                onChange={(e) => patch({master_memory: e.target.value})}
-                placeholder='2Gi'
-                data-testid='k8s-master-memory'
-              />
-            </div>
+            <MemoryTierField
+              label={t('cluster.k8s.masterMemory')}
+              value={form.master_memory}
+              onChange={(next) => patch({master_memory: next})}
+              testId='k8s-master-memory'
+              customLabel={t('cluster.k8s.memoryTierCustom')}
+              hintLabel={heapHintText(form.master_memory)}
+            />
           </div>
           <div className='grid grid-cols-3 gap-3'>
             <div className='space-y-1.5'>
@@ -140,15 +238,14 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
             <div className='space-y-1.5'>
               <Input label={t('cluster.k8s.workerCpu')} value={form.worker_cpu} onChange={(e) => patch({worker_cpu: e.target.value})} placeholder='1' />
             </div>
-            <div className='space-y-1.5'>
-              <Input
-                label={t('cluster.k8s.workerMemory')}
-                value={form.worker_memory}
-                onChange={(e) => patch({worker_memory: e.target.value})}
-                placeholder='2Gi'
-                data-testid='k8s-worker-memory'
-              />
-            </div>
+            <MemoryTierField
+              label={t('cluster.k8s.workerMemory')}
+              value={form.worker_memory}
+              onChange={(next) => patch({worker_memory: next})}
+              testId='k8s-worker-memory'
+              customLabel={t('cluster.k8s.memoryTierCustom')}
+              hintLabel={heapHintText(form.worker_memory)}
+            />
           </div>
         </div>
       ) : (
@@ -166,44 +263,55 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
           <div className='space-y-1.5'>
             <Input label={t('cluster.k8s.hybridCpu')} value={form.hybrid_cpu} onChange={(e) => patch({hybrid_cpu: e.target.value})} placeholder='1' />
           </div>
-          <div className='space-y-1.5'>
-            <Input
-              label={t('cluster.k8s.hybridMemory')}
-              value={form.hybrid_memory}
-              onChange={(e) => patch({hybrid_memory: e.target.value})}
-              placeholder='4Gi'
-              data-testid='k8s-hybrid-memory'
-            />
-          </div>
+          <MemoryTierField
+            label={t('cluster.k8s.hybridMemory')}
+            value={form.hybrid_memory}
+            onChange={(next) => patch({hybrid_memory: next})}
+            testId='k8s-hybrid-memory'
+            customLabel={t('cluster.k8s.memoryTierCustom')}
+            hintLabel={heapHintText(form.hybrid_memory)}
+          />
         </div>
       )}
 
-      <div className='grid grid-cols-3 gap-3 border-t pt-3'>
-        <div className='space-y-1.5'>
-          <Input
-            label={t('cluster.k8s.checkpointPvc')}
-            value={form.checkpoint_pvc}
-            onChange={(e) => patch({checkpoint_pvc: e.target.value})}
-            placeholder='optional'
-            data-testid='k8s-checkpoint-pvc'
-          />
-        </div>
-        <div className='space-y-1.5'>
-          <Input
-            label={t('cluster.k8s.imagePullSecrets')}
-            value={form.image_pull_secrets}
-            onChange={(e) => patch({image_pull_secrets: e.target.value})}
-            placeholder='optional, comma separated'
-          />
-        </div>
-        <div className='space-y-1.5'>
-          <Input
-            label={t('cluster.k8s.serviceAccount')}
-            value={form.service_account}
-            onChange={(e) => patch({service_account: e.target.value})}
-            placeholder='optional'
-          />
-        </div>
+      <div className='border-t-[0.5px] border-border/80 pt-3'>
+        <button
+          type='button'
+          className='text-xs text-muted-foreground hover:text-foreground'
+          onClick={() => setAdvancedOpen((open) => !open)}
+          data-testid='k8s-advanced-toggle'
+        >
+          {advancedOpen ? '▾' : '▸'} {t('cluster.k8s.advancedOptions')}
+        </button>
+        {advancedOpen ? (
+          <div className='mt-3 grid grid-cols-3 gap-3'>
+            <div className='space-y-1.5'>
+              <Input
+                label={t('cluster.k8s.checkpointPvc')}
+                value={form.checkpoint_pvc}
+                onChange={(e) => patch({checkpoint_pvc: e.target.value})}
+                placeholder={t('cluster.k8s.optionalPlaceholder')}
+                data-testid='k8s-checkpoint-pvc'
+              />
+            </div>
+            <div className='space-y-1.5'>
+              <Input
+                label={t('cluster.k8s.imagePullSecrets')}
+                value={form.image_pull_secrets}
+                onChange={(e) => patch({image_pull_secrets: e.target.value})}
+                placeholder={t('cluster.k8s.optionalPlaceholder')}
+              />
+            </div>
+            <div className='space-y-1.5'>
+              <Input
+                label={t('cluster.k8s.serviceAccount')}
+                value={form.service_account}
+                onChange={(e) => patch({service_account: e.target.value})}
+                placeholder={t('cluster.k8s.optionalPlaceholder')}
+              />
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

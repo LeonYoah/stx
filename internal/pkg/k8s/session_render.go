@@ -54,7 +54,15 @@ func renderSeatunnelYAML(cfg *SessionConfig) string {
 	// Advanced runtime toggles render dynamically per version capabilities: key
 	// semantics mirror the bare-metal agent renderer exactly (slot-allocate-strategy,
 	// not the misspelled allocation), and unset fields keep upstream-recommended defaults.
-	version := imageTagVersionString(cfg.Image)
+	// 版本口径优先级：集群/镜像显式确认的 Version 先于镜像 tag 猜测——非语义化
+	// 私有镜像 tag（prod-202604 之类）猜不出版本，显式值是唯一可靠来源。
+	// Version priority: the explicitly confirmed cluster/image Version wins over the
+	// image-tag guess — non-semver private tags (prod-202604 etc.) yield nothing, so
+	// the explicit value is the only reliable source.
+	version := strings.TrimSpace(cfg.Version)
+	if version == "" {
+		version = imageTagVersionString(cfg.Image)
+	}
 	caps := seatunnel.CapabilitiesForVersion(version)
 	rt := cfg.Runtime
 	if rt == nil {

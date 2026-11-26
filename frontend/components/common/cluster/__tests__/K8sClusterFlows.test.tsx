@@ -312,10 +312,10 @@ describe('Unified Kubernetes Cluster Flows', () => {
     });
     fireEvent.click(screen.getByRole('button', {name: zh.common.next}));
 
-    // Step2 hosts：选择 K8s 主机 + namespace。
-    // Step 2 hosts: pick the Kubernetes host and namespace.
-    fireEvent.click(await screen.findByTestId('k8s-host-select'));
-    fireEvent.click(await screen.findByText('k8s-staging'));
+    // Step2 hosts：唯一 K8s 主机自动默认选中，只需填 namespace。
+    // Step 2 hosts: the single Kubernetes host auto-selects; only the namespace
+    // needs filling.
+    expect(await screen.findByTestId('k8s-host-select')).toBeInTheDocument();
     fireEvent.change(screen.getByTestId('k8s-namespace-input'), {
       target: {value: 'seatunnel'},
     });

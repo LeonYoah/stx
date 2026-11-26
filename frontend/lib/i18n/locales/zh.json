@@ -2191,7 +2191,17 @@
       "proxyDerivedMemory": "容器内存自动联动：limits {limit} / requests {request}",
       "checkpointPvcPlaceholder": "checkpoint PVC 名（可选，持久化本地快照）",
       "imapSyncFromCheckpoint": "从 Checkpoint 复制配置",
-      "storageEndpoint": "端点"
+      "storageEndpoint": "端点",
+      "storageType": "存储类型",
+      "storageBucket": "Bucket",
+      "storageAccessKey": "Access Key",
+      "storageSecretKey": "Secret Key",
+      "optionalPlaceholder": "可选",
+      "memoryTierCustom": "自定义",
+      "heapDerivationHint": "JVM 堆自动推导为容器内存的 1/2：{hint}",
+      "namespaceCreateNew": "新建 namespace",
+      "namespaceSelectOrCreate": "选择或输入新 namespace",
+      "advancedOptions": "高级选项"
     }
   },
   "audit": {
@@ -7008,7 +7018,7 @@
       "deleteConfirm": "删除注册镜像「{name}」？已部署集群不受影响。",
       "presetRegisterHint": "点击预填注册表单",
       "registryTitle": "私有仓库凭据（可选）",
-      "registryHint": "填写后部署时自动在目标 namespace 创建拉取凭据 Secret，无需手工 kubectl 操作",
+      "registryHint": "填写后部署时自动在目标 namespace 创建拉取凭据 Secret，无需手工 kubectl 操作；支持 HTTP/HTTPS 私有仓库，HTTP 仓库需节点容器运行时配置 insecure-registry 信任",
       "registryHost": "仓库地址",
       "registryUsername": "用户名",
       "registryPassword": "密码 / Token",

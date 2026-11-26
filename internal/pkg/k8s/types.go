@@ -126,6 +126,7 @@ type SessionConfig struct {
 	ExternalBaseURL  string           `json:"external_base_url"`
 	STXCallbackURL   string           `json:"stx_callback_url"`
 
+	Version          string   `json:"version,omitempty"`
 	Image            string   `json:"image"`
 	ImagePullPolicy  string   `json:"image_pull_policy"`
 	ImagePullSecrets []string `json:"image_pull_secrets"`

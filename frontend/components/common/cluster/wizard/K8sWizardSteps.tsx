@@ -226,7 +226,7 @@ export function K8sConfigContent({form, patch}: StepProps) {
           <>
             <div className='grid grid-cols-2 gap-3'>
               <Select
-                aria-label='storage type'
+                label={t('cluster.k8s.storageType')}
                 value={storage.storage_type}
                 onValueChange={(value) => patchStorage(kind, {storage_type: value})}
                 options={[
@@ -249,15 +249,6 @@ export function K8sConfigContent({form, patch}: StepProps) {
                 <p className='rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning' data-testid={`k8s-${kind}-localfile-warning`}>
                   {t('cluster.k8s.localFileWarning')}
                 </p>
-                {kind === 'checkpoint' ? (
-                  <Input
-                    label={t('cluster.k8s.checkpointPvc')}
-                    placeholder={t('cluster.k8s.checkpointPvcPlaceholder')}
-                    value={form.checkpoint_pvc}
-                    onChange={(e) => patch({checkpoint_pvc: e.target.value})}
-                    data-testid='k8s-checkpoint-pvc'
-                  />
-                ) : null}
               </>
             ) : (
               <div className='space-y-2'>
@@ -270,13 +261,13 @@ export function K8sConfigContent({form, patch}: StepProps) {
                     data-testid={`k8s-${kind}-endpoint`}
                   />
                   {storage.storage_type !== 'HDFS' ? (
-                    <Input label='bucket' value={storage.bucket} onChange={(e) => patchStorage(kind, {bucket: e.target.value})} />
+                    <Input label={t('cluster.k8s.storageBucket')} value={storage.bucket} onChange={(e) => patchStorage(kind, {bucket: e.target.value})} />
                   ) : null}
                   {storage.storage_type !== 'HDFS' ? (
-                    <Input label='access key' value={storage.access_key} onChange={(e) => patchStorage(kind, {access_key: e.target.value})} />
+                    <Input label={t('cluster.k8s.storageAccessKey')} value={storage.access_key} onChange={(e) => patchStorage(kind, {access_key: e.target.value})} />
                   ) : null}
                   {storage.storage_type !== 'HDFS' ? (
-                    <Input label='secret key' type='password' value={storage.secret_key} onChange={(e) => patchStorage(kind, {secret_key: e.target.value})} />
+                    <Input label={t('cluster.k8s.storageSecretKey')} type='password' value={storage.secret_key} onChange={(e) => patchStorage(kind, {secret_key: e.target.value})} />
                   ) : null}
                 </div>
                 {kind === 'imap' ? (
@@ -354,8 +345,6 @@ export function K8sConfigContent({form, patch}: StepProps) {
               onValueChange={(value) => patch({java_proxy_mode: value})}
               options={[
                   {value: 'managed', label: t('cluster.k8s.proxyModeManaged')},
-                  {value: 'reuse_cluster', label: t('cluster.k8s.proxyModeReuse')},
-                  {value: 'external', label: t('cluster.k8s.proxyModeExternal')},
                   {value: 'disabled', label: t('cluster.k8s.proxyModeDisabled')},
                 ]}
               data-testid='k8s-proxy-mode'

@@ -167,6 +167,19 @@ export function ContainerImagePanel() {
         patch({seatunnel_version: derived});
       }
     }
+    // registry_host 从镜像引用自动推导：首段含 .或:或是 localhost 即为 registry，
+    // 剥离误带的 http(s):// 与尾斜杠；用户已手填则不覆盖。
+    // The registry host auto-derives from the image reference: the first segment is a
+    // registry when it contains a dot or colon or is localhost; accidental schemes and
+    // trailing slashes are stripped. Manual input is never overwritten.
+    if (!form.registry_host.trim()) {
+      const cleaned = form.image.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+      const firstSegment = cleaned.split('/')[0] || '';
+      if (firstSegment && (/[.:]/.test(firstSegment) || firstSegment === 'localhost') && cleaned.includes('/')) {
+        patch({registry_host: firstSegment});
+      }
+    }
+    }
   }, [form.seatunnel_version, form.image, patch]);
 
   const save = async () => {

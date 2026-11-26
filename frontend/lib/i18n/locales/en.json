@@ -2191,7 +2191,17 @@
       "proxyDerivedMemory": "Container memory derives automatically: limits {limit} / requests {request}",
       "checkpointPvcPlaceholder": "checkpoint PVC name (optional, persists local snapshots)",
       "imapSyncFromCheckpoint": "Copy from checkpoint config",
-      "storageEndpoint": "Endpoint"
+      "storageEndpoint": "Endpoint",
+      "storageType": "Storage type",
+      "storageBucket": "Bucket",
+      "storageAccessKey": "Access key",
+      "storageSecretKey": "Secret key",
+      "optionalPlaceholder": "optional",
+      "memoryTierCustom": "Custom",
+      "heapDerivationHint": "JVM heap auto-derives as half the container memory: {hint}",
+      "namespaceCreateNew": "Create namespace",
+      "namespaceSelectOrCreate": "Select or type a new namespace",
+      "advancedOptions": "Advanced options"
     }
   },
   "audit": {
@@ -7008,7 +7018,7 @@
       "deleteConfirm": "Delete registered image \"{name}\"? Deployed clusters are not affected.",
       "presetRegisterHint": "Click to prefill the registration form",
       "registryTitle": "Private registry credentials (optional)",
-      "registryHint": "When filled, deploys automatically create the pull-secret in the target namespace — no manual kubectl work",
+      "registryHint": "When filled, deploys automatically create the pull-secret in the target namespace — no manual kubectl needed. HTTP/HTTPS private registries are supported; HTTP registries require insecure-registry trust in the node container runtime",
       "registryHost": "Registry host",
       "registryUsername": "Username",
       "registryPassword": "Password / token",

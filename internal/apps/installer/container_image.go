@@ -111,11 +111,21 @@ func validateContainerImageRequest(req *ContainerImageRequest) error {
 	req.Image = strings.TrimSpace(req.Image)
 	req.SeatunnelVersion = strings.TrimSpace(req.SeatunnelVersion)
 	req.ImagePullPolicy = strings.TrimSpace(req.ImagePullPolicy)
+	// registry_host 统一清洗（剥离误带 scheme 与尾斜杠），与 Secret 代建处同一口径。
+	// Registry host is normalized in one place (scheme and trailing slashes stripped),
+	// matching the secret materialization path.
+	req.RegistryHost = sanitizeRegistryHostForImage(req.RegistryHost)
 	if req.Name == "" {
 		return errors.New("name is required")
 	}
 	if req.Image == "" {
 		return errors.New("image is required")
+	}
+	// 误带 scheme 的 image 引用必然后续拉取失败，明确校验错误而不是放进库等炸。
+	// An image reference carrying a scheme always fails to pull later, so reject it
+	// with a clear validation error instead of persisting a time bomb.
+	if strings.HasPrefix(req.Image, "http://") || strings.HasPrefix(req.Image, "https://") {
+		return errors.New("image must not include a scheme (http:// or https://); use the bare registry host")
 	}
 	if !strings.Contains(req.Image, ":") && !strings.Contains(req.Image, "@") {
 		return errors.New("image must include a tag or digest")
@@ -310,4 +320,15 @@ func (s *Service) DeleteContainerImage(ctx context.Context, id uint) error {
 		return errors.New("container image not found")
 	}
 	return nil
+}
+
+// sanitizeRegistryHostForImage 与 k8s.SanitizeRegistryHost 同口径的本地实现：
+// installer 包不反向依赖 k8s 包，保持分层。
+// sanitizeRegistryHostForImage mirrors k8s.SanitizeRegistryHost locally: the installer
+// package must not depend back on the k8s package per layering.
+func sanitizeRegistryHostForImage(host string) string {
+	trimmed := strings.TrimSpace(host)
+	trimmed = strings.TrimPrefix(trimmed, "http://")
+	trimmed = strings.TrimPrefix(trimmed, "https://")
+	return strings.TrimRight(trimmed, "/")
 }

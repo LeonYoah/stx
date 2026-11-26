@@ -835,7 +835,7 @@ func int32ptr(v int32) *int32 { return &v }
 func EnsureRegistryCredentialSecret(ctx context.Context, clientset kubernetes.Interface, namespace, clusterCode, host, username, password string) (string, error) {
 	names := ResourceNamesFor(clusterCode)
 	secretName := names.RegistryCredentialSecret
-	host = strings.TrimSpace(host)
+	host = SanitizeRegistryHost(host)
 	if host == "" || username == "" || password == "" {
 		return "", fmt.Errorf("k8s: registry credential requires host/username/password")
 	}
@@ -872,4 +872,16 @@ func EnsureRegistryCredentialSecret(ctx context.Context, clientset kubernetes.In
 		return "", fmt.Errorf("k8s: update registry credential secret: %w", err)
 	}
 	return secretName, nil
+}
+
+// SanitizeRegistryHost 清洗 registry host：剥离误带的 http://、https:// 与尾部斜杠，
+// dockerconfigjson 的 auths 键必须是纯 host[:port]，带 scheme 会静默不匹配导致拉取认证失败。
+// SanitizeRegistryHost strips an accidental http:// or https:// scheme and trailing
+// slashes: dockerconfigjson auths keys must be bare host[:port], and a scheme silently
+// mismatches so pulls fail authentication.
+func SanitizeRegistryHost(host string) string {
+	trimmed := strings.TrimSpace(host)
+	trimmed = strings.TrimPrefix(trimmed, "http://")
+	trimmed = strings.TrimPrefix(trimmed, "https://")
+	return strings.TrimRight(trimmed, "/")
 }

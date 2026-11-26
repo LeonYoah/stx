@@ -346,6 +346,12 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 
 // K8sPrecheckHandler handles POST /api/v1/clusters/k8s/precheck.
 // K8sPrecheckHandler 处理创建向导 K8s 预检请求。
+// @Summary K8s 创建预检 / Kubernetes creation precheck
+// @Tags clusters
+// @Produce json
+// @Param body body map[string]interface{} true "预检请求 / Precheck request"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/clusters/k8s/precheck [post]
 func (h *Handler) K8sPrecheckHandler(c *gin.Context) {
 	var req K8sPrecheckRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

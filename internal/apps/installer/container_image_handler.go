@@ -26,6 +26,11 @@ import (
 
 // ListContainerImages GET /api/v1/packages/images
 // ListContainerImages 列出已注册容器镜像与官方预设。
+// @Summary 列出注册容器镜像 / List registered container images
+// @Tags packages
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/packages/images [get]
 func (h *Handler) ListContainerImages(c *gin.Context) {
 	result, err := h.service.ListContainerImages(c.Request.Context())
 	if err != nil {
@@ -37,6 +42,12 @@ func (h *Handler) ListContainerImages(c *gin.Context) {
 
 // CreateContainerImage POST /api/v1/packages/images
 // CreateContainerImage 注册容器镜像。
+// @Summary 注册容器镜像（管理员） / Register a container image (admin)
+// @Tags packages
+// @Produce json
+// @Param body body map[string]interface{} true "镜像定义 / Image definition"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/packages/images [post]
 func (h *Handler) CreateContainerImage(c *gin.Context) {
 	var req ContainerImageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -53,6 +64,13 @@ func (h *Handler) CreateContainerImage(c *gin.Context) {
 
 // UpdateContainerImage PUT /api/v1/packages/images/:id
 // UpdateContainerImage 更新容器镜像。
+// @Summary 更新容器镜像（管理员） / Update a container image (admin)
+// @Tags packages
+// @Produce json
+// @Param id path int true "镜像 ID / Image ID"
+// @Param body body map[string]interface{} true "镜像定义 / Image definition"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/packages/images/{id} [put]
 func (h *Handler) UpdateContainerImage(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -74,6 +92,12 @@ func (h *Handler) UpdateContainerImage(c *gin.Context) {
 
 // DeleteContainerImage DELETE /api/v1/packages/images/:id
 // DeleteContainerImage 删除容器镜像。
+// @Summary 删除容器镜像（管理员） / Delete a container image (admin)
+// @Tags packages
+// @Produce json
+// @Param id path int true "镜像 ID / Image ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/packages/images/{id} [delete]
 func (h *Handler) DeleteContainerImage(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

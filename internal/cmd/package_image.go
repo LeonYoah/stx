@@ -18,8 +18,11 @@
 package cmd
 
 import (
+	"io"
 	"net/http"
+	"strings"
 
+	clioutput "github.com/LeonYoah/stx/internal/cli/output"
 	"github.com/spf13/cobra"
 )
 
@@ -33,9 +36,10 @@ type containerImageFlags struct {
 	pullSecrets      string
 	isDefault        bool
 	description      string
-	registryHost     string
-	registryUsername string
-	registryPassword string
+	registryHost          string
+	registryUsername      string
+	registryPassword      string
+	registryPasswordStdin bool
 }
 
 func addContainerImageFlags(command *cobra.Command, fields *containerImageFlags) {
@@ -48,7 +52,13 @@ func addContainerImageFlags(command *cobra.Command, fields *containerImageFlags)
 	command.Flags().StringVar(&fields.description, "description", "", "Description")
 	command.Flags().StringVar(&fields.registryHost, "registry-host", "", "Private registry host for credential materialization")
 	command.Flags().StringVar(&fields.registryUsername, "registry-username", "", "Private registry username")
-	command.Flags().StringVar(&fields.registryPassword, "registry-password", "", "Private registry password or token")
+	// --registry-password 仅为兼容保留：明文密码会进入 shell 历史与进程列表，
+	// 推荐 --registry-password-stdin 或 TTY 隐藏输入。
+	// --registry-password stays only for compatibility: plaintext passwords leak into
+	// shell history and process lists; prefer --registry-password-stdin or the hidden
+	// TTY prompt.
+	command.Flags().StringVar(&fields.registryPassword, "registry-password", "", "Private registry password or token (not recommended; prefer --registry-password-stdin)")
+	command.Flags().BoolVar(&fields.registryPasswordStdin, "registry-password-stdin", false, "Read the registry password from stdin")
 }
 
 func containerImageBody(fields *containerImageFlags) map[string]any {
@@ -82,6 +92,9 @@ func newPackageImageCreateCommand(storeProvider authStoreProvider) *cobra.Comman
 			if err != nil {
 				return err
 			}
+			if err := resolveRegistryPassword(command, &fields, command.InOrStdin()); err != nil {
+				return err
+			}
 			var data any
 			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost,
 				"/api/v1/packages/images", containerImageBody(&fields), headers, &data)
@@ -112,6 +125,9 @@ func newPackageImageUpdateCommand(storeProvider authStoreProvider) *cobra.Comman
 			if err != nil {
 				return err
 			}
+			if err := resolveRegistryPassword(command, &fields, command.InOrStdin()); err != nil {
+				return err
+			}
 			var data any
 			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPut,
 				"/api/v1/packages/images/"+args[0], containerImageBody(&fields), headers, &data)
@@ -124,4 +140,43 @@ func newPackageImageUpdateCommand(storeProvider authStoreProvider) *cobra.Comman
 	addPackageWriteFlags(command, &options)
 	addContainerImageFlags(command, &fields)
 	return command
+}
+
+// resolveRegistryPassword 密码输入收口：stdin 优先、显式明文兼容、TTY 隐藏交互，
+// 非 TTY 且无输入时明确报错而不是静默发空密码。
+// resolveRegistryPassword funnels password input: stdin wins, explicit plaintext stays
+// for compatibility, a TTY falls back to the hidden prompt, and non-TTY without input
+// errors out explicitly instead of silently sending an empty password.
+func resolveRegistryPassword(command *cobra.Command, fields *containerImageFlags, stdin io.Reader) error {
+	if fields.registryPassword != "" && fields.registryPasswordStdin {
+		return clioutput.NewError(clioutput.CodeUsage, "--registry-password cannot be combined with --registry-password-stdin", clioutput.ExitUsage, false)
+	}
+	needsPassword := strings.TrimSpace(fields.registryHost) != "" || strings.TrimSpace(fields.registryUsername) != ""
+	if fields.registryPasswordStdin {
+		content, err := io.ReadAll(stdin)
+		if err != nil {
+			return clioutput.WrapError(err, clioutput.CodeUsage, "read registry password from stdin", clioutput.ExitUsage, false)
+		}
+		password := strings.TrimRight(string(content), "\r\n")
+		if password == "" {
+			return clioutput.NewError(clioutput.CodeUsage, "registry-password-stdin is empty", clioutput.ExitUsage, false)
+		}
+		fields.registryPassword = password
+		return nil
+	}
+	if fields.registryPassword != "" || !needsPassword {
+		return nil
+	}
+	if !isTerminalReader(stdin) {
+		return clioutput.NewError(clioutput.CodeUsage, "registry credentials in non-interactive mode require --registry-password-stdin", clioutput.ExitUsage, false)
+	}
+	password, err := readTerminalPassword(stdin, command.ErrOrStderr())
+	if err != nil {
+		return clioutput.WrapError(err, clioutput.CodeUsage, "read registry password", clioutput.ExitUsage, false)
+	}
+	if password == "" {
+		return clioutput.NewError(clioutput.CodeUsage, "registry password is empty", clioutput.ExitUsage, false)
+	}
+	fields.registryPassword = password
+	return nil
 }

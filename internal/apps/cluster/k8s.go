@@ -875,6 +875,12 @@ func (s *Service) requireK8sSession(cluster *Cluster) (*k8s.SessionConfig, error
 // ==================== HTTP Handlers HTTP 处理器 ====================
 
 // CreateKubernetesCluster handles POST /api/v1/clusters/kubernetes.
+// @Summary 创建 K8s 集群（纳管或部署） / Create a kubernetes cluster (adopt or deploy)
+// @Tags clusters
+// @Produce json
+// @Param body body map[string]interface{} true "创建请求 / Create request"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/clusters/kubernetes [post]
 func (h *Handler) CreateKubernetesCluster(c *gin.Context) {
 	var req K8sClusterCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -912,6 +918,13 @@ func (h *Handler) loadK8sCluster(c *gin.Context) (*Cluster, bool) {
 }
 
 // ScaleK8s handles POST /api/v1/clusters/:id/k8s/scale.
+// @Summary 扩缩容 K8s 组件 / Scale a kubernetes component
+// @Tags clusters
+// @Produce json
+// @Param id path int true "集群 ID / Cluster ID"
+// @Param body body map[string]interface{} true "component+replicas"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/clusters/{id}/k8s/scale [post]
 func (h *Handler) ScaleK8s(c *gin.Context) {
 	cluster, ok := h.loadK8sCluster(c)
 	if !ok {
@@ -933,6 +946,13 @@ func (h *Handler) ScaleK8s(c *gin.Context) {
 }
 
 // RolloutRestartK8s handles POST /api/v1/clusters/:id/k8s/rollout-restart.
+// @Summary 滚动重启 K8s 组件 / Rolling-restart a kubernetes component
+// @Tags clusters
+// @Produce json
+// @Param id path int true "集群 ID / Cluster ID"
+// @Param body body map[string]interface{} true "component"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/clusters/{id}/k8s/rollout-restart [post]
 func (h *Handler) RolloutRestartK8s(c *gin.Context) {
 	cluster, ok := h.loadK8sCluster(c)
 	if !ok {
@@ -953,6 +973,13 @@ func (h *Handler) RolloutRestartK8s(c *gin.Context) {
 }
 
 // UpgradeK8sImage handles POST /api/v1/clusters/:id/k8s/upgrade-image.
+// @Summary 不可变镜像升级 / Immutable-image upgrade
+// @Tags clusters
+// @Produce json
+// @Param id path int true "集群 ID / Cluster ID"
+// @Param body body map[string]interface{} true "image+target_version"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/clusters/{id}/k8s/upgrade-image [post]
 func (h *Handler) UpgradeK8sImage(c *gin.Context) {
 	cluster, ok := h.loadK8sCluster(c)
 	if !ok {
@@ -974,6 +1001,12 @@ func (h *Handler) UpgradeK8sImage(c *gin.Context) {
 }
 
 // GetK8sPods handles GET /api/v1/clusters/:id/k8s/pods.
+// @Summary 列出集群 Pod / List cluster pods
+// @Tags clusters
+// @Produce json
+// @Param id path int true "集群 ID / Cluster ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/clusters/{id}/k8s/pods [get]
 func (h *Handler) GetK8sPodsHandler(c *gin.Context) {
 	cluster, ok := h.loadK8sCluster(c)
 	if !ok {
@@ -991,6 +1024,13 @@ func (h *Handler) GetK8sPodsHandler(c *gin.Context) {
 }
 
 // GetK8sPodLogsHandler handles GET /api/v1/clusters/:id/k8s/pods/:pod/logs.
+// @Summary 读取 Pod 日志 / Read pod logs
+// @Tags clusters
+// @Produce json
+// @Param id path int true "集群 ID / Cluster ID"
+// @Param pod path string true "Pod 名 / Pod name"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/clusters/{id}/k8s/pods/{pod}/logs [get]
 func (h *Handler) GetK8sPodLogsHandler(c *gin.Context) {
 	cluster, ok := h.loadK8sCluster(c)
 	if !ok {
@@ -1013,6 +1053,13 @@ func (h *Handler) GetK8sPodLogsHandler(c *gin.Context) {
 }
 
 // DeleteK8sPodHandler handles DELETE /api/v1/clusters/:id/k8s/pods/:pod.
+// @Summary 删除 Pod（重建自愈） / Delete a pod for recreation
+// @Tags clusters
+// @Produce json
+// @Param id path int true "集群 ID / Cluster ID"
+// @Param pod path string true "Pod 名 / Pod name"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/clusters/{id}/k8s/pods/{pod} [delete]
 func (h *Handler) DeleteK8sPodHandler(c *gin.Context) {
 	cluster, ok := h.loadK8sCluster(c)
 	if !ok {
@@ -1027,6 +1074,12 @@ func (h *Handler) DeleteK8sPodHandler(c *gin.Context) {
 
 // RetryK8sJavaProxy handles POST /api/v1/clusters/:id/k8s/java-proxy/retry — 一键重试拉起伴生 Proxy。
 // RetryK8sJavaProxy re-triggers companion proxy provisioning after a failed auto-start.
+// @Summary 重试伴生 Proxy 拉起 / Retry companion proxy bootstrap
+// @Tags clusters
+// @Produce json
+// @Param id path int true "集群 ID / Cluster ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/clusters/{id}/k8s/java-proxy/retry [post]
 func (h *Handler) RetryK8sJavaProxy(c *gin.Context) {
 	cluster, ok := h.loadK8sCluster(c)
 	if !ok {
@@ -1041,6 +1094,12 @@ func (h *Handler) RetryK8sJavaProxy(c *gin.Context) {
 }
 
 // GetK8sConfigMap handles GET /api/v1/clusters/:id/k8s/configmap.
+// @Summary 读取集群 ConfigMap / Read the cluster ConfigMap
+// @Tags clusters
+// @Produce json
+// @Param id path int true "集群 ID / Cluster ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/clusters/{id}/k8s/configmap [get]
 func (h *Handler) GetK8sConfigMap(c *gin.Context) {
 	cluster, ok := h.loadK8sCluster(c)
 	if !ok {
@@ -1058,6 +1117,14 @@ func (h *Handler) GetK8sConfigMap(c *gin.Context) {
 }
 
 // UpdateK8sConfigMapFile handles PUT /api/v1/clusters/:id/k8s/configmap/:file.
+// @Summary 回写 ConfigMap 文件 / Write back a ConfigMap file
+// @Tags clusters
+// @Produce json
+// @Param id path int true "集群 ID / Cluster ID"
+// @Param file path string true "文件名 / File name"
+// @Param body body map[string]interface{} true "content+restart"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/clusters/{id}/k8s/configmap/{file} [put]
 func (h *Handler) UpdateK8sConfigMapFile(c *gin.Context) {
 	cluster, ok := h.loadK8sCluster(c)
 	if !ok {

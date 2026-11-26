@@ -97,6 +97,12 @@ func (h *Handler) SetK8sClientManager(m *k8s.ClientManager) {
 // 不写入任何 K8s 对象。
 // TestK8sConnection runs a strictly read-only probe: version detection plus
 // SelfSubjectAccessReview RBAC precheck, without writing any K8s object.
+// @Summary 测试 K8s 主机连通性与 RBAC / Test kubernetes host connectivity and RBAC
+// @Tags hosts
+// @Produce json
+// @Param id path int true "主机 ID / Host ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/hosts/{id}/test-connection [post]
 func (h *Handler) TestK8sConnection(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -140,6 +146,12 @@ func (h *Handler) TestK8sConnection(c *gin.Context) {
 
 // ListK8sNamespaces 列出该 Host 可见的 Namespace 供创建向导下拉选择。
 // ListK8sNamespaces lists visible namespaces for the creation wizard dropdown.
+// @Summary 列出可见 namespace / List visible kubernetes namespaces
+// @Tags hosts
+// @Produce json
+// @Param id path int true "主机 ID / Host ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/hosts/{id}/k8s/namespaces [get]
 func (h *Handler) ListK8sNamespaces(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -164,6 +176,13 @@ func (h *Handler) ListK8sNamespaces(c *gin.Context) {
 
 // DiscoverK8sSeaTunnelClusters 扫描 Namespace 内可纳管的 SeaTunnel 集群。
 // DiscoverK8sSeaTunnelClusters scans a namespace for adoptable SeaTunnel clusters.
+// @Summary 扫描可纳管 SeaTunnel 集群 / Discover adoptable SeaTunnel clusters
+// @Tags hosts
+// @Produce json
+// @Param id path int true "主机 ID / Host ID"
+// @Param namespace query string false "Namespace"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/hosts/{id}/k8s/discover [get]
 func (h *Handler) DiscoverK8sSeaTunnelClusters(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -193,6 +212,14 @@ func (h *Handler) DiscoverK8sSeaTunnelClusters(c *gin.Context) {
 
 // ListK8sNamespaceObjects 按 kind 列出 namespace 内已有对象供向导高级选项下拉。
 // ListK8sNamespaceObjects lists existing namespace objects by kind for wizard dropdowns.
+// @Summary 列出 namespace 内已有对象 / List existing namespace objects by kind
+// @Tags hosts
+// @Produce json
+// @Param id path int true "主机 ID / Host ID"
+// @Param namespace path string true "Namespace"
+// @Param kind query string true "secrets|serviceaccounts|pvcs"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/hosts/{id}/k8s/namespaces/{namespace}/objects [get]
 func (h *Handler) ListK8sNamespaceObjects(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

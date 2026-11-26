@@ -263,8 +263,7 @@ export function ContainerRegistryPanel() {
 
   return (
     <div className='space-y-3' data-testid='container-registry-panel'>
-      <div className='flex items-center justify-between'>
-        <p className='text-sm text-muted-foreground'>{t('subtitle')}</p>
+      <div className='flex items-center justify-end'>
         <span className='inline-flex items-center gap-2'>
           {hasSelection ? (
             <ConfirmMorph
@@ -304,6 +303,9 @@ export function ContainerRegistryPanel() {
           selectable
           selectedKeys={selectedKeys}
           onSelectionChange={setSelectedKeys}
+          onRowActivate={(row) => {
+            if (!row.is_system) {openEdit(row);}
+          }}
         />
       )}
       <Drawer open={dialogOpen} onOpenChange={setDialogOpen}>

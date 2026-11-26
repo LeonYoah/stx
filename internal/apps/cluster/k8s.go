@@ -29,7 +29,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	pluginapp "github.com/LeonYoah/stx/internal/apps/plugin"
+	"github.com/LeonYoah/stx/internal/db"
 	"github.com/LeonYoah/stx/internal/pkg/infra"
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -282,6 +284,15 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 		}
 	}
 	if cfg.ManagementSource == k8s.ManagementSourceSTXDeployed {
+		// 注册镜像携带私有仓库凭据时，先在目标 namespace 代建 dockerconfigjson Secret
+		// 并并入 imagePullSecrets：用户零 kubectl 操作即可拉取私有镜像。
+		// When the registered image carries private-registry credentials, materialize the
+		// dockerconfigjson secret in the target namespace and merge it into imagePullSecrets
+		// so private pulls need zero manual kubectl work.
+		if err := s.ensureK8sRegistryCredential(ctx, cfg, cluster); err != nil {
+			_ = s.repo.Delete(ctx, cluster.ID)
+			return nil, err
+		}
 		deployer := k8s.NewSessionManager(s.k8sManager)
 		if _, err := deployer.Deploy(ctx, &k8s.DeployOptions{Config: cfg, ClusterCode: cluster.EffectiveClusterCode(), ClusterID: cluster.ID, CreateRBAC: cfg.ServiceAccount == ""}); err != nil {
 			_ = s.repo.Delete(ctx, cluster.ID)
@@ -1097,3 +1108,48 @@ func (s *Service) executeK8sLifecycleOperation(ctx context.Context, cluster *Clu
 	}
 	return nil, fmt.Errorf("cluster: unsupported operation %q for kubernetes cluster", operation)
 }
+
+// ensureK8sRegistryCredential 解析注册镜像的私有仓库凭据并代建拉取 Secret。
+// 镜像未注册或无凭据时静默跳过；已存在同名 Secret 且归属本集群时原地更新。
+// ensureK8sRegistryCredential resolves the registered image's private-registry
+// credentials and materializes the pull secret. Unregistered images or missing
+// credentials are a no-op; an existing cluster-owned secret is updated in place.
+func (s *Service) ensureK8sRegistryCredential(ctx context.Context, cfg *k8s.SessionConfig, cluster *Cluster) error {
+	if s.k8sManager == nil {
+		return nil
+	}
+	imageRef := strings.TrimSpace(cfg.Image)
+	if imageRef == "" {
+		return nil
+	}
+	var row installerapp.ContainerImage
+	err := db.GetDB(ctx).WithContext(ctx).Where("image = ?", imageRef).First(&row).Error
+	if err != nil {
+		// 未注册的自定义镜像：凭据依赖用户预建 secret，不阻断。
+		// Unregistered custom images rely on user-provisioned secrets; do not block.
+		return nil
+	}
+	if !row.HasCredentials() {
+		return nil
+	}
+	password, err := row.DecryptRegistryPassword()
+	if err != nil {
+		return fmt.Errorf("cluster: decrypt registry credential: %w", err)
+	}
+	clientset, err := s.k8sManager.Clientset(ctx, cfg.HostID)
+	if err != nil {
+		return err
+	}
+	secretName, err := k8s.EnsureRegistryCredentialSecret(ctx, clientset, cfg.Namespace, cluster.EffectiveClusterCode(), row.RegistryHost, row.RegistryUsername, password)
+	if err != nil {
+		return err
+	}
+	for _, existing := range cfg.ImagePullSecrets {
+		if existing == secretName {
+			return nil
+		}
+	}
+	cfg.ImagePullSecrets = append(cfg.ImagePullSecrets, secretName)
+	return nil
+}
+

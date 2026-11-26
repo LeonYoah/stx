@@ -19,6 +19,7 @@ package k8s
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -105,20 +106,25 @@ type SessionResourceNames struct {
 	ServiceAccount string
 	Role           string
 	RoleBinding    string
+	// RegistryCredentialSecret 私有仓库凭据 Secret 名（仅注册镜像带凭据时创建）。
+	// RegistryCredentialSecret is the private-registry credential secret name, created
+	// only when the registered image carries credentials.
+	RegistryCredentialSecret string
 }
 
 // ResourceNamesFor 计算指定 cluster code 的资源命名。
 // ResourceNamesFor computes resource names for a cluster code.
 func ResourceNamesFor(clusterCode string) *SessionResourceNames {
 	return &SessionResourceNames{
-		ConfigMap:      clusterCode + "-configs",
-		ClusterSvc:     clusterCode,
-		MasterSvc:      clusterCode + "-master",
-		MasterSTS:      clusterCode + "-master",
-		WorkerSTS:      clusterCode + "-worker",
-		ServiceAccount: clusterCode,
-		Role:           clusterCode,
-		RoleBinding:    clusterCode,
+		ConfigMap:                clusterCode + "-configs",
+		ClusterSvc:               clusterCode,
+		MasterSvc:                clusterCode + "-master",
+		MasterSTS:                clusterCode + "-master",
+		WorkerSTS:                clusterCode + "-worker",
+		ServiceAccount:           clusterCode,
+		Role:                     clusterCode,
+		RoleBinding:              clusterCode,
+		RegistryCredentialSecret: "stx-regcred-" + clusterCode,
 	}
 }
 
@@ -727,6 +733,16 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 		}
 		return clientset.CoreV1().ServiceAccounts(ns).Delete(ctx, names.ServiceAccount, metav1.DeleteOptions{})
 	})
+	deleteOne("secret/"+names.RegistryCredentialSecret, func() error {
+		obj, err := clientset.CoreV1().Secrets(ns).Get(ctx, names.RegistryCredentialSecret, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if !isOwnedByCluster(obj.Labels, clusterCode) {
+			return nil
+		}
+		return clientset.CoreV1().Secrets(ns).Delete(ctx, names.RegistryCredentialSecret, metav1.DeleteOptions{})
+	})
 	deleteOne("role/"+names.Role, func() error {
 		obj, err := clientset.RbacV1().Roles(ns).Get(ctx, names.Role, metav1.GetOptions{})
 		if err != nil {
@@ -787,3 +803,52 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 }
 
 func int32ptr(v int32) *int32 { return &v }
+
+// EnsureRegistryCredentialSecret 为私有仓库镜像代建 dockerconfigjson 拉取凭据 Secret：
+// 命名按集群确定性生成并打归属标签，随 Uninstall 级联回收；已存在且归属本集群时
+// 原地更新凭据内容（镜像注册信息可能被重新编辑）。
+// EnsureRegistryCredentialSecret materializes a dockerconfigjson pull secret for private
+// registry images: the name is deterministic per cluster and carries ownership labels so
+// Uninstall cascades it; an existing cluster-owned secret is updated in place because the
+// registered credentials may have been edited.
+func EnsureRegistryCredentialSecret(ctx context.Context, clientset kubernetes.Interface, namespace, clusterCode, host, username, password string) (string, error) {
+	names := ResourceNamesFor(clusterCode)
+	secretName := names.RegistryCredentialSecret
+	host = strings.TrimSpace(host)
+	if host == "" || username == "" || password == "" {
+		return "", fmt.Errorf("k8s: registry credential requires host/username/password")
+	}
+	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	dockerConfig := fmt.Sprintf(`{"auths":{%q:{"username":%q,"password":%q,"auth":%q}}}`, host, username, password, auth)
+	labels := map[string]string{
+		"app.kubernetes.io/managed-by": "stx",
+		LabelClusterCodeKey:            clusterCode,
+	}
+	existing, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace, Labels: labels},
+			Type:       corev1.SecretTypeDockerConfigJson,
+			Data:       map[string][]byte{corev1.DockerConfigJsonKey: []byte(dockerConfig)},
+		}
+		if _, err := clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
+			return "", fmt.Errorf("k8s: create registry credential secret: %w", err)
+		}
+		return secretName, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("k8s: get registry credential secret: %w", err)
+	}
+	if !isOwnedByCluster(existing.Labels, clusterCode) {
+		return "", errResourceConflict("secret", secretName)
+	}
+	existing.Type = corev1.SecretTypeDockerConfigJson
+	if existing.Data == nil {
+		existing.Data = map[string][]byte{}
+	}
+	existing.Data[corev1.DockerConfigJsonKey] = []byte(dockerConfig)
+	if _, err := clientset.CoreV1().Secrets(namespace).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+		return "", fmt.Errorf("k8s: update registry credential secret: %w", err)
+	}
+	return secretName, nil
+}

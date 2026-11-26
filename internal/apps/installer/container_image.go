@@ -25,18 +25,28 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/utils/secretbox"
 )
 
 // ContainerImage 注册的 SeaTunnel 容器镜像（K8s 部署/升级引用）。
 // ContainerImage is a registered SeaTunnel container image referenced by Kubernetes
 // deploys and upgrades.
 type ContainerImage struct {
-	ID               uint       `json:"id" gorm:"primaryKey;autoIncrement"`
-	Name             string     `json:"name" gorm:"size:100;uniqueIndex;not null"`
-	Image            string     `json:"image" gorm:"size:512;not null"`
-	SeatunnelVersion string     `json:"seatunnel_version" gorm:"column:seatunnel_version;size:32"`
-	ImagePullPolicy  string     `json:"image_pull_policy" gorm:"column:image_pull_policy;size:32"`
-	ImagePullSecrets string     `json:"image_pull_secrets" gorm:"column:image_pull_secrets;size:512"`
+	ID               uint   `json:"id" gorm:"primaryKey;autoIncrement"`
+	Name             string `json:"name" gorm:"size:100;uniqueIndex;not null"`
+	Image            string `json:"image" gorm:"size:512;not null"`
+	SeatunnelVersion string `json:"seatunnel_version" gorm:"column:seatunnel_version;size:32"`
+	ImagePullPolicy  string `json:"image_pull_policy" gorm:"column:image_pull_policy;size:32"`
+	ImagePullSecrets string `json:"image_pull_secrets" gorm:"column:image_pull_secrets;size:512"`
+	// 私有仓库凭据：密码 secretbox 加密落库且永不随响应返回（json:"-"），
+	// 前端仅凭 HasRegistryAuth 判断是否已配置。
+	// Private registry credentials: the password is secretbox-encrypted at rest and never
+	// serialized (json:"-"); the frontend only sees HasRegistryAuth.
+	RegistryHost     string     `json:"registry_host" gorm:"column:registry_host;size:255"`
+	RegistryUsername string     `json:"registry_username" gorm:"column:registry_username;size:255"`
+	RegistryPassword string     `json:"-" gorm:"column:registry_password;size:1024"`
+	HasRegistryAuth  bool       `json:"has_registry_auth" gorm:"-"`
 	IsDefault        bool       `json:"is_default" gorm:"column:is_default"`
 	Description      string     `json:"description" gorm:"size:512"`
 	CreatedAt        time.Time  `json:"created_at"`
@@ -58,6 +68,12 @@ type ContainerImageRequest struct {
 	ImagePullSecrets string `json:"image_pull_secrets"`
 	IsDefault        bool   `json:"is_default"`
 	Description      string `json:"description"`
+	// 私有仓库凭据（可选）：password 留空表示保持不变（更新时）或不设置（创建时）。
+	// Optional private registry credentials: an empty password keeps the existing one
+	// on update or means unset on create.
+	RegistryHost     string `json:"registry_host"`
+	RegistryUsername string `json:"registry_username"`
+	RegistryPassword string `json:"registry_password"`
 }
 
 // ContainerImageListResult 列表响应：items + 由版本目录生成的官方镜像预设。
@@ -71,6 +87,27 @@ type ContainerImageListResult struct {
 // validateContainerImageRequest 校验镜像请求的最小字段与默认值。
 // validateContainerImageRequest validates minimal fields and applies defaults.
 func validateContainerImageRequest(req *ContainerImageRequest) error {
+	// 私有仓库凭据完整性：host 与 username 必须成对出现；password 在创建时必填、
+	// 更新时留空表示保持（由调用方区分，校验层只拦半截状态）。
+	// Registry credential completeness: host and username must come as a pair; the
+	// password is required on create and empty-means-keep on update (the caller knows
+	// which), so validation only rejects half-filled states.
+	host := strings.TrimSpace(req.RegistryHost)
+	username := strings.TrimSpace(req.RegistryUsername)
+	password := strings.TrimSpace(req.RegistryPassword)
+	filled := 0
+	for _, v := range []string{host, username, password} {
+		if v != "" {
+			filled++
+		}
+	}
+	if filled > 0 && host == "" {
+		return errors.New("installer: registry host is required when credentials are provided")
+	}
+	if filled > 0 && username == "" {
+		return errors.New("installer: registry username is required when credentials are provided")
+	}
+
 	req.Name = strings.TrimSpace(req.Name)
 	req.Image = strings.TrimSpace(req.Image)
 	req.SeatunnelVersion = strings.TrimSpace(req.SeatunnelVersion)
@@ -102,6 +139,9 @@ func (s *Service) ListContainerImages(ctx context.Context) (*ContainerImageListR
 	if err := s.db.WithContext(ctx).Order("is_default DESC, id ASC").Find(&items).Error; err != nil {
 		return nil, err
 	}
+	for _, item := range items {
+		item.HasRegistryAuth = item.HasCredentials()
+	}
 	result := &ContainerImageListResult{Items: items, OfficialPresets: []*ContainerImage{}}
 	if versions, err := s.ListAvailableVersions(ctx); err == nil && versions != nil {
 		for _, v := range versions.Versions {
@@ -121,6 +161,48 @@ func (s *Service) ListContainerImages(ctx context.Context) (*ContainerImageListR
 	return result, nil
 }
 
+// applyRegistryPassword 加密并设置注册表密码（空密码=不设置）。
+// applyRegistryPassword encrypts and sets the registry password (empty = unset).
+func applyRegistryPassword(image *ContainerImage, password string) error {
+	trimmed := strings.TrimSpace(password)
+	if trimmed == "" {
+		return nil
+	}
+	encrypted, err := secretbox.Encrypt(trimmed)
+	if err != nil {
+		return fmt.Errorf("installer: encrypt registry password: %w", err)
+	}
+	image.RegistryPassword = encrypted
+	return nil
+}
+
+// DecryptRegistryPassword 解密注册表密码供部署期代建 imagePullSecret 使用。
+// DecryptRegistryPassword decrypts the registry password for deploy-time pull-secret
+// materialization.
+func (i *ContainerImage) DecryptRegistryPassword() (string, error) {
+	if strings.TrimSpace(i.RegistryPassword) == "" {
+		return "", nil
+	}
+	return secretbox.Decrypt(i.RegistryPassword)
+}
+
+// HasCredentials 判定是否配置了完整可用的私有仓库凭据。
+// HasCredentials reports whether complete private-registry credentials are configured.
+func (i *ContainerImage) HasCredentials() bool {
+	return strings.TrimSpace(i.RegistryHost) != "" && strings.TrimSpace(i.RegistryUsername) != "" && strings.TrimSpace(i.RegistryPassword) != ""
+}
+
+// FindContainerImageByImage 按镜像引用精确匹配注册行（部署期解析凭据用）。
+// FindContainerImageByImage finds the registered row by exact image reference for
+// deploy-time credential resolution.
+func (s *Service) FindContainerImageByImage(ctx context.Context, image string) (*ContainerImage, error) {
+	var row ContainerImage
+	if err := s.db.WithContext(ctx).Where("image = ?", strings.TrimSpace(image)).First(&row).Error; err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
 // CreateContainerImage 注册新镜像；默认镜像唯一，置默认时清除其它默认。
 // CreateContainerImage registers an image; the default flag is unique, so setting it
 // clears other defaults.
@@ -131,6 +213,12 @@ func (s *Service) CreateContainerImage(ctx context.Context, req *ContainerImageR
 	if err := validateContainerImageRequest(req); err != nil {
 		return nil, err
 	}
+	// 创建时凭据必须完整：host/username 已填而密码为空会产生永远无法生效的半截配置。
+	// Creation requires complete credentials: host/username without a password would
+	// persist a half-configured credential that can never pull.
+	if strings.TrimSpace(req.RegistryHost) != "" && strings.TrimSpace(req.RegistryPassword) == "" {
+		return nil, errors.New("installer: registry password is required when creating credentials")
+	}
 	image := &ContainerImage{
 		Name:             req.Name,
 		Image:            req.Image,
@@ -139,6 +227,11 @@ func (s *Service) CreateContainerImage(ctx context.Context, req *ContainerImageR
 		ImagePullSecrets: strings.TrimSpace(req.ImagePullSecrets),
 		IsDefault:        req.IsDefault,
 		Description:      strings.TrimSpace(req.Description),
+		RegistryHost:     strings.TrimSpace(req.RegistryHost),
+		RegistryUsername: strings.TrimSpace(req.RegistryUsername),
+	}
+	if err := applyRegistryPassword(image, req.RegistryPassword); err != nil {
+		return nil, err
 	}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if image.IsDefault {
@@ -151,6 +244,7 @@ func (s *Service) CreateContainerImage(ctx context.Context, req *ContainerImageR
 	if err != nil {
 		return nil, err
 	}
+	image.HasRegistryAuth = image.HasCredentials()
 	return image, nil
 }
 
@@ -173,7 +267,7 @@ func (s *Service) UpdateContainerImage(ctx context.Context, id uint, req *Contai
 				return err
 			}
 		}
-		return tx.Model(&ContainerImage{}).Where("id = ?", id).Updates(map[string]interface{}{
+		updates := map[string]interface{}{
 			"name":               req.Name,
 			"image":              req.Image,
 			"seatunnel_version":  req.SeatunnelVersion,
@@ -181,7 +275,20 @@ func (s *Service) UpdateContainerImage(ctx context.Context, id uint, req *Contai
 			"image_pull_secrets": strings.TrimSpace(req.ImagePullSecrets),
 			"is_default":         req.IsDefault,
 			"description":        strings.TrimSpace(req.Description),
-		}).Error
+			"registry_host":      strings.TrimSpace(req.RegistryHost),
+			"registry_username":  strings.TrimSpace(req.RegistryUsername),
+		}
+		// 密码留空=保持既有密文；显式传入才重加密覆盖。清空凭据靠清空 host/username。
+		// An empty password keeps the existing ciphertext; only an explicit value is
+		// re-encrypted. Clearing host/username is how credentials are removed.
+		if trimmed := strings.TrimSpace(req.RegistryPassword); trimmed != "" {
+			encrypted, err := secretbox.Encrypt(trimmed)
+			if err != nil {
+				return fmt.Errorf("installer: encrypt registry password: %w", err)
+			}
+			updates["registry_password"] = encrypted
+		}
+		return tx.Model(&ContainerImage{}).Where("id = ?", id).Updates(updates).Error
 	})
 	if err != nil {
 		return nil, err
@@ -189,6 +296,7 @@ func (s *Service) UpdateContainerImage(ctx context.Context, id uint, req *Contai
 	if err := s.db.WithContext(ctx).First(&existing, id).Error; err != nil {
 		return nil, err
 	}
+	existing.HasRegistryAuth = existing.HasCredentials()
 	return &existing, nil
 }
 

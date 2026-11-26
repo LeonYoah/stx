@@ -33,6 +33,9 @@ type containerImageFlags struct {
 	pullSecrets      string
 	isDefault        bool
 	description      string
+	registryHost     string
+	registryUsername string
+	registryPassword string
 }
 
 func addContainerImageFlags(command *cobra.Command, fields *containerImageFlags) {
@@ -43,6 +46,9 @@ func addContainerImageFlags(command *cobra.Command, fields *containerImageFlags)
 	command.Flags().StringVar(&fields.pullSecrets, "image-pull-secrets", "", "Comma separated pull secret names")
 	command.Flags().BoolVar(&fields.isDefault, "default", false, "Mark as default image")
 	command.Flags().StringVar(&fields.description, "description", "", "Description")
+	command.Flags().StringVar(&fields.registryHost, "registry-host", "", "Private registry host for credential materialization")
+	command.Flags().StringVar(&fields.registryUsername, "registry-username", "", "Private registry username")
+	command.Flags().StringVar(&fields.registryPassword, "registry-password", "", "Private registry password or token")
 }
 
 func containerImageBody(fields *containerImageFlags) map[string]any {
@@ -54,6 +60,9 @@ func containerImageBody(fields *containerImageFlags) map[string]any {
 		"image_pull_secrets": fields.pullSecrets,
 		"is_default":         fields.isDefault,
 		"description":        fields.description,
+		"registry_host":      fields.registryHost,
+		"registry_username":  fields.registryUsername,
+		"registry_password":  fields.registryPassword,
 	}
 }
 

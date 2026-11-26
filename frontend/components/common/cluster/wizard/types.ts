@@ -299,7 +299,7 @@ export const INITIAL_K8S_WIZARD_FORM: K8sWizardFormState = {
   hybrid_replicas: 2,
   master_http_port: 8080,
   hazelcast_port: 5801,
-  master_cpu: '500m',
+  master_cpu: '0.5',
   master_memory: '2Gi',
   worker_cpu: '1',
   worker_memory: '2Gi',
@@ -311,7 +311,7 @@ export const INITIAL_K8S_WIZARD_FORM: K8sWizardFormState = {
   jvm_xms: '512m',
   jvm_xmx: '1536m',
   enable_http_server: true,
-  event_report_enabled: false,
+  event_report_enabled: true,
   checkpoint: {
     enabled: false,
     storage_type: 'LOCAL_FILE',

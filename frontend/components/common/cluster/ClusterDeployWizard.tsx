@@ -1405,10 +1405,13 @@ export function ClusterDeployWizard({
             />
 
             {/* Step Content / 步骤主体内容区（轻量方向性过渡） */}
-            <div className='min-h-0 flex-1 overflow-hidden px-6 py-4'>
+            {/* 内容超高时需纵向滚动而非裁切：K8s 资源步表单字段多，86vh 内必然溢出。 */}
+            {/* Content taller than the viewport must scroll rather than clip: the K8s
+                resources step's long form always overflows the 86vh dialog. */}
+            <div className='min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-6 py-4'>
               <motion.div
                 key={currentStepIndex}
-                className='h-full min-h-0'
+                className='min-h-0'
                 initial={
                   reducedMotion
                     ? {opacity: 0}

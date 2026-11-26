@@ -134,7 +134,7 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
             </div>
             <div className='space-y-1.5'>
               <Label>{t('cluster.k8s.masterCpu')}</Label>
-              <Input value={form.master_cpu} onChange={(e) => patch({master_cpu: e.target.value})} placeholder='500m' />
+              <Input value={form.master_cpu} onChange={(e) => patch({master_cpu: e.target.value})} placeholder='0.5' />
             </div>
             <div className='space-y-1.5'>
               <Label>{t('cluster.k8s.masterMemory')}</Label>

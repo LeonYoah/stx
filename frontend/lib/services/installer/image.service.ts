@@ -26,6 +26,9 @@ export interface ContainerImage {
   image_pull_secrets: string;
   is_default: boolean;
   description: string;
+  registry_host?: string;
+  registry_username?: string;
+  has_registry_auth?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -43,6 +46,9 @@ export interface ContainerImagePayload {
   image_pull_secrets?: string;
   is_default?: boolean;
   description?: string;
+  registry_host?: string;
+  registry_username?: string;
+  registry_password?: string;
 }
 
 export async function listContainerImages(): Promise<ContainerImageListResult> {

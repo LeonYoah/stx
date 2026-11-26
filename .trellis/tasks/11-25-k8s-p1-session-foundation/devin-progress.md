@@ -19,3 +19,12 @@
 - Step5: 分步部署进度真实驱动
 - 后端 SessionConfig 扩展 DeploymentMode/HybridReplicas/Resources.Hybrid/JVM/Runtime/Checkpoint/IMAP（可空兼容），session_render.go 动态渲染，session_deploy.go hybrid，全流程兼容HYBRID
 - 现有参考文件：frontend/components/common/cluster/K8sDeployClusterPanel.tsx（将被废弃）、ClusterDeployWizard.tsx、wizard/ClusterConfigStep.tsx、internal/pkg/k8s/session_deploy.go、session_render.go、types.go
+
+
+## 批次2 模块7 完结（2026-11-26）
+- E2E 场景 A-G 全部实证通过；测试代理发现 5 缺陷已就地修复并重测：
+  - fix 级联删除：`1902f8b6` 前端 force 标志修复，API 实证创建 id=12→删除→kubectl 零残留
+  - fix 步骤器 6/7、完成态流转、脏关闭、列表刷新、Proxy 堆内存回填（`369707c2`+`1902f8b6`）
+  - fix 事件 URL 幂等拼接 + package image CLI panic 回归（`369707c2`）
+- 门禁：前端 1071/1071、tsc 绿、改动包 race 全绿；auth/selfupgrade 的 race 失败为基线遗留
+  （本批次未触碰，diff 为空）：bcrypt 属性测试 10min 超时 + restart_test harness 自身竞态

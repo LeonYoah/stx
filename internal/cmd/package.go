@@ -53,6 +53,20 @@ func addPackageWriteCommands(root *cobra.Command, storeProvider authStoreProvide
 	}
 	downloadCommand.AddCommand(newPackageDownloadStartCommand(storeProvider), newPackageDownloadCancelCommand(storeProvider))
 
+	// 容器镜像：list 由 GeneratedCLI 生成；create/update/delete 在此挂载（DELETE 无生成命令）。
+	// Container images: list is GeneratedCLI; create/update/delete attach here.
+	imageCommand := &cobra.Command{
+		Use:   "image",
+		Short: "Manage registered container images",
+		Args:  usageArgs(cobra.NoArgs),
+	}
+	imageCommand.AddCommand(
+		newPackageImageCreateCommand(storeProvider),
+		newPackageImageUpdateCommand(storeProvider),
+		newPackageImageDeleteCommand(storeProvider),
+	)
+	packageCommand.AddCommand(imageCommand)
+
 	// 离线资产包：list 由 GeneratedCLI 生成；create/download/import/delete 在此挂载。
 	// Offline bundles: list is GeneratedCLI; create/download/import/delete attach here.
 	offlineBundleCommand := childCommand(packageCommand, "offline-bundle")

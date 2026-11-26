@@ -18,6 +18,7 @@
 package installer
 
 import (
+	"gorm.io/gorm"
 	"archive/tar"
 	"compress/gzip"
 	"context"
@@ -249,6 +250,10 @@ const VersionCacheDuration = 1 * time.Hour
 // Service provides installation management functionality.
 // Service 提供安装管理功能。
 type Service struct {
+	// db 容器镜像等安装包管理元数据持久化（路由层注入）。
+	// db persists package-management metadata such as container images (injected by the router).
+	db *gorm.DB
+
 	// packageDir is the directory for storing local packages
 	// packageDir 是存储本地安装包的目录
 	packageDir string
@@ -428,6 +433,12 @@ func NewService(packageDir string, agentManager AgentManager) *Service {
 
 // NewServiceWithDefaults creates a new Service instance with default configuration.
 // NewServiceWithDefaults 使用默认配置创建新的 Service 实例。
+// SetDB 注入 gorm 数据库句柄（容器镜像管理需要）。
+// SetDB injects the gorm handle required by container image management.
+func (s *Service) SetDB(database *gorm.DB) {
+	s.db = database
+}
+
 func NewServiceWithDefaults() *Service {
 	return NewService("", nil)
 }

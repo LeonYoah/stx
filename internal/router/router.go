@@ -831,6 +831,7 @@ func Serve() {
 			// 使用配置中的 packages_dir，而不是硬编码仓库路径，
 			// 这样 E2E / 测试才能在各自隔离目录中预热安装包。
 			installerService := installer.NewService("", nil)
+			installerService.SetDB(db.GetDB(context.Background()))
 			installerService.SetExecutionService(executionService)
 			executionProviders.Register("installer", installerService)
 			// Set host provider for precheck operations
@@ -858,6 +859,13 @@ func Serve() {
 				// POST /api/v1/packages/versions/refresh - 刷新版本列表
 				// POST /api/v1/packages/versions/refresh - Refresh version list
 				packageRouter.POST("/versions/refresh", installerHandler.RefreshVersions)
+
+				// 容器镜像管理（须注册在 /:version 之前）
+				// Container image management (register before /:version)
+				packageRouter.GET("/images", installerHandler.ListContainerImages)
+				packageRouter.POST("/images", installerHandler.CreateContainerImage)
+				packageRouter.PUT("/images/:id", installerHandler.UpdateContainerImage)
+				packageRouter.DELETE("/images/:id", installerHandler.DeleteContainerImage)
 
 				// 离线资产包（须注册在 /:version 之前，避免被版本参数吞掉）
 				// Offline asset bundles (register before /:version so Gin does not swallow the path)

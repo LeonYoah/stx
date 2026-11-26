@@ -40,6 +40,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/diagnostics"
 	"github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/apps/host"
+	"github.com/LeonYoah/stx/internal/apps/installer"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/apps/plugin"
@@ -408,6 +409,7 @@ func managedModels() []interface{} {
 		&auth.User{},                               // 统一用户表（支持密码认证和 OAuth 认证）/ Unified user table
 		&auth.CLIToken{},                           // CLI 令牌表 / CLI token table
 		&host.Host{},                               // 主机管理表 / Host management table
+		&installer.ContainerImage{},                   // 容器镜像表 / Container image table
 		&cluster.Cluster{},                         // 集群表 / Cluster table
 		&cluster.ClusterNode{},                     // 集群节点表 / Cluster node table
 		&cluster.ClusterScaleOperation{},           // 集群伸缩操作表 / Cluster scaling operation table

@@ -229,6 +229,13 @@ func engineRoleArg(role string) string {
 	return role
 }
 
+// EnsureNamespace 导出命名空间确保逻辑，供私仓凭据代建等部署前置步骤复用。
+// EnsureNamespace exports the namespace ensure logic for pre-deploy steps like
+// registry credential materialization.
+func EnsureNamespace(ctx context.Context, clientset kubernetes.Interface, ns string) error {
+	return ensureNamespace(ctx, clientset, ns)
+}
+
 func ensureNamespace(ctx context.Context, clientset kubernetes.Interface, ns string) error {
 	_, err := clientset.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{})
 	if err == nil {
@@ -395,7 +402,7 @@ func ensureHeadlessServices(ctx context.Context, clientset kubernetes.Interface,
 			// Hybrid topology has no dedicated master pod, so REST/WebUI traffic must land
 			// on hybrid pods; otherwise endpoints stay empty and /overview plus job
 			// submission all 503.
-			Selector:  podSelectorLabels(code, masterServiceComponent(cfg)),
+			Selector: podSelectorLabels(code, masterServiceComponent(cfg)),
 			Ports: []corev1.ServicePort{
 				{Name: "http", Port: int32(cfg.MasterHTTPPort), TargetPort: intstrPort(cfg.MasterHTTPPort)},
 			},

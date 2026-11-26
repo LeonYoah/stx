@@ -32,7 +32,6 @@ import (
 
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	pluginapp "github.com/LeonYoah/stx/internal/apps/plugin"
-	"github.com/LeonYoah/stx/internal/db"
 	"github.com/LeonYoah/stx/internal/pkg/infra"
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -586,6 +585,18 @@ func (s *Service) UpgradeK8sImage(ctx context.Context, cluster *Cluster, image s
 	if err != nil {
 		return err
 	}
+	// 升级目标为注册私仓镜像时同步代建凭据 Secret 并并入 imagePullSecrets，
+	// 否则滚动后的新 Pod 必卡 ImagePullBackOff。
+	// When the upgrade target is a registered private-registry image, materialize the
+	// credential secret and merge imagePullSecrets first, otherwise rolled pods stall
+	// in ImagePullBackOff.
+	originalImage := cfg.Image
+	cfg.Image = image
+	if err := s.ensureK8sRegistryCredential(ctx, cfg, cluster); err != nil {
+		cfg.Image = originalImage
+		return err
+	}
+	cfg.Image = originalImage
 	ops := k8s.NewSessionManager(s.k8sManager)
 	if err := ops.UpgradeImage(ctx, cfg, image); err != nil {
 		return err
@@ -618,11 +629,15 @@ func (s *Service) UpgradeK8sImage(ctx context.Context, cluster *Cluster, image s
 		}
 	}
 	cfg.Image = image
-	// 镜像 Tag 即引擎版本（latest/digest 除外）：升级后顶栏版本标签必须同步，否则展示漂移。
-	// The image tag is the engine version (except latest/digest): after an upgrade the
-	// header version label must stay in sync or it drifts.
-	if tag := imageTagVersion(image); tag != "" {
-		cluster.Version = tag
+	// 版本优先级：显式 targetVersion > 语义化镜像 tag。非语义化 tag（如 prod-202604）
+	// 绝不回写版本，否则集群元数据被无意义字符串污染。
+	// Version priority: explicit targetVersion wins over a semantic image tag. Non-semver
+	// tags (e.g. prod-202604) never overwrite the version, or cluster metadata gets
+	// polluted with meaningless strings.
+	if len(targetVersion) == 0 || strings.TrimSpace(targetVersion[0]) == "" {
+		if tag := imageTagVersion(image); tag != "" && semverLikeTag(tag) {
+			cluster.Version = tag
+		}
 	}
 	k8sJSON, err := k8sConfigJSON(cfg)
 	if err != nil {
@@ -630,6 +645,27 @@ func (s *Service) UpgradeK8sImage(ctx context.Context, cluster *Cluster, image s
 	}
 	cluster.Config["kubernetes"] = k8sJSON
 	return s.repo.Update(ctx, cluster)
+}
+
+// semverLikeTag 判定 tag 是否为语义化版本号（v?X.Y.Z）。
+// semverLikeTag reports whether a tag is a semantic version (v?X.Y.Z).
+func semverLikeTag(tag string) bool {
+	trimmed := strings.TrimPrefix(strings.TrimSpace(tag), "v")
+	parts := strings.Split(trimmed, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // imageTagVersion 提取镜像 Tag 作为版本号；digest 引用与 latest 不视为具体版本。
@@ -1223,8 +1259,14 @@ func (s *Service) ensureK8sRegistryCredential(ctx context.Context, cfg *k8s.Sess
 	if imageRef == "" {
 		return nil
 	}
+	if s.repo == nil || s.repo.db == nil {
+		// 无数据库句柄时无法查注册表，凭据缺失按未注册处理，不阻断部署。
+		// Without a database handle the registry lookup is impossible; treat credentials
+		// as absent rather than blocking the deploy.
+		return nil
+	}
 	var row installerapp.ContainerImage
-	err := db.GetDB(ctx).WithContext(ctx).Where("image = ?", imageRef).First(&row).Error
+	err := s.repo.db.WithContext(ctx).Where("image = ?", imageRef).First(&row).Error
 	if err != nil {
 		// 未注册的自定义镜像：凭据依赖用户预建 secret，不阻断。
 		// Unregistered custom images rely on user-provisioned secrets; do not block.
@@ -1239,6 +1281,14 @@ func (s *Service) ensureK8sRegistryCredential(ctx context.Context, cfg *k8s.Sess
 	}
 	clientset, err := s.k8sManager.Clientset(ctx, cfg.HostID)
 	if err != nil {
+		return err
+	}
+	// 凭据 Secret 可能先于 Deploy 的 ensureNamespace 执行（全新 namespace 场景），
+	// 必须自建命名空间否则 Secret 创建必炸 namespaces "<ns>" not found。
+	// The credential secret can run before Deploy's ensureNamespace (brand-new namespace
+	// scenario), so the namespace must be ensured here or secret creation fails hard with
+	// namespaces "<ns>" not found.
+	if err := k8s.EnsureNamespace(ctx, clientset, cfg.Namespace); err != nil {
 		return err
 	}
 	secretName, err := k8s.EnsureRegistryCredentialSecret(ctx, clientset, cfg.Namespace, cluster.EffectiveClusterCode(), row.RegistryHost, row.RegistryUsername, password)

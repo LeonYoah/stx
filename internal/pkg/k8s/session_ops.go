@@ -347,8 +347,45 @@ func (s *SessionManager) UpgradeImage(ctx context.Context, cfg *SessionConfig, i
 		if err := patchWorkloadImage(ctx, clientset, cfg.Namespace, target.kind, target.name, image); err != nil {
 			return err
 		}
+		// 升级到私仓镜像时必须同步 imagePullSecrets，否则滚动后的新 Pod 拉取失败卡在 ImagePullBackOff。
+		// Upgrading to a private-registry image must sync imagePullSecrets, otherwise the
+		// rolled pods fail to pull and stall in ImagePullBackOff.
+		if len(cfg.ImagePullSecrets) > 0 {
+			if err := patchWorkloadImagePullSecrets(ctx, clientset, cfg.Namespace, target.kind, target.name, cfg.ImagePullSecrets); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+// patchWorkloadImagePullSecrets 合并写入工作负载的 imagePullSecrets（保留既有项）。
+// patchWorkloadImagePullSecrets merges imagePullSecrets into the workload pod spec,
+// keeping existing entries.
+func patchWorkloadImagePullSecrets(ctx context.Context, clientset kubernetes.Interface, ns, kind, name string, secrets []string) error {
+	if len(secrets) == 0 {
+		return nil
+	}
+	items := make([]string, 0, len(secrets))
+	for _, secret := range secrets {
+		if strings.TrimSpace(secret) != "" {
+			items = append(items, fmt.Sprintf(`{"name":%q}`, secret))
+		}
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	patch := []byte(fmt.Sprintf(`{"spec":{"template":{"spec":{"imagePullSecrets":%s}}}}`, "["+strings.Join(items, ",")+"]"))
+	switch strings.ToLower(kind) {
+	case "statefulset", "":
+		_, err := clientset.AppsV1().StatefulSets(ns).Patch(ctx, name, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
+		return err
+	case "deployment":
+		_, err := clientset.AppsV1().Deployments(ns).Patch(ctx, name, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
+		return err
+	default:
+		return fmt.Errorf("k8s: unsupported workload kind %q", kind)
+	}
 }
 
 // PatchProxyImage 同步滚动伴生 Proxy Deployment 的镜像。

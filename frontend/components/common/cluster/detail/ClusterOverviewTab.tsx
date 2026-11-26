@@ -73,6 +73,8 @@ export interface ClusterOverviewTabProps {
   monitoringOverview?: ClusterMonitoringOverviewData | null;
   /** K8s 集群节点概览以 Pod 为真相，物理机 nodes 为空。K8s node overview is pod-driven; bare-metal nodes stay empty. */
   k8sPods?: K8sPodInfo[];
+  k8sPodsError?: string | null;
+  onRetryK8sPods?: () => void;
   diagnosticsGroupTotal?: number;
   inspectionStarting?: boolean;
   onSwitchJobLogMode: (mode: 'per_job' | 'mixed') => Promise<void> | void;
@@ -144,6 +146,8 @@ export function ClusterOverviewTab({
   eventChannel,
   monitoringOverview,
   k8sPods,
+  k8sPodsError,
+  onRetryK8sPods,
   diagnosticsGroupTotal = 0,
   inspectionStarting = false,
   onSwitchJobLogMode,
@@ -470,7 +474,21 @@ export function ClusterOverviewTab({
           </div>
 
           {isK8s ? (
-            (k8sPods || []).length === 0 ? (
+            k8sPodsError ? (
+              <div className='flex items-center gap-2 py-4'>
+                <p className='text-xs text-destructive'>{k8sPodsError}</p>
+                {onRetryK8sPods ? (
+                  <button
+                    type='button'
+                    className='text-xs text-primary underline-offset-2 hover:underline'
+                    onClick={onRetryK8sPods}
+                    data-testid='k8s-pods-retry'
+                  >
+                    {t('common.retry')}
+                  </button>
+                ) : null}
+              </div>
+            ) : (k8sPods || []).length === 0 ? (
               <p className='py-4 text-xs text-muted-foreground'>
                 {t('cluster.noNodes')}
               </p>

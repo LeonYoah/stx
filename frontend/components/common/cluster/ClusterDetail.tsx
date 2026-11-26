@@ -65,7 +65,7 @@ import {
   SlidersHorizontal,
   HelpCircle,
 } from 'lucide-react';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {Tooltip} from '@/components/arc/tooltip/tooltip';
 import {
   ConfirmDialog,
   DirtyCloseDialog,
@@ -89,7 +89,7 @@ import {ClusterOverviewTab} from './detail/ClusterOverviewTab';
 import {ClusterNodesTab} from './detail/ClusterNodesTab';
 import {ClusterOpsTab} from './detail/ClusterOpsTab';
 import {CheckpointInspectDialog} from '@/components/common/sync/CheckpointPanels';
-import {Skeleton} from '@/components/ui/skeleton';
+import {Skeleton} from '@/components/arc/skeleton/skeleton';
 import services from '@/lib/services';
 import {
   ClusterInfo,
@@ -1689,16 +1689,30 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   // hooks 必须全部位于 early return 之前，故 Pod 拉取放在这里而不是渲染区。
   // All hooks must precede the early returns, so pod loading lives here rather than
   // in the render section.
-  useEffect(() => {
+  // Pod 拉取失败必须显式可重试（概览页展示错误+重试），禁止静默置空伪装成无节点。
+  // Pod load failures surface an error with retry in the overview; never silently
+  // empty the list, which would masquerade as "no nodes".
+  const [k8sPodsError, setK8sPodsError] = useState<string | null>(null);
+  const loadK8sPods = useCallback(() => {
     if (!clusterIsK8s) {
       setK8sPods([]);
+      setK8sPodsError(null);
       return;
     }
+    setK8sPodsError(null);
     services.cluster
       .getK8sPods(clusterId)
-      .then(setK8sPods)
-      .catch(() => setK8sPods([]));
-  }, [clusterId, clusterIsK8s, lifecyclePollEpoch]);
+      .then((pods) => {
+        setK8sPods(pods);
+      })
+      .catch((err) => {
+        setK8sPodsError(err instanceof Error ? err.message : String(err));
+      });
+  }, [clusterId, clusterIsK8s]);
+
+  useEffect(() => {
+    loadK8sPods();
+  }, [loadK8sPods, lifecyclePollEpoch]);
 
   if (loading && !cluster) {
     return <ClusterDetailSkeleton />;
@@ -2170,6 +2184,8 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               cluster={cluster}
               clusterStatus={clusterStatus}
               k8sPods={k8sPods}
+              k8sPodsError={k8sPodsError}
+              onRetryK8sPods={loadK8sPods}
               nodes={nodes}
               nodeJavaRuntimes={nodeJavaRuntimes}
               webUINode={webUINode}
@@ -2377,22 +2393,14 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                         <h3 className='text-sm font-semibold text-foreground'>
                           {t('cluster.stxJavaProxy.title')}
                         </h3>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
+                        <Tooltip content={t('cluster.stxJavaProxy.description')} side='top'>
+                          <button
                               type='button'
                               className='text-muted-foreground/70 hover:text-foreground'
                               aria-label={t('cluster.stxJavaProxy.description')}
                             >
                               <HelpCircle className='size-3.5' />
                             </button>
-                          </TooltipTrigger>
-                          <TooltipContent
-                            side='top'
-                            className='max-w-xs text-xs font-normal leading-relaxed'
-                          >
-                            {t('cluster.stxJavaProxy.description')}
-                          </TooltipContent>
                         </Tooltip>
                       </div>
                       <SoftChip
@@ -2594,8 +2602,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                       <span className='text-sm font-semibold whitespace-nowrap'>
                         {t('cluster.webUiTitle')}
                       </span>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
+                      <Tooltip content={<>{t('cluster.webUiMasterAddressTip', {
+                            address: webUIMasterAddress,
+                          })}</>} side='top'>
                           <button
                             type='button'
                             className='min-w-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
@@ -2611,16 +2620,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                               {webUIMasterAddress}
                             </span>
                           </button>
-                        </TooltipTrigger>
-                        <TooltipContent
-                          side='top'
-                          className='max-w-sm text-xs'
-                        >
-                          {t('cluster.webUiMasterAddressTip', {
-                            address: webUIMasterAddress,
-                          })}
-                        </TooltipContent>
-                      </Tooltip>
+                        </Tooltip>
                     </div>
                     <SeaTunnelObserveMenu
                       clusterId={clusterId}

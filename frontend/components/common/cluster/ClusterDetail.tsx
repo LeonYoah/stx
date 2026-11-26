@@ -126,7 +126,6 @@ import {RuntimeStorageFileExplorer} from './RuntimeStorageFileExplorer';
 import {ClusterActions} from './ClusterActions';
 import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
 import {K8sNodesPanel} from './K8sNodesPanel';
-import {K8sConfigMapEditor} from '@/components/common/cluster/K8sConfigMapEditor';
 import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
 import {
   baselinePidsFromNodes,
@@ -1884,6 +1883,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   // K8s 集群判定与节点面板一致：任何非 bare_metal infra_type 都走 K8s 视图。
   // K8s detection mirrors the nodes panel: any non-bare_metal infra_type uses K8s views.
   const isK8sCluster = Boolean(cluster?.infra_type && cluster.infra_type !== 'bare_metal');
+  const k8sCfg = useMemo(() => {
+    const raw = (cluster?.config as Record<string, unknown> | undefined)?.['kubernetes'];
+    return (raw || {}) as Record<string, unknown>;
+  }, [cluster?.config]);
 
   const runtimeViewOptions: Array<{value: RuntimeSubView; label: string}> = [
     {value: 'checkpoint', label: t('cluster.list.runtimeViews.checkpoint')},
@@ -2097,7 +2100,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         <ArcTabsContent value='nodes'>
           {activeTab === 'nodes' && cluster?.infra_type && cluster.infra_type !== 'bare_metal' ? (
             <div className='px-1 py-2'>
-              <K8sNodesPanel clusterId={clusterId} />
+              <K8sNodesPanel
+                clusterId={clusterId}
+                cluster={cluster}
+                refreshTrigger={lifecyclePollEpoch}
+                onAfterMutate={() => void loadClusterData({silent: true})}
+              />
             </div>
           ) : null}
           {activeTab === 'nodes' && (!cluster?.infra_type || cluster.infra_type === 'bare_metal') ? (
@@ -2128,26 +2136,22 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
 
         <ArcTabsContent value='configs' className='space-y-4'>
           {activeTab === 'configs' ? (
-            isK8sCluster ? (
-              // K8s 集群配置唯一真相是集群内 ConfigMap：无节点/模板/下发概念，
-              // 直接复用共用编辑器，保存后滚动重启生效。
-              // For K8s clusters the in-cluster ConfigMap is the single source of truth —
-              // there are no nodes, templates or push semantics; the shared editor is
-              // rendered directly and saving rolls the cluster.
-              <K8sConfigMapEditor clusterId={clusterId} heightClass='h-96' />
-            ) : (
-              <>
-                <ClusterConfigs
-                  clusterId={clusterId}
-                  deploymentMode={cluster.deployment_mode}
-                  onConfigChanged={handleConfigChanged}
-                />
+            <>
+              <ClusterConfigs
+                clusterId={clusterId}
+                deploymentMode={cluster.deployment_mode}
+                onConfigChanged={handleConfigChanged}
+                isKubernetes={isK8sCluster}
+                k8sConfigMapName={(k8sCfg?.configmap_name as string | undefined) ?? undefined}
+                k8sNamespace={(k8sCfg?.namespace as string | undefined) ?? undefined}
+              />
+              {!isK8sCluster ? (
                 <EngineEventChannelCard
                   clusterId={clusterId}
                   onConfigChanged={handleConfigChanged}
                 />
-              </>
-            )
+              ) : null}
+            </>
           ) : null}
         </ArcTabsContent>
 

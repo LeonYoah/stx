@@ -585,6 +585,35 @@ func (s *Service) GetK8sPodLogs(ctx context.Context, cluster *Cluster, podName s
 	return ops.PodLogs(ctx, cfg, podName, int64(tailLines), nil)
 }
 
+// DeleteK8sPod 删除集群内单个引擎 Pod，由工作负载控制器自动重建。
+// 只允许删除本集群引擎 Pod（SessionPods 投影已排除 Proxy 等基础设施 Pod），
+// 拒绝删除同命名空间内不属于本集群的 Pod。
+// DeleteK8sPod deletes a single engine pod so its workload controller recreates it.
+// Only engine pods of this cluster may be deleted (the SessionPods projection already
+// excludes infrastructure pods such as the proxy); foreign pods in the namespace are rejected.
+func (s *Service) DeleteK8sPod(ctx context.Context, cluster *Cluster, podName string) error {
+	cfg, err := s.requireK8sSession(cluster)
+	if err != nil {
+		return err
+	}
+	ops := k8s.NewSessionManager(s.k8sManager)
+	allowed := false
+	pods, err := ops.SessionPods(ctx, cfg, cluster.EffectiveClusterCode())
+	if err != nil {
+		return err
+	}
+	for _, pod := range pods {
+		if pod.Name == podName {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return fmt.Errorf("cluster: pod %q does not belong to this cluster", podName)
+	}
+	return ops.DeletePod(ctx, cfg, podName)
+}
+
 // ReadK8sConfigMap 读取集群 ConfigMap 全部文件键值。
 // ReadK8sConfigMap reads all file entries of the cluster ConfigMap.
 func (s *Service) ReadK8sConfigMap(ctx context.Context, cluster *Cluster) (map[string]string, error) {
@@ -755,6 +784,19 @@ func (h *Handler) GetK8sPodLogsHandler(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": gin.H{"logs": logs}})
+}
+
+// DeleteK8sPodHandler handles DELETE /api/v1/clusters/:id/k8s/pods/:pod.
+func (h *Handler) DeleteK8sPodHandler(c *gin.Context) {
+	cluster, ok := h.loadK8sCluster(c)
+	if !ok {
+		return
+	}
+	if err := h.service.DeleteK8sPod(c.Request.Context(), cluster, c.Param("pod")); err != nil {
+		c.JSON(h.getStatusCodeForError(err), gin.H{"error_msg": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": gin.H{"success": true}})
 }
 
 // RetryK8sJavaProxy handles POST /api/v1/clusters/:id/k8s/java-proxy/retry — 一键重试拉起伴生 Proxy。

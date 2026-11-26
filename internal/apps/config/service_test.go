@@ -341,7 +341,7 @@ func TestGetByClusterK8sEntriesAreTemplate(t *testing.T) {
 	svc := &Service{
 		k8sConfigMapSource: fakeK8sConfigMapSource{
 			files: map[string]string{
-				"hazelcast-client.yaml": "hazelcast-client:\n  cluster-name: demo\n",
+				"hazelcast-client.yaml":    "hazelcast-client:\n  cluster-name: demo\n",
 				"log4j2_client.properties": "rootLogger.level = INFO\n",
 			},
 		},

@@ -2110,7 +2110,7 @@
       "searchPods": "Search pod name, IP or node",
       "adjustReplicas": "Adjust replicas",
       "scaleHint": "Only workloads whose target differs from the current expectation are updated; workers may scale to 0",
-      "rolloutRestart": "Rollout restart component",
+      "rolloutRestart": "Rolling restart",
       "rolloutRestartConfirm": "This will roll-restart all pods of the {role} workload. Continue?",
       "filterStatus": "Status",
       "upgradeCurrentImage": "Current image",
@@ -2123,7 +2123,9 @@
       "podIP": "Pod IP",
       "namespace": "Namespace",
       "filterAll": "All",
-      "noConfigFile": "No such file in the ConfigMap"
+      "noConfigFile": "No such file in the ConfigMap",
+      "recreatePod": "Recreate pod",
+      "recreatePodConfirm": "Pod {name} will be deleted and recreated by its workload controller; in-flight tasks on it will fail over. Continue?"
     }
   },
   "audit": {

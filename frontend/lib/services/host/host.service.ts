@@ -233,6 +233,33 @@ export class HostService extends BaseService {
   }
 
   /**
+   * List ALL hosts of one type by looping pages / 循环分页拉取某类型的全部主机
+   *
+   * 后端单页 size 上限为 100（host handler 校验 max=100），调用方手写更大的 size 会直接 400。
+   * Backend caps page size at 100 (host handler validation); a larger hand-written size yields HTTP 400.
+   */
+  static async getAllHostsByTypeSafe(hostType: string): Promise<{
+    success: boolean;
+    hosts: HostInfo[];
+    error?: string;
+  }> {
+    const pageSize = 100;
+    const all: HostInfo[] = [];
+    for (let page = 1; page <= 50; page++) {
+      const res = await this.getHostsSafe({current: page, size: pageSize, host_type: hostType} as ListHostsRequest);
+      if (!res.success) {
+        return {success: false, hosts: all, error: res.error};
+      }
+      const items = res.data?.hosts || [];
+      all.push(...items);
+      if (items.length < pageSize) {
+        break;
+      }
+    }
+    return {success: true, hosts: all};
+  }
+
+  /**
    * Get host by ID (with error handling)
    * 根据 ID 获取主机详情（带错误处理）
    *

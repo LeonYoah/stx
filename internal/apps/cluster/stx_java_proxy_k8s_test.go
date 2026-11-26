@@ -70,9 +70,9 @@ func TestK8sSTXJavaProxyStatusMapping(t *testing.T) {
 			Name:      "stx-java-proxy-demo",
 			Namespace: "seatunnel",
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by":            "stx",
-				"stx.seatunnel.apache.org/cluster-code":   "demo",
-				"stx.seatunnel.apache.org/component":      "stx-java-proxy",
+				"app.kubernetes.io/managed-by":          "stx",
+				"stx.seatunnel.apache.org/cluster-code": "demo",
+				"stx.seatunnel.apache.org/component":    "stx-java-proxy",
 			},
 		},
 		Spec: appsv1.DeploymentSpec{

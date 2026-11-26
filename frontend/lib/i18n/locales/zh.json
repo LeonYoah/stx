@@ -2110,7 +2110,7 @@
       "searchPods": "搜索 Pod 名称、IP 或节点",
       "adjustReplicas": "调整副本数",
       "scaleHint": "仅修改与当前期望副本数不同的工作负载；Worker 可缩容至 0",
-      "rolloutRestart": "滚动重启所属组件",
+      "rolloutRestart": "滚动重启",
       "rolloutRestartConfirm": "将滚动重启 {role} 工作负载的全部 Pod，确认继续？",
       "filterStatus": "状态",
       "upgradeCurrentImage": "当前镜像",
@@ -2123,7 +2123,9 @@
       "podIP": "Pod IP",
       "namespace": "命名空间",
       "filterAll": "全部",
-      "noConfigFile": "ConfigMap 中暂无此配置文件"
+      "noConfigFile": "ConfigMap 中暂无此配置文件",
+      "recreatePod": "重建 Pod",
+      "recreatePodConfirm": "将删除 Pod {name}，由工作负载控制器自动重建；该 Pod 上的在途任务会 failover。确认继续？"
     }
   },
   "audit": {

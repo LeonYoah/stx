@@ -571,7 +571,6 @@ func TestScaleK8sComponentPersistsReplicas(t *testing.T) {
 	}
 }
 
-
 // TestEvaluateK8sClusterHealth_NodeCounts 验证 K8s 健康检查填充 TotalNodes/OnlineNodes/OfflineNodes。
 // TestEvaluateK8sClusterHealth_NodeCounts verifies K8s health evaluation fills
 // TotalNodes/OnlineNodes/OfflineNodes.

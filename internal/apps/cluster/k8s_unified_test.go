@@ -24,6 +24,7 @@ import (
 	"github.com/LeonYoah/stx/internal/pkg/infra"
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -209,5 +210,58 @@ func TestImageTagVersion(t *testing.T) {
 		if got := imageTagVersion(image); got != want {
 			t.Fatalf("imageTagVersion(%q) = %q, want %q", image, got, want)
 		}
+	}
+}
+
+// TestDeleteK8sPodOwnershipGuard 验证仅可删除本集群引擎 Pod：成员 Pod 删除成功，
+// 同命名空间的无关 Pod 被拒绝且仍然存在。
+// TestDeleteK8sPodOwnershipGuard verifies only engine pods of this cluster can be
+// deleted: member pods are deleted while foreign pods in the namespace are rejected
+// and left intact.
+func TestDeleteK8sPodOwnershipGuard(t *testing.T) {
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	mkPod := func(name string, labels map[string]string) {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "seatunnel", Labels: labels},
+		}
+		if _, err := client.CoreV1().Pods("seatunnel").Create(ctx, pod, metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mkPod("demo-master-0", map[string]string{
+		"stx.seatunnel.apache.org/cluster-code": "demo",
+		"stx.seatunnel.apache.org/component":    "master",
+	})
+	mkPod("foreign-pod", map[string]string{"app": "other"})
+
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+	repo := NewRepository(db)
+	svc := &Service{k8sManager: newFakeK8sManager(client), repo: repo}
+
+	cluster := newLifecycleCluster()
+	if err := repo.Create(ctx, cluster); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	cluster, err := repo.GetByID(ctx, cluster.ID, true)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	// 成员 Pod：删除成功 / member pod: deletion succeeds
+	if err := svc.DeleteK8sPod(ctx, cluster, "demo-master-0"); err != nil {
+		t.Fatalf("delete member pod: %v", err)
+	}
+	if _, err := client.CoreV1().Pods("seatunnel").Get(ctx, "demo-master-0", metav1.GetOptions{}); err == nil {
+		t.Fatal("member pod still exists after delete")
+	}
+
+	// 外部 Pod：拒绝删除且仍存在 / foreign pod: rejected and intact
+	if err := svc.DeleteK8sPod(ctx, cluster, "foreign-pod"); err == nil {
+		t.Fatal("expected ownership rejection for foreign pod")
+	}
+	if _, err := client.CoreV1().Pods("seatunnel").Get(ctx, "foreign-pod", metav1.GetOptions{}); err != nil {
+		t.Fatal("foreign pod must not be deleted")
 	}
 }

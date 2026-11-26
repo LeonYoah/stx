@@ -53,7 +53,7 @@ func k8sOperationSpecs() []OperationSpec {
 		clusterBodyOperation(
 			"cluster.kubernetes-create", []string{"cluster", "kubernetes-create"}, "Create a kubernetes cluster (adopt or deploy)",
 			"POST", "/api/v1/clusters/kubernetes", RiskR1,
-			"创建 K8s 集群会写入集群登记；stx_deployed 会在目标 Namespace 创建 StatefulSet/Service/ConfigMap 与伴生 Proxy。",
+			"创建 K8s 集群会写入集群登记；stx_deployed 会在目标 Namespace 创建 StatefulSet/Service/ConfigMap 与 STX Java Proxy。",
 			[]InputSpec{
 				{Name: "name", Location: InputBody, Required: true, Description: "Cluster name"},
 				{Name: "host_id", Location: InputBody, Required: true, Description: "Kubernetes host ID"},
@@ -83,10 +83,19 @@ func k8sOperationSpecs() []OperationSpec {
 				{Name: "component", Location: InputBody, Required: true, Description: "master or worker"},
 			},
 		),
+		clusterNonCLIWriteOperation(
+			"cluster.k8s-pod-delete", "Delete one engine pod for controller recreation",
+			"DELETE", "/api/v1/clusters/:id/k8s/pods/:pod", RiskR1,
+			"删除后由工作负载控制器自动重建，该 Pod 上正在执行的作业会 failover。",
+			[]InputSpec{
+				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"},
+				{Name: "pod", Location: InputPath, Required: true, Description: "Pod name"},
+			},
+		),
 		clusterGeneratedOperation(
 			"cluster.k8s-upgrade-image", []string{"cluster", "k8s-upgrade-image"}, "Rolling upgrade kubernetes cluster image tag",
 			"POST", "/api/v1/clusters/:id/k8s/upgrade-image", RiskR1,
-			"镜像滚动升级会重建全部引擎 Pod 与伴生 Proxy，是唯一合法的插件变更路径。",
+			"镜像滚动升级会重建全部引擎 Pod 与 STX Java Proxy，是唯一合法的插件变更路径。",
 			"stx cluster k8s-upgrade-image 1 --image apache/seatunnel:3.1.1 --confirm",
 			[]InputSpec{
 				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"},
@@ -94,9 +103,9 @@ func k8sOperationSpecs() []OperationSpec {
 			},
 		),
 		clusterGeneratedOperation(
-			"cluster.k8s-java-proxy-retry", []string{"cluster", "k8s-java-proxy-retry"}, "Retry companion java proxy provisioning",
+			"cluster.k8s-java-proxy-retry", []string{"cluster", "k8s-java-proxy-retry"}, "Retry STX Java Proxy provisioning",
 			"POST", "/api/v1/clusters/:id/k8s/java-proxy/retry", RiskR1,
-			"重试会重建伴生 Proxy 工作负载，不影响引擎集群本身。",
+			"重试会重建 STX Java Proxy 工作负载，不影响引擎集群本身。",
 			"stx cluster k8s-java-proxy-retry 1 --confirm",
 			[]InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}},
 		),

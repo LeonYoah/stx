@@ -1678,6 +1678,18 @@ export class ClusterService extends BaseService {
   }
 
   /**
+   * Delete one engine pod; the workload controller recreates it / 删除单个引擎 Pod（控制器自动重建）
+   */
+  static async deleteK8sPod(clusterId: number, podName: string): Promise<void> {
+    const response = await apiClient.delete<{error_msg: string}>(
+      `${this.basePath}/${clusterId}/k8s/pods/${encodeURIComponent(podName)}`,
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+  }
+
+  /**
    * Read K8s pod logs / 读取 K8s Pod 日志
    */
   static async getK8sPodLogs(clusterId: number, podName: string, tailLines = 500): Promise<string> {

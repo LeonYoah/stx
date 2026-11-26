@@ -37,6 +37,7 @@ import {ClusterDeployWizard} from '../ClusterDeployWizard';
 
 const mockPush = vi.hoisted(() => vi.fn());
 const getHostsSafe = vi.hoisted(() => vi.fn());
+const getAllHostsByTypeSafe = vi.hoisted(() => vi.fn());
 const listK8sNamespaces = vi.hoisted(() => vi.fn());
 const discoverK8sClusters = vi.hoisted(() => vi.fn());
 const createKubernetesCluster = vi.hoisted(() => vi.fn());
@@ -58,6 +59,7 @@ vi.mock('@/lib/services', () => ({
   default: {
     host: {
       getHostsSafe,
+      getAllHostsByTypeSafe,
       listK8sNamespaces,
       discoverK8sClusters,
     },
@@ -130,6 +132,10 @@ describe('Unified Kubernetes Cluster Flows', () => {
       HTMLElement.prototype.scrollIntoView = () => {};
     }
 
+    getAllHostsByTypeSafe.mockImplementation(async (hostType?: HostType) => ({
+      success: true,
+      hosts: hostType === HostType.KUBERNETES ? [K8S_HOST] : [],
+    }));
     getHostsSafe.mockImplementation(
       async (params?: {host_type?: HostType}) => {
         if (params?.host_type === HostType.KUBERNETES) {

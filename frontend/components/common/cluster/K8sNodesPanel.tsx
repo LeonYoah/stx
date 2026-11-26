@@ -68,7 +68,9 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
   const [scaleMaster, setScaleMaster] = useState('1');
   const [scaleWorker, setScaleWorker] = useState('1');
   const [logPod, setLogPod] = useState<string | null>(null);
-  const [restartConfirm, setRestartConfirm] = useState<'master' | 'worker' | null>(null);
+  const [restartOpen, setRestartOpen] = useState(false);
+  const [restartRole, setRestartRole] = useState<'master' | 'worker'>('worker');
+  const [deletePodConfirm, setDeletePodConfirm] = useState<string | null>(null);
 
   const k8sCfg = useMemo(() => {
     const raw = (cluster?.config as Record<string, unknown> | undefined)?.['kubernetes'];
@@ -149,12 +151,30 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
     }
   };
 
-  const doRestart = async (role: 'master' | 'worker') => {
+  const doRestart = async () => {
     setOperating(true);
     try {
-      await services.cluster.rolloutRestartK8s(clusterId, role);
+      await services.cluster.rolloutRestartK8s(clusterId, restartRole);
       toast.success(t('common.success'));
-      setRestartConfirm(null);
+      setRestartOpen(false);
+      await loadPods();
+      onAfterMutate?.();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setOperating(false);
+    }
+  };
+
+  // 单 Pod 在 K8s 里没有「重启」语义：Pod 不可变，正确的单粒度操作是删除后由控制器重建。
+  // A single pod has no "restart" semantics in Kubernetes: pods are immutable, so the
+  // correct pod-level operation is deletion followed by controller recreation.
+  const doDeletePod = async (podName: string) => {
+    setOperating(true);
+    try {
+      await services.cluster.deleteK8sPod(clusterId, podName);
+      toast.success(t('common.success'));
+      setDeletePodConfirm(null);
       await loadPods();
       onAfterMutate?.();
     } catch (e) {
@@ -241,6 +261,21 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
               {t('common.clearFilters')}
             </Button>
           ) : null}
+          {hasMasterWorkload || hasWorkerWorkload ? (
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              disabled={operating}
+              data-testid='k8s-rollout-open'
+              onClick={() => {
+                setRestartRole(hasWorkerWorkload ? 'worker' : 'master');
+                setRestartOpen(true);
+              }}
+            >
+              {t('cluster.k8s.rolloutRestart')}
+            </Button>
+          ) : null}
           <Button type='button' size='sm' onClick={openScale} disabled={operating} data-testid='k8s-scale-open'>
             {t('cluster.k8s.adjustReplicas')}
           </Button>
@@ -306,10 +341,10 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
                         variant='ghost'
                         size='sm'
                         iconOnly
-                        aria-label={t('cluster.k8s.rolloutRestart')}
-                        title={t('cluster.k8s.rolloutRestart')}
+                        aria-label={t('cluster.k8s.recreatePod')}
+                        title={t('cluster.k8s.recreatePod')}
                         disabled={operating}
-                        onClick={() => setRestartConfirm(pod.role as 'master' | 'worker')}
+                        onClick={() => setDeletePodConfirm(pod.name)}
                       >
                         <RotateCw className='size-3.5' aria-hidden />
                       </Button>
@@ -349,17 +384,42 @@ export function K8sNodesPanel({clusterId, cluster, refreshTrigger, onAfterMutate
         </Dialog>
       ) : null}
 
-      {restartConfirm ? (
+      {restartOpen ? (
+        <Dialog open onOpenChange={() => setRestartOpen(false)}>
+          <DialogContent title={t('cluster.k8s.rolloutRestart')} className='arc-compact w-[min(94vw,440px)]!'>
+            <div className='space-y-3'>
+              <SegmentedControl
+                label={t('cluster.k8s.podRole')}
+                value={restartRole}
+                onValueChange={(v) => setRestartRole(v as typeof restartRole)}
+                options={[
+                  ...(hasMasterWorkload ? [{value: 'master', label: t('cluster.roles.master')}] : []),
+                  ...(hasWorkerWorkload ? [{value: 'worker', label: t('cluster.roles.worker')}] : []),
+                ]}
+              />
+              <p className='text-xs text-muted-foreground'>
+                {t('cluster.k8s.rolloutRestartConfirm', {role: t(`cluster.roles.${restartRole}`)})}
+              </p>
+            </div>
+            <div className='mt-4 flex justify-end gap-2'>
+              <Button size='sm' variant='secondary' onClick={() => setRestartOpen(false)}>{t('common.cancel')}</Button>
+              <Button size='sm' disabled={operating} onClick={() => void doRestart()} data-testid='k8s-rollout-submit'>{t('common.confirm')}</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+
+      {deletePodConfirm ? (
         <ConfirmDialog
           open
           onOpenChange={(open) => {
-            if (!open) setRestartConfirm(null);
+            if (!open) setDeletePodConfirm(null);
           }}
-          title={t('cluster.k8s.rolloutRestart')}
-          description={t('cluster.k8s.rolloutRestartConfirm', {role: t(`cluster.roles.${restartConfirm}`)})}
+          title={t('cluster.k8s.recreatePod')}
+          description={t('cluster.k8s.recreatePodConfirm', {name: deletePodConfirm})}
           confirmLabel={t('common.confirm')}
           cancelLabel={t('common.cancel')}
-          onConfirm={() => void doRestart(restartConfirm)}
+          onConfirm={() => void doDeletePod(deletePodConfirm)}
         />
       ) : null}
 

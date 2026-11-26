@@ -458,6 +458,20 @@ func (s *SessionManager) PodLogs(ctx context.Context, cfg *SessionConfig, podNam
 	return string(data), nil
 }
 
+// DeletePod 删除指定 Pod；工作负载控制器会自动重建，用于单 Pod 卡死时的强制轮换。
+// DeletePod deletes the given pod; the owning workload controller recreates it,
+// which is the Kubernetes-native way to force-rotate a single stuck pod.
+func (s *SessionManager) DeletePod(ctx context.Context, cfg *SessionConfig, podName string) error {
+	clientset, err := s.manager.Clientset(ctx, cfg.HostID)
+	if err != nil {
+		return err
+	}
+	if err := clientset.CoreV1().Pods(cfg.Namespace).Delete(ctx, podName, metav1.DeleteOptions{}); err != nil {
+		return fmt.Errorf("k8s: delete pod %q failed: %w", podName, err)
+	}
+	return nil
+}
+
 // WorkloadStatus 汇总 master/worker 工作负载的期望与就绪副本数，用于双校验健康检查第一段。
 // WorkloadStatus aggregates desired and ready replicas of master/worker workloads for the
 // first stage of the double health check.

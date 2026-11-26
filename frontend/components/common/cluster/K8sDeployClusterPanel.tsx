@@ -136,18 +136,12 @@ export function K8sDeployClusterPanel({
     let cancelled = false;
     setLoadingHosts(true);
     void services.host
-      .getHostsSafe({
-        current: 1,
-        size: 100,
-        host_type: HostType.KUBERNETES,
-      })
+      .getAllHostsByTypeSafe(HostType.KUBERNETES)
       .then((res) => {
         if (cancelled) {
           return;
         }
-        const items = (res.success && res.data?.hosts ? res.data.hosts : []).filter(
-          (h) => h.host_type === HostType.KUBERNETES,
-        );
+        const items = res.hosts.filter((h) => h.host_type === HostType.KUBERNETES);
         setK8sHosts(items);
         if (items.length > 0) {
           onChange((prev) => {

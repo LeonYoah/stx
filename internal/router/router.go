@@ -415,6 +415,7 @@ func Serve() {
 				clusterRouter.POST("/:id/k8s/upgrade-image", clusterHandler.UpgradeK8sImage)
 				clusterRouter.GET("/:id/k8s/pods", clusterHandler.GetK8sPodsHandler)
 				clusterRouter.GET("/:id/k8s/pods/:pod/logs", clusterHandler.GetK8sPodLogsHandler)
+				clusterRouter.DELETE("/:id/k8s/pods/:pod", clusterHandler.DeleteK8sPodHandler)
 				clusterRouter.POST("/:id/k8s/java-proxy/retry", clusterHandler.RetryK8sJavaProxy)
 				clusterRouter.GET("/:id/k8s/configmap", clusterHandler.GetK8sConfigMap)
 				clusterRouter.PUT("/:id/k8s/configmap/:file", clusterHandler.UpdateK8sConfigMapFile)

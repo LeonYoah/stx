@@ -38,7 +38,7 @@ import (
 // in-container files are unreachable from the control plane and lost on pod recreation.
 func k8sLocalFileWarning(ctx context.Context) string {
 	return locale.Pick(ctx,
-		"Kubernetes 本地文件存储（LOCAL_FILE）位于 Pod 容器内，不支持跨 Pod 容量统计与文件清理，且 Pod 重建后数据会丢失；生产环境建议切换为 S3 / OSS / HDFS 外部共享存储",
+		"Kubernetes 本地文件存储（LOCAL_FILE）位于 Pod 容器内，不支持跨 Pod 容量统计与文件清理，且 Pod 重建后数据会丢失；生产环境建议切换为 S3、OSS、HDFS 外部共享存储",
 		"Kubernetes local file storage (LOCAL_FILE) lives inside pod containers: cross-pod sizing and cleanup are unsupported, data is lost when pods are recreated, and production should switch to external shared storage (S3 / OSS / HDFS)")
 }
 
@@ -46,7 +46,7 @@ func k8sLocalFileWarning(ctx context.Context) string {
 // k8sLocalFileUnsupported is the operation-level rejection for browse/preview/inspect/cleanup.
 func k8sLocalFileUnsupported(ctx context.Context) string {
 	return locale.Pick(ctx,
-		"Kubernetes 本地文件存储不支持在控制面浏览、预览、反序列化或清理容器内文件，请配置 S3 / OSS / HDFS 外部存储",
+		"Kubernetes 本地文件存储不支持在控制面浏览、预览、反序列化或清理容器内文件，请配置 S3、OSS、HDFS 外部存储",
 		"Kubernetes local file storage cannot be browsed, previewed, inspected or cleaned up from the control plane; configure external storage (S3 / OSS / HDFS)")
 }
 

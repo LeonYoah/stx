@@ -51,6 +51,12 @@ func (s *Service) ValidateRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
+	// K8s 集群无 Agent 节点：LOCAL_FILE 返回友好结构化结果，外部存储经伴生 Proxy HTTP 探活。
+	// Kubernetes clusters have no agent nodes: LOCAL_FILE yields a friendly structured
+	// result, while external storage is probed through the companion proxy over HTTP.
+	if clusterObj.IsKubernetes() {
+		return s.validateK8sRuntimeStorage(ctx, clusterObj, kind)
+	}
 	nodes, err := s.GetNodes(ctx, clusterID)
 	if err != nil {
 		return nil, err

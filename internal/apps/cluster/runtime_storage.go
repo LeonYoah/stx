@@ -18,6 +18,7 @@
 package cluster
 
 import (
+	"errors"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -111,6 +112,12 @@ func (s *Service) GetRuntimeStorageDetails(ctx context.Context, clusterID uint) 
 	if err != nil {
 		return nil, err
 	}
+	// K8s 集群无 Agent 无节点表：配置唯一真相是集群内 ConfigMap。
+	// Kubernetes clusters have neither agents nor node rows: the ConfigMap is the
+	// single source of truth.
+	if clusterObj.IsKubernetes() {
+		return s.getK8sRuntimeStorageDetails(ctx, clusterObj)
+	}
 	nodes, err := s.GetNodes(ctx, clusterID)
 	if err != nil {
 		return nil, err
@@ -158,6 +165,9 @@ func (s *Service) GetRuntimeStorageDetails(ctx context.Context, clusterID uint) 
 // CleanupIMAPStorage cleans local IMAP directories on all online nodes when IMAP uses LOCAL_FILE.
 // CleanupIMAPStorage 在 IMAP 使用 LOCAL_FILE 时清理所有在线节点上的本地 IMAP 目录。
 func (s *Service) CleanupIMAPStorage(ctx context.Context, clusterID uint) (*RuntimeStorageCleanupResult, error) {
+	if clusterObj, getErr := s.Get(ctx, clusterID); getErr == nil && clusterObj.IsKubernetes() {
+		return nil, errors.New(k8sLocalFileUnsupported)
+	}
 	details, err := s.GetRuntimeStorageDetails(ctx, clusterID)
 	if err != nil {
 		return nil, err

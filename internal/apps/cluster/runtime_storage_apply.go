@@ -128,6 +128,12 @@ func (s *Service) ApplyRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
+	// K8s 集群直接读写集群内 ConfigMap：外部存储先经 Proxy 探活，失败不写回。
+	// Kubernetes clusters read and write the in-cluster ConfigMap directly; external
+	// storage is probed through the proxy first and a failed probe blocks the write.
+	if clusterObj.IsKubernetes() {
+		return s.applyK8sRuntimeStorage(ctx, clusterObj, kind, req)
+	}
 	configs, err := s.runtimeConfigStore.GetByCluster(ctx, clusterID)
 	if err != nil {
 		return nil, err

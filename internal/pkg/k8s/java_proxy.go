@@ -216,7 +216,7 @@ var proxyCloneMountPrefixes = []string{
 	"/opt/seatunnel/lib",
 	"/opt/seatunnel/config",
 	"/opt/seatunnel/starter",
-	"/tmp/seatunnel/checkpoint",
+	"/tmp/seatunnel",
 }
 
 func isProxyCloneablePath(mountPath string) bool {

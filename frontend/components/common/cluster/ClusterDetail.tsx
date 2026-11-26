@@ -1889,8 +1889,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           </div>
         ) : null}
 
-        {/* 类似电脑资源管理器的文件与目录浏览器 */}
-        {/* Desktop-like file explorer for runtime storage inspection & navigation */}
+        {/* 类似电脑资源管理器的文件与目录浏览器；K8s 容器内 LOCAL_FILE 控制面不可达，隐藏 */}
+        {/* Desktop-like file explorer; hidden for Kubernetes LOCAL_FILE which lives inside pods */}
+        {!(clusterIsK8s && !spec.external) ? (
         <div className='border-t-[0.5px] border-border/80 pt-4'>
           <RuntimeStorageFileExplorer
             flat
@@ -1925,7 +1926,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             }
             inspectIMAPWALLoadingPath={imapInspectLoading}
           />
-        </div>
+        </div> ) : null}
       </div>
     );
   };

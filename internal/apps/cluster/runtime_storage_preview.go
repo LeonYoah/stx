@@ -18,6 +18,7 @@
 package cluster
 
 import (
+	"errors"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -103,12 +104,28 @@ func (s *Service) PreviewRuntimeStorage(
 	path string,
 	maxBytes int,
 ) (*RuntimeStoragePreviewResult, error) {
-	if s.agentSender == nil || s.hostProvider == nil {
-		return nil, fmt.Errorf("agent sender or host provider is not configured")
-	}
 	clusterObj, err := s.Get(ctx, clusterID)
 	if err != nil {
 		return nil, err
+	}
+	// K8s 集群不走 Agent/Proxy 节点：LOCAL_FILE 明确拒绝，S3 直连，其他外部类型提示未开放。
+	// Kubernetes clusters bypass the agent/proxy node path: LOCAL_FILE is explicitly
+	// rejected, S3 is direct, other external types report as not yet exposed.
+	if clusterObj.IsKubernetes() {
+		resolved, resolveErr := s.resolveK8sRuntimeStorageResolved(ctx, clusterObj, string(kind))
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		if resolved == nil {
+			return nil, errors.New(k8sLocalFileUnsupported)
+		}
+		if boundaryErr := k8sRuntimeStorageBoundaryError(resolved.StorageType); boundaryErr != nil {
+			return nil, boundaryErr
+		}
+		return previewS3RuntimeStorage(ctx, clusterID, string(kind), resolved, path, maxBytes)
+	}
+	if s.agentSender == nil || s.hostProvider == nil {
+		return nil, fmt.Errorf("agent sender or host provider is not configured")
 	}
 	node, hostInfo, err := s.pickSTXJavaProxyNode(ctx, clusterID)
 	if err != nil {
@@ -151,6 +168,9 @@ func (s *Service) InspectCheckpointRuntimeStorage(
 	path string,
 	jobConfig *RuntimeStorageCheckpointInspectJobConfig,
 ) (*RuntimeStorageCheckpointInspectResult, error) {
+	if clusterObj, getErr := s.Get(ctx, clusterID); getErr == nil && clusterObj.IsKubernetes() {
+		return nil, errors.New("Kubernetes 集群当前暂不支持通过 HTTP 代理浏览/反序列化该外部存储类型（S3 支持浏览与预览）")
+	}
 	if s.agentSender == nil || s.hostProvider == nil {
 		return nil, fmt.Errorf("agent sender or host provider is not configured")
 	}
@@ -242,6 +262,9 @@ func (s *Service) InspectIMAPRuntimeStorage(
 	clusterID uint,
 	path string,
 ) (*RuntimeStorageIMAPInspectResult, error) {
+	if clusterObj, getErr := s.Get(ctx, clusterID); getErr == nil && clusterObj.IsKubernetes() {
+		return nil, errors.New("Kubernetes 集群当前暂不支持通过 HTTP 代理浏览/反序列化该外部存储类型（S3 支持浏览与预览）")
+	}
 	if s.agentSender == nil || s.hostProvider == nil {
 		return nil, fmt.Errorf("agent sender or host provider is not configured")
 	}

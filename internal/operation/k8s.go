@@ -37,6 +37,16 @@ func k8sOperationSpecs() []OperationSpec {
 			"stx host k8s-namespaces 1",
 		),
 		k8sReadOperation(
+			"host.k8s-namespace-objects", []string{"host", "k8s-namespace-objects"}, "List existing namespace objects (secrets/serviceaccounts/pvcs)",
+			"GET", "/api/v1/hosts/:id/k8s/namespaces/:namespace/objects",
+			[]InputSpec{
+				{Name: "id", Location: InputPath, Required: true, Description: "Host ID"},
+				{Name: "namespace", Location: InputPath, Required: true, Description: "Namespace"},
+				{Name: "kind", Location: InputQuery, Required: true, Description: "secrets|serviceaccounts|pvcs"},
+			},
+			"stx host k8s-namespace-objects 1 seatunnel --kind secrets",
+		),
+		k8sReadOperation(
 			"host.k8s-discover", []string{"host", "k8s-discover"}, "Discover adoptable SeaTunnel clusters in a namespace",
 			"GET", "/api/v1/hosts/:id/k8s/discover",
 			// 不登记 namespace 查询参数：生成式 CLI 的 --namespace 已被本地命名空间占用，

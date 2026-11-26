@@ -18,6 +18,7 @@
 package host
 
 import (
+	"strings"
 	"context"
 	"net/http"
 	"strconv"
@@ -188,4 +189,34 @@ func (h *Handler) DiscoverK8sSeaTunnelClusters(c *gin.Context) {
 		clusters = []*k8s.DiscoveredCluster{}
 	}
 	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": clusters})
+}
+
+// ListK8sNamespaceObjects 按 kind 列出 namespace 内已有对象供向导高级选项下拉。
+// ListK8sNamespaceObjects lists existing namespace objects by kind for wizard dropdowns.
+func (h *Handler) ListK8sNamespaceObjects(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": "invalid host id"})
+		return
+	}
+	namespace := strings.TrimSpace(c.Param("namespace"))
+	kind := strings.TrimSpace(c.DefaultQuery("kind", ""))
+	if namespace == "" || kind == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": "namespace and kind are required"})
+		return
+	}
+	mgr, err := h.buildK8sManager()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error_msg": err.Error()})
+		return
+	}
+	names, err := mgr.ListNamespaceObjects(c.Request.Context(), uint(id), namespace, kind)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error_msg": err.Error(), "data": []string{}})
+		return
+	}
+	if names == nil {
+		names = []string{}
+	}
+	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": names})
 }

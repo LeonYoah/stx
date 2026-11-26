@@ -514,6 +514,7 @@ func TestK8sOperationsRegistered(t *testing.T) {
 	}{
 		"host.test-connection":         {"POST", "/api/v1/hosts/:id/test-connection", RiskR0},
 		"host.k8s-namespaces":          {"GET", "/api/v1/hosts/:id/k8s/namespaces", RiskR0},
+		"host.k8s-namespace-objects":   {"GET", "/api/v1/hosts/:id/k8s/namespaces/:namespace/objects", RiskR0},
 		"host.k8s-discover":            {"GET", "/api/v1/hosts/:id/k8s/discover", RiskR0},
 		"cluster.kubernetes-create":    {"POST", "/api/v1/clusters/kubernetes", RiskR1},
 		"cluster.k8s-scale":            {"POST", "/api/v1/clusters/:id/k8s/scale", RiskR1},

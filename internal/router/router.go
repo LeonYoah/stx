@@ -347,6 +347,7 @@ func Serve() {
 				hostRouter.GET("/:id/install-command", hostHandler.GetInstallCommand)
 				hostRouter.POST("/:id/test-connection", hostHandler.TestK8sConnection)
 				hostRouter.GET("/:id/k8s/namespaces", hostHandler.ListK8sNamespaces)
+				hostRouter.GET("/:id/k8s/namespaces/:namespace/objects", hostHandler.ListK8sNamespaceObjects)
 				hostRouter.GET("/:id/k8s/discover", hostHandler.DiscoverK8sSeaTunnelClusters)
 			}
 

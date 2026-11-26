@@ -379,3 +379,44 @@ func (m *ClientManager) ListNamespaces(ctx context.Context, hostID uint) ([]stri
 	}
 	return names, nil
 }
+
+// ListNamespaceObjects 按 kind 列出 namespace 内已有对象名（secrets/serviceaccounts/pvcs），
+// 供创建向导高级选项下拉选择；未知 kind 返回错误。
+// ListNamespaceObjects lists existing object names in a namespace by kind
+// (secrets/serviceaccounts/pvcs) for the wizard advanced dropdowns; unknown kinds error.
+func (m *ClientManager) ListNamespaceObjects(ctx context.Context, hostID uint, namespace, kind string) ([]string, error) {
+	clientset, err := m.Clientset(ctx, hostID)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0)
+	switch kind {
+	case "secrets":
+		list, err := clientset.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range list.Items {
+			names = append(names, item.Name)
+		}
+	case "serviceaccounts":
+		list, err := clientset.CoreV1().ServiceAccounts(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range list.Items {
+			names = append(names, item.Name)
+		}
+	case "pvcs":
+		list, err := clientset.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range list.Items {
+			names = append(names, item.Name)
+		}
+	default:
+		return nil, fmt.Errorf("k8s: unsupported object kind %q", kind)
+	}
+	return names, nil
+}

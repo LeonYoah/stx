@@ -433,6 +433,7 @@ export function RuntimeStorageFileExplorer({
                 size='sm'
                 iconOnly
                 disabled={loading}
+                data-testid={`runtime-storage-explorer-${kind}-refresh`}
                 onClick={onRefresh}
                 aria-label={tCommon('refresh')}
               >
@@ -500,6 +501,9 @@ export function RuntimeStorageFileExplorer({
               return (
                 <TableRow
                   key={`${kind}-item-${itemPath}`}
+                  data-testid={`runtime-storage-explorer-${kind}-row`}
+                  data-item-name={itemName}
+                  data-item-path={itemPath}
                   className='group cursor-pointer border-border/40 hover:bg-muted/50 transition-colors'
                   onClick={() => handleItemClick(item)}
                 >
@@ -574,6 +578,7 @@ export function RuntimeStorageFileExplorer({
                           type='button'
                           variant='ghost'
                           size='sm'
+                          data-testid='runtime-storage-explorer-open-dir'
                           onClick={() => onNavigate(itemPath)}
                         >
                           {t('open')}
@@ -585,6 +590,7 @@ export function RuntimeStorageFileExplorer({
                             type='button'
                             variant='secondary'
                             size='sm'
+                            data-testid='runtime-storage-explorer-inspect-checkpoint'
                             loading={isInspecting}
                             onClick={() => onInspectCheckpoint?.(itemPath)}
                           >
@@ -598,6 +604,7 @@ export function RuntimeStorageFileExplorer({
                                 variant='ghost'
                                 size='sm'
                                 iconOnly
+                                data-testid='runtime-storage-explorer-preview'
                                 loading={isPreviewing}
                                 onClick={() => onPreviewFile(itemPath)}
                                 aria-label={t('preview')}
@@ -614,6 +621,7 @@ export function RuntimeStorageFileExplorer({
                             type='button'
                             variant='secondary'
                             size='sm'
+                            data-testid='runtime-storage-explorer-inspect-imap'
                             loading={isInspectingWal}
                             onClick={() => onInspectIMAPWAL?.(itemPath)}
                           >
@@ -627,6 +635,7 @@ export function RuntimeStorageFileExplorer({
                                 variant='ghost'
                                 size='sm'
                                 iconOnly
+                                data-testid='runtime-storage-explorer-preview'
                                 loading={isPreviewing}
                                 onClick={() => onPreviewFile(itemPath)}
                                 aria-label={t('preview')}
@@ -642,6 +651,7 @@ export function RuntimeStorageFileExplorer({
                           type='button'
                           variant='ghost'
                           size='sm'
+                          data-testid='runtime-storage-explorer-preview'
                           loading={isPreviewing}
                           onClick={() => onPreviewFile(itemPath)}
                         >

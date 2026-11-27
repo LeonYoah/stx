@@ -2837,6 +2837,7 @@
     "hdfsHANamenodes": "HA Namenodes",
     "hdfsNamenodeRPCAddress1": "Namenode 1 RPC Address",
     "hdfsNamenodeRPCAddress2": "Namenode 2 RPC Address",
+    "hdfsFailoverProxyProvider": "Failover Proxy Provider",
     "hdfsKerberos": "Enable Kerberos Authentication",
     "kerberosPrincipal": "Kerberos Principal",
     "kerberosKeytabPath": "Keytab File Path",

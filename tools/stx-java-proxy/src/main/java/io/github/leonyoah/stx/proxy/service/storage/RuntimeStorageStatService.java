@@ -84,20 +84,10 @@ public class RuntimeStorageStatService {
 
     private Map<String, Object> statWithFileSystem(
             Map<String, String> config, String storageType, String namespace) throws IOException {
-        Configuration conf = new Configuration(false);
-        for (Map.Entry<String, String> entry : config.entrySet()) {
-            String key = entry.getKey();
-            String value = entry.getValue();
-            if (value == null || value.trim().isEmpty()) {
-                continue;
-            }
-            conf.set(key, value);
-            if (key.startsWith("seatunnel.hadoop.")) {
-                conf.set(key.substring("seatunnel.hadoop.".length()), value);
-            }
-        }
-
-        Path targetPath = buildTargetPath(config, storageType, namespace);
+        Configuration conf = StorageProbeConfigSupport.buildHadoopConfiguration(config);
+        Path targetPath =
+                StorageProbeConfigSupport.resolveTargetPath(
+                        conf, config, storageType, namespace, null, "stat");
         FileSystem fs = targetPath.getFileSystem(conf);
         boolean exists = fs.exists(targetPath);
         long totalSizeBytes = 0L;
@@ -142,59 +132,6 @@ public class RuntimeStorageStatService {
             count += nested[1];
         }
         return new long[] {total, count};
-    }
-
-    private Path buildTargetPath(Map<String, String> config, String storageType, String namespace) {
-        String normalizedNamespace = namespace.trim();
-        if ("s3".equals(storageType)) {
-            String bucket = firstNonBlank(config.get("s3.bucket"), config.get("fs.defaultFS"));
-            if (bucket == null) {
-                throw new ProxyException(400, "S3 stat requires s3.bucket or fs.defaultFS");
-            }
-            return new Path(
-                    joinBucketAndNamespace(normalizeBucket(bucket, "s3a://"), normalizedNamespace));
-        }
-        if ("oss".equals(storageType)) {
-            String bucket = firstNonBlank(config.get("oss.bucket"), config.get("fs.defaultFS"));
-            if (bucket == null) {
-                throw new ProxyException(400, "OSS stat requires oss.bucket or fs.defaultFS");
-            }
-            return new Path(
-                    joinBucketAndNamespace(normalizeBucket(bucket, "oss://"), normalizedNamespace));
-        }
-        String defaultFS =
-                firstNonBlank(
-                        config.get("fs.defaultFS"), config.get("seatunnel.hadoop.fs.defaultFS"));
-        if (defaultFS != null) {
-            return new Path(new Path(defaultFS), normalizedNamespace);
-        }
-        return new Path(normalizedNamespace);
-    }
-
-    private String normalizeBucket(String bucket, String scheme) {
-        String trimmed = bucket.trim();
-        if (trimmed.contains("://")) {
-            return trimmed;
-        }
-        return scheme + trimmed.replaceFirst("^/+", "");
-    }
-
-    private String joinBucketAndNamespace(String bucket, String namespace) {
-        String normalizedBucket = bucket.replaceAll("/+$", "");
-        String normalizedNamespace = namespace.replaceFirst("^/+", "");
-        if (normalizedNamespace.isEmpty()) {
-            return normalizedBucket;
-        }
-        return normalizedBucket + "/" + normalizedNamespace;
-    }
-
-    private String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.trim().isEmpty()) {
-                return value.trim();
-            }
-        }
-        return null;
     }
 
     private String lower(String value) {

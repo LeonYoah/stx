@@ -20,6 +20,7 @@
     "test:e2e:install": "playwright install chromium",
     "test:e2e:install-wizard-negative": "playwright test e2e/install-wizard-negative.spec.ts",
     "test:e2e:installer-real": "bash ./scripts/e2e/run-real-installer.sh",
+    "test:e2e:runtime-storage-real": "bash ./scripts/e2e/run-real-runtime-storage.sh",
     "test:e2e:workbench-real": "bash ./scripts/e2e/run-real-workbench.sh",
     "test:e2e:plugin-real": "bash ./scripts/e2e/run-real-plugin.sh",
     "test:e2e:config-real": "bash ./scripts/e2e/run-real-config.sh",

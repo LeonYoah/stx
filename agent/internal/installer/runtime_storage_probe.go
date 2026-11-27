@@ -226,7 +226,7 @@ func buildCheckpointPluginConfig(cfg *CheckpointConfig) (map[string]string, erro
 				failoverProvider = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
 			}
 			pluginConfig[fmt.Sprintf("seatunnel.hadoop.dfs.client.failover.proxy.provider.%s", cfg.HDFSNameServices)] = failoverProvider
-		} else {
+		} else if strings.TrimSpace(cfg.HDFSNameNodeHost) != "" && cfg.HDFSNameNodePort > 0 {
 			pluginConfig["fs.defaultFS"] = fmt.Sprintf("hdfs://%s:%d", cfg.HDFSNameNodeHost, cfg.HDFSNameNodePort)
 		}
 		if cfg.KerberosPrincipal != "" {

@@ -186,8 +186,9 @@ export function ClusterConfigStep({
         Boolean(store.kerberos_keytab_file_path);
 
       return (
-        <div className='space-y-2.5'>
+        <div className='space-y-2.5' data-testid={`cluster-wizard-${kind}-hdfs-fields`}>
           <Checkbox
+            data-testid={`cluster-wizard-${kind}-hdfs-ha`}
             checked={haEnabled}
             onCheckedChange={(checked) =>
               patch({hdfs_ha_enabled: checked === true})
@@ -198,6 +199,7 @@ export function ClusterConfigStep({
           {!haEnabled && (
             <div className='grid grid-cols-2 gap-2.5'>
               <Input
+                data-testid={`cluster-wizard-${kind}-hdfs-host`}
                 label={t('installer.hdfsNameNodeHost')}
                 value={store.hdfs_namenode_host || ''}
                 onChange={(e) => patch({hdfs_namenode_host: e.target.value})}
@@ -205,6 +207,7 @@ export function ClusterConfigStep({
                 className='font-mono text-xs'
               />
               <Input
+                data-testid={`cluster-wizard-${kind}-hdfs-port`}
                 label={t('installer.hdfsNameNodePort')}
                 type='number'
                 value={store.hdfs_namenode_port || ''}
@@ -221,6 +224,7 @@ export function ClusterConfigStep({
             <div className='space-y-2.5'>
               <div className='grid grid-cols-2 gap-2.5'>
                 <Input
+                  data-testid={`cluster-wizard-${kind}-hdfs-nameservices`}
                   label={t('installer.hdfsNameServices')}
                   value={store.hdfs_name_services || ''}
                   onChange={(e) =>
@@ -230,6 +234,7 @@ export function ClusterConfigStep({
                   className='font-mono text-xs'
                 />
                 <Input
+                  data-testid={`cluster-wizard-${kind}-hdfs-ha-namenodes`}
                   label={t('installer.hdfsHANamenodes')}
                   value={store.hdfs_ha_namenodes || ''}
                   onChange={(e) => patch({hdfs_ha_namenodes: e.target.value})}
@@ -239,6 +244,7 @@ export function ClusterConfigStep({
               </div>
               <div className='grid grid-cols-2 gap-2.5'>
                 <Input
+                  data-testid={`cluster-wizard-${kind}-hdfs-rpc-1`}
                   label={t('installer.hdfsNamenodeRPCAddress1')}
                   value={store.hdfs_namenode_rpc_address_1 || ''}
                   onChange={(e) =>
@@ -248,6 +254,7 @@ export function ClusterConfigStep({
                   className='font-mono text-xs'
                 />
                 <Input
+                  data-testid={`cluster-wizard-${kind}-hdfs-rpc-2`}
                   label={t('installer.hdfsNamenodeRPCAddress2')}
                   value={store.hdfs_namenode_rpc_address_2 || ''}
                   onChange={(e) =>
@@ -261,6 +268,7 @@ export function ClusterConfigStep({
           )}
 
           <Input
+            data-testid={`cluster-wizard-${kind}-hdfs-site-path`}
             label={t('installer.hdfsSitePath')}
             value={store.hdfs_site_path || ''}
             onChange={(e) => patch({hdfs_site_path: e.target.value})}
@@ -872,6 +880,7 @@ export function ClusterConfigStep({
                       type='button'
                       variant='secondary'
                       size='sm'
+                      data-testid='cluster-wizard-apply-checkpoint-to-imap'
                       onClick={applyCheckpointToImap}
                     >
                       <Copy className='size-3' aria-hidden />

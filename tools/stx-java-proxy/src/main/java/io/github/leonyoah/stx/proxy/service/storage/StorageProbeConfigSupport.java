@@ -19,15 +19,152 @@ package io.github.leonyoah.stx.proxy.service.storage;
 
 import org.apache.seatunnel.shade.org.apache.commons.lang3.StringUtils;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+
 import io.github.leonyoah.stx.proxy.service.support.ProxyException;
 
+import java.io.File;
 import java.util.Map;
 
 public final class StorageProbeConfigSupport {
 
     private static final String S3_STORAGE = "s3";
+    private static final String OSS_STORAGE = "oss";
+    private static final String HDFS_STORAGE = "hdfs";
 
     private StorageProbeConfigSupport() {}
+
+    /**
+     * 统一构建 Hadoop Configuration：先加载本地 hdfs_site_path，再叠加显式配置与 seatunnel.hadoop.* 覆盖项。 Builds a
+     * shared Hadoop Configuration: loads local hdfs_site_path first, then overlays explicit config
+     * entries and stripped seatunnel.hadoop.* keys.
+     */
+    public static Configuration buildHadoopConfiguration(Map<String, String> config) {
+        Configuration conf = new Configuration(false);
+        if (config == null || config.isEmpty()) {
+            return conf;
+        }
+        String hdfsSitePath =
+                firstNonBlank(
+                        config.get("hdfs_site_path"),
+                        config.get("seatunnel.hadoop.hdfs_site_path"));
+        if (hdfsSitePath != null) {
+            File siteFile = new File(hdfsSitePath);
+            if (!siteFile.isFile()) {
+                throw new ProxyException(
+                        400, "Configured hdfs_site_path does not exist: " + hdfsSitePath);
+            }
+            // 使用 Path(URI) 确保按本地文件而非 classpath 资源加载 XML。
+            // Use Path(URI) so Hadoop loads the XML from local disk instead of classpath.
+            conf.addResource(new Path(siteFile.toURI()));
+        }
+        for (Map.Entry<String, String> entry : config.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+            if (key == null || value == null || value.trim().isEmpty()) {
+                continue;
+            }
+            conf.set(key, value);
+            if (key.startsWith("seatunnel.hadoop.")) {
+                conf.set(key.substring("seatunnel.hadoop.".length()), value);
+            }
+        }
+        String disableCache = firstNonBlank(config.get("disable.cache"));
+        if (disableCache != null && conf.get("fs.hdfs.impl.disable.cache") == null) {
+            conf.setBoolean("fs.hdfs.impl.disable.cache", Boolean.parseBoolean(disableCache));
+        }
+        return conf;
+    }
+
+    /**
+     * 统一解析运行时存储目标路径，支持已带 scheme 的绝对路径与 hdfs-site.xml 中的 nameservices 兜底。 Resolves a runtime storage
+     * Path, preserving already-qualified URIs and falling back to fs.defaultFS or dfs.nameservices
+     * loaded from hdfs-site.xml.
+     */
+    public static Path resolveTargetPath(
+            Configuration conf,
+            Map<String, String> config,
+            String storageType,
+            String namespace,
+            String requestedPath,
+            String operationLabel) {
+        String effectivePath = firstNonBlank(requestedPath, namespace);
+        String normalizedPath = effectivePath == null ? namespace.trim() : effectivePath.trim();
+        if (normalizedPath.contains("://")) {
+            return new Path(normalizedPath);
+        }
+        if (S3_STORAGE.equals(storageType)) {
+            String bucket =
+                    firstNonBlank(
+                            config.get("s3.bucket"),
+                            config.get("fs.defaultFS"),
+                            conf == null ? null : conf.get("fs.defaultFS"));
+            if (bucket == null) {
+                throw new ProxyException(
+                        400, "S3 " + operationLabel + " requires s3.bucket or fs.defaultFS");
+            }
+            return new Path(
+                    joinBucketAndNamespace(normalizeBucket(bucket, "s3a://"), normalizedPath));
+        }
+        if (OSS_STORAGE.equals(storageType)) {
+            String bucket =
+                    firstNonBlank(
+                            config.get("oss.bucket"),
+                            config.get("fs.defaultFS"),
+                            conf == null ? null : conf.get("fs.defaultFS"));
+            if (bucket == null) {
+                throw new ProxyException(
+                        400, "OSS " + operationLabel + " requires oss.bucket or fs.defaultFS");
+            }
+            return new Path(
+                    joinBucketAndNamespace(normalizeBucket(bucket, "oss://"), normalizedPath));
+        }
+        String defaultFS =
+                firstNonBlank(
+                        config.get("fs.defaultFS"),
+                        config.get("seatunnel.hadoop.fs.defaultFS"),
+                        conf == null ? null : conf.get("fs.defaultFS"));
+        if (defaultFS == null && HDFS_STORAGE.equals(storageType) && conf != null) {
+            String nameServices = firstNonBlank(conf.get("dfs.nameservices"));
+            if (nameServices != null) {
+                String primaryService = nameServices.split(",")[0].trim();
+                if (!primaryService.isEmpty()) {
+                    defaultFS = "hdfs://" + primaryService;
+                }
+            }
+        }
+        if (defaultFS != null) {
+            return new Path(new Path(defaultFS), normalizedPath);
+        }
+        return new Path(normalizedPath);
+    }
+
+    private static String normalizeBucket(String bucket, String scheme) {
+        String trimmed = bucket.trim();
+        if (trimmed.contains("://")) {
+            return trimmed;
+        }
+        return scheme + trimmed.replaceFirst("^/+", "");
+    }
+
+    private static String joinBucketAndNamespace(String bucket, String namespace) {
+        String normalizedBucket = bucket.replaceAll("/+$", "");
+        String normalizedNamespace = namespace.replaceFirst("^/+", "");
+        if (normalizedNamespace.isEmpty()) {
+            return normalizedBucket;
+        }
+        return normalizedBucket + "/" + normalizedNamespace;
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
+        }
+        return null;
+    }
 
     public static void validateCheckpointConfig(Map<String, String> config) {
         requireNonBlank(config, "namespace");

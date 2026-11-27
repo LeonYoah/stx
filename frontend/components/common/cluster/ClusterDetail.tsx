@@ -1671,7 +1671,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         <div className='flex flex-wrap items-start justify-between gap-3'>
           <div className='min-w-0 space-y-0.5'>
             <h4 className='text-sm font-semibold text-foreground'>{label}</h4>
-            <p className='text-xs text-muted-foreground'>
+            <p
+              className='text-xs text-muted-foreground'
+              data-testid={`cluster-runtime-storage-${kind}-mode`}
+            >
               {spec.enabled
                 ? t('cluster.runtimeStorage.mode', {
                     type: spec.storage_type || '-',
@@ -1684,6 +1687,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               type='button'
               variant='secondary'
               size='sm'
+              data-testid={`cluster-runtime-storage-${kind}-validate`}
               onClick={() => void handleValidateRuntimeStorage(kind)}
               loading={runtimeStorageValidationLoading === kind}
             >
@@ -1695,6 +1699,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 type='button'
                 variant='secondary'
                 size='sm'
+                data-testid='cluster-runtime-storage-imap-cleanup'
                 onClick={() => setImapCleanupOpen(true)}
                 loading={imapCleanupRunning}
               >
@@ -1712,6 +1717,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             </dt>
             <dd
               className='truncate font-mono font-medium text-foreground'
+              data-testid={`cluster-runtime-storage-${kind}-path`}
               title={spec.namespace || '-'}
             >
               {spec.namespace || '-'}
@@ -1743,7 +1749,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             <dt className='text-muted-foreground'>
               {t('cluster.runtimeStorage.size')}
             </dt>
-            <dd className='font-mono font-medium tabular-nums'>
+            <dd
+              className='font-mono font-medium tabular-nums'
+              data-testid={`cluster-runtime-storage-${kind}-size`}
+            >
               {spec.size_available
                 ? formatBytes(spec.total_size_bytes)
                 : t('cluster.runtimeStorage.remoteSizeUnavailable')}
@@ -1756,7 +1765,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         ) : null}
 
         {runtimeStorageValidation[kind] ? (
-          <div className='space-y-2 border-t-[0.5px] border-border/80 pt-4'>
+          <div
+            className='space-y-2 border-t-[0.5px] border-border/80 pt-4'
+            data-testid={`cluster-runtime-storage-${kind}-validate-result`}
+          >
             <div className='flex items-center justify-between gap-2'>
               <span className='text-xs font-semibold text-foreground'>
                 {t('cluster.runtimeStorage.validateResult')}
@@ -1840,7 +1852,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
 
         {/* 类似电脑资源管理器的文件与目录浏览器 */}
         {/* Desktop-like file explorer for runtime storage inspection & navigation */}
-        <div className='border-t-[0.5px] border-border/80 pt-4'>
+        <div
+          className='border-t-[0.5px] border-border/80 pt-4'
+          data-testid={`runtime-storage-explorer-${kind}`}
+        >
           <RuntimeStorageFileExplorer
             flat
             clusterId={clusterId}

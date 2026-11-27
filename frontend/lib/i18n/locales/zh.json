@@ -2837,6 +2837,7 @@
     "hdfsHANamenodes": "HA Namenodes",
     "hdfsNamenodeRPCAddress1": "Namenode 1 RPC 地址",
     "hdfsNamenodeRPCAddress2": "Namenode 2 RPC 地址",
+    "hdfsFailoverProxyProvider": "故障转移代理类",
     "hdfsKerberos": "启用 Kerberos 认证",
     "kerberosPrincipal": "Kerberos Principal",
     "kerberosKeytabPath": "Keytab 文件路径",

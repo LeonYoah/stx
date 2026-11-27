@@ -1,0 +1,154 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 共享 zk 容器 loopback 网络命名空间，确保 DataNode 以 127.0.0.1 注册并在 Linux CI 与 macOS 本机均可直连。
+# Share the zk container's loopback network namespace so DataNode registers on 127.0.0.1 and is directly
+# reachable from host clients on both Linux CI runners and macOS local Docker without /etc/hosts hacks.
+services:
+  zk:
+    image: ${E2E_HDFS_ZK_IMAGE:-zookeeper:3.9.2}
+    environment:
+      ZOO_PORT: ${HDFS_ZK_PORT:-12181}
+      JVMFLAGS: "-Xms64m -Xmx128m"
+    ports:
+      - "127.0.0.1:${HDFS_NN_ALPHA_RPC_PORT:-18020}:${HDFS_NN_ALPHA_RPC_PORT:-18020}"
+      - "127.0.0.1:${HDFS_NN_BETA_RPC_PORT:-28020}:${HDFS_NN_BETA_RPC_PORT:-28020}"
+      - "127.0.0.1:${HDFS_NN_ALPHA_HTTP_PORT:-19870}:${HDFS_NN_ALPHA_HTTP_PORT:-19870}"
+      - "127.0.0.1:${HDFS_NN_BETA_HTTP_PORT:-29870}:${HDFS_NN_BETA_HTTP_PORT:-29870}"
+      - "127.0.0.1:${HDFS_DN_XFER_PORT:-19866}:${HDFS_DN_XFER_PORT:-19866}"
+      - "127.0.0.1:${HDFS_DN_IPC_PORT:-19867}:${HDFS_DN_IPC_PORT:-19867}"
+      - "127.0.0.1:${HDFS_DN_HTTP_PORT:-19864}:${HDFS_DN_HTTP_PORT:-19864}"
+
+  jn:
+    image: ${E2E_HDFS_HADOOP_IMAGE:-apache/hadoop:3.3.6}
+    network_mode: "service:zk"
+    depends_on:
+      - zk
+    environment:
+      HADOOP_HEAPSIZE_MAX: "256m"
+      HADOOP_HEAPSIZE_MIN: "64m"
+    volumes:
+      - "${HDFS_HA_CONF_DIR}/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro"
+      - "${HDFS_HA_CONF_DIR}/client/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro"
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        mkdir -p /tmp/hadoop-jn
+        exec hdfs journalnode
+
+  nn-alpha:
+    image: ${E2E_HDFS_HADOOP_IMAGE:-apache/hadoop:3.3.6}
+    network_mode: "service:zk"
+    depends_on:
+      - zk
+      - jn
+    environment:
+      HADOOP_HEAPSIZE_MAX: "384m"
+      HADOOP_HEAPSIZE_MIN: "128m"
+      HDFS_ZK_PORT: "${HDFS_ZK_PORT:-12181}"
+      HDFS_JN_RPC_PORT: "${HDFS_JN_RPC_PORT:-18485}"
+    volumes:
+      - "${HDFS_HA_CONF_DIR}/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro"
+      - "${HDFS_HA_CONF_DIR}/nn-alpha/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro"
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        for port in "$${HDFS_ZK_PORT}" "$${HDFS_JN_RPC_PORT}"; do
+          for _ in $$(seq 1 90); do
+            if (echo > "/dev/tcp/127.0.0.1/$${port}") >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+        done
+        sleep 2
+        mkdir -p /tmp/hadoop-nn
+        if [[ ! -f /tmp/hadoop-nn/current/VERSION ]]; then
+          hdfs zkfc -formatZK -force -nonInteractive
+          hdfs namenode -format -clusterId stx-e2e-ha-cid -force -nonInteractive
+        fi
+        hdfs zkfc &
+        exec hdfs namenode
+
+  nn-beta:
+    image: ${E2E_HDFS_HADOOP_IMAGE:-apache/hadoop:3.3.6}
+    network_mode: "service:zk"
+    depends_on:
+      - zk
+      - jn
+      - nn-alpha
+    environment:
+      HADOOP_HEAPSIZE_MAX: "384m"
+      HADOOP_HEAPSIZE_MIN: "128m"
+      HDFS_NN_ALPHA_RPC_PORT: "${HDFS_NN_ALPHA_RPC_PORT:-18020}"
+      HDFS_NN_ALPHA_HTTP_PORT: "${HDFS_NN_ALPHA_HTTP_PORT:-19870}"
+    volumes:
+      - "${HDFS_HA_CONF_DIR}/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro"
+      - "${HDFS_HA_CONF_DIR}/nn-beta/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro"
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        for port in "$${HDFS_NN_ALPHA_RPC_PORT}" "$${HDFS_NN_ALPHA_HTTP_PORT}"; do
+          for _ in $$(seq 1 120); do
+            if (echo > "/dev/tcp/127.0.0.1/$${port}") >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+        done
+        mkdir -p /tmp/hadoop-nn
+        if [[ ! -f /tmp/hadoop-nn/current/VERSION ]]; then
+          for attempt in $$(seq 1 20); do
+            if hdfs namenode -bootstrapStandby -force -nonInteractive; then
+              break
+            fi
+            sleep 2
+          done
+        fi
+        hdfs zkfc &
+        exec hdfs namenode
+
+  dn:
+    image: ${E2E_HDFS_HADOOP_IMAGE:-apache/hadoop:3.3.6}
+    network_mode: "service:zk"
+    depends_on:
+      - zk
+      - nn-alpha
+    environment:
+      HADOOP_HEAPSIZE_MAX: "256m"
+      HADOOP_HEAPSIZE_MIN: "64m"
+      HDFS_NN_ALPHA_RPC_PORT: "${HDFS_NN_ALPHA_RPC_PORT:-18020}"
+    volumes:
+      - "${HDFS_HA_CONF_DIR}/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro"
+      - "${HDFS_HA_CONF_DIR}/client/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro"
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        for _ in $$(seq 1 120); do
+          if (echo > "/dev/tcp/127.0.0.1/$${HDFS_NN_ALPHA_RPC_PORT}") >/dev/null 2>&1; then
+            break
+          fi
+          sleep 1
+        done
+        mkdir -p /tmp/hadoop-dn
+        exec hdfs datanode

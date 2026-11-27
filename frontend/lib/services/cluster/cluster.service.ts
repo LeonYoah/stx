@@ -1213,9 +1213,11 @@ export class ClusterService extends BaseService {
       hdfs_ha_namenodes?: string;
       hdfs_namenode_rpc_address_1?: string;
       hdfs_namenode_rpc_address_2?: string;
+      hdfs_failover_proxy_provider?: string;
       kerberos_principal?: string;
       kerberos_keytab_file_path?: string;
       hdfs_site_path?: string;
+      disable_cache?: boolean;
       s3_credentials_provider?: string;
     },
   ): Promise<{success: boolean; data?: ApplyRuntimeStorageResult; error?: string}> {

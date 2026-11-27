@@ -43,6 +43,25 @@ PARAM_KEYS = [
 CONTROL_PLANE = ROOT / "internal/apps/cluster/runtime_storage_external.go"
 AGENT_PRECHECK = ROOT / "agent/internal/executor/precheck_handlers.go"
 RUNTIME_SPEC = ROOT / "internal/apps/cluster/runtime_storage.go"
+FRONTEND_EDITOR = ROOT / "frontend/components/common/cluster/RuntimeStorageEditor.tsx"
+FRONTEND_INSTALLER_CONFIG = ROOT / "frontend/components/common/installer/ConfigStep.tsx"
+PROXY_STORAGE_DIR = (
+    ROOT / "tools/stx-java-proxy/src/main/java/io/github/leonyoah/stx/proxy/service/storage"
+)
+PROXY_FS_SERVICES = [
+    "RuntimeStorageListService.java",
+    "RuntimeStoragePreviewService.java",
+    "RuntimeStorageStatService.java",
+    "CheckpointDeserializeService.java",
+    "CheckpointSourceStateInspectService.java",
+]
+FRONTEND_SYNC_KEYS = [
+    "hdfs_ha_namenodes",
+    "hdfs_failover_proxy_provider",
+    "hdfs_site_path",
+    "disable_cache",
+    "s3_credentials_provider",
+]
 
 
 STRUCT_FIELDS = [
@@ -78,6 +97,15 @@ def require_params(text: str, keys: list[str]) -> list[str]:
 
 def require_fields(text: str, fields: list[str]) -> list[str]:
     return [field for field in fields if not re.search(rf"\b{re.escape(field)}\b", text)]
+
+
+def extract_ts_const_fn(text: str, fn_name: str) -> str:
+    match = re.search(rf"const\s+{re.escape(fn_name)}\s*=", text)
+    if not match:
+        return ""
+    start = match.start()
+    end = text.find("\n  };", match.end())
+    return text[start : end + 4] if end != -1 else text[start:]
 
 
 def main() -> int:
@@ -122,6 +150,33 @@ def main() -> int:
     for path, text in ((CONTROL_PLANE, control_text), (RUNTIME_SPEC, spec_text)):
         if direct_namenode_pattern.search(text):
             errors.append(f"{path.relative_to(ROOT)} hard-codes nn1/nn2 instead of resolving HDFS HA namenode aliases")
+
+    # 检查 Java Proxy 文件系统服务是否统一通过 StorageProbeConfigSupport 构建配置（确保加载 hdfs_site_path）。
+    # Check all Java Proxy filesystem services use StorageProbeConfigSupport so hdfs_site_path is always loaded.
+    for filename in PROXY_FS_SERVICES:
+        path = PROXY_STORAGE_DIR / filename
+        text = path.read_text(encoding="utf-8")
+        if "StorageProbeConfigSupport.buildHadoopConfiguration" not in text:
+            errors.append(f"{path.relative_to(ROOT)} must use StorageProbeConfigSupport.buildHadoopConfiguration")
+        if "new Configuration(false)" in text:
+            errors.append(f"{path.relative_to(ROOT)} must not construct raw new Configuration(false) directly")
+
+    # 检查前端运行时存储编辑器与向导双向同步保留高级 HDFS/S3 字段。
+    # Check frontend runtime-storage editor and wizard copy helpers preserve advanced HDFS/S3 fields.
+    editor_text = FRONTEND_EDITOR.read_text(encoding="utf-8")
+    missing_editor = [key for key in FRONTEND_SYNC_KEYS if key not in editor_text]
+    if missing_editor:
+        errors.append(f"{FRONTEND_EDITOR.relative_to(ROOT)} missing runtime-storage fields: {', '.join(missing_editor)}")
+
+    config_step_text = FRONTEND_INSTALLER_CONFIG.read_text(encoding="utf-8")
+    for fn_name in ("applyCheckpointToImap", "applyImapToCheckpoint"):
+        body = extract_ts_const_fn(config_step_text, fn_name)
+        if not body:
+            errors.append(f"{FRONTEND_INSTALLER_CONFIG.relative_to(ROOT)} missing function {fn_name}")
+            continue
+        missing_keys = [key for key in FRONTEND_SYNC_KEYS if key not in body]
+        if missing_keys:
+            errors.append(f"{FRONTEND_INSTALLER_CONFIG.relative_to(ROOT)}:{fn_name} missing runtime-storage fields: {', '.join(missing_keys)}")
 
     if errors:
         for error in errors:

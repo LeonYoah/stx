@@ -1105,6 +1105,7 @@ func (c *CheckpointConfig) Validate() error {
 			c.HDFSHANamenodes,
 			c.HDFSNamenodeRPCAddress1,
 			c.HDFSNamenodeRPCAddress2,
+			c.HdfsSitePath,
 		); err != nil {
 			return err
 		}
@@ -1150,6 +1151,7 @@ func (c *IMAPConfig) Validate() error {
 			c.HDFSHANamenodes,
 			c.HDFSNamenodeRPCAddress1,
 			c.HDFSNamenodeRPCAddress2,
+			c.HdfsSitePath,
 		); err != nil {
 			return err
 		}
@@ -1184,6 +1186,7 @@ func validateHDFSStorageConfig(
 	haNamenodes string,
 	rpcAddress1 string,
 	rpcAddress2 string,
+	hdfsSitePath string,
 ) error {
 	if strings.TrimSpace(namespace) == "" {
 		return errors.New("namespace is required for HDFS storage")
@@ -1198,6 +1201,11 @@ func validateHDFSStorageConfig(
 			rpcAddress2,
 		)
 		return err
+	}
+	// 仅配置 hdfs_site_path 时由 XML 提供 nameservice/NameNode 地址，无需强填单 NameNode 主机与端口。
+	// When hdfs_site_path supplies cluster endpoints, single NameNode host/port are optional.
+	if strings.TrimSpace(hdfsSitePath) != "" && strings.TrimSpace(host) == "" && port == 0 {
+		return nil
 	}
 	if strings.TrimSpace(host) == "" {
 		return errors.New("hdfs_namenode_host is required for HDFS storage")

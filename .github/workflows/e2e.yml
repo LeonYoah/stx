@@ -38,6 +38,7 @@ on:
           - scheduler-contract
           - scheduler-real
           - metrics-real
+          - runtime-storage-real
       database:
         description: Target database for E2E (sqlite, postgres, mysql)
         required: false
@@ -85,6 +86,7 @@ jobs:
       run_scheduler_contract: ${{ steps.scope.outputs.run_scheduler_contract }}
       run_scheduler_real: ${{ steps.scope.outputs.run_scheduler_real }}
       run_metrics_real: ${{ steps.scope.outputs.run_metrics_real }}
+      run_runtime_storage_real: ${{ steps.scope.outputs.run_runtime_storage_real }}
 
     steps:
       - name: Checkout
@@ -231,6 +233,31 @@ jobs:
               - 'scripts/e2e/seatunnel-metrics-real/**'
               - '.github/workflows/e2e.yml'
 
+            runtime_storage_real:
+              - 'frontend/e2e/runtime-storage-real.spec.ts'
+              - 'frontend/e2e/helpers/runtime-storage-real.ts'
+              - 'frontend/e2e/helpers/install-wizard-real.ts'
+              - 'frontend/scripts/e2e/run-real-runtime-storage.sh'
+              - 'frontend/scripts/e2e/run-real-installer.sh'
+              - 'scripts/e2e/hdfs-ha/**'
+              - 'frontend/components/common/cluster/RuntimeStorageEditor.tsx'
+              - 'frontend/components/common/cluster/RuntimeStorageFileExplorer.tsx'
+              - 'frontend/components/common/cluster/ClusterDetail.tsx'
+              - 'frontend/components/common/cluster/wizard/ClusterConfigStep.tsx'
+              - 'frontend/components/common/installer/ConfigStep.tsx'
+              - 'frontend/components/common/sync/CheckpointPanels.tsx'
+              - 'frontend/lib/services/cluster/**'
+              - 'frontend/lib/services/installer/**'
+              - 'internal/apps/cluster/runtime_storage*.go'
+              - 'internal/apps/installer/**'
+              - 'internal/cmd/runtime_storage.go'
+              - 'internal/seatunnel/**'
+              - 'agent/internal/installer/runtime_storage_probe.go'
+              - 'agent/internal/installer/manager.go'
+              - 'agent/internal/executor/precheck_handlers.go'
+              - 'tools/stx-java-proxy/**'
+              - '.github/workflows/e2e.yml'
+
             scheduler_real:
               - 'frontend/e2e/scheduler-real.spec.ts'
               - 'frontend/e2e/helpers/scheduler-real.ts'
@@ -263,6 +290,7 @@ jobs:
           FILTER_SCHEDULER_CONTRACT: ${{ steps.filter.outputs.scheduler_contract }}
           FILTER_SCHEDULER_REAL: ${{ steps.filter.outputs.scheduler_real }}
           FILTER_METRICS_REAL: ${{ steps.filter.outputs.metrics_real }}
+          FILTER_RUNTIME_STORAGE_REAL: ${{ steps.filter.outputs.runtime_storage_real }}
         run: |
           frontend=false
           backend=false
@@ -275,6 +303,7 @@ jobs:
           run_scheduler_contract=false
           run_scheduler_real=false
           run_metrics_real=false
+          run_runtime_storage_real=false
 
           if [ "${EVENT_NAME}" = "pull_request" ]; then
             frontend="${FILTER_FRONTEND}"
@@ -305,6 +334,9 @@ jobs:
             fi
             if [ "${FILTER_METRICS_REAL}" = "true" ]; then
               run_metrics_real=true
+            fi
+            if [ "${FILTER_RUNTIME_STORAGE_REAL}" = "true" ]; then
+              run_runtime_storage_real=true
             fi
           else
             frontend=true
@@ -337,6 +369,9 @@ jobs:
               metrics-real)
                 run_metrics_real=true
                 ;;
+              runtime-storage-real)
+                run_runtime_storage_real=true
+                ;;
               *)
                 run_smoke=true
                 run_installer_real=true
@@ -347,6 +382,7 @@ jobs:
                 run_scheduler_contract=true
                 run_scheduler_real=true
                 run_metrics_real=true
+                run_runtime_storage_real=true
                 ;;
             esac
           fi
@@ -362,6 +398,7 @@ jobs:
           echo "run_scheduler_contract=${run_scheduler_contract}" >> "$GITHUB_OUTPUT"
           echo "run_scheduler_real=${run_scheduler_real}" >> "$GITHUB_OUTPUT"
           echo "run_metrics_real=${run_metrics_real}" >> "$GITHUB_OUTPUT"
+          echo "run_runtime_storage_real=${run_runtime_storage_real}" >> "$GITHUB_OUTPUT"
 
       - name: Print E2E scope
         run: |
@@ -376,6 +413,7 @@ jobs:
           echo "run_scheduler_contract=${{ steps.scope.outputs.run_scheduler_contract }}"
           echo "run_scheduler_real=${{ steps.scope.outputs.run_scheduler_real }}"
           echo "run_metrics_real=${{ steps.scope.outputs.run_metrics_real }}"
+          echo "run_runtime_storage_real=${{ steps.scope.outputs.run_runtime_storage_real }}"
 
   prepare-package:
     name: Prepare SeaTunnel Package
@@ -387,7 +425,8 @@ jobs:
       needs.changes.outputs.run_config_real == 'true' ||
       needs.changes.outputs.run_upgrade_real == 'true' ||
       needs.changes.outputs.run_plugin_real == 'true' ||
-      needs.changes.outputs.run_scheduler_real == 'true'
+      needs.changes.outputs.run_scheduler_real == 'true' ||
+      needs.changes.outputs.run_runtime_storage_real == 'true'
     outputs:
       cache-hit: ${{ steps.cache-seatunnel.outputs.cache-hit }}
 
@@ -1156,10 +1195,106 @@ jobs:
             frontend/test-results
           if-no-files-found: ignore
 
+  runtime-storage-real:
+    name: E2E Real Runtime Storage (Local + S3 + HDFS HA)
+    runs-on: ubuntu-24.04
+    needs: [changes, prepare-package]
+    if: needs.changes.outputs.run_runtime_storage_real == 'true'
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.10.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Restore Hadoop HDFS HA image cache
+        id: cache-hdfs-ha-images
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/hdfs-ha-images-3.3.6.tar
+          key: hdfs-ha-images-hadoop-3.3.6-zk-3.9.2-v1
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Download SeaTunnel package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: seatunnel-bin-cache
+          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
+
+      - name: Load or pull Hadoop HDFS HA images
+        env:
+          E2E_HDFS_HADOOP_IMAGE: apache/hadoop:3.3.6
+          E2E_HDFS_ZK_IMAGE: zookeeper:3.9.2
+        run: |
+          set -euo pipefail
+          if [[ -f /tmp/hdfs-ha-images-3.3.6.tar ]]; then
+            docker load -i /tmp/hdfs-ha-images-3.3.6.tar
+            echo "loaded Hadoop + ZK images from cache"
+          else
+            docker pull "${E2E_HDFS_ZK_IMAGE}"
+            docker pull "${E2E_HDFS_HADOOP_IMAGE}"
+            docker save -o /tmp/hdfs-ha-images-3.3.6.tar "${E2E_HDFS_ZK_IMAGE}" "${E2E_HDFS_HADOOP_IMAGE}"
+            echo "pulled+saved Hadoop + ZK images for cache"
+          fi
+
+      - name: Save Hadoop HDFS HA image cache
+        if: steps.cache-hdfs-ha-images.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/hdfs-ha-images-3.3.6.tar
+          key: hdfs-ha-images-hadoop-3.3.6-zk-3.9.2-v1
+
+      - name: Run real runtime storage E2E
+        env:
+          E2E_HDFS_SKIP_PULL: '1'
+        run: |
+          cd frontend
+          pnpm run test:e2e:runtime-storage-real
+
+      - name: Upload Playwright and HDFS HA artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-runtime-storage-real
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+
   gate:
     name: E2E Gate
     runs-on: ubuntu-latest
-    needs: [changes, smoke-select, smoke, metrics-real, installer-real, workbench-real, config-real, upgrade-real, upgrade-real-profiles-missing, plugin-real, scheduler-contract, scheduler-real]
+    needs: [changes, smoke-select, smoke, metrics-real, runtime-storage-real, installer-real, workbench-real, config-real, upgrade-real, upgrade-real-profiles-missing, plugin-real, scheduler-contract, scheduler-real]
     if: always()
 
     steps:
@@ -1170,6 +1305,8 @@ jobs:
           echo "smoke_result=${{ needs.smoke.result }}"
           echo "run_metrics_real=${{ needs.changes.outputs.run_metrics_real }}"
           echo "metrics_real_result=${{ needs.metrics-real.result }}"
+          echo "run_runtime_storage_real=${{ needs.changes.outputs.run_runtime_storage_real }}"
+          echo "runtime_storage_real_result=${{ needs.runtime-storage-real.result }}"
           echo "run_installer_real=${{ needs.changes.outputs.run_installer_real }}"
           echo "installer_real_result=${{ needs.installer-real.result }}"
           echo "run_workbench_real=${{ needs.changes.outputs.run_workbench_real }}"
@@ -1244,6 +1381,12 @@ jobs:
           if [ "${{ needs.changes.outputs.run_metrics_real }}" = "true" ] &&
              [ "${{ needs.metrics-real.result }}" != "success" ]; then
             echo "::error::Real SeaTunnel metrics E2E did not succeed."
+            exit 1
+          fi
+
+          if [ "${{ needs.changes.outputs.run_runtime_storage_real }}" = "true" ] &&
+             [ "${{ needs.runtime-storage-real.result }}" != "success" ]; then
+            echo "::error::Real runtime storage E2E did not succeed."
             exit 1
           fi
 

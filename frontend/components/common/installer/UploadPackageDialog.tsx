@@ -37,6 +37,10 @@ import {Progress} from '@/components/ui/progress';
 import {FileUpload} from '@/components/ui/file-upload';
 import {AlertCircle} from 'lucide-react';
 import {useTranslations} from 'next-intl';
+import {
+  extractSeatunnelVersionFromPackageFileName,
+  isRecommendedSeatunnelVersionFormat,
+} from '@/lib/services/installer/package-version';
 
 interface UploadPackageDialogProps {
   open: boolean;
@@ -64,13 +68,6 @@ export function UploadPackageDialog({
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  // 从文件名提取版本 / Extract version from filename
-  const extractVersion = (filename: string): string => {
-    // Format: apache-seatunnel-{version}-bin.tar.gz
-    const match = filename.match(/apache-seatunnel-(.+)-bin\.tar\.gz/);
-    return match ? match[1] : '';
-  };
-
   // 处理运行包选择 / Handle runtime package selection
   const handleFileSelect = (selectedFile: File | null) => {
     setFile(selectedFile);
@@ -78,10 +75,10 @@ export function UploadPackageDialog({
     if (!selectedFile) {
       return;
     }
-    const extractedVersion = extractVersion(selectedFile.name);
-    if (extractedVersion) {
-      setVersion(extractedVersion);
-    }
+    const extractedVersion = extractSeatunnelVersionFromPackageFileName(
+      selectedFile.name,
+    );
+    setVersion(extractedVersion);
   };
 
   // 验证并上传 / Validate and upload
@@ -117,7 +114,9 @@ export function UploadPackageDialog({
         onOpenChange(false);
       }, 500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('installer.uploadFailed'));
+      setError(
+        err instanceof Error ? err.message : t('installer.uploadFailed'),
+      );
     } finally {
       setUploading(false);
     }
@@ -193,6 +192,11 @@ export function UploadPackageDialog({
             <p className='text-xs text-muted-foreground'>
               {t('installer.versionHint')}
             </p>
+            {version.trim() && !isRecommendedSeatunnelVersionFormat(version) ? (
+              <p className='text-xs text-amber-600 dark:text-amber-400'>
+                {t('installer.offlineImportVersionFormatWarning')}
+              </p>
+            ) : null}
           </div>
 
           {/* 进度条 / Progress bar */}

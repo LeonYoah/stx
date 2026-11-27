@@ -30,6 +30,7 @@
     - `frontend/e2e/plugin-dependency-template.spec.ts`
     - `frontend/e2e/install-wizard-template.spec.ts`
     - `frontend/e2e/install-wizard-negative.spec.ts`
+    - `frontend/e2e/offline-assets.spec.ts`
     - `frontend/e2e/upgrade-prepare-template.spec.ts`
     - `frontend/e2e/upgrade-prepare-negative.spec.ts`
     - `frontend/e2e/install-wizard-real.spec.ts`
@@ -168,6 +169,7 @@
 - 当前映射域：
     - 插件依赖
     - 安装向导（正向 + 失败态）
+    - 离线资产导入导出
     - 升级准备（正向 + 阻断态）
     - 登录 / Dashboard
 - 真实环境 E2E（例如 installer-real / config-real / upgrade-real / plugin-real / observability-real）不进入 smoke 选择器，改由统一 `E2E` workflow 的 suite 级 path filter 决定是否运行

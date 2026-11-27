@@ -493,18 +493,20 @@ export function MetricsTrendView({
   return (
     <div className='flex flex-col gap-4 pb-2'>
       <div className='flex flex-wrap items-center gap-3'>
-        <SegmentedControl
-          label={t('range')}
-          value={segmentValue}
-          onValueChange={(value) => {
-            setRangeTrimmed(false);
-            setSelection(value === LIFETIME ? {kind: 'lifetime'} : {kind: 'preset', range: value as RangeKey});
-          }}
-          options={[
-            ...RANGES.map((item) => ({value: item, label: item})),
-            ...(canLifetime ? [{value: LIFETIME, label: t('rangeLifetime')}] : []),
-          ]}
-        />
+        <div className='max-w-full overflow-x-auto'>
+          <SegmentedControl
+            label={t('range')}
+            value={segmentValue}
+            onValueChange={(value) => {
+              setRangeTrimmed(false);
+              setSelection(value === LIFETIME ? {kind: 'lifetime'} : {kind: 'preset', range: value as RangeKey});
+            }}
+            options={[
+              ...RANGES.map((item) => ({value: item, label: item})),
+              ...(canLifetime ? [{value: LIFETIME, label: t('rangeLifetime')}] : []),
+            ]}
+          />
+        </div>
         <ArcDateRangePicker
           value={pickerValue}
           onChange={handlePickRange}
@@ -783,9 +785,9 @@ function HeroStrip({
         {k: t('hero.checkpoint'), v: '-', u: 's'},
       ];
   return (
-    <div className='grid grid-cols-2 gap-3 md:grid-cols-5'>
+    <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5'>
       {items.map((item) => (
-        <div key={item.k} className='rounded-lg border border-border px-3.5 py-3'>
+        <div key={item.k} className='min-w-0 rounded-lg border border-border px-3.5 py-3'>
           <div className='flex items-center gap-1.5 text-xs text-muted-foreground'>
             {item.color ? (
               <span aria-hidden className='h-[2.5px] w-2.5 shrink-0 rounded-full' style={{background: item.color}} />

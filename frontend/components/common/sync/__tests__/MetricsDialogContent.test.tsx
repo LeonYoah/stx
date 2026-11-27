@@ -296,4 +296,33 @@ describe('MetricsDialogContent', () => {
     fireEvent.click(screen.getByRole('button', {name: /查看检查点/}));
     expect(onOpenCheckpoint).toHaveBeenCalledTimes(1);
   });
+
+  it('places pending/backlog badges in the share column and clips link cells against overflow', () => {
+    const {container} = renderSnapshot(
+      job({
+        status: 'running',
+        result_preview: {
+          metrics: {
+            SourceReceivedCount: 5000,
+            SinkWriteCount: 3620,
+            SinkCommittedCount: 3020,
+            TableSourceReceivedCount: {'Source[0].stx_e2e.user_events_src': 5000},
+            TableSinkWriteCount: {'Sink[0].stx_e2e.user_events_src': 3620},
+            TableSinkCommittedCount: {'Sink[0].stx_e2e.user_events_src': 3020},
+          },
+        },
+      }),
+    );
+    const table = container.querySelector('table');
+    expect(table?.className).toContain('min-w-');
+    const rowCells = container.querySelectorAll('tbody tr:first-child td');
+    expect(rowCells.length).toBe(5);
+    // 首列只承载链路标识并裁剪溢出，状态胶囊归属到第二列占比条下方避免窄屏越界遮挡。
+    // Column 1 holds only the link identity with overflow clipping; status badges live in column 2 under the bar.
+    expect(rowCells[0].className).toContain('overflow-hidden');
+    expect(rowCells[0].textContent).not.toContain('未写入');
+    expect(rowCells[0].textContent).not.toContain('未提交');
+    expect(rowCells[1].textContent).toContain('未提交');
+    expect(rowCells[1].textContent).toContain('未写入');
+  });
 });

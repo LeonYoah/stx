@@ -202,7 +202,7 @@ export function JobDetailDialog({
               {getJobStatusLabel(displayStatus)}
             </Badge>
             <JobOutcomeHints job={job} />
-            <span className='ml-auto flex items-center gap-1.5'>
+            <span className='ml-auto flex flex-wrap items-center gap-1.5'>
               {clusterId && engineJobId && !local ? (
                 <SeaTunnelObserveMenu clusterId={clusterId} engineJobId={engineJobId} variant='button' />
               ) : null}
@@ -279,8 +279,8 @@ export function JobDetailDialog({
         </div>
 
         <Tabs value={tab} onValueChange={(value) => onTabChange(value as JobDetailTab)} className='flex min-h-0 flex-1 flex-col'>
-          <div className='studio-detail-tabs flex min-w-0 items-center gap-3 px-5 pt-2.5'>
-          <div className='min-w-0'>
+          <div className='studio-detail-tabs flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 px-5 pt-2.5'>
+          <div className='min-w-0 max-w-full overflow-x-auto'>
           <TabsList aria-label={t('title', {id: job.id})}>
             <TabsTrigger value='topology'>{t('tabs.topology')}</TabsTrigger>
             <TabsTrigger value='metrics'>{t('tabs.metrics')}</TabsTrigger>
@@ -301,7 +301,7 @@ export function JobDetailDialog({
           </TabsList>
           </div>
           {tab === 'metrics' ? (
-            <div className='ml-auto flex shrink-0 items-center gap-1.5'>
+            <div className='ml-auto flex max-w-full flex-wrap items-center gap-1.5'>
               {canSwitchMetricsUnit ? (
                 <SegmentedControl
                   label={tMetrics('unitMode')}

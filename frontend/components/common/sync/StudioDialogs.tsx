@@ -484,7 +484,7 @@ function MetricFlowKpi({
         <span className='text-xs text-muted-foreground'>{label}</span>
         {labelAction}
       </div>
-      <span className='inline-flex items-end gap-3'>
+      <span className='inline-flex flex-wrap items-end gap-x-3 gap-y-1.5'>
         {tooltip ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -949,7 +949,7 @@ export function MetricsDialogContent({
           ) : null}
         </MetricFlowKpi>
         <div
-          className='ml-auto inline-flex min-w-0 items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium'
+          className='ml-auto inline-flex min-w-0 max-w-full items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium'
           style={{
             background: `color-mix(in oklab, ${toneColor} 12%, transparent)`,
             color: toneColor,
@@ -983,7 +983,7 @@ export function MetricsDialogContent({
               <PopoverContent
                 align='start'
                 sideOffset={6}
-                className='arc-compact w-80 space-y-3 rounded-[var(--radius-popover)] p-3.5 text-xs'
+                className='arc-compact w-[min(20rem,calc(100vw-2rem))] space-y-3 rounded-[var(--radius-popover)] p-3.5 text-xs'
               >
                 <div className='font-medium text-foreground'>
                   {t('metricFlowGuideTitle')}
@@ -1246,7 +1246,7 @@ export function MetricsDialogContent({
           ) : (
             <>
               {pairedMetricRows.length > 5 ? (
-                <div className='relative mb-2 w-56'>
+                <div className='relative mb-2 w-56 max-w-full'>
                   <Search className='absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground' />
                   <Input
                     value={tableSearch}
@@ -1256,14 +1256,16 @@ export function MetricsDialogContent({
                   />
                 </div>
               ) : null}
-              <div className='max-h-[320px] overflow-y-auto'>
-                <Table className='table-fixed [&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
+              {/* 单层双向滚动容器并放开内层 table-container，兼顾窄屏横向滚动与表头粘顶。 */}
+              {/* Single two-axis scroll container with inner table-container unwrapped so narrow viewports scroll horizontally while sticky headers work. */}
+              <div className='max-h-[320px] overflow-auto [&>[data-slot=table-container]]:overflow-visible'>
+                <Table className='min-w-[740px] table-fixed [&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
                   <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
                     <TableRow className='hover:bg-transparent'>
                       <TableHead className='h-8 py-1 px-2 text-xs font-medium text-muted-foreground'>
                         {t('metricFlowLink')}
                       </TableHead>
-                      <TableHead className='h-8 w-[176px] py-1 px-2 text-xs font-medium text-muted-foreground'>
+                      <TableHead className='h-8 w-[216px] py-1 px-2 text-xs font-medium text-muted-foreground'>
                         {t('metricFlowShareCol')}
                       </TableHead>
                       <TableHead className='h-8 w-[92px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
@@ -1303,51 +1305,23 @@ export function MetricsDialogContent({
                             );
                         return (
                           <TableRow key={row.key} className='hover:bg-muted/40'>
-                            <TableCell className='py-1.5 px-2'>
+                            <TableCell className='overflow-hidden py-1.5 px-2'>
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <div className='flex min-w-0 cursor-default items-center gap-1.5 text-xs'>
                                     <span className='shrink-0 text-muted-foreground'>
                                       {row.sourceNode}
                                     </span>
-                                    <span className='truncate font-mono text-foreground'>
+                                    <span className='min-w-0 truncate font-mono text-foreground'>
                                       {row.sourceTable}
                                     </span>
                                     <ArrowRight className='size-3 shrink-0 text-muted-foreground/60' />
                                     <span className='shrink-0 text-muted-foreground'>
                                       {row.sinkNode}
                                     </span>
-                                    <span className='truncate font-mono text-foreground'>
+                                    <span className='min-w-0 truncate font-mono text-foreground'>
                                       {row.sinkTable}
                                     </span>
-                                    {row.pendingVal > 0 ? (
-                                      <span
-                                        className='shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium tabular-nums'
-                                        style={{
-                                          background:
-                                            'color-mix(in oklab, var(--info) 16%, transparent)',
-                                          color: 'var(--info)',
-                                        }}
-                                      >
-                                        {t('metricFlowPendingBadge', {
-                                          value: formatAmount(row.pendingVal),
-                                        })}
-                                      </span>
-                                    ) : null}
-                                    {row.backlogVal > 0 ? (
-                                      <span
-                                        className='shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium tabular-nums'
-                                        style={{
-                                          background:
-                                            'color-mix(in oklab, var(--warning) 16%, transparent)',
-                                          color: 'var(--warning)',
-                                        }}
-                                      >
-                                        {t('metricFlowBacklogBadge', {
-                                          value: formatAmount(row.backlogVal),
-                                        })}
-                                      </span>
-                                    ) : null}
                                   </div>
                                 </TooltipTrigger>
                                 <TooltipContent className='max-w-[420px] text-xs'>
@@ -1371,11 +1345,11 @@ export function MetricsDialogContent({
                                 </TooltipContent>
                               </Tooltip>
                             </TableCell>
-                            <TableCell className='py-1.5 px-2'>
+                            <TableCell className='whitespace-normal py-1.5 px-2'>
                               <div className='flex items-center gap-2'>
                                 <div
                                   aria-hidden='true'
-                                  className='h-2 flex-1 overflow-hidden rounded-full bg-muted/60'
+                                  className='h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted/60'
                                 >
                                   {barWidthPct > 0 ? (
                                     <div
@@ -1412,10 +1386,42 @@ export function MetricsDialogContent({
                                     </div>
                                   ) : null}
                                 </div>
-                                <span className='w-10 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground'>
+                                <span className='w-11 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground'>
                                   {shareText}
                                 </span>
                               </div>
+                              {row.pendingVal > 0 || row.backlogVal > 0 ? (
+                                <div className='mt-1 flex flex-wrap items-center gap-1'>
+                                  {row.pendingVal > 0 ? (
+                                    <span
+                                      className='rounded-full px-1.5 py-0.5 text-[11px] leading-none font-medium tabular-nums'
+                                      style={{
+                                        background:
+                                          'color-mix(in oklab, var(--info) 16%, transparent)',
+                                        color: 'var(--info)',
+                                      }}
+                                    >
+                                      {t('metricFlowPendingBadge', {
+                                        value: formatAmount(row.pendingVal),
+                                      })}
+                                    </span>
+                                  ) : null}
+                                  {row.backlogVal > 0 ? (
+                                    <span
+                                      className='rounded-full px-1.5 py-0.5 text-[11px] leading-none font-medium tabular-nums'
+                                      style={{
+                                        background:
+                                          'color-mix(in oklab, var(--warning) 16%, transparent)',
+                                        color: 'var(--warning)',
+                                      }}
+                                    >
+                                      {t('metricFlowBacklogBadge', {
+                                        value: formatAmount(row.backlogVal),
+                                      })}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              ) : null}
                             </TableCell>
                             <TableCell className='py-1.5 px-2 text-right font-mono text-xs tabular-nums text-foreground'>
                               {isBytes
@@ -1472,8 +1478,8 @@ export function MetricsDialogContent({
                     {t('metricFlowEndpoints', {count: perTableRows.length})}
                   </span>
                 </div>
-                <div className='max-h-[280px] overflow-y-auto'>
-                  <Table className='table-fixed'>
+                <div className='max-h-[280px] overflow-auto [&>[data-slot=table-container]]:overflow-visible'>
+                  <Table className='min-w-[520px] table-fixed'>
                     <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
                       <TableRow className='hover:bg-transparent border-border/50'>
                         <TableHead className='h-8 py-1 px-2 text-xs font-medium text-muted-foreground'>
@@ -1493,14 +1499,14 @@ export function MetricsDialogContent({
                     <TableBody>
                       {perTableRows.map((row) => (
                         <TableRow key={row.rawTable} className='border-border/40 hover:bg-muted/40'>
-                          <TableCell className='py-1.5 px-2'>
+                          <TableCell className='overflow-hidden py-1.5 px-2'>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <div className='flex min-w-0 cursor-default items-center gap-1.5 text-xs'>
                                   <span className='shrink-0 text-muted-foreground'>
                                     {row.nodeLabel}
                                   </span>
-                                  <span className='truncate font-mono text-foreground'>
+                                  <span className='min-w-0 truncate font-mono text-foreground'>
                                     {row.tablePath}
                                   </span>
                                 </div>

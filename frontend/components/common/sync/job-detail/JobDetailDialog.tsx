@@ -49,7 +49,10 @@ import {
   getRealtimeEntry,
   getRunModeLabel,
   getSyncJobClusterId,
+  hasMetricByteData,
   submitSpecExecutionMode,
+  toObject,
+  type MetricUnitMode,
 } from '../sync-studio-utils';
 import {normalizeJobDag} from './dag-model';
 import type {JobDetailTab} from './types';
@@ -151,9 +154,16 @@ export function JobDetailDialog({
   const tStudio = useTranslations('workbenchStudio');
   const [errorExpanded, setErrorExpanded] = useState(false);
   const [metricsView, setMetricsView] = useState<'snapshot' | 'trend'>('snapshot');
+  const [metricsUnit, setMetricsUnit] = useState<MetricUnitMode>('rows');
 
   const jobDag = job?.result_preview?.job_dag;
   const envOptions = useMemo(() => normalizeJobDag(jobDag).envOptions, [jobDag]);
+  const rawMetrics = job?.result_preview?.metrics;
+  const canSwitchMetricsUnit = useMemo(
+    () => hasMetricByteData(toObject(rawMetrics)),
+    [rawMetrics],
+  );
+  const effectiveMetricsUnit: MetricUnitMode = canSwitchMetricsUnit ? metricsUnit : 'rows';
 
   if (!job) {
     return null;
@@ -192,7 +202,7 @@ export function JobDetailDialog({
               {getJobStatusLabel(displayStatus)}
             </Badge>
             <JobOutcomeHints job={job} />
-            <span className='ml-auto flex items-center gap-1.5'>
+            <span className='ml-auto flex flex-wrap items-center gap-1.5'>
               {clusterId && engineJobId && !local ? (
                 <SeaTunnelObserveMenu clusterId={clusterId} engineJobId={engineJobId} variant='button' />
               ) : null}
@@ -269,8 +279,8 @@ export function JobDetailDialog({
         </div>
 
         <Tabs value={tab} onValueChange={(value) => onTabChange(value as JobDetailTab)} className='flex min-h-0 flex-1 flex-col'>
-          <div className='studio-detail-tabs flex min-w-0 items-center gap-3 px-5 pt-2.5'>
-          <div className='min-w-0'>
+          <div className='studio-detail-tabs flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 px-5 pt-2.5'>
+          <div className='min-w-0 max-w-full overflow-x-auto'>
           <TabsList aria-label={t('title', {id: job.id})}>
             <TabsTrigger value='topology'>{t('tabs.topology')}</TabsTrigger>
             <TabsTrigger value='metrics'>{t('tabs.metrics')}</TabsTrigger>
@@ -291,7 +301,18 @@ export function JobDetailDialog({
           </TabsList>
           </div>
           {tab === 'metrics' ? (
-            <div className='ml-auto flex shrink-0 items-center gap-1.5'>
+            <div className='ml-auto flex max-w-full flex-wrap items-center gap-1.5'>
+              {canSwitchMetricsUnit ? (
+                <SegmentedControl
+                  label={tMetrics('unitMode')}
+                  value={effectiveMetricsUnit}
+                  onValueChange={(value) => setMetricsUnit(value as MetricUnitMode)}
+                  options={[
+                    {value: 'rows', label: tMetrics('unitRows')},
+                    {value: 'bytes', label: tMetrics('unitBytes')},
+                  ]}
+                />
+              ) : null}
               <SegmentedControl
                 label={t('tabs.metrics')}
                 value={metricsView}
@@ -325,7 +346,16 @@ export function JobDetailDialog({
               )}
             </TabsContent>
             <TabsContent value='metrics' className='mt-0! flex h-full min-h-0 flex-col overflow-hidden'>
-              {tab === 'metrics' ? <JobMetricsPanel job={job} active={tab === 'metrics'} view={metricsView} /> : null}
+              {tab === 'metrics' ? (
+                <JobMetricsPanel
+                  job={job}
+                  active={tab === 'metrics'}
+                  view={metricsView}
+                  unit={effectiveMetricsUnit}
+                  onViewChange={setMetricsView}
+                  onOpenCheckpoint={() => onTabChange('checkpoint')}
+                />
+              ) : null}
             </TabsContent>
             <TabsContent value='checkpoint' className='mt-0! h-full min-h-0 overflow-auto'>
               {tab === 'checkpoint' ? checkpointSlot : null}

@@ -32,7 +32,15 @@ import {useLocale} from '@/lib/i18n';
 import {cn} from '@/lib/utils';
 import {SankeyChart} from '@/components/charts/sankey-chart';
 import {type SyncJobInstance, type SyncJobTimeseries} from '@/lib/services/sync';
-import {buildMetricFlowSankey, buildPairedMetricRows, toObject} from '../sync-studio-utils';
+import {
+  buildMetricFlowSankey,
+  buildPairedMetricRows,
+  formatByteRateCompact,
+  formatByteRateParts,
+  formatBytesCompact,
+  toObject,
+  type MetricUnitMode,
+} from '../sync-studio-utils';
 import {fetchJobTimeseriesCached} from './metric-timeseries';
 import {
   TREND_COLORS,
@@ -48,6 +56,7 @@ import {
   toBrushChartData,
   toLineChartData,
   toPipelineShare,
+  toVolumePipelineShare,
   type NamedSeries,
   type TrendWindow,
 } from './metrics-trend-data';
@@ -85,8 +94,17 @@ const defaultSelection = (job: SyncJobInstance | null): TrendSelection =>
  * 指标趋势视图：Arc 折线 / 刷选 / 柱状 / 环形图 + 内置监控时序。
  * Metrics trend view: Arc line / brush / bar / donut charts over built-in monitoring series.
  */
-export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; active: boolean}) {
+export function MetricsTrendView({
+  job,
+  active,
+  unit = 'rows',
+}: {
+  job: SyncJobInstance | null;
+  active: boolean;
+  unit?: MetricUnitMode;
+}) {
   const t = useTranslations('workbenchStudio.jobDetail.metricsView');
+  const isBytes = unit === 'bytes';
   const {locale} = useLocale();
   const intlLocale = locale === 'zh' ? 'zh-CN' : 'en-US';
   const [selection, setSelection] = useState<TrendSelection>(() => defaultSelection(job));
@@ -240,24 +258,34 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
       }));
 
     const throughput = toLineChartData(
-      [
-        {key: 'read', name: t('series.read'), points: seriesByKey('throughput_read')[0]?.points ?? [], color: TREND_COLORS.read},
-        {key: 'write', name: t('series.write'), points: seriesByKey('throughput_write')[0]?.points ?? [], color: TREND_COLORS.write},
-      ],
+      isBytes
+        ? [
+            {key: 'read', name: t('series.read'), points: seriesByKey('bytes_throughput_read')[0]?.points ?? [], color: TREND_COLORS.read},
+            {key: 'write', name: t('series.write'), points: seriesByKey('bytes_throughput_write')[0]?.points ?? [], color: TREND_COLORS.write},
+          ]
+        : [
+            {key: 'read', name: t('series.read'), points: seriesByKey('throughput_read')[0]?.points ?? [], color: TREND_COLORS.read},
+            {key: 'write', name: t('series.write'), points: seriesByKey('throughput_write')[0]?.points ?? [], color: TREND_COLORS.write},
+          ],
       formatDateTime,
       formatTime,
     );
     const rows = toLineChartData(
-      [
-        {key: 'read', name: t('series.read'), points: seriesByKey('rows_read')[0]?.points ?? [], color: TREND_COLORS.read},
-        {key: 'write', name: t('series.write'), points: seriesByKey('rows_write')[0]?.points ?? [], color: TREND_COLORS.write},
-        {
-          key: 'committed',
-          name: t('series.committed'),
-          points: seriesByKey('rows_committed')[0]?.points ?? [],
-          color: TREND_COLORS.committed,
-        },
-      ],
+      isBytes
+        ? [
+            {key: 'read', name: t('series.read'), points: seriesByKey('bytes_read')[0]?.points ?? [], color: TREND_COLORS.read},
+            {key: 'write', name: t('series.write'), points: seriesByKey('bytes_write')[0]?.points ?? [], color: TREND_COLORS.write},
+          ]
+        : [
+            {key: 'read', name: t('series.read'), points: seriesByKey('rows_read')[0]?.points ?? [], color: TREND_COLORS.read},
+            {key: 'write', name: t('series.write'), points: seriesByKey('rows_write')[0]?.points ?? [], color: TREND_COLORS.write},
+            {
+              key: 'committed',
+              name: t('series.committed'),
+              points: seriesByKey('rows_committed')[0]?.points ?? [],
+              color: TREND_COLORS.committed,
+            },
+          ],
       formatDateTime,
       formatTime,
     );
@@ -308,16 +336,25 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
       formatDateTime,
       formatTime,
     );
-    const pipeline = toPipelineShare(
-      latestValue(seriesByKey('rows_read')[0]?.points ?? []),
-      latestValue(seriesByKey('rows_write')[0]?.points ?? []),
-      latestValue(seriesByKey('rows_committed')[0]?.points ?? []),
-      {
-        committed: t('pipeline.committed'),
-        written: t('pipeline.written'),
-        backlog: t('pipeline.backlog'),
-      },
-    );
+    const pipeline = isBytes
+      ? toVolumePipelineShare(
+          latestValue(seriesByKey('bytes_read')[0]?.points ?? []),
+          latestValue(seriesByKey('bytes_write')[0]?.points ?? []),
+          {
+            written: t('pipeline.writtenTotal'),
+            backlog: t('pipeline.backlog'),
+          },
+        )
+      : toPipelineShare(
+          latestValue(seriesByKey('rows_read')[0]?.points ?? []),
+          latestValue(seriesByKey('rows_write')[0]?.points ?? []),
+          latestValue(seriesByKey('rows_committed')[0]?.points ?? []),
+          {
+            committed: t('pipeline.committed'),
+            written: t('pipeline.written'),
+            backlog: t('pipeline.backlog'),
+          },
+        );
     const barPeriod = checkpointPoints.length >= 2
       ? t('periodSpan', {
         from: formatDateTime(checkpointPoints[0][0]),
@@ -340,12 +377,12 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
       pipeline,
       annotations: toBrushAnnotations(data?.annotations, annotationLabel),
     };
-  }, [annotationLabel, data?.annotations, data?.step_seconds, formatDateTime, formatTime, seriesByKey, t]);
+  }, [annotationLabel, data?.annotations, data?.step_seconds, formatDateTime, formatTime, isBytes, seriesByKey, t]);
 
-  // 数据流向桑基图：取快照按表指标（配对行 + TableSinkCommittedCount），不依赖时序，
+  // 数据流向桑基图：取快照按表指标（配对行 + 提交量），支持行数与字节双口径，不依赖时序，
   // 所以终态 / 未开监控 / 时序加载中的作业也能显示。链路数 < 2 时整块隐藏。
-  // The data-flow Sankey reads snapshot per-table metrics (paired rows + TableSinkCommittedCount),
-  // not timeseries, so terminal jobs and disabled/loading monitoring still show it; hidden below 2 links.
+  // The data-flow Sankey reads snapshot per-table metrics (rows or bytes), not timeseries,
+  // so terminal jobs and disabled/loading monitoring still show it; hidden below 2 links.
   const flowSankey = useMemo(() => {
     const metrics = toObject(job?.result_preview?.metrics);
     // 与按表曲线同一套配色：同一张表在桑基图和下方按表图里同色。未匹配（「其它」归并）退回中性色。
@@ -354,8 +391,10 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
       buildPairedMetricRows(metrics).map((row) => row.sinkTable || row.sinkNode),
     );
     return buildMetricFlowSankey(metrics, {
+      unit,
       labels: {
         committed: t('pipeline.committed'),
+        written: t('flow.written'),
         pendingCommit: t('flow.pendingCommit'),
         backlog: t('flow.backlog'),
         otherSources: (count) => t('flow.otherSources', {count}),
@@ -365,11 +404,12 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
         table: ({sinkLabel, srcLabel}) =>
           tableColors.get(sinkLabel) ?? tableColors.get(srcLabel) ?? 'var(--muted-foreground)',
         outcome: TREND_COLORS.committed,
+        pending: 'var(--info)',
         warning: 'var(--warning)',
       },
       maxLinks: 8,
     });
-  }, [job, t]);
+  }, [job, t, unit]);
   // beUI 自己做占位符插值（{count}/{source}/{share}），必须走 t.raw 取未插值模板，
   // 直接 t() 会被 next-intl 当成缺参报错。
   // beUI interpolates placeholders ({count}/{source}/{share}) itself, so pass raw
@@ -379,7 +419,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
       label: t.raw('sankey.label'),
       tableCaption: t.raw('sankey.tableCaption'),
       flow: t.raw('sankey.flow'),
-      value: t.raw('sankey.value'),
+      value: isBytes ? t.raw('sankey.valueBytes') : t.raw('sankey.value'),
       shareOfSource: t.raw('sankey.shareOfSource'),
       flowRow: t.raw('sankey.flowRow'),
       nodes: t.raw('sankey.nodes'),
@@ -392,20 +432,22 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
       noFlows: t.raw('sankey.noFlows'),
       empty: t.raw('sankey.empty'),
     }),
-    [t],
+    [isBytes, t],
   );
 
   const formatCount = (value: number) => Math.round(value).toLocaleString(intlLocale);
   const formatRate = (value: number) => value.toLocaleString(intlLocale, {maximumFractionDigits: 1});
   const formatSeconds = (value: number) => `${value.toLocaleString(intlLocale, {maximumFractionDigits: 2})}`;
+  const formatBytesValue = (value: number) => formatBytesCompact(value);
+  const formatByteRateValue = (value: number) => formatByteRateCompact(value);
 
   const flowSection = flowSankey.totalLinks >= 2 ? (
-    <TrendSection title={t('charts.flow')} unit={t('unit.rows')} className='md:col-span-2'>
+    <TrendSection title={t('charts.flow')} unit={isBytes ? t('unit.bytes') : t('unit.rows')} className='md:col-span-2'>
       <SankeyChart
         nodes={flowSankey.nodes}
         links={flowSankey.links}
         label={t('charts.flow')}
-        formatValue={formatCount}
+        formatValue={isBytes ? formatBytesValue : formatCount}
         labels={sankeyLabels}
       />
     </TrendSection>
@@ -451,18 +493,20 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
   return (
     <div className='flex flex-col gap-4 pb-2'>
       <div className='flex flex-wrap items-center gap-3'>
-        <SegmentedControl
-          label={t('range')}
-          value={segmentValue}
-          onValueChange={(value) => {
-            setRangeTrimmed(false);
-            setSelection(value === LIFETIME ? {kind: 'lifetime'} : {kind: 'preset', range: value as RangeKey});
-          }}
-          options={[
-            ...RANGES.map((item) => ({value: item, label: item})),
-            ...(canLifetime ? [{value: LIFETIME, label: t('rangeLifetime')}] : []),
-          ]}
-        />
+        <div className='max-w-full overflow-x-auto'>
+          <SegmentedControl
+            label={t('range')}
+            value={segmentValue}
+            onValueChange={(value) => {
+              setRangeTrimmed(false);
+              setSelection(value === LIFETIME ? {kind: 'lifetime'} : {kind: 'preset', range: value as RangeKey});
+            }}
+            options={[
+              ...RANGES.map((item) => ({value: item, label: item})),
+              ...(canLifetime ? [{value: LIFETIME, label: t('rangeLifetime')}] : []),
+            ]}
+          />
+        </div>
         <ArcDateRangePicker
           value={pickerValue}
           onChange={handlePickRange}
@@ -497,13 +541,13 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
 
       {error ? <div className='rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive'>{error}</div> : null}
 
-      <HeroStrip job={job} data={data} t={t} />
+      <HeroStrip job={job} data={data} unit={unit} t={t} />
 
       <div className='grid gap-4 md:grid-cols-2'>
-        <TrendSection title={t('charts.throughput')} unit='records/s'>
+        <TrendSection title={t('charts.throughput')} unit={isBytes ? t('unit.bytesPerSec') : 'records/s'}>
           <LineChart
             label={t('charts.throughput')}
-            unit='records/s'
+            unit={isBytes ? undefined : 'records/s'}
             data={charts.throughput.data}
             series={charts.throughput.series}
             height={200}
@@ -512,13 +556,17 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
             clearLabel={t('legendClear')}
             resetLabel={t('legendAll')}
             categoryLabel={t('categoryTime')}
-            formatValue={formatRate}
+            formatValue={isBytes ? formatByteRateValue : formatRate}
+            formatTick={isBytes ? formatByteRateValue : undefined}
           />
         </TrendSection>
-        <TrendSection title={t('charts.rows')} unit={t('unit.rows')}>
+        <TrendSection
+          title={isBytes ? t('charts.volume') : t('charts.rows')}
+          unit={isBytes ? t('unit.bytes') : t('unit.rows')}
+        >
           <LineChart
-            label={t('charts.rows')}
-            unit={t('unit.rows')}
+            label={isBytes ? t('charts.volume') : t('charts.rows')}
+            unit={isBytes ? undefined : t('unit.rows')}
             data={charts.rows.data}
             series={charts.rows.series}
             height={200}
@@ -527,7 +575,8 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
             clearLabel={t('legendClear')}
             resetLabel={t('legendAll')}
             categoryLabel={t('categoryTime')}
-            formatValue={formatCount}
+            formatValue={isBytes ? formatBytesValue : formatCount}
+            formatTick={isBytes ? formatBytesValue : undefined}
           />
         </TrendSection>
         {/* 数据流向放在总览两张图之后、表级分解之前：先看总量曲线，再看当前数据在哪一段。
@@ -605,15 +654,18 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
             formatValue={formatSeconds}
           />
         </TrendSection>
-        <TrendSection title={t('pipeline.label')} unit={t('unit.rows')}>
+        <TrendSection
+          title={isBytes ? t('pipeline.volumeLabel') : t('pipeline.label')}
+          unit={isBytes ? t('unit.bytes') : t('unit.rows')}
+        >
           <DonutChart
-            label={t('pipeline.label')}
-            unit={t('unit.rows')}
+            label={isBytes ? t('pipeline.volumeLabel') : t('pipeline.label')}
+            unit={isBytes ? undefined : t('unit.rows')}
             data={charts.pipeline}
             totalLabel={t('totalLabel')}
             emptyLabel={t('emptyChart')}
             otherLabel={t('otherLabel')}
-            formatValue={formatCount}
+            formatValue={isBytes ? formatBytesValue : formatCount}
             size={196}
           />
         </TrendSection>
@@ -696,30 +748,46 @@ function TrendSection({
 function HeroStrip({
   job,
   data,
+  unit = 'rows',
   t,
 }: {
   job: SyncJobInstance;
   data: SyncJobTimeseries | null;
+  unit?: MetricUnitMode;
   t: ReturnType<typeof useTranslations>;
 }) {
   const metrics = (job.result_preview?.metrics || {}) as Record<string, unknown>;
+  const isBytes = unit === 'bytes';
   const readQps = Number(metrics.SourceReceivedQPS ?? 0);
   const writeQps = Number(metrics.SinkWriteQPS ?? 0);
-  const lag = Math.max(0, readQps - writeQps);
+  const readBps = Number(metrics.SourceReceivedBytesPerSeconds ?? 0);
+  const writeBps = Number(metrics.SinkWriteBytesPerSeconds ?? 0);
+  const lag = isBytes ? Math.max(0, readBps - writeBps) : Math.max(0, readQps - writeQps);
   const cdc = job.cdc_delay?.latest_ms != null ? job.cdc_delay.latest_ms / 1000 : null;
+  const readParts = formatByteRateParts(readBps);
+  const writeParts = formatByteRateParts(writeBps);
+  const lagParts = formatByteRateParts(lag);
   // 读 / 写卡片带与折线同色的小色标，把顶部数字和下方曲线对上。
   // Read / write cards carry a swatch in the line color, tying the numbers to the curves below.
-  const items: {k: string; v: string; u: string; color?: string}[] = [
-    {k: t('hero.readQps'), v: fmtNum(readQps), u: 'rec/s', color: TREND_COLORS.read},
-    {k: t('hero.writeQps'), v: fmtNum(writeQps), u: 'rec/s', color: TREND_COLORS.write},
-    {k: t('hero.lag'), v: fmtNum(lag), u: 'rec/s'},
-    {k: t('hero.cdc'), v: cdc == null ? '-' : cdc.toFixed(1), u: 's'},
-    {k: t('hero.checkpoint'), v: '-', u: 's'},
-  ];
+  const items: {k: string; v: string; u: string; color?: string}[] = isBytes
+    ? [
+        {k: t('hero.readBps'), v: readParts.value, u: readParts.unit, color: TREND_COLORS.read},
+        {k: t('hero.writeBps'), v: writeParts.value, u: writeParts.unit, color: TREND_COLORS.write},
+        {k: t('hero.lag'), v: lagParts.value, u: lagParts.unit},
+        {k: t('hero.cdc'), v: cdc == null ? '-' : cdc.toFixed(1), u: 's'},
+        {k: t('hero.checkpoint'), v: '-', u: 's'},
+      ]
+    : [
+        {k: t('hero.readQps'), v: fmtNum(readQps), u: 'rec/s', color: TREND_COLORS.read},
+        {k: t('hero.writeQps'), v: fmtNum(writeQps), u: 'rec/s', color: TREND_COLORS.write},
+        {k: t('hero.lag'), v: fmtNum(lag), u: 'rec/s'},
+        {k: t('hero.cdc'), v: cdc == null ? '-' : cdc.toFixed(1), u: 's'},
+        {k: t('hero.checkpoint'), v: '-', u: 's'},
+      ];
   return (
-    <div className='grid grid-cols-2 gap-3 md:grid-cols-5'>
+    <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5'>
       {items.map((item) => (
-        <div key={item.k} className='rounded-lg border border-border px-3.5 py-3'>
+        <div key={item.k} className='min-w-0 rounded-lg border border-border px-3.5 py-3'>
           <div className='flex items-center gap-1.5 text-xs text-muted-foreground'>
             {item.color ? (
               <span aria-hidden className='h-[2.5px] w-2.5 shrink-0 rounded-full' style={{background: item.color}} />

@@ -253,6 +253,12 @@ func (s *Service) ListAvailablePlugins(ctx context.Context, version string, mirr
 	plugins, sourceMirror, refreshedAt, source, cacheHit := s.getPlugins(ctx, version, mirror)
 	s.ensureBundledSeedLoaded(ctx, version)
 	plugins = s.enrichPluginsWithDependencyState(ctx, version, plugins)
+	seedReviewed := false
+	if source == PluginListSourceSeed {
+		if seed, err := loadOfficialDependencySeed(version); err == nil {
+			seedReviewed = seedReviewsVersion(seed, version)
+		}
+	}
 
 	return &AvailablePluginsResponse{
 		Plugins:             plugins,
@@ -263,6 +269,7 @@ func (s *Service) ListAvailablePlugins(ctx context.Context, version string, mirr
 		CacheHit:            cacheHit,
 		CatalogSourceMirror: string(sourceMirror),
 		CatalogRefreshedAt:  refreshedAt,
+		SeedReviewed:        seedReviewed,
 	}, nil
 }
 

@@ -210,6 +210,7 @@ export interface AvailablePluginsResponse {
   cache_hit: boolean;
   catalog_source_mirror?: string;
   catalog_refreshed_at?: string;
+  seed_reviewed?: boolean;
 }
 
 /**

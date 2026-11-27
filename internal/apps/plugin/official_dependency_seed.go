@@ -105,6 +105,24 @@ func (s *Service) ensureBundledSeedLoaded(ctx context.Context, version string) {
 	s.seedLoadedMu.Unlock()
 }
 
+func seedReviewsVersion(seed *officialDependencySeedFile, version string) bool {
+	if seed == nil {
+		return false
+	}
+	version = strings.TrimSpace(version)
+	base := version
+	if idx := strings.IndexAny(base, "-+"); idx >= 0 {
+		base = base[:idx]
+	}
+	for _, reviewed := range seed.ReviewedVersions {
+		reviewed = strings.TrimSpace(reviewed)
+		if reviewed != "" && (reviewed == version || reviewed == base) {
+			return true
+		}
+	}
+	return false
+}
+
 func loadOfficialDependencySeed(version string) (*officialDependencySeedFile, error) {
 	content, err := officialDependencySeedFS.ReadFile("seed/seatunnel-plugins.json")
 	if err != nil {

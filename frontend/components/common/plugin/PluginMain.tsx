@@ -192,6 +192,7 @@ export function PluginMain() {
   const [catalogSource, setCatalogSource] = useState<PluginListSource | null>(
     null,
   );
+  const [catalogSeedReviewed, setCatalogSeedReviewed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Filter state / 过滤状态
@@ -418,13 +419,18 @@ export function PluginMain() {
         setTotal(result.total || (result.plugins || []).length);
         setCatalogRefreshedAt(result.catalog_refreshed_at || '');
         setCatalogSource(result.source || null);
+        setCatalogSeedReviewed(result.seed_reviewed === true);
         lastLoadedAvailableQueryRef.current = buildAvailableQueryKey(
           result.version || requestVersion,
         );
         // 不再用响应 version 覆盖选中项，避免后端兜底抢跑覆盖推荐 / 集群版本。
         // Do not overwrite selection from response.version (avoids backend fallback racing defaults).
 
-        if (result.source === 'seed' && (result.total || 0) > 0) {
+        if (
+          result.source === 'seed' &&
+          result.seed_reviewed !== true &&
+          (result.total || 0) > 0
+        ) {
           toast.warning(t('plugin.catalogFromSeedTitle'), {
             description: t('plugin.catalogFromSeedDesc'),
             duration: 8000,
@@ -825,7 +831,7 @@ export function PluginMain() {
     async (selectedProfiles?: Record<string, string[]>) => {
       try {
         setIsDownloadingAll(true);
-        if (catalogSource === 'seed') {
+        if (catalogSource === 'seed' && !catalogSeedReviewed) {
           toast.warning(t('plugin.downloadOnSeedWarning'), {
             description: t('plugin.downloadOnSeedWarningDesc'),
             duration: 6000,
@@ -868,6 +874,7 @@ export function PluginMain() {
     },
     [
       catalogSource,
+      catalogSeedReviewed,
       loadLocalPlugins,
       selectedMirror,
       selectedVersion,
@@ -1167,10 +1174,11 @@ export function PluginMain() {
           setTotal(result.total || (result.plugins || []).length);
           setCatalogRefreshedAt(result.catalog_refreshed_at || '');
           setCatalogSource(result.source || null);
+          setCatalogSeedReviewed(result.seed_reviewed === true);
           lastLoadedAvailableQueryRef.current = buildAvailableQueryKey(
             result.version || requestVersion,
           );
-          if (result.source === 'seed') {
+          if (result.source === 'seed' && result.seed_reviewed !== true) {
             toast.warning(t('plugin.catalogFromSeedTitle'), {
               description: t('plugin.catalogFromSeedDesc'),
               duration: 8000,
@@ -1806,7 +1814,7 @@ export function PluginMain() {
 
     // seed 目录只是内置清单，Maven 可能尚无构件；先警告再继续入队。
     // Seed catalog is a bundled list only — Maven may lack artifacts; warn then queue.
-    if (catalogSource === 'seed') {
+    if (catalogSource === 'seed' && !catalogSeedReviewed) {
       toast.warning(t('plugin.downloadOnSeedWarning'), {
         description: t('plugin.downloadOnSeedWarningDesc'),
         duration: 6000,
@@ -2233,7 +2241,7 @@ export function PluginMain() {
 
       {/* seed 目录：官方 Maven 尚无该版本构件时的回退清单提示。
           Seed catalog banner: bundled fallback when official Maven lacks this version. */}
-      {catalogSource === 'seed' && activeTab === 'available' && !error && (
+      {catalogSource === 'seed' && !catalogSeedReviewed && activeTab === 'available' && !error && (
         <Card className='border-amber-500/40 bg-amber-500/5'>
           <CardContent className='flex gap-2.5 p-3 text-sm text-amber-900 dark:text-amber-200'>
             <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0' />

@@ -1834,3 +1834,64 @@ func TestGetDownloadStatus_completedWhenConnectorAndMetadataExist(t *testing.T) 
 		t.Fatalf("expected progress 100, got %d", status.Progress)
 	}
 }
+
+func TestGetArtifactIDUsesConnectorMappings(t *testing.T) {
+	cases := map[string]string{
+		"mysql":      "connector-jdbc",
+		"mysql-cdc":  "connector-cdc-mysql",
+		"tablestore": "connector-tablestore",
+	}
+	for name, want := range cases {
+		if got := getArtifactID(name); got != want {
+			t.Fatalf("getArtifactID(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestGetDownloadStatus_tablestoreDoesNotReuseJdbcConnector(t *testing.T) {
+	newService := func(t *testing.T, pluginsDir string) *Service {
+		t.Helper()
+		service, _ := newTestPluginServiceWithDownloader(t, pluginsDir)
+		service.SetPluginFetcher(func(ctx context.Context, version string, mirror MirrorSource) ([]Plugin, MirrorSource, error) {
+			return []Plugin{{
+				Name:       "tablestore",
+				ArtifactID: "connector-tablestore",
+				GroupID:    "org.apache.seatunnel",
+				Version:    version,
+			}}, mirror, nil
+		})
+		return service
+	}
+	writeConnector := func(t *testing.T, pluginsDir, version, artifactID string) {
+		t.Helper()
+		path := filepath.Join(pluginsDir, version, "connectors", artifactID+"-"+version+".jar")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("failed to create connector dir: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("jar"), 0o644); err != nil {
+			t.Fatalf("failed to write connector jar: %v", err)
+		}
+	}
+
+	t.Run("jdbc 存在时 tablestore 仍视为未下载", func(t *testing.T) {
+		pluginsDir := t.TempDir()
+		service := newService(t, pluginsDir)
+		writeConnector(t, pluginsDir, "9.9.9", "connector-jdbc")
+
+		status := service.GetDownloadStatus("tablestore", "9.9.9", nil)
+		if status.Status != "not_started" {
+			t.Fatalf("expected tablestore not_started when only jdbc exists, got %s", status.Status)
+		}
+	})
+
+	t.Run("tablestore 自身 artifact 存在时返回完成", func(t *testing.T) {
+		pluginsDir := t.TempDir()
+		service := newService(t, pluginsDir)
+		writeConnector(t, pluginsDir, "9.9.9", "connector-tablestore")
+
+		status := service.GetDownloadStatus("tablestore", "9.9.9", nil)
+		if status.Status != "completed" {
+			t.Fatalf("expected tablestore completed when its artifact exists, got %s", status.Status)
+		}
+	})
+}

@@ -566,12 +566,8 @@ func (s *Service) createPluginFromArtifactID(artifactID, version string) Plugin 
 	}
 }
 
-// getArtifactID returns the Maven artifact ID for a plugin name.
-// getArtifactID 返回插件名称对应的 Maven artifact ID。
-// Since we fetch from Maven directly, artifact ID = "connector-" + name
-// 由于我们直接从 Maven 获取，artifact ID = "connector-" + name
 func getArtifactID(name string) string {
-	return fmt.Sprintf("connector-%s", name)
+	return getArtifactIDForPath(name)
 }
 
 // RefreshPlugins forces a refresh of the plugin list from Maven repository.
@@ -1130,7 +1126,7 @@ func (s *Service) DownloadPlugin(ctx context.Context, name, version string, mirr
 		fmt.Printf("[DownloadPlugin] Loaded %d dependencies for %s\n", len(deps), name)
 	}
 
-	connectorReady := s.downloader.IsConnectorDownloaded(name, version)
+	connectorReady := s.isPluginConnectorDownloaded(plugin, version)
 	dependenciesReady := s.arePluginDependenciesDownloaded(plugin)
 
 	// Check if already downloaded / 检查是否已下载
@@ -1192,9 +1188,7 @@ func (s *Service) GetDownloadStatus(name, version string, profileKeys []string) 
 		}
 	}
 
-	// Check if already downloaded / 检查是否已下载
-	connectorDownloaded := s.downloader.IsConnectorDownloaded(name, version) ||
-		(plugin.ArtifactID != "" && s.downloader.IsConnectorDownloadedByArtifactID(plugin.ArtifactID, version))
+	connectorDownloaded := s.isPluginConnectorDownloaded(plugin, version)
 
 	// 连接器就绪且依赖全量就绪（或无额外依赖）时直接返回已完成。
 	// Return completed when connector is ready and all dependencies are present (or none required).
@@ -1324,8 +1318,7 @@ func (s *Service) DownloadAllPlugins(ctx context.Context, version string, mirror
 			plugin := &plugins[i]
 			selectedProfiles := normalizeProfileKeys(selectedProfilesByPlugin[plugin.Name])
 
-			// Check if already downloaded / 检查是否已下载
-			if s.downloader.IsConnectorDownloaded(plugin.Name, version) {
+			if s.isPluginConnectorDownloaded(plugin, version) {
 				progress.Skipped++
 				continue
 			}
@@ -1366,6 +1359,19 @@ func requiresExplicitProfileSelection(plugin *Plugin) bool {
 	return plugin.ArtifactID == "connector-jdbc" || plugin.Name == "jdbc"
 }
 
+func (s *Service) isPluginConnectorDownloaded(plugin *Plugin, version string) bool {
+	if plugin == nil {
+		return false
+	}
+	if plugin.Version != "" {
+		version = plugin.Version
+	}
+	if artifactID := strings.TrimSpace(plugin.ArtifactID); artifactID != "" {
+		return s.downloader.IsConnectorDownloadedByArtifactID(artifactID, version)
+	}
+	return s.downloader.IsConnectorDownloaded(plugin.Name, version)
+}
+
 // DeleteLocalPlugin deletes a locally downloaded plugin.
 // DeleteLocalPlugin 删除本地已下载的插件。
 func (s *Service) DeleteLocalPlugin(name, version string) error {
@@ -1375,6 +1381,9 @@ func (s *Service) DeleteLocalPlugin(name, version string) error {
 // IsPluginDownloaded checks if a plugin is downloaded locally.
 // IsPluginDownloaded 检查插件是否已在本地下载。
 func (s *Service) IsPluginDownloaded(name, version string) bool {
+	if info, err := s.GetPluginInfo(context.Background(), name, version); err == nil && info != nil {
+		return s.isPluginConnectorDownloaded(info, version)
+	}
 	return s.downloader.IsConnectorDownloaded(name, version)
 }
 
@@ -1610,7 +1619,7 @@ func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, re
 	}
 	pluginInfo.Dependencies = effectiveDeps
 
-	connectorReady := s.downloader.IsConnectorDownloaded(req.PluginName, req.Version)
+	connectorReady := s.isPluginConnectorDownloaded(pluginInfo, req.Version)
 	dependenciesReady := s.arePluginDependenciesDownloaded(pluginInfo)
 	if !connectorReady || !dependenciesReady {
 		progress.Message = locale.Pick(ctx, "下载插件", "Downloading plugin")
@@ -2196,7 +2205,7 @@ func (s *Service) DownloadPluginSync(ctx context.Context, pluginName, version, m
 		downloadMirror = MirrorSourceApache
 	}
 
-	connectorReady := s.downloader.IsConnectorDownloaded(pluginName, version)
+	connectorReady := s.isPluginConnectorDownloaded(plugin, version)
 	dependenciesReady := s.arePluginDependenciesDownloaded(plugin)
 
 	// DownloadPlugin downloads both connector and dependencies / DownloadPlugin 同时下载连接器和依赖

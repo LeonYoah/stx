@@ -29,6 +29,7 @@
   - **Radix `ScrollArea` 内截断坑**：`ScrollArea` 内部默认 `display: table; min-width: 100%`，弹性子项只写 `min-w-0 flex-1` + `truncate` 仍会被撑宽；截断子项须用 `w-0 min-w-0 flex-1`（或固定 `max-w-*`），树视口需覆写为 `display: block; min-width: 0`。
 - **反噪音与渐进式披露**：
   - 严禁在列表或卡片顶部堆砌静态长说明；解释性文案收进 `Tooltip`、`HelpHint`、Placeholder、`EmptyState` 或极紧凑单行提示条。
+  - 同一告警只能选择一种呈现方式：toast 或页面内告警二选一，禁止同时弹出并展示；瞬时操作结果用 toast，需要持续上下文或阻断决策的告警用页面内告警。
   - 严禁在单屏内平铺过多同级 Tab（一般 ≤6 个）或把基础属性、重型明细表与表单全量堆叠；关联子视角通过内部 Arc `SegmentedControl`、Drawer 或 Dialog 折叠分流。
 
 ---
@@ -171,7 +172,7 @@
 
 - [ ] 业务页根容器挂 `.arc-compact`，未使用冲突的外层 `max-w-*` 容器；头部用 `WorkspaceHeader` 且图标与 Dock 对齐；新/改图标已列出候选并经确认。
 - [ ] 详情页、右侧详情栏与管理类弹窗均压平为单层画布 + `0.5px` 细线分隔，无嵌套 `<Card>`、无冗余阴影与虚线占位盒；原子字段有防被迫换行保护（`ScrollArea` 内截断用 `w-0 min-w-0 flex-1`）。
-- [ ] 控件与浮层语义准确：`Switch` 即时生效、表单布尔用 `Checkbox`、2–5 短选项用 `SegmentedControl`、`Select`/`Combobox`/纯图标按钮具备可见标签或 `aria-label`、同一区域控件统一（`ui/badge` 豁免）、弹层走 `--radius-popover`；高危确认用具名动作 `AlertDialog`（无 `window.confirm`）；编辑态离开走 `UnsavedChangesDialog` / `DirtyCloseDialog`。
+- [ ] 控件与浮层语义准确：`Switch` 即时生效、表单布尔用 `Checkbox`、2–5 短选项用 `SegmentedControl`、`Select`/`Combobox`/纯图标按钮具备可见标签或 `aria-label`、同一区域控件统一（`ui/badge` 豁免）、弹层走 `--radius-popover`；同一告警只选 toast 或页面内告警一种呈现；高危确认用具名动作 `AlertDialog`（无 `window.confirm`）；编辑态离开走 `UnsavedChangesDialog` / `DirtyCloseDialog`。
 - [ ] 列表页采用单行左对齐工具栏（Arc `SearchField` 支持 Enter、无冗余「搜索」按钮）+ `TableCard`（300/500ms 骨架、刷新保留旧数据可交互只亮 `TableLoadingBar`、卡片内错条重试、区分场景的 Arc `EmptyState`、底部分页）；不新引入 `StatPillsBar`，无按当前页拼凑的假状态计数；筛选/页码同步 URL 并具竞态保护。
 - [ ] 列表 + 详情分栏复用 `DetailHost` 与 #178 联动约束；表/卡切换用 `ViewToggle` + `useViewMorph`；多选批量条用底部浮动 `BatchBar`；互斥挂载的 `SegmentedControl` 传共享 `layoutGroup`。
 - [ ] 状态标签保留原本 `@/components/ui/badge`（或既有 Arc `Badge`），兼顾浅/深色对比度。

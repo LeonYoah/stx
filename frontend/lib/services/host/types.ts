@@ -154,6 +154,10 @@ export interface HostInfo {
   has_k8s_token?: boolean;
   /** Skip TLS verification / 跳过 TLS 校验 */
   k8s_insecure_skip_tls?: boolean;
+  /** Optional default ServiceAccount for engine pods in minimal RBAC mode / 最小权限模式下引擎 Pod 默认使用的 ServiceAccount（可选） */
+  k8s_default_service_account?: string;
+  /** Latest probed RBAC permission tier / 最近一次连通体检识别出的授权模式 */
+  k8s_permission_mode?: K8sPermissionMode;
 
   /** Creation time / 创建时间 */
   created_at: string;
@@ -203,7 +207,19 @@ export interface CreateHostRequest {
   k8s_ca_cert?: string;
   /** Skip TLS verification / 跳过 TLS 校验 */
   k8s_insecure_skip_tls?: boolean;
+  /** Optional default ServiceAccount for engine pods in minimal RBAC mode / 最小权限模式下引擎 Pod 默认 ServiceAccount（可选） */
+  k8s_default_service_account?: string;
 }
+
+export type K8sPermissionMode = 'full' | 'minimal' | 'insufficient';
+
+export type K8sConnectErrorCode =
+  | 'timeout'
+  | 'tls_error'
+  | 'unauthorized'
+  | 'unreachable'
+  | 'invalid_config'
+  | 'unknown';
 
 /**
  * RBAC precheck item returned by test-connection / test-connection 返回的 RBAC 预检项
@@ -212,6 +228,8 @@ export interface K8sRBACCheckItem {
   resource: string;
   verb: string;
   allowed: boolean;
+  reason?: string;
+  scope?: 'required' | 'extended';
 }
 
 /**
@@ -221,6 +239,12 @@ export interface K8sTestConnectionResult {
   connected: boolean;
   server_version?: string;
   message?: string;
+  error_code?: K8sConnectErrorCode;
+  permission_mode?: K8sPermissionMode;
+  can_manage_rbac?: boolean;
+  can_list_namespaces?: boolean;
+  control_plane_sa?: string;
+  service_accounts?: string[];
   rbac: K8sRBACCheckItem[];
   elapsed_ms: number;
 }
@@ -264,6 +288,8 @@ export interface UpdateHostRequest {
   k8s_ca_cert?: string;
   /** Skip TLS verification / 跳过 TLS 校验 */
   k8s_insecure_skip_tls?: boolean;
+  /** Optional default ServiceAccount for engine pods in minimal RBAC mode / 最小权限模式下引擎 Pod 默认 ServiceAccount（可选） */
+  k8s_default_service_account?: string;
 }
 
 /**

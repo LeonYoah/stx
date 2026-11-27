@@ -18,13 +18,14 @@
 package host
 
 import (
-	"strings"
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/utils/secretbox"
@@ -70,11 +71,17 @@ func K8sCredentialsLoaderFromRepository(repo *Repository) k8s.CredentialsLoader 
 // K8sTestConnectionResult 返回给前端的只读连通性体检结果。
 // K8sTestConnectionResult is the read-only connectivity probe result for the UI.
 type K8sTestConnectionResult struct {
-	Connected     bool                `json:"connected"`
-	ServerVersion string              `json:"server_version,omitempty"`
-	Message       string              `json:"message,omitempty"`
-	RBAC          []k8s.RBACCheckItem `json:"rbac"`
-	ElapsedMs     int64               `json:"elapsed_ms"`
+	Connected         bool                `json:"connected"`
+	ServerVersion     string              `json:"server_version,omitempty"`
+	Message           string              `json:"message,omitempty"`
+	ErrorCode         string              `json:"error_code,omitempty"`
+	PermissionMode    k8s.PermissionMode  `json:"permission_mode,omitempty"`
+	CanManageRBAC     bool                `json:"can_manage_rbac"`
+	CanListNamespaces bool                `json:"can_list_namespaces"`
+	ControlPlaneSA    string              `json:"control_plane_sa,omitempty"`
+	ServiceAccounts   []string            `json:"service_accounts,omitempty"`
+	RBAC              []k8s.RBACCheckItem `json:"rbac"`
+	ElapsedMs         int64               `json:"elapsed_ms"`
 }
 
 // buildK8sManager 装配共享 ClientManager；loader 解密凭据，manager 做指纹缓存。
@@ -116,10 +123,15 @@ func (h *Handler) TestK8sConnection(c *gin.Context) {
 	}
 	start := time.Now()
 	result := &K8sTestConnectionResult{RBAC: []k8s.RBACCheckItem{}}
+	// 为单次连通性体检设置 15s 总截止时间，防止不可达或慢集群无限挂起前端请求。
+	// Enforce a 15s overall deadline for the connectivity probe so slow/unreachable clusters fail predictably.
+	probeCtx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
 
-	version, err := mgr.ServerVersion(c.Request.Context(), uint(id))
+	version, err := mgr.ServerVersion(probeCtx, uint(id))
 	if err != nil {
 		result.Message = err.Error()
+		result.ErrorCode = k8s.ClassifyK8sError(err)
 		result.ElapsedMs = time.Since(start).Milliseconds()
 		c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": result})
 		return
@@ -127,25 +139,43 @@ func (h *Handler) TestK8sConnection(c *gin.Context) {
 	result.Connected = true
 	result.ServerVersion = version
 
-	items, err := mgr.PrecheckRBAC(c.Request.Context(), uint(id), h.service.defaultK8sNamespace(c.Request.Context(), uint(id)))
+	targetNS := h.service.defaultK8sNamespace(probeCtx, uint(id))
+	items, err := mgr.PrecheckRBAC(probeCtx, uint(id), targetNS)
 	if err != nil {
+		// 并发 SSAR 遇到超时或网络错误时按连接/体检失败回传，不误标为「权限不足」。
+		// Surface SSAR transport/timeout failures as probe errors instead of misreporting insufficient RBAC.
+		result.Connected = false
 		result.Message = err.Error()
-	} else {
-		result.RBAC = items
+		result.ErrorCode = k8s.ClassifyK8sError(err)
+		result.ElapsedMs = time.Since(start).Milliseconds()
+		c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": result})
+		return
+	}
+	result.RBAC = items
+	result.PermissionMode = k8s.EvaluatePermissionMode(items)
+	result.CanManageRBAC = k8s.CanManageRBAC(items)
+	result.CanListNamespaces = k8s.CanListNamespaces(items)
+	result.ControlPlaneSA = mgr.WhoAmIServiceAccount(probeCtx, uint(id))
+
+	// 探测目标命名空间内已有 ServiceAccount 供最小权限引导直接回填，失败不阻断连通测试。
+	// Best-effort list existing ServiceAccounts in the target namespace for minimal-mode SA onboarding.
+	if sas, saErr := mgr.ListNamespaceObjects(probeCtx, uint(id), targetNS, "serviceaccounts"); saErr == nil && len(sas) > 0 {
+		result.ServiceAccounts = sas
 	}
 	result.ElapsedMs = time.Since(start).Milliseconds()
 
 	if result.Connected {
-		// 连通成功顺带更新版本号与在线状态；失败只回传结果不改库，避免误标离线。
-		// On success we refresh version/online state; failures only report back without
-		// touching the DB, to avoid falsely marking hosts offline.
-		h.service.updateK8sVersionAfterProbe(c.Request.Context(), uint(id), version)
+		// 连通成功顺带更新版本号、授权模式与在线状态；失败只回传结果不改库，避免误标离线。
+		// On success refresh version/permission_mode/online state; failures leave the DB untouched.
+		h.service.updateK8sVersionAfterProbe(c.Request.Context(), uint(id), version, string(result.PermissionMode))
 	}
 	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": result})
 }
 
 // ListK8sNamespaces 列出该 Host 可见的 Namespace 供创建向导下拉选择。
+// 单命名空间最小权限凭据无集群级 namespaces list 权限时，优雅回退为主机配置的默认命名空间。
 // ListK8sNamespaces lists visible namespaces for the creation wizard dropdown.
+// Single-namespace minimal credentials without cluster-wide list rights fall back to the host default namespace.
 // @Summary 列出可见 namespace / List visible kubernetes namespaces
 // @Tags hosts
 // @Produce json
@@ -165,6 +195,11 @@ func (h *Handler) ListK8sNamespaces(c *gin.Context) {
 	}
 	namespaces, err := mgr.ListNamespaces(c.Request.Context(), uint(id))
 	if err != nil {
+		if apierrors.IsForbidden(err) {
+			fallbackNS := h.service.defaultK8sNamespace(c.Request.Context(), uint(id))
+			c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": []string{fallbackNS}})
+			return
+		}
 		c.JSON(http.StatusBadGateway, gin.H{"error_msg": err.Error(), "data": []string{}})
 		return
 	}

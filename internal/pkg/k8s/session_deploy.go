@@ -202,17 +202,17 @@ func (s *SessionManager) Deploy(ctx context.Context, opts *DeployOptions) (*Depl
 	track("service", names.MasterSvc)
 
 	if cfg.IsHybrid() {
-		if err := ensureSessionStatefulSet(ctx, clientset, cfg, names, code, opts.ClusterID, "hybrid"); err != nil {
+		if err := ensureSessionStatefulSet(ctx, clientset, cfg, names, code, opts.ClusterID, "hybrid", opts.CreateRBAC); err != nil {
 			return nil, err
 		}
 		track("statefulset", names.MasterSTS+"-hybrid")
 		return result, nil
 	}
-	if err := ensureSessionStatefulSet(ctx, clientset, cfg, names, code, opts.ClusterID, "master"); err != nil {
+	if err := ensureSessionStatefulSet(ctx, clientset, cfg, names, code, opts.ClusterID, "master", opts.CreateRBAC); err != nil {
 		return nil, err
 	}
 	track("statefulset", names.MasterSTS)
-	if err := ensureSessionStatefulSet(ctx, clientset, cfg, names, code, opts.ClusterID, "worker"); err != nil {
+	if err := ensureSessionStatefulSet(ctx, clientset, cfg, names, code, opts.ClusterID, "worker", opts.CreateRBAC); err != nil {
 		return nil, err
 	}
 	track("statefulset", names.WorkerSTS)
@@ -239,6 +239,12 @@ func EnsureNamespace(ctx context.Context, clientset kubernetes.Interface, ns str
 func ensureNamespace(ctx context.Context, clientset kubernetes.Interface, ns string) error {
 	_, err := clientset.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{})
 	if err == nil {
+		return nil
+	}
+	if apierrors.IsForbidden(err) {
+		// 单命名空间最小权限凭据无集群级 namespaces 查询权限；假定运维已预先创建目标命名空间并继续。
+		// Single-namespace minimal credentials cannot read cluster-scoped Namespace objects;
+		// assume the operator pre-created the target namespace and proceed.
 		return nil
 	}
 	if !apierrors.IsNotFound(err) {
@@ -447,7 +453,7 @@ func intstrPort(port int) intstr.IntOrString {
 	return intstr.FromInt32(int32(port))
 }
 
-func ensureSessionStatefulSet(ctx context.Context, clientset kubernetes.Interface, cfg *SessionConfig, names *SessionResourceNames, code string, clusterID uint, role string) error {
+func ensureSessionStatefulSet(ctx context.Context, clientset kubernetes.Interface, cfg *SessionConfig, names *SessionResourceNames, code string, clusterID uint, role string, createRBAC bool) error {
 	var stsName string
 	var replicas int
 	var req ResourceRequirement
@@ -599,7 +605,7 @@ func ensureSessionStatefulSet(ctx context.Context, clientset kubernetes.Interfac
 	}
 
 	serviceAccount := cfg.ServiceAccount
-	if serviceAccount == "" {
+	if serviceAccount == "" && createRBAC {
 		serviceAccount = names.ServiceAccount
 	}
 
@@ -682,8 +688,15 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 	}
 	policy := metav1.DeletePropagationBackground
 	// 删除前一律先 Get 校验归属标签：同名但非本集群创建的用户资源绝不删除。
+	// 单命名空间最小权限凭据对集群/RBAC 对象返回 403 时视作「无权且未代建」，忽略并继续回收其余工作负载。
 	// Every delete first Gets the object and verifies ownership labels: a same-named
-	// user resource not created by this cluster is never deleted.
+	// user resource not created by this cluster is never deleted. When RBAC reads return
+	// 403 under single-namespace minimal mode, skip gracefully so workload teardown proceeds.
+	deleteOneRBAC := func(kind string, del func() error) {
+		if err := del(); err != nil && !apierrors.IsNotFound(err) && !apierrors.IsForbidden(err) {
+			errs = append(errs, fmt.Sprintf("%s: %v", kind, err))
+		}
+	}
 	deleteOne("statefulset/"+names.MasterSTS, func() error {
 		obj, err := clientset.AppsV1().StatefulSets(ns).Get(ctx, names.MasterSTS, metav1.GetOptions{})
 		if err != nil {
@@ -744,7 +757,7 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 		}
 		return clientset.CoreV1().ConfigMaps(ns).Delete(ctx, names.ConfigMap, metav1.DeleteOptions{})
 	})
-	deleteOne("serviceaccount/"+names.ServiceAccount, func() error {
+	deleteOneRBAC("serviceaccount/"+names.ServiceAccount, func() error {
 		obj, err := clientset.CoreV1().ServiceAccounts(ns).Get(ctx, names.ServiceAccount, metav1.GetOptions{})
 		if err != nil {
 			return err
@@ -764,7 +777,7 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 		}
 		return clientset.CoreV1().Secrets(ns).Delete(ctx, names.RegistryCredentialSecret, metav1.DeleteOptions{})
 	})
-	deleteOne("role/"+names.Role, func() error {
+	deleteOneRBAC("role/"+names.Role, func() error {
 		obj, err := clientset.RbacV1().Roles(ns).Get(ctx, names.Role, metav1.GetOptions{})
 		if err != nil {
 			return err
@@ -774,7 +787,7 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 		}
 		return clientset.RbacV1().Roles(ns).Delete(ctx, names.Role, metav1.DeleteOptions{})
 	})
-	deleteOne("rolebinding/"+names.RoleBinding, func() error {
+	deleteOneRBAC("rolebinding/"+names.RoleBinding, func() error {
 		obj, err := clientset.RbacV1().RoleBindings(ns).Get(ctx, names.RoleBinding, metav1.GetOptions{})
 		if err != nil {
 			return err

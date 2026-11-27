@@ -77,6 +77,10 @@ type HostInfo struct {
 	// Timezone 是 Agent 心跳上报的主机 IANA 时区，用于解析该节点 SeaTunnel 引擎/日志中的无偏移时间。
 	// Timezone is the host IANA zone from Agent heartbeats, used to parse naive SeaTunnel engine/log times on this node.
 	Timezone string
+	// K8sNamespace 与 K8sDefaultServiceAccount 供 K8s 集群创建时在最小权限模式下安全推导运行身份。
+	// K8sNamespace and K8sDefaultServiceAccount let K8s cluster deploys infer defaults safely under minimal RBAC.
+	K8sNamespace             string
+	K8sDefaultServiceAccount string
 }
 
 // IsOnline checks if the host is online based on heartbeat timeout.

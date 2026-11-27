@@ -63,6 +63,7 @@ import {formatDateTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {TruncatedText} from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
+import {getHostStatusLabel, getK8sPermissionModeLabel} from './host-status';
 
 interface HostTableProps {
   hosts: HostInfo[];
@@ -249,7 +250,8 @@ export function HostTable({
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => e.stopPropagation()}
             >
-              {host.host_type === HostType.BARE_METAL &&
+              {(host.host_type === HostType.BARE_METAL ||
+                host.host_type === HostType.KUBERNETES) &&
               host.status === HostStatus.PENDING &&
               onInstallAgent ? (
                 <TooltipProvider>
@@ -264,39 +266,59 @@ export function HostTable({
                           <span className='absolute inline-flex size-full animate-ping rounded-full bg-amber-400 opacity-75' />
                           <span className='relative inline-flex size-1.5 rounded-full bg-amber-500' />
                         </span>
-                        <span>{t(`host.statuses.${host.status}`)}</span>
+                        <span>{getHostStatusLabel(host, t)}</span>
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {t('host.installGuide.installAgentTooltip')}
+                      {host.host_type === HostType.KUBERNETES
+                        ? t('host.k8sGuide.testConnectionTooltip')
+                        : t('host.installGuide.installAgentTooltip')}
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               ) : (
                 <Badge variant={getStatusBadgeVariant(host.status)}>
-                  {t(`host.statuses.${host.status}`)}
+                  {getHostStatusLabel(host, t)}
                 </Badge>
               )}
             </div>
-            <div className='space-y-0.5 text-xs'>
-              <div>
-                <span className='text-muted-foreground'>CPU </span>
-                <span className='font-mono'>
-                  {host.cpu_usage?.toFixed(1) || 0}%
-                </span>
-              </div>
-              <div>
-                <span className='text-muted-foreground'>Mem </span>
-                <span className='font-mono'>
-                  {host.memory_usage?.toFixed(1) || 0}%
-                </span>
-              </div>
-              {host.host_type === HostType.BARE_METAL && host.total_memory ? (
-                <div className='text-[11px] text-muted-foreground'>
-                  {formatBytes(host.total_memory)}
+            {host.host_type === HostType.KUBERNETES ? (
+              <div className='space-y-0.5 text-xs'>
+                <div className='flex flex-wrap items-center gap-1.5'>
+                  <span className='font-mono tabular-nums'>
+                    {host.k8s_version || '-'}
+                  </span>
+                  {host.k8s_permission_mode ? (
+                    <span className='text-[11px] text-muted-foreground'>
+                      {getK8sPermissionModeLabel(host.k8s_permission_mode, t)}
+                    </span>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
+                <div className='truncate font-mono text-[11px] text-muted-foreground'>
+                  ns: {host.k8s_namespace || 'default'}
+                </div>
+              </div>
+            ) : (
+              <div className='space-y-0.5 text-xs'>
+                <div>
+                  <span className='text-muted-foreground'>CPU </span>
+                  <span className='font-mono'>
+                    {host.cpu_usage?.toFixed(1) || 0}%
+                  </span>
+                </div>
+                <div>
+                  <span className='text-muted-foreground'>Mem </span>
+                  <span className='font-mono'>
+                    {host.memory_usage?.toFixed(1) || 0}%
+                  </span>
+                </div>
+                {host.host_type === HostType.BARE_METAL && host.total_memory ? (
+                  <div className='text-[11px] text-muted-foreground'>
+                    {formatBytes(host.total_memory)}
+                  </div>
+                ) : null}
+              </div>
+            )}
             <span className={cn(layout.sub, 'whitespace-nowrap')}>
               {formatDateTz(host.created_at)}
             </span>
@@ -315,6 +337,13 @@ export function HostTable({
                   items.push({
                     label: t('host.installGuide.installAgent'),
                     icon: <Terminal className='size-4' aria-hidden />,
+                    onSelect: () => onInstallAgent(host),
+                  });
+                }
+                if (host.host_type === HostType.KUBERNETES && onInstallAgent) {
+                  items.push({
+                    label: t('host.testK8sConnection'),
+                    icon: <Cloud className='size-4' aria-hidden />,
                     onSelect: () => onInstallAgent(host),
                   });
                 }

@@ -204,6 +204,7 @@ func (s *Service) validateK8sHost(req *CreateHostRequest, host *Host) error {
 	if host.K8sNamespace == "" {
 		host.K8sNamespace = "default"
 	}
+	host.K8sDefaultServiceAccount = strings.TrimSpace(req.K8sDefaultServiceAccount)
 
 	switch authMode {
 	case "kubeconfig":
@@ -391,6 +392,7 @@ func (s *Service) updateDockerFields(req *UpdateHostRequest, host *Host) error {
 // updateK8sFields updates kubernetes specific fields.
 // updateK8sFields 更新 Kubernetes 特定字段。
 func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
+	authModeChanged := req.K8sAuthMode != nil && strings.TrimSpace(*req.K8sAuthMode) != strings.TrimSpace(host.K8sAuthMode)
 	authMode := strings.TrimSpace(host.K8sAuthMode)
 	if req.K8sAuthMode != nil {
 		authMode = strings.TrimSpace(*req.K8sAuthMode)
@@ -403,12 +405,19 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 	}
 	host.K8sAuthMode = authMode
 
+	credentialOrNSChanged := authModeChanged
 	if req.K8sNamespace != nil {
 		ns := strings.TrimSpace(*req.K8sNamespace)
 		if ns == "" {
 			ns = "default"
 		}
+		if ns != host.K8sNamespace {
+			credentialOrNSChanged = true
+		}
 		host.K8sNamespace = ns
+	}
+	if req.K8sDefaultServiceAccount != nil {
+		host.K8sDefaultServiceAccount = strings.TrimSpace(*req.K8sDefaultServiceAccount)
 	}
 
 	// 按目标认证模式只更新对应字段，并做切换后的合并校验：
@@ -428,6 +437,7 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 				return err
 			}
 			host.K8sKubeconfig = enc
+			credentialOrNSChanged = true
 			if serverURL != "" {
 				host.K8sAPIURL = serverURL
 			}
@@ -441,7 +451,11 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 			if !ValidateK8sAPIURL(apiURL) {
 				return ErrK8sAPIURLInvalid
 			}
-			host.K8sAPIURL = strings.TrimRight(apiURL, "/")
+			trimmedURL := strings.TrimRight(apiURL, "/")
+			if trimmedURL != host.K8sAPIURL {
+				credentialOrNSChanged = true
+			}
+			host.K8sAPIURL = trimmedURL
 		}
 		if req.K8sToken != nil && strings.TrimSpace(*req.K8sToken) != "" {
 			enc, err := secretbox.Encrypt(strings.TrimSpace(*req.K8sToken))
@@ -449,14 +463,19 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 				return err
 			}
 			host.K8sToken = enc
+			credentialOrNSChanged = true
 		}
 		// CA 证书与编辑弹窗"留空保留原值"提示保持一致，空串不覆盖已有证书。
 		// Keep CA cert aligned with the edit dialog's "leave empty to keep" hint so empty input
 		// never clears an existing certificate.
 		if req.K8sCACert != nil && strings.TrimSpace(*req.K8sCACert) != "" {
 			host.K8sCACert = strings.TrimSpace(*req.K8sCACert)
+			credentialOrNSChanged = true
 		}
 		if req.K8sInsecureSkipTLS != nil {
+			if *req.K8sInsecureSkipTLS != host.K8sInsecureSkipTLS {
+				credentialOrNSChanged = true
+			}
 			host.K8sInsecureSkipTLS = *req.K8sInsecureSkipTLS
 		}
 		if strings.TrimSpace(host.K8sAPIURL) == "" || !ValidateK8sAPIURL(host.K8sAPIURL) {
@@ -465,6 +484,11 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 		if strings.TrimSpace(host.K8sToken) == "" {
 			return ErrK8sCredentialsRequired
 		}
+	}
+	if credentialOrNSChanged {
+		// 凭据或命名空间变更后清空旧体检结果，避免前端继续展示过期的授权模式。
+		// Clear stale permission tier when credentials or namespace change so UI never shows outdated RBAC status.
+		host.K8sPermissionMode = ""
 	}
 	return nil
 }
@@ -827,16 +851,18 @@ func (s *Service) GetHostByID(ctx context.Context, id uint) (*cluster.HostInfo, 
 
 	startedAt := s.processStartedAt
 	return &cluster.HostInfo{
-		ID:               host.ID,
-		Name:             host.Name,
-		HostType:         string(host.HostType),
-		IPAddress:        host.IPAddress,
-		AgentID:          host.AgentID,
-		AgentStatus:      string(host.AgentStatus),
-		LastHeartbeat:    host.LastHeartbeat,
-		ProcessStartedAt: &startedAt,
-		DiskUsage:        host.DiskUsage,
-		Timezone:         host.Timezone,
+		ID:                       host.ID,
+		Name:                     host.Name,
+		HostType:                 string(host.HostType),
+		IPAddress:                host.IPAddress,
+		AgentID:                  host.AgentID,
+		AgentStatus:              string(host.AgentStatus),
+		LastHeartbeat:            host.LastHeartbeat,
+		ProcessStartedAt:         &startedAt,
+		DiskUsage:                host.DiskUsage,
+		Timezone:                 host.Timezone,
+		K8sNamespace:             host.K8sNamespace,
+		K8sDefaultServiceAccount: host.K8sDefaultServiceAccount,
 	}, nil
 }
 
@@ -920,14 +946,17 @@ func (s *Service) defaultK8sNamespace(ctx context.Context, hostID uint) string {
 	return h.K8sNamespace
 }
 
-// updateK8sVersionAfterProbe 连通成功后刷新版本号并标记在线。
-// updateK8sVersionAfterProbe refreshes the server version and marks the host online after a successful probe.
-func (s *Service) updateK8sVersionAfterProbe(ctx context.Context, hostID uint, version string) {
+// updateK8sVersionAfterProbe 连通成功后刷新版本号、权限模式并标记在线。
+// updateK8sVersionAfterProbe refreshes server version, permission mode, and marks the host connected.
+func (s *Service) updateK8sVersionAfterProbe(ctx context.Context, hostID uint, version, permissionMode string) {
 	h, err := s.repo.GetByID(ctx, hostID)
 	if err != nil || h == nil {
 		return
 	}
 	h.K8sVersion = version
+	if permissionMode != "" {
+		h.K8sPermissionMode = permissionMode
+	}
 	h.Status = HostStatusConnected
 	_ = s.repo.Update(ctx, h)
 }

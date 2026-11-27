@@ -74,6 +74,16 @@ const eslintConfig = [
           selector: "JSXAttribute[name.name='failedLabel']",
           message: '禁止业务侧传 failedLabel：反馈文案由 CopyButton 内部 i18n 统一（common.copyFailed）。确需覆盖须 eslint-disable 并注明理由。',
         },
+        // 主机状态文案硬约束：禁止直接拼接 host.statuses.${status}，必须走 getHostStatusLabel(host, t) 按主机类型区分物理机与 K8s/Docker。
+        // Host status label guard: forbid raw host.statuses.* interpolation; always use getHostStatusLabel(host, t).
+        {
+          selector: "CallExpression[callee.name='t'] TemplateLiteral[quasis.0.value.raw='host.statuses.']",
+          message: '禁止直接拼接 host.statuses.${status}：请统一走 getHostStatusLabel(host, t) 按主机类型映射状态文案（避免 K8s/Docker pending 误显示「未安装」）。',
+        },
+        {
+          selector: "CallExpression[callee.name='t'] BinaryExpression[operator='+'][left.value='host.statuses.']",
+          message: '禁止直接拼接 "host.statuses." + status：请统一走 getHostStatusLabel(host, t) 按主机类型映射状态文案（避免 K8s/Docker pending 误显示「未安装」）。',
+        },
       ],
     },
   },

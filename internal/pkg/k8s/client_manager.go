@@ -20,14 +20,21 @@ package k8s
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
 
+	authenticationv1 "k8s.io/api/authentication/v1"
 	authv1 "k8s.io/api/authorization/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -207,10 +214,18 @@ func (m *ClientManager) entry(ctx context.Context, hostID uint) (*clientEntry, e
 	if err != nil {
 		return nil, err
 	}
-	// 客户端默认 10s 超时防止 API Server 假死拖死业务协程；长请求（log follow）自行控制。
-	// A default 10s client timeout keeps a hung API server from pinning business goroutines;
-	// long-running requests (log follow) manage their own deadlines.
-	restConfig.Timeout = 30 * time.Second
+	// 客户端单请求 15s 超时 + 5s TCP 建连超时 + 放宽 QPS/Burst，避免 54 条 SSAR 预检被 client-go 默认 5 QPS 限速拖到 9 秒。
+	// Use a 15s request timeout, 5s TCP dial timeout, and higher QPS/Burst so 54 SSAR checks don't stall on client-go's default 5 QPS throttle.
+	restConfig.Timeout = 15 * time.Second
+	if restConfig.QPS <= 0 || restConfig.QPS < 50 {
+		restConfig.QPS = 50
+	}
+	if restConfig.Burst <= 0 || restConfig.Burst < 100 {
+		restConfig.Burst = 100
+	}
+	if restConfig.Dial == nil {
+		restConfig.Dial = (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	}
 	clientset, err := m.factory(restConfig)
 	if err != nil {
 		return nil, fmt.Errorf("k8s: build clientset failed: %w", err)
@@ -242,6 +257,31 @@ func (m *ClientManager) Clientset(ctx context.Context, hostID uint) (kubernetes.
 	return entry.clientset, nil
 }
 
+const (
+	// RBACScopeRequired 单命名空间最小权限运行必需的核心权限。
+	// RBACScopeRequired marks core permissions strictly required for single-namespace runtime operations.
+	RBACScopeRequired = "required"
+	// RBACScopeExtended 跨命名空间发现或自动创建每集群专属 RBAC 所需的扩展权限。
+	// RBACScopeExtended marks extended permissions needed for multi-namespace listing or auto per-cluster RBAC.
+	RBACScopeExtended = "extended"
+)
+
+// PermissionMode 根据 RBAC 预检结果推断出的 K8s 主机授权模式。
+// PermissionMode represents the authorization tier inferred from RBAC precheck results.
+type PermissionMode string
+
+const (
+	// PermissionModeFull 全面授权：核心权限齐备，且可列举命名空间与自动创建专属 RBAC。
+	// PermissionModeFull grants all core rules plus cluster-wide namespace listing and per-cluster RBAC provisioning.
+	PermissionModeFull PermissionMode = "full"
+	// PermissionModeMinimal 最小授权：核心单命名空间运行时权限齐备，但受限于单命名空间或禁止自动建 RBAC。
+	// PermissionModeMinimal grants all core single-namespace rules while extended cluster/RBAC permissions are absent.
+	PermissionModeMinimal PermissionMode = "minimal"
+	// PermissionModeInsufficient 权限不足：存在核心运行时权限缺失。
+	// PermissionModeInsufficient indicates one or more core runtime rules are denied.
+	PermissionModeInsufficient PermissionMode = "insufficient"
+)
+
 // RBACCheckItem 单项 RBAC 预检结果。
 // RBACCheckItem is one RBAC precheck outcome.
 type RBACCheckItem struct {
@@ -249,6 +289,7 @@ type RBACCheckItem struct {
 	Verb     string `json:"verb"`
 	Allowed  bool   `json:"allowed"`
 	Reason   string `json:"reason,omitempty"`
+	Scope    string `json:"scope,omitempty"`
 }
 
 // RBACRequiredRules 测试连接必须覆盖的资源与动作；与伴生 Proxy、常驻集群运维、日志读取的
@@ -285,6 +326,7 @@ var RBACRequiredRules = []struct {
 	{"apps", "deployments", "", "update"},
 	{"apps", "deployments", "", "patch"},
 	{"apps", "deployments", "", "delete"},
+	{"apps", "replicasets", "", "list"},
 	{"", "services", "", "get"},
 	{"", "services", "", "list"},
 	{"", "services", "", "create"},
@@ -301,10 +343,36 @@ var RBACRequiredRules = []struct {
 	{"", "secrets", "", "get"},
 	{"", "secrets", "", "list"},
 	{"", "secrets", "", "create"},
+	{"", "secrets", "", "update"},
+	{"", "secrets", "", "delete"},
+	{"", "serviceaccounts", "", "get"},
+	{"", "serviceaccounts", "", "list"},
+	{"", "persistentvolumeclaims", "", "get"},
+	{"", "persistentvolumeclaims", "", "list"},
+	{"", "events", "", "list"},
 	{"batch", "jobs", "", "get"},
 	{"batch", "jobs", "", "list"},
 	{"batch", "jobs", "", "create"},
 	{"batch", "jobs", "", "delete"},
+}
+
+// RBACExtendedRules 用于识别全面授权能力（跨命名空间枚举与自动建 SA/Role/RoleBinding）。
+// 缺少这些权限不阻塞单命名空间最小权限部署，系统会自动回退到单命名空间预建身份模式。
+// RBACExtendedRules probes elevated capabilities (cluster-scoped namespace listing and
+// automatic per-cluster RBAC creation). Missing these does not block single-namespace minimal mode.
+var RBACExtendedRules = []struct {
+	Group         string
+	Resource      string
+	Subresource   string
+	Verb          string
+	ClusterScoped bool
+}{
+	{"", "namespaces", "", "list", true},
+	{"", "namespaces", "", "create", true},
+	{"", "serviceaccounts", "", "create", false},
+	{"rbac.authorization.k8s.io", "roles", "", "create", false},
+	{"rbac.authorization.k8s.io", "rolebindings", "", "create", false},
+	{"", "endpoints", "", "list", false},
 }
 
 // PrecheckRBAC 对目标 Namespace 执行只读 SelfSubjectAccessReview 预检，不写入任何 K8s 对象。
@@ -318,48 +386,291 @@ func (m *ClientManager) PrecheckRBAC(ctx context.Context, hostID uint, namespace
 	if namespace == "" {
 		namespace = "default"
 	}
-	items := make([]RBACCheckItem, 0, len(RBACRequiredRules))
+
+	type rbacRuleSpec struct {
+		ns          string
+		group       string
+		resource    string
+		subresource string
+		verb        string
+		scope       string
+	}
+	specs := make([]rbacRuleSpec, 0, len(RBACRequiredRules)+len(RBACExtendedRules))
 	for _, rule := range RBACRequiredRules {
-		review := &authv1.SelfSubjectAccessReview{
-			Spec: authv1.SelfSubjectAccessReviewSpec{
-				ResourceAttributes: &authv1.ResourceAttributes{
-					Namespace:   namespace,
-					Group:       rule.Group,
-					Resource:    rule.Resource,
-					Subresource: rule.Subresource,
-					Verb:        rule.Verb,
+		specs = append(specs, rbacRuleSpec{
+			ns:          namespace,
+			group:       rule.Group,
+			resource:    rule.Resource,
+			subresource: rule.Subresource,
+			verb:        rule.Verb,
+			scope:       RBACScopeRequired,
+		})
+	}
+	for _, rule := range RBACExtendedRules {
+		targetNS := namespace
+		if rule.ClusterScoped {
+			targetNS = ""
+		}
+		specs = append(specs, rbacRuleSpec{
+			ns:          targetNS,
+			group:       rule.Group,
+			resource:    rule.Resource,
+			subresource: rule.Subresource,
+			verb:        rule.Verb,
+			scope:       RBACScopeExtended,
+		})
+	}
+
+	// 并发执行 SSAR 预检并保持确定性顺序；遇非 403 网络/超时错误立即取消并返回错误，避免误判为「权限不足」。
+	// Run SSAR checks concurrently with deterministic ordering; abort on transport/timeout errors so they never masquerade as insufficient RBAC.
+	items := make([]RBACCheckItem, len(specs))
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	const maxWorkers = 12
+	sem := make(chan struct{}, maxWorkers)
+	var wg sync.WaitGroup
+	var errMu sync.Mutex
+	var firstErr error
+
+	for i, spec := range specs {
+		wg.Add(1)
+		go func(idx int, s rbacRuleSpec) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-runCtx.Done():
+				return
+			}
+			review := &authv1.SelfSubjectAccessReview{
+				Spec: authv1.SelfSubjectAccessReviewSpec{
+					ResourceAttributes: &authv1.ResourceAttributes{
+						Namespace:   s.ns,
+						Group:       s.group,
+						Resource:    s.resource,
+						Subresource: s.subresource,
+						Verb:        s.verb,
+					},
 				},
-			},
-		}
-		resp, err := clientset.AuthorizationV1().SelfSubjectAccessReviews().Create(ctx, review, metav1.CreateOptions{})
-		item := RBACCheckItem{Resource: rule.Resource, Verb: rule.Verb}
-		if rule.Subresource != "" {
-			item.Resource = rule.Resource + "/" + rule.Subresource
-		}
-		if err != nil {
-			item.Allowed = false
-			item.Reason = fmt.Sprintf("review failed: %v", err)
-		} else {
+			}
+			resp, reqErr := clientset.AuthorizationV1().SelfSubjectAccessReviews().Create(runCtx, review, metav1.CreateOptions{})
+			item := RBACCheckItem{Resource: s.resource, Verb: s.verb, Scope: s.scope}
+			if s.subresource != "" {
+				item.Resource = s.resource + "/" + s.subresource
+			}
+			if reqErr != nil {
+				if apierrors.IsForbidden(reqErr) {
+					item.Allowed = false
+					item.Reason = reqErr.Error()
+					items[idx] = item
+					return
+				}
+				errMu.Lock()
+				if firstErr == nil {
+					firstErr = fmt.Errorf("k8s: rbac precheck failed: %w", reqErr)
+					cancel()
+				}
+				errMu.Unlock()
+				return
+			}
 			item.Allowed = resp.Status.Allowed
 			item.Reason = resp.Status.Reason
-		}
-		items = append(items, item)
+			items[idx] = item
+		}(i, spec)
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("k8s: rbac precheck cancelled: %w", ctx.Err())
 	}
 	return items, nil
 }
 
-// ServerVersion 读取 API Server 版本，用于连通性测试。
-// ServerVersion reads the API server version for connectivity tests.
+// AllRequiredRBACAllowed 判断所有核心（required）RBAC 检查是否全部放行。
+// AllRequiredRBACAllowed reports whether every core (required) RBAC check is allowed.
+func AllRequiredRBACAllowed(items []RBACCheckItem) bool {
+	if len(items) == 0 {
+		return false
+	}
+	hasRequired := false
+	for _, item := range items {
+		if item.Scope == RBACScopeExtended {
+			continue
+		}
+		hasRequired = true
+		if !item.Allowed {
+			return false
+		}
+	}
+	return hasRequired
+}
+
+func rbacRuleAllowed(items []RBACCheckItem, resource, verb string) bool {
+	for _, item := range items {
+		if item.Resource == resource && item.Verb == verb {
+			return item.Allowed
+		}
+	}
+	return false
+}
+
+// CanManageRBAC 判断当前凭据是否具备按集群自动创建隔离 ServiceAccount/Role/RoleBinding 的权限。
+// CanManageRBAC reports whether the credential can provision per-cluster SA/Role/RoleBinding
+// (including endpoints read access required by K8s privilege-escalation rules).
+func CanManageRBAC(items []RBACCheckItem) bool {
+	return rbacRuleAllowed(items, "serviceaccounts", "create") &&
+		rbacRuleAllowed(items, "roles", "create") &&
+		rbacRuleAllowed(items, "rolebindings", "create") &&
+		rbacRuleAllowed(items, "endpoints", "list")
+}
+
+// CanListNamespaces 判断当前凭据是否具备集群级列举 Namespace 的权限。
+// CanListNamespaces reports whether the credential has cluster-scoped namespaces list permission.
+func CanListNamespaces(items []RBACCheckItem) bool {
+	return rbacRuleAllowed(items, "namespaces", "list")
+}
+
+// EvaluatePermissionMode 根据预检结果自动归纳授权模式（full / minimal / insufficient）。
+// EvaluatePermissionMode infers the effective permission tier (full / minimal / insufficient).
+func EvaluatePermissionMode(items []RBACCheckItem) PermissionMode {
+	if !AllRequiredRBACAllowed(items) {
+		return PermissionModeInsufficient
+	}
+	if CanManageRBAC(items) && CanListNamespaces(items) {
+		return PermissionModeFull
+	}
+	return PermissionModeMinimal
+}
+
+// ServerVersion 读取 API Server 版本，用于连通性测试；优先走支持 ctx 取消/超时的 /version 请求。
+// ServerVersion reads the API server version for connectivity tests, preferring a context-aware /version call.
 func (m *ClientManager) ServerVersion(ctx context.Context, hostID uint) (string, error) {
 	clientset, err := m.Clientset(ctx, hostID)
 	if err != nil {
 		return "", err
+	}
+	if rc := clientset.Discovery().RESTClient(); rc != nil {
+		body, err := rc.Get().AbsPath("/version").DoRaw(ctx)
+		if err != nil {
+			return "", fmt.Errorf("k8s: read server version failed: %w", err)
+		}
+		var info version.Info
+		if err := json.Unmarshal(body, &info); err != nil {
+			return "", fmt.Errorf("k8s: parse server version failed: %w", err)
+		}
+		return info.GitVersion, nil
 	}
 	info, err := clientset.Discovery().ServerVersion()
 	if err != nil {
 		return "", fmt.Errorf("k8s: read server version failed: %w", err)
 	}
 	return info.GitVersion, nil
+}
+
+func parseServiceAccountUsername(username string) (namespace, name string) {
+	const prefix = "system:serviceaccount:"
+	if !strings.HasPrefix(username, prefix) {
+		return "", ""
+	}
+	rest := strings.TrimPrefix(username, prefix)
+	parts := strings.SplitN(rest, ":", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", ""
+	}
+	return parts[0], parts[1]
+}
+
+// ParseBearerTokenServiceAccount 从 K8s ServiceAccount JWT payload 的 sub 字段提取命名空间与 SA 名称（仅做只读身份识别，不替代 API Server 验签）。
+// ParseBearerTokenServiceAccount extracts namespace and SA name from a K8s ServiceAccount JWT sub claim (read-only hint; API server still verifies signatures).
+func ParseBearerTokenServiceAccount(token string) (namespace, name string) {
+	parts := strings.Split(strings.TrimSpace(token), ".")
+	if len(parts) != 3 || parts[1] == "" {
+		return "", ""
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", ""
+	}
+	var claims struct {
+		Sub string `json:"sub"`
+	}
+	if err := json.Unmarshal(raw, &claims); err != nil {
+		return "", ""
+	}
+	return parseServiceAccountUsername(claims.Sub)
+}
+
+// WhoAmIServiceAccount 尽最大努力识别当前控制面凭据对应的 ServiceAccount 名称，供前端动态排除自身高权限身份。
+// WhoAmIServiceAccount best-effort identifies the control-plane credential's ServiceAccount name so UI excludes it from runner SA picks.
+func (m *ClientManager) WhoAmIServiceAccount(ctx context.Context, hostID uint) string {
+	entry, err := m.entry(ctx, hostID)
+	if err != nil || entry == nil {
+		return ""
+	}
+	if entry.restConfig != nil && entry.restConfig.BearerToken != "" {
+		if _, name := ParseBearerTokenServiceAccount(entry.restConfig.BearerToken); name != "" {
+			return name
+		}
+	}
+	if entry.clientset == nil {
+		return ""
+	}
+	subCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	resp, err := entry.clientset.AuthenticationV1().SelfSubjectReviews().Create(subCtx, &authenticationv1.SelfSubjectReview{}, metav1.CreateOptions{})
+	if err != nil || resp == nil {
+		return ""
+	}
+	_, name := parseServiceAccountUsername(resp.Status.UserInfo.Username)
+	return name
+}
+
+// ClassifyK8sError 将底层 client-go / 网络错误归纳为前端可映射的稳定错误码。
+// ClassifyK8sError maps client-go and transport errors to stable error codes for UI guidance.
+func ClassifyK8sError(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "timeout"
+	}
+	if apierrors.IsUnauthorized(err) {
+		return "unauthorized"
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "deadline exceeded"),
+		strings.Contains(msg, "i/o timeout"),
+		strings.Contains(msg, "client.timeout"):
+		return "timeout"
+	case strings.Contains(msg, "x509:"),
+		strings.Contains(msg, "tls:"),
+		strings.Contains(msg, "certificate"):
+		return "tls_error"
+	case strings.Contains(msg, "provide credentials"),
+		strings.Contains(msg, "unauthorized"),
+		strings.Contains(msg, "401"):
+		return "unauthorized"
+	case strings.Contains(msg, "connection refused"),
+		strings.Contains(msg, "no such host"),
+		strings.Contains(msg, "dial tcp"),
+		strings.Contains(msg, "network is unreachable"):
+		return "unreachable"
+	case strings.Contains(msg, "invalid kubeconfig"),
+		strings.Contains(msg, "credentials are required"),
+		strings.Contains(msg, "api url is required"),
+		strings.Contains(msg, "token is required"):
+		return "invalid_config"
+	default:
+		return "unknown"
+	}
 }
 
 // ListNamespaces 列举集群 Namespace 名称，用于主机发现向导。

@@ -61,6 +61,41 @@ func TestHostCreateSendsBodyAndSafetyHeaders(t *testing.T) {
 	}
 }
 
+func TestHostCreateForwardsK8sDefaultServiceAccountFlag(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeHostCapabilities(t, writer, "host.create")
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["k8s_default_service_account"] != "seatunnel-runner" {
+			t.Fatalf("expected k8s_default_service_account=seatunnel-runner, got %#v", body)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"id": 12, "name": "k8s-cli"}})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runHostWriteCommand(
+		t, store,
+		"host", "create",
+		"--name", "k8s-cli",
+		"--host-type", "kubernetes",
+		"--k8s-auth-mode", "token",
+		"--k8s-api-url", "https://127.0.0.1:6443",
+		"--k8s-token", "tok",
+		"--k8s-namespace", "seatunnel",
+		"--k8s-default-service-account", "seatunnel-runner",
+		"--confirm",
+	)
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("k8s create failed: code=%d stderr=%s", exitCode, stderr)
+	}
+}
+
 func TestHostUpdateAcceptsCompleteRequestFile(t *testing.T) {
 	requestFile := filepath.Join(t.TempDir(), "host-update.json")
 	if err := os.WriteFile(requestFile, []byte(`{"description":"from-file","ssh_port":2200}`), 0o600); err != nil {

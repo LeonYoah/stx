@@ -43,7 +43,10 @@ func verifyAdoptedK8sObjectsExist(ctx context.Context, mgr *k8s.ClientManager, c
 		return missing
 	}
 	ns := cfg.Namespace
-	if _, err := clientset.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{}); err != nil {
+	if _, err := clientset.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{}); err != nil && !apierrors.IsForbidden(err) {
+		// 单命名空间最小权限凭据无 namespaces get 权限，此时允许 403 并继续验证命名空间内对象存在性。
+		// Single-namespace minimal credentials lack cluster-scoped namespaces get permission; allow 403
+		// and rely on the subsequent namespace-scoped object checks.
 		if apierrors.IsNotFound(err) {
 			missing = append(missing, fmt.Sprintf("namespace/%s", ns))
 		} else {

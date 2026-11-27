@@ -91,22 +91,27 @@ function MemoryTierField({label, value, onChange, testId, customLabel, hintLabel
 // 查询不到或用户需留空/手填时退化为普通输入。
 // NamespaceObjectField picks existing namespace objects from a dropdown when
 // available, falling back to a plain input for empty/manual values.
-function NamespaceObjectField({label, value, onChange, placeholder, objects, testId}: {
+function NamespaceObjectField({label, value, onChange, placeholder, objects, allowAutoLabel, testId}: {
   label: string;
   value: string;
   onChange: (next: string) => void;
   placeholder: string;
   objects: string[];
+  allowAutoLabel?: string;
   testId?: string;
 }) {
   if (objects.length > 0) {
+    const options = allowAutoLabel
+      ? [{value: '__auto__', label: allowAutoLabel}, ...objects.map((name) => ({value: name, label: name}))]
+      : objects.map((name) => ({value: name, label: name}));
+    const selectValue = allowAutoLabel ? (value || '__auto__') : value;
     return (
       <div className='space-y-1.5'>
         <Select
           label={label}
-          value={value}
-          onValueChange={onChange}
-          options={objects.map((name) => ({value: name, label: name}))}
+          value={selectValue}
+          onValueChange={(next) => onChange(allowAutoLabel && next === '__auto__' ? '' : next)}
+          options={options}
           placeholder={placeholder}
           data-testid={testId}
         />
@@ -159,19 +164,30 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
   const patch = (partial: Partial<K8sWizardFormState>) =>
     onChange((prev) => ({...prev, ...partial}));
 
+  // 选择主机后自动带入该主机的默认命名空间与预建 ServiceAccount，收敛人工选择负担。
+  // Selecting a host automatically defaults namespace and pre-created ServiceAccount to cut decisions.
+  const applyHostDefaults = (host?: HostInfo) => {
+    if (!host) {return;}
+    patch({
+      host_id: host.id,
+      namespace: host.k8s_namespace?.trim() || 'default',
+      service_account: host.k8s_default_service_account?.trim() || '',
+    });
+  };
+
   // 仅 1 个可用 K8s 主机时自动默认选中，省掉无信息的单选项点击。
   // Auto-select when exactly one K8s host is available — a single-option click
   // carries no information.
   useEffect(() => {
     if (!loading && hosts.length === 1 && !form.host_id) {
-      patch({host_id: hosts[0].id});
+      applyHostDefaults(hosts[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hosts, loading]);
 
   // namespace 下拉随主机选择加载；清单仅供快选，用户仍可输入新建。
-  // The namespace dropdown loads with the chosen host; the list is a quick-pick
-  // only — typing a new namespace stays supported.
+  // 单命名空间授权仅返回唯一可用 namespace 时同步校正表单，避免跨空间误填 403。
+  // The namespace dropdown loads with the chosen host; single-namespace hosts sync to the sole namespace.
   useEffect(() => {
     if (!form.host_id) {
       setNamespaces([]);
@@ -180,11 +196,17 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
     services.host
       .listK8sNamespaces(form.host_id)
       .then((list) => {
-        if (Array.isArray(list)) {setNamespaces(list);}
+        if (Array.isArray(list)) {
+          setNamespaces(list);
+          if (list.length === 1 && list[0]) {
+            patch({namespace: list[0]});
+          }
+        }
       })
       .catch(() => {
         setNamespaces([]);
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.host_id]);
 
   // 高级选项对象清单随 host+namespace 联动加载；失败保持空表退化为手填。
@@ -222,7 +244,14 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
           <Select
             label={t('cluster.k8s.targetHost')}
             value={form.host_id ? String(form.host_id) : ''}
-            onValueChange={(value) => patch({host_id: Number(value)})}
+            onValueChange={(value) => {
+              const chosen = hosts.find((item) => String(item.id) === value);
+              if (chosen) {
+                applyHostDefaults(chosen);
+              } else {
+                patch({host_id: Number(value)});
+              }
+            }}
             disabled={loading}
             placeholder={t('cluster.k8s.selectHost')}
             options={hosts.map((host) => ({value: String(host.id), label: host.name}))}
@@ -347,29 +376,36 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
           {advancedOpen ? '▾' : '▸'} {t('cluster.k8s.advancedOptions')}
         </button>
         {advancedOpen ? (
-          <div className='mt-3 grid grid-cols-3 gap-3'>
-            <NamespaceObjectField
-              label={t('cluster.k8s.checkpointPvc')}
-              value={form.checkpoint_pvc}
-              onChange={(next) => patch({checkpoint_pvc: next})}
-              placeholder={t('cluster.k8s.optionalPlaceholder')}
-              objects={pvcs}
-              testId='k8s-checkpoint-pvc'
-            />
-            <NamespaceObjectField
-              label={t('cluster.k8s.imagePullSecrets')}
-              value={form.image_pull_secrets}
-              onChange={(next) => patch({image_pull_secrets: next})}
-              placeholder={t('cluster.k8s.optionalPlaceholder')}
-              objects={secrets}
-            />
-            <NamespaceObjectField
-              label={t('cluster.k8s.serviceAccount')}
-              value={form.service_account}
-              onChange={(next) => patch({service_account: next})}
-              placeholder={t('cluster.k8s.optionalPlaceholder')}
-              objects={serviceAccounts}
-            />
+          <div className='mt-3 space-y-2'>
+            <div className='grid grid-cols-3 gap-3'>
+              <NamespaceObjectField
+                label={t('cluster.k8s.checkpointPvc')}
+                value={form.checkpoint_pvc}
+                onChange={(next) => patch({checkpoint_pvc: next})}
+                placeholder={t('cluster.k8s.optionalPlaceholder')}
+                objects={pvcs}
+                testId='k8s-checkpoint-pvc'
+              />
+              <NamespaceObjectField
+                label={t('cluster.k8s.imagePullSecrets')}
+                value={form.image_pull_secrets}
+                onChange={(next) => patch({image_pull_secrets: next})}
+                placeholder={t('cluster.k8s.optionalPlaceholder')}
+                objects={secrets}
+              />
+              <NamespaceObjectField
+                label={t('cluster.k8s.serviceAccount')}
+                value={form.service_account}
+                onChange={(next) => patch({service_account: next})}
+                placeholder={t('cluster.k8s.optionalPlaceholder')}
+                objects={serviceAccounts}
+                allowAutoLabel={t('cluster.k8s.serviceAccountAuto')}
+                testId='k8s-service-account'
+              />
+            </div>
+            <p className='text-[11px] text-muted-foreground'>
+              {t('cluster.k8s.serviceAccountHint')}
+            </p>
           </div>
         ) : null}
       </div>

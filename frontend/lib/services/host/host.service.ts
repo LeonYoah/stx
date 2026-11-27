@@ -375,10 +375,17 @@ export class HostService extends BaseService {
   /**
    * Run read-only K8s connectivity probe (version + RBAC precheck) / 执行只读 K8s 连通性体检（版本+RBAC 预检）
    */
-  static async testK8sConnection(hostId: number): Promise<K8sTestConnectionResult> {
+  static async testK8sConnection(
+    hostId: number,
+    options?: {signal?: AbortSignal; timeoutMs?: number},
+  ): Promise<K8sTestConnectionResult> {
     const response = await apiClient.post<{error_msg: string; data: K8sTestConnectionResult}>(
       `${this.basePath}/${hostId}/test-connection`,
       {},
+      {
+        signal: options?.signal,
+        timeout: options?.timeoutMs ?? 20000,
+      },
     );
     if (response.data.error_msg) {
       throw new Error(response.data.error_msg);

@@ -49,6 +49,7 @@ import {
 import {
   BatchBar,
   DetailHost,
+  DirtyCloseDialog,
   ModuleNavTabs,
   TableCard,
   WorkspaceHeader,
@@ -66,13 +67,18 @@ import {
 } from '@/lib/services/host/types';
 import {cn} from '@/lib/utils';
 import {CreateHostDialog} from './CreateHostDialog';
-import {EditHostDialog} from './EditHostDialog';
 import {HostDetail} from './HostDetail';
 import {HostInstallGuideDialog} from './HostInstallGuideDialog';
 import {HostTable} from './HostTable';
 
 const DEFAULT_PAGE_SIZE = 10;
 const ALL_VALUE = 'all';
+
+type PendingDetailAction =
+  | {kind: 'close'}
+  | {kind: 'cancelEdit'}
+  | {kind: 'view'; host: HostInfo; origin?: HTMLElement | null}
+  | {kind: 'edit'; host: HostInfo};
 
 export interface HostMainProps {
   /** `/hosts/[id]` 深链目标。Deep-link target from `/hosts/[id]`. */
@@ -107,8 +113,10 @@ export function HostMain({initialHostId = null}: HostMainProps) {
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editHost, setEditHost] = useState<HostInfo | null>(null);
+  const [detailEditing, setDetailEditing] = useState(false);
+  const [detailDirty, setDetailDirty] = useState(false);
+  const [pendingAction, setPendingAction] =
+    useState<PendingDetailAction | null>(null);
   const [guideHost, setGuideHost] = useState<HostInfo | null>(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [batchBusy, setBatchBusy] = useState(false);
@@ -223,15 +231,17 @@ export function HostMain({initialHostId = null}: HostMainProps) {
     }
   }, [initialHostId, loadHostDetail]);
 
-  const openHostDetail = useCallback(
-    (host: HostInfo, origin?: HTMLElement | null) => {
-      // 仅点击/回车写入 flyOrigin；J/K 与深链不写（#178）。
-      // Only click/Enter write flyOrigin; J/K and deep links do not (#178).
+  const commitOpenHostDetail = useCallback(
+    (host: HostInfo, origin?: HTMLElement | null, startEditing = false) => {
+      // 仅点击/回车写入 flyOrigin；J/K、编辑入口与深链不写（#178）。
+      // Only click/Enter write flyOrigin; J/K, edit menu, and deep links do not (#178).
       if (origin) {
         flyOriginRef.current = origin;
       } else {
         flyOriginRef.current = null;
       }
+      setDetailDirty(false);
+      setDetailEditing(startEditing);
       setSelectedHostId(host.id);
       setSelectedHost(host);
       void loadHostDetail(host.id, host);
@@ -245,16 +255,37 @@ export function HostMain({initialHostId = null}: HostMainProps) {
     [initialHostId, loadHostDetail, router],
   );
 
-  const handleCloseDetail = useCallback(() => {
+  const commitCloseDetail = useCallback(() => {
     detailRequestIdRef.current += 1;
     lastSyncedDeepLinkRef.current = null;
     setLoadingDetail(false);
+    setDetailDirty(false);
+    setDetailEditing(false);
     setSelectedHostId(null);
     setSelectedHost(null);
     if (initialHostId != null) {
       router.replace('/hosts', {scroll: false});
     }
   }, [initialHostId, router]);
+
+  const openHostDetail = useCallback(
+    (host: HostInfo, origin?: HTMLElement | null) => {
+      if (detailEditing && detailDirty) {
+        setPendingAction({kind: 'view', host, origin});
+        return;
+      }
+      commitOpenHostDetail(host, origin, false);
+    },
+    [detailEditing, detailDirty, commitOpenHostDetail],
+  );
+
+  const handleCloseDetail = useCallback(() => {
+    if (detailEditing && detailDirty) {
+      setPendingAction({kind: 'close'});
+      return;
+    }
+    commitCloseDetail();
+  }, [detailEditing, detailDirty, commitCloseDetail]);
 
   const commitName = useCallback(() => {
     const next = nameDraft.trim();
@@ -263,17 +294,53 @@ export function HostMain({initialHostId = null}: HostMainProps) {
     }
   }, [nameDraft, filters.name, patchFilters]);
 
-  const handleEdit = (host: HostInfo) => {
-    setEditHost(host);
-    setIsEditDialogOpen(true);
-  };
+  const handleEdit = useCallback(
+    (host: HostInfo) => {
+      if (detailEditing && detailDirty && selectedHostId !== host.id) {
+        setPendingAction({kind: 'edit', host});
+        return;
+      }
+      if (selectedHostId === host.id && selectedHost) {
+        setDetailEditing(true);
+        return;
+      }
+      commitOpenHostDetail(host, null, true);
+    },
+    [detailEditing, detailDirty, selectedHostId, selectedHost, commitOpenHostDetail],
+  );
+
+  const handleCancelEdit = useCallback(() => {
+    if (detailDirty) {
+      setPendingAction({kind: 'cancelEdit'});
+      return;
+    }
+    setDetailEditing(false);
+  }, [detailDirty]);
+
+  const handleDiscardPending = useCallback(() => {
+    const next = pendingAction;
+    setPendingAction(null);
+    if (!next) {
+      return;
+    }
+    if (next.kind === 'close') {
+      commitCloseDetail();
+    } else if (next.kind === 'cancelEdit') {
+      setDetailDirty(false);
+      setDetailEditing(false);
+    } else if (next.kind === 'view') {
+      commitOpenHostDetail(next.host, next.origin, false);
+    } else if (next.kind === 'edit') {
+      commitOpenHostDetail(next.host, null, true);
+    }
+  }, [pendingAction, commitCloseDetail, commitOpenHostDetail]);
 
   const handleDelete = async (host: HostInfo) => {
     const result = await services.host.deleteHostSafe(host.id);
     if (result.success) {
       toast.success(t('host.deleteSuccess'));
       if (selectedHostId === host.id) {
-        handleCloseDetail();
+        commitCloseDetail();
       }
       {
         const next = new Set(selectedIds);
@@ -300,7 +367,7 @@ export function HostMain({initialHostId = null}: HostMainProps) {
       if (result.success) {
         outcome.ok += 1;
         if (selectedHostId === id) {
-          handleCloseDetail();
+          commitCloseDetail();
         }
       } else {
         outcome.failed += 1;
@@ -329,7 +396,7 @@ export function HostMain({initialHostId = null}: HostMainProps) {
     selectedIds,
     batchBusy,
     selectedHostId,
-    handleCloseDetail,
+    commitCloseDetail,
     setSelectedIds,
     loadHosts,
     t,
@@ -337,7 +404,13 @@ export function HostMain({initialHostId = null}: HostMainProps) {
 
   const handleHostCreated = (newHost?: HostInfo) => {
     void loadHosts();
-    if (newHost && newHost.host_type !== HostType.BARE_METAL) {
+    // 物理机与 Kubernetes 均有第 2 步在线引导（Agent 安装 / K8s 连通与 RBAC 体检），不提前关窗。
+    // Both bare metal and Kubernetes enter Step 2 guided onboarding, so keep the dialog open for them.
+    if (
+      newHost &&
+      newHost.host_type !== HostType.BARE_METAL &&
+      newHost.host_type !== HostType.KUBERNETES
+    ) {
       setIsCreateDialogOpen(false);
     }
   };
@@ -347,14 +420,15 @@ export function HostMain({initialHostId = null}: HostMainProps) {
     setIsGuideOpen(true);
   };
 
-  const handleHostUpdated = () => {
-    setIsEditDialogOpen(false);
+  const handleDetailUpdated = (updatedHost?: HostInfo) => {
+    setDetailDirty(false);
+    setDetailEditing(false);
     void loadHosts();
-    // 仅刷新当前打开的同一台主机详情，不覆写关闭态或其他主机。Only refresh when the edited host is currently open.
-    if (editHost && selectedHostId === editHost.id) {
-      void loadHostDetail(editHost.id);
+    if (updatedHost && selectedHostId === updatedHost.id) {
+      setSelectedHost(updatedHost);
+    } else if (drawerHost) {
+      void loadHostDetail(drawerHost.id);
     }
-    toast.success(t('host.updateSuccess'));
   };
 
   const handleClearFilters = () => {
@@ -449,7 +523,7 @@ export function HostMain({initialHostId = null}: HostMainProps) {
               value: HostStatus.CONNECTED,
               label: t('host.statuses.connected'),
             },
-            {value: HostStatus.PENDING, label: t('host.statuses.pending')},
+            {value: HostStatus.PENDING, label: t('host.statuses.pendingFilter')},
             {value: HostStatus.OFFLINE, label: t('host.statuses.offline')},
             {value: HostStatus.ERROR, label: t('host.statuses.error')},
           ]}
@@ -614,11 +688,11 @@ export function HostMain({initialHostId = null}: HostMainProps) {
             key={drawerHost?.id ?? 'pending'}
             host={drawerHost ?? null}
             loading={loadingDetail}
-            onEdit={() => {
-              if (drawerHost) {
-                handleEdit(drawerHost);
-              }
-            }}
+            editing={detailEditing}
+            onStartEdit={() => setDetailEditing(true)}
+            onCancelEdit={handleCancelEdit}
+            onDirtyChange={setDetailDirty}
+            onUpdated={handleDetailUpdated}
           />
         </DetailHost>
       </div>
@@ -640,14 +714,11 @@ export function HostMain({initialHostId = null}: HostMainProps) {
         onViewDetail={openHostDetail}
       />
 
-      {editHost ? (
-        <EditHostDialog
-          open={isEditDialogOpen}
-          onOpenChange={setIsEditDialogOpen}
-          host={editHost}
-          onSuccess={handleHostUpdated}
-        />
-      ) : null}
+      <DirtyCloseDialog
+        open={pendingAction !== null}
+        onDiscard={handleDiscardPending}
+        onKeepEditing={() => setPendingAction(null)}
+      />
 
       <AlertDialog open={batchDeleteOpen} onOpenChange={setBatchDeleteOpen}>
         <AlertDialogContent>

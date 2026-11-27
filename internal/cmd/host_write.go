@@ -127,6 +127,7 @@ func newHostUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
 // support @file references so long secrets stay out of the command line and shell history.
 func setK8sCredentialFlags(command *cobra.Command, body map[string]any) {
 	setChangedString(command, body, "k8s-auth-mode", mustGetStringFlag(command, "k8s-auth-mode"))
+	setChangedString(command, body, "k8s-default-service-account", mustGetStringFlag(command, "k8s-default-service-account"))
 	setChangedString(command, body, "k8s-ca-cert", resolveFileReferenceFlag(command, "k8s-ca-cert"))
 	setChangedString(command, body, "k8s-kubeconfig", resolveFileReferenceFlag(command, "k8s-kubeconfig"))
 	setChangedString(command, body, "k8s-token", resolveFileReferenceFlag(command, "k8s-token"))
@@ -166,6 +167,7 @@ func resolveFileReferenceFlag(command *cobra.Command, name string) string {
 // addK8sCredentialFlags registers K8s credential flags.
 func addK8sCredentialFlags(command *cobra.Command) {
 	command.Flags().String("k8s-auth-mode", "", "Kubernetes auth mode: kubeconfig or token")
+	command.Flags().String("k8s-default-service-account", "", "Default Kubernetes ServiceAccount for SeaTunnel engine pods (minimal RBAC mode)")
 	command.Flags().String("k8s-kubeconfig", "", "Kubeconfig content or @path/to/kubeconfig")
 	command.Flags().String("k8s-token", "", "Bearer token or @path/to/token")
 	command.Flags().String("k8s-ca-cert", "", "CA certificate PEM or @path/to/ca.crt (token mode)")

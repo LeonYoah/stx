@@ -97,10 +97,17 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 		add("api_connectivity", "error", false, fmt.Sprintf(locale.Pick(ctx, "Kubernetes API 不可达: %v", "Kubernetes API unreachable: %v"), err))
 		return result, nil
 	}
-	// 连通性：读 namespace 即证明 API 与基本权限可用。
-	// Connectivity: reading the namespace proves the API and basic permissions.
+	// 连通性：读 namespace 即证明 API 与基本权限可用；单命名空间最小权限返回 403 时退化为命名空间内 ConfigMap 只读列表探测。
+	// Connectivity: reading the namespace proves the API and basic permissions; on 403 under single-namespace minimal RBAC,
+	// probe namespace-scoped ConfigMaps list instead.
 	if _, err := clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{}); err != nil {
-		if apierrors.IsNotFound(err) {
+		if apierrors.IsForbidden(err) {
+			if _, nsErr := clientset.CoreV1().ConfigMaps(namespace).List(ctx, metav1.ListOptions{Limit: 1}); nsErr != nil {
+				add("api_connectivity", "error", false, fmt.Sprintf(locale.Pick(ctx, "无法访问命名空间 %q: %v", "cannot access namespace %q: %v"), namespace, nsErr))
+			} else {
+				add("api_connectivity", "info", true, fmt.Sprintf(locale.Pick(ctx, "API 可达（单命名空间授权模式，已验证目标命名空间 %q 可访问）", "API reachable (single-namespace mode, verified access to namespace %q)"), namespace))
+			}
+		} else if apierrors.IsNotFound(err) {
 			add("api_connectivity", "warning", true, fmt.Sprintf(locale.Pick(ctx, "API 可达，但 namespace %q 不存在，部署时将自动创建", "API reachable, but namespace %q does not exist and will be created at deploy time"), namespace))
 		} else {
 			add("api_connectivity", "error", false, fmt.Sprintf(locale.Pick(ctx, "读取 namespace 失败: %v", "failed to read namespace: %v"), err))
@@ -109,22 +116,39 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 		add("api_connectivity", "info", true, fmt.Sprintf(locale.Pick(ctx, "API 可达，namespace %q 存在", "API reachable, namespace %q exists"), namespace))
 	}
 
-	// RBAC SelfSubjectAccessReview。
-	// RBAC via SelfSubjectAccessReview.
+	// RBAC SelfSubjectAccessReview：区分核心运行时权限（required）与跨命名空间/自动建 RBAC 扩展权限（extended）。
+	// RBAC via SelfSubjectAccessReview: separate core required rules from extended cluster/RBAC provisioning rules.
 	rbacItems, err := s.k8sManager.PrecheckRBAC(ctx, req.HostID, namespace)
 	if err != nil {
 		add("rbac", "error", false, fmt.Sprintf(locale.Pick(ctx, "RBAC 预检失败: %v", "RBAC precheck failed: %v"), err))
 	} else {
-		denied := []string{}
+		deniedRequired := []string{}
 		for _, item := range rbacItems {
+			if item.Scope == k8s.RBACScopeExtended {
+				continue
+			}
 			if !item.Allowed {
-				denied = append(denied, fmt.Sprintf("%s(%s)", item.Resource, item.Verb))
+				deniedRequired = append(deniedRequired, fmt.Sprintf("%s(%s)", item.Resource, item.Verb))
 			}
 		}
-		if len(denied) > 0 {
-			add("rbac", "error", false, fmt.Sprintf(locale.Pick(ctx, "缺少权限: %s", "missing permissions: %s"), strings.Join(denied, ", ")))
+		if len(deniedRequired) > 0 {
+			add("rbac", "error", false, fmt.Sprintf(locale.Pick(ctx, "缺少必需权限: %s", "missing required permissions: %s"), strings.Join(deniedRequired, ", ")))
 		} else {
-			add("rbac", "info", true, locale.Pick(ctx, "RBAC 权限齐备", "RBAC permissions complete"))
+			permMode := k8s.EvaluatePermissionMode(rbacItems)
+			canManageRBAC := k8s.CanManageRBAC(rbacItems)
+			switch {
+			case permMode == k8s.PermissionModeFull:
+				add("rbac", "info", true, locale.Pick(ctx, "RBAC 权限齐备（全面模式：支持跨命名空间与自动创建集群专属 RBAC）", "RBAC permissions complete (full mode: multi-namespace and auto per-cluster RBAC)"))
+			case canManageRBAC:
+				add("rbac", "info", true, locale.Pick(ctx, "RBAC 核心权限齐备（单命名空间模式，可自动创建集群专属 RBAC）", "Core RBAC permissions complete (single-namespace mode, auto per-cluster RBAC available)"))
+			default:
+				effectiveSA, _ := s.resolveK8sServiceAccountWithRBAC(ctx, req.HostID, namespace, req.ServiceAccount, rbacItems)
+				if effectiveSA != "" && effectiveSA != "default" {
+					add("rbac", "info", true, fmt.Sprintf(locale.Pick(ctx, "RBAC 核心权限齐备（最小权限模式，将使用预建 ServiceAccount %q）", "Core RBAC permissions complete (minimal mode, using pre-created ServiceAccount %q)"), effectiveSA))
+				} else {
+					add("rbac", "warning", true, locale.Pick(ctx, "RBAC 核心权限齐备（最小权限模式，无自动创建 RBAC 权限；建议指定预建的 SeaTunnel ServiceAccount，未指定时将回退命名空间 default）", "Core RBAC permissions complete (minimal mode without RBAC creation; recommend specifying a pre-created SeaTunnel ServiceAccount, otherwise namespace default is used)"))
+				}
+			}
 		}
 	}
 
@@ -162,8 +186,8 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 		add("resource_conflict", "info", true, locale.Pick(ctx, "无同名资源冲突", "no conflicting resources"))
 	}
 
-	// pvc / secrets / serviceaccount 存在性：引用了就必须在。
-	// pvc/secret/serviceaccount existence: referenced objects must exist.
+	// pvc / secrets / serviceaccount 存在性：引用了（含主机默认 ServiceAccount）就必须在。
+	// pvc/secret/serviceaccount existence: referenced objects (including host default ServiceAccount) must exist.
 	missing := []string{}
 	if pvc := strings.TrimSpace(req.CheckpointPVC); pvc != "" {
 		if _, err := clientset.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc, metav1.GetOptions{}); err != nil {
@@ -179,9 +203,15 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 			missing = append(missing, "Secret/"+secret)
 		}
 	}
-	if sa := strings.TrimSpace(req.ServiceAccount); sa != "" {
-		if _, err := clientset.CoreV1().ServiceAccounts(namespace).Get(ctx, sa, metav1.GetOptions{}); err != nil {
-			missing = append(missing, "ServiceAccount/"+sa)
+	saToCheck := strings.TrimSpace(req.ServiceAccount)
+	if saToCheck == "" && s.hostProvider != nil {
+		if hostInfo, hostErr := s.hostProvider.GetHostByID(ctx, req.HostID); hostErr == nil && hostInfo != nil {
+			saToCheck = strings.TrimSpace(hostInfo.K8sDefaultServiceAccount)
+		}
+	}
+	if saToCheck != "" {
+		if _, err := clientset.CoreV1().ServiceAccounts(namespace).Get(ctx, saToCheck, metav1.GetOptions{}); err != nil {
+			missing = append(missing, "ServiceAccount/"+saToCheck)
 		}
 	}
 	if len(missing) > 0 {

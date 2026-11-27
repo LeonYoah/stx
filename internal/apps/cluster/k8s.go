@@ -36,6 +36,7 @@ import (
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/LeonYoah/stx/internal/seatunnel"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ErrK8sHostInvalid 表示创建 K8s 集群时引用的主机不存在或类型不符。
@@ -362,8 +363,10 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 			_ = s.repo.Delete(ctx, cluster.ID)
 			return nil, err
 		}
+		resolvedSA, createRBAC := s.resolveK8sServiceAccountWithRBAC(ctx, req.HostID, cfg.Namespace, cfg.ServiceAccount, nil)
+		cfg.ServiceAccount = resolvedSA
 		deployer := k8s.NewSessionManager(s.k8sManager)
-		if _, err := deployer.Deploy(ctx, &k8s.DeployOptions{Config: cfg, ClusterCode: cluster.EffectiveClusterCode(), ClusterID: cluster.ID, CreateRBAC: cfg.ServiceAccount == ""}); err != nil {
+		if _, err := deployer.Deploy(ctx, &k8s.DeployOptions{Config: cfg, ClusterCode: cluster.EffectiveClusterCode(), ClusterID: cluster.ID, CreateRBAC: createRBAC}); err != nil {
 			// 中途失败按归属标签逆序回收 stx 自建的资源（保留用户既有资源）：
 			// 回收成功则删库返回原始错误；回收失败保留记录并标记 error 供人工重试。
 			// A mid-deploy failure cleans up stx-created resources in reverse order by
@@ -415,6 +418,43 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 		result.EventChannelWarning = eventChannelErr.Error()
 	}
 	return result, nil
+}
+
+// resolveK8sServiceAccountWithRBAC 在无建 RBAC 权限的最小授权模式或主机配置了默认 SA 时，
+// 依次按「显式指定 -> 主机默认 SA -> seatunnel-runner -> default」确定工作负载 ServiceAccount 与是否代建 RBAC。
+// resolveK8sServiceAccountWithRBAC resolves the workload ServiceAccount and whether STX should
+// provision per-cluster RBAC (explicit SA -> host default SA -> seatunnel-runner -> default).
+func (s *Service) resolveK8sServiceAccountWithRBAC(ctx context.Context, hostID uint, namespace, explicitSA string, precomputedRBAC []k8s.RBACCheckItem) (string, bool) {
+	if sa := strings.TrimSpace(explicitSA); sa != "" {
+		return sa, false
+	}
+	if s.hostProvider != nil && hostID > 0 {
+		if hostInfo, err := s.hostProvider.GetHostByID(ctx, hostID); err == nil && hostInfo != nil {
+			if sa := strings.TrimSpace(hostInfo.K8sDefaultServiceAccount); sa != "" {
+				return sa, false
+			}
+		}
+	}
+	if s.k8sManager == nil || hostID == 0 {
+		return "", true
+	}
+	rbacItems := precomputedRBAC
+	if len(rbacItems) == 0 {
+		var err error
+		rbacItems, err = s.k8sManager.PrecheckRBAC(ctx, hostID, namespace)
+		if err != nil {
+			return "", true
+		}
+	}
+	if k8s.AllRequiredRBACAllowed(rbacItems) && !k8s.CanManageRBAC(rbacItems) {
+		if clientset, err := s.k8sManager.Clientset(ctx, hostID); err == nil {
+			if _, getErr := clientset.CoreV1().ServiceAccounts(namespace).Get(ctx, k8s.DefaultSeaTunnelRunnerServiceAccount, metav1.GetOptions{}); getErr == nil {
+				return k8s.DefaultSeaTunnelRunnerServiceAccount, false
+			}
+		}
+		return "default", false
+	}
+	return "", true
 }
 
 // EnsureK8sJavaProxy 拉起伴生 Proxy 并探活 /healthz；失败返回状态不报错（不阻断保存）。

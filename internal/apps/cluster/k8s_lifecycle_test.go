@@ -29,9 +29,12 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 // TestVerifyAdoptedObjectsMissing 纳管对象缺失时列出全部缺失项：
@@ -84,6 +87,34 @@ func TestVerifyAdoptedObjectsPresent(t *testing.T) {
 		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "demo-config", Namespace: "seatunnel"}},
 	}
 	clientset := fake.NewSimpleClientset(objects...)
+	mgr := newLifecycleTestManager(clientset)
+	cfg := &k8s.SessionConfig{
+		HostID:             1,
+		Namespace:          "seatunnel",
+		MasterWorkloadName: "demo-master",
+		WorkerWorkloadName: "demo-worker",
+		MasterServiceName:  "demo-master",
+		ConfigMapName:      "demo-config",
+	}
+	missing := verifyAdoptedK8sObjectsExist(context.Background(), mgr, cfg)
+	assert.Empty(t, missing)
+}
+
+// TestVerifyAdoptedObjectsSingleNamespaceForbidden 验证单命名空间最小权限下
+// Namespaces().Get 返回 403 Forbidden 时，仍可继续验证并纳管命名空间内的现有对象。
+// TestVerifyAdoptedObjectsSingleNamespaceForbidden verifies adoption succeeds when
+// Namespaces().Get returns 403 Forbidden under single-namespace minimal RBAC.
+func TestVerifyAdoptedObjectsSingleNamespaceForbidden(t *testing.T) {
+	objects := []runtime.Object{
+		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "demo-master", Namespace: "seatunnel"}},
+		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "demo-worker", Namespace: "seatunnel"}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "demo-master", Namespace: "seatunnel"}},
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "demo-config", Namespace: "seatunnel"}},
+	}
+	clientset := fake.NewSimpleClientset(objects...)
+	clientset.PrependReactor("get", "namespaces", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "seatunnel", nil)
+	})
 	mgr := newLifecycleTestManager(clientset)
 	cfg := &k8s.SessionConfig{
 		HostID:             1,

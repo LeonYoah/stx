@@ -528,13 +528,17 @@ func TestRBACRequiredRulesFollowRealModel(t *testing.T) {
 		resource    string
 		subresource string
 	}{
-		"pods":         {"", "pods", ""},
-		"statefulsets": {"apps", "statefulsets", ""},
-		"deployments":  {"apps", "deployments", ""},
-		"jobs":         {"batch", "jobs", ""},
-		"services":     {"", "services", ""},
-		"configmaps":   {"", "configmaps", ""},
-		"secrets":      {"", "secrets", ""},
+		"pods":                   {"", "pods", ""},
+		"statefulsets":           {"apps", "statefulsets", ""},
+		"deployments":            {"apps", "deployments", ""},
+		"replicasets":            {"apps", "replicasets", ""},
+		"jobs":                   {"batch", "jobs", ""},
+		"services":               {"", "services", ""},
+		"configmaps":             {"", "configmaps", ""},
+		"secrets":                {"", "secrets", ""},
+		"serviceaccounts":        {"", "serviceaccounts", ""},
+		"persistentvolumeclaims": {"", "persistentvolumeclaims", ""},
+		"events":                 {"", "events", ""},
 	}
 	seen := map[string]bool{}
 	for _, rule := range RBACRequiredRules {

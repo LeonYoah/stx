@@ -287,6 +287,25 @@ export function toPipelineShare(
 }
 
 /**
+ * 用累计读/写字节拆成互斥两段（已写入、已读未写），用于体积口径下的管道构成环形图。
+ * Split cumulative read/write bytes into exclusive written and backlog slices for the volume-mode pipeline donut.
+ */
+export function toVolumePipelineShare(
+  readBytes: number,
+  writeBytes: number,
+  labels: {written: string; backlog: string},
+): DonutChartDatum[] {
+  const read = Math.max(0, readBytes);
+  const write = Math.max(0, writeBytes);
+  const written = Math.max(0, Math.min(write, read || write));
+  const backlog = Math.max(0, read - write);
+  return [
+    {key: 'written', label: labels.written, value: written, color: TREND_COLORS.write},
+    {key: 'backlog', label: labels.backlog, value: backlog, color: TREND_COLORS.read},
+  ].filter((item) => item.value > 0);
+}
+
+/**
  * 把 0–1 的忙碌度/背压换成百分数，避免 Arc 轴从 0 起把小数压扁。
  * Scale 0–1 busy/backpressure to percent so Arc's zero-based axis does not flatten the line.
  */

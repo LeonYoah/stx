@@ -42,7 +42,8 @@
   - **值选择 vs 动作菜单**：选值用 `Select` / `Combobox`（选中后回显当前值）；执行动作（编辑、重启、升级、删除）用 Arc `DropdownMenu`（触发按钮保持原名，不放进表单字段区）。
   - **`StatPillsBar` 已弃用**：新代码严禁使用（仅历史未迁页面暂留，最后一处迁走后删除）。状态筛选统一走 Arc `SegmentedControl`（单选，2–5 项或后端仅接单值）或 Arc `chip-group`（多选，如作业 7 态），严禁将 `StatPillsBar` 用作跨 Tab 跳转或往搜索框写字符串的混杂控件。
 - **浮层与确认分级**：
-  - `Tooltip`：纯文本补充（图标按钮说明、截断全文、禁用原因），严禁在 `Tooltip` 内放可点击操作。
+  - `Tooltip`：仅承载简短纯文本补充（图标按钮说明、截断全文、禁用原因、单句释义），**严禁**在 `Tooltip` 内放可点击操作或可交互内容；共享底座 `components/ui/tooltip.tsx` 已默认统一 `delayDuration={500}`、`skipDelayDuration={400}`、`disableHoverableContent` 与 `TooltipContent` 的 `pointer-events-none`。同一区域有多个相邻触发器（如表格行、分段条、图例、图标工具条）时，外层统一包一层共享 `<TooltipProvider>`，**禁止**为单个 Tooltip 内嵌覆盖 `delayDuration={0}` 的独立 `TooltipProvider`（避免划过即闪或打断组内免延迟切换）。
+  - `Popover`（`@/components/ui/popover`）：多段解释、公式/阶段说明、含链接/跳转操作或触屏/键盘需稳定驻留的轻浮层一律采用点击触发的 `Popover`（内容挂 `.arc-compact` 与 `rounded-[var(--radius-popover)]`，宽度用 `w-[min(...,calc(100vw-2rem))]` 防窄屏溢出），严禁用悬停 Tooltip 模拟。
   - `AlertDialog`（`ui/alert-dialog`）：高危、不可逆、批量或跨节点/跨人影响的二次确认（如启停/重启/删除集群、批量节点操作）；必须写清受影响对象与不可逆后果，确认按钮使用**具名动作**（如「停止集群」「删除集群」），禁止泛化的「确定」；用普通 `Dialog` 承载的纯确认应改为 `AlertDialog`。
   - Arc `ConfirmMorph`：单条、不可撤回、只涉及自身且有按钮可锚定的轻量行内确认（每行最多锚定 1 个）；能撤回的操作可不确认。**全站禁止 `window.confirm`**。
   - Arc `Dialog`（`@/components/arc/dialog/dialog`）：短表单、独立配置或聚焦查看；内容节点必挂 `.arc-compact`，尺寸显式写 `w-[min(...)]!` / `max-h-[85vh]!`。
@@ -69,7 +70,10 @@
 - **空态（Arc `EmptyState`）**：
   - 统一使用 `@/components/arc/empty-state/empty-state`，必须区分「首次无数据（配功能微缩示意与创建主动作）」与「筛选无结果（配一键清空筛选）」；严禁使用虚线边框 + 一行居中灰字占位。
 - **分页规范**：分页器整合在 `TableCard` 底部 footer（`border-t bg-muted/10`），统一使用 `@/components/ui/pagination`，左总数/每页条数、右页码，**严禁**在卡片外悬浮孤立分页条，**严禁**使用「上一步 / 下一步」文案。
-- **响应式列隐藏**：CSS Grid 表格列使用 `data-*` 属性选择器配合 `@media` 隐藏窄屏列，**禁止**在行节点内联 `--cols` 样式（会覆盖 `@media` 回退导致列错位）。
+- **响应式列宽与 `table-fixed` 防溢出**：
+  - CSS Grid 表格列使用 `data-*` 属性选择器配合 `@media` 隐藏窄屏列，**禁止**在行节点内联 `--cols` 样式（会覆盖 `@media` 回退导致列错位）。
+  - 使用 `table-fixed` 的表格（含 `ui/table`）必须显式声明合理的 `min-w-*`（保障窄屏通过横向滚动承接，不压碎固定列），截断文本所在的 `<TableCell>` 必须加 `overflow-hidden`（`ui/table.tsx` 默认 `whitespace-nowrap` 且不裁剪溢出），内部弹性截断子项挂 `min-w-0 truncate`；**严禁**把多个 `shrink-0` 状态胶囊与双段截断标识挤在同一单列行内导致跨列覆盖（状态胶囊归属到对应的状态/进度列内换行展示）。同时需要限高粘顶表头与横向滚动时，使用单层 `overflow-auto` 外壳并配合 `[&>[data-slot=table-container]]:overflow-visible`，避免双层滚动容器使 `sticky` 失效。
+  - 含多 Tab 与右侧操作/分段开关的横条（如弹窗页签栏）必须启用 `flex-wrap gap-y-2`，长分段条外包 `max-w-full overflow-x-auto`，防止中窄屏或英文文案下裁切右侧控件。
 - **列表 + 常驻详情分栏（`DetailHost` + #178 克制联动）**：
   - 统一复用 `components/common/layout/DetailHost` + `common/layout/list-detail.module.css`（`.page` / `.pageViewport` / `.split` / `.listCol[data-mcols]` / `.row`）。
   - **联动外观（克制版）**：≥1080px 下 `.split` 存在 `> .rail[data-state='open']` 且本页有 `.rowActive` 时，列表自动退为底层色面板（卡片无框、行线消失、间距收 0）、选中行浮起并与详情栏 10px 凹圆角相接、其余行按距离逐级变淡（不模糊）、工具栏降透明；关闭时播完退出动画再卸载（600ms 兜底）。翻页后本页无选中行时不进入联动。
@@ -172,7 +176,9 @@
 
 - [ ] 业务页根容器挂 `.arc-compact`，未使用冲突的外层 `max-w-*` 容器；头部用 `WorkspaceHeader` 且图标与 Dock 对齐；新/改图标已列出候选并经确认。
 - [ ] 详情页、右侧详情栏与管理类弹窗均压平为单层画布 + `0.5px` 细线分隔，无嵌套 `<Card>`、无冗余阴影与虚线占位盒；原子字段有防被迫换行保护（`ScrollArea` 内截断用 `w-0 min-w-0 flex-1`）。
-- [ ] 控件与浮层语义准确：`Switch` 即时生效、表单布尔用 `Checkbox`、2–5 短选项用 `SegmentedControl`、`Select`/`Combobox`/纯图标按钮具备可见标签或 `aria-label`、同一区域控件统一（`ui/badge` 豁免）、弹层走 `--radius-popover`；同一告警只选 toast 或页面内告警一种呈现；高危确认用具名动作 `AlertDialog`（无 `window.confirm`）；编辑态离开走 `UnsavedChangesDialog` / `DirtyCloseDialog`。
+- [ ] 控件与浮层语义准确：`Switch` 即时生效、表单布尔用 `Checkbox`、2–5 短选项用 `SegmentedControl`、`Select`/`Combobox`/纯图标按钮具备可见标签或 `aria-label`、同一区域控件统一（`ui/badge` 豁免）、弹层走 `--radius-popover`；同一告警只选 toast 或页面内告警一种呈现；`Tooltip` 仅承接纯文本并遵循 500ms 悬停延迟 / 400ms 组内切换与 `pointer-events-none`（无单点 `delayDuration={0}` 覆盖），多段解释或含操作项改用点击触发 `Popover`；高危确认用具名动作 `AlertDialog`（无 `window.confirm`）；编辑态离开走 `UnsavedChangesDialog` / `DirtyCloseDialog`。
+- [ ] 响应式与防溢出：`table-fixed` 表格声明了 `min-w-*` 且截断列挂 `overflow-hidden`（无 `shrink-0` 胶囊越界压到相邻列），多 Tab / 右侧分段栏允许 `flex-wrap`，在宽/中/窄屏下均无列重叠或控件裁切。
+- [ ] **页面与复杂面板 `kubai-design-tips` 自审查（长期约束）**：每新增或大幅改版一个前端页面、弹窗或复杂面板，提交前必须执行一次 `kubai-design-tips` skill 自审查（核查浮层分工 009、悬停时机 025、选择控件 020、加载/空态 017/022、缓动连续性 011/015 及多宽度响应式表现），确认无列溢出、控件裁切或交互噪音后再提交。
 - [ ] 列表页采用单行左对齐工具栏（Arc `SearchField` 支持 Enter、无冗余「搜索」按钮）+ `TableCard`（300/500ms 骨架、刷新保留旧数据可交互只亮 `TableLoadingBar`、卡片内错条重试、区分场景的 Arc `EmptyState`、底部分页）；不新引入 `StatPillsBar`，无按当前页拼凑的假状态计数；筛选/页码同步 URL 并具竞态保护。
 - [ ] 列表 + 详情分栏复用 `DetailHost` 与 #178 联动约束；表/卡切换用 `ViewToggle` + `useViewMorph`；多选批量条用底部浮动 `BatchBar`；互斥挂载的 `SegmentedControl` 传共享 `layoutGroup`。
 - [ ] 状态标签保留原本 `@/components/ui/badge`（或既有 Arc `Badge`），兼顾浅/深色对比度。

@@ -233,6 +233,20 @@ func timeseriesPromQL(metricKey, jobID string, engineObs bool, step int) []promQ
 			{key: "rows_committed", label: "committed", unit: "rows",
 				query: fmt.Sprintf(`sum(stx_job_sink_committed_rows_total{job_id=%s})`, id)},
 		}
+	case "bytes_throughput":
+		return []promQLTemplate{
+			{key: "bytes_throughput_read", label: "read", unit: "bytes/s",
+				query: fmt.Sprintf(`sum(rate(stx_job_source_received_bytes_total{job_id=%s}[%s]))`, id, rateWindow)},
+			{key: "bytes_throughput_write", label: "write", unit: "bytes/s",
+				query: fmt.Sprintf(`sum(rate(stx_job_sink_write_bytes_total{job_id=%s}[%s]))`, id, rateWindow)},
+		}
+	case "bytes":
+		return []promQLTemplate{
+			{key: "bytes_read", label: "read", unit: "bytes",
+				query: fmt.Sprintf(`sum(stx_job_source_received_bytes_total{job_id=%s})`, id)},
+			{key: "bytes_write", label: "write", unit: "bytes",
+				query: fmt.Sprintf(`sum(stx_job_sink_write_bytes_total{job_id=%s})`, id)},
+		}
 	case "cdc_delay":
 		return []promQLTemplate{{
 			key: "cdc_delay", label: "cdc_delay", unit: "seconds",
@@ -289,7 +303,7 @@ func timeseriesPromQL(metricKey, jobID string, engineObs bool, step int) []promQ
 func parseTimeseriesMetrics(csv string) []string {
 	csv = strings.TrimSpace(csv)
 	if csv == "" {
-		return []string{"throughput", "rows", "cdc_delay", "checkpoint", "busy", "backpressure", "table"}
+		return []string{"throughput", "rows", "bytes_throughput", "bytes", "cdc_delay", "checkpoint", "busy", "backpressure", "table"}
 	}
 	parts := strings.Split(csv, ",")
 	out := make([]string, 0, len(parts))

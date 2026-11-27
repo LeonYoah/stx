@@ -18,31 +18,44 @@
 'use client';
 
 import {MetricsDialogContent} from '../StudioDialogs';
+import type {MetricUnitMode} from '../sync-studio-utils';
 import type {SyncJobInstance} from '@/lib/services/sync';
 import {MetricsTrendView} from './MetricsTrendView';
 
 export type MetricsView = 'snapshot' | 'trend';
 
 /**
- * 指标页签内容。快照 / 趋势切换放在详情页签同一行右侧，避免再叠一条分段条。
- * Metrics body. Snapshot / trend sits on the detail tab row, so it does not stack as a second strip.
+ * 指标页签内容。快照 / 趋势与行数 / 体积切换放在详情页签同一行右侧，避免再叠一条分段条。
+ * Metrics body. Snapshot / trend and rows / volume toggles sit on the detail tab row so no second strip stacks.
  */
 export function JobMetricsPanel({
   job,
   active,
   view,
+  unit = 'rows',
+  onViewChange,
 }: {
   job: SyncJobInstance | null;
   active: boolean;
   view: MetricsView;
+  unit?: MetricUnitMode;
+  onViewChange?: (view: MetricsView) => void;
 }) {
   return (
     <div className='flex h-full min-h-0 flex-col'>
       <div className='min-h-0 flex-1 overflow-auto'>
         {view === 'snapshot' ? (
-          <MetricsDialogContent job={job} />
+          <MetricsDialogContent
+            job={job}
+            unit={unit}
+            onOpenTrend={onViewChange ? () => onViewChange('trend') : undefined}
+          />
         ) : (
-          <MetricsTrendView job={job} active={active && view === 'trend'} />
+          <MetricsTrendView
+            job={job}
+            active={active && view === 'trend'}
+            unit={unit}
+          />
         )}
       </div>
     </div>

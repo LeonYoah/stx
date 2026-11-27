@@ -4334,13 +4334,114 @@ export function toStringMetricMap(value: unknown): Record<string, string> {
   );
 }
 
+export type MetricUnitMode = 'rows' | 'bytes';
+
+const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
+
+/** 将字节数拆为等宽数值与自适应单位，供 KPI 标题与图表共享。 / Split bytes into formatted number + adaptive binary unit for KPIs and charts. */
+export function formatByteParts(bytes: number): {value: string; unit: string} {
+  if (!Number.isFinite(bytes)) {
+    return {value: '-', unit: ''};
+  }
+  const sign = bytes < 0 ? '-' : '';
+  let size = Math.abs(bytes);
+  let idx = 0;
+  while (size >= 1024 && idx < BYTE_UNITS.length - 1) {
+    size /= 1024;
+    idx += 1;
+  }
+  const num = idx === 0 ? Math.round(size).toLocaleString() : size.toFixed(1);
+  return {value: `${sign}${num}`, unit: BYTE_UNITS[idx]};
+}
+
+/** 将字节速率（B/s）拆为数值与自适应单位（B/s、KB/s、MB/s）。 / Split byte rate (B/s) into formatted number + adaptive rate unit. */
+export function formatByteRateParts(bps: number): {value: string; unit: string} {
+  const parts = formatByteParts(bps);
+  if (!parts.unit) {
+    return parts;
+  }
+  return {value: parts.value, unit: `${parts.unit}/s`};
+}
+
+/** 格式化紧凑字节展示（如 14.2 KB）。 / Format bytes compactly (e.g. 14.2 KB). */
+export function formatBytesCompact(bytes: number): string {
+  const parts = formatByteParts(bytes);
+  return parts.unit ? `${parts.value} ${parts.unit}` : parts.value;
+}
+
+/** 格式化紧凑字节速率展示（如 1.2 MB/s）。 / Format byte rate compactly (e.g. 1.2 MB/s). */
+export function formatByteRateCompact(bps: number): string {
+  const parts = formatByteRateParts(bps);
+  return parts.unit ? `${parts.value} ${parts.unit}` : parts.value;
+}
+
+function sumNumericMetricMap(value: unknown): number | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  let found = false;
+  let total = 0;
+  for (const item of Object.values(value as Record<string, unknown>)) {
+    const parsed = parseMetricNumber(item);
+    if (parsed !== null) {
+      found = true;
+      total += Math.max(0, parsed);
+    }
+  }
+  return found ? total : null;
+}
+
+/**
+ * 汇总作业字节总量：优先读取全局字节指标，缺失时从表级字节映射累加兜底。
+ * Resolve job-level byte totals: prefer global byte metrics and fall back to summing per-table maps when absent.
+ */
+export function resolveMetricByteTotals(metrics: Record<string, unknown>): {
+  readBytes: number | null;
+  writeBytes: number | null;
+  committedBytes: number | null;
+  readBps: number | null;
+  writeBps: number | null;
+} {
+  const readBytes =
+    parseMetricNumber(metrics.SourceReceivedBytes) ??
+    sumNumericMetricMap(metrics.TableSourceReceivedBytes);
+  const writeBytes =
+    parseMetricNumber(metrics.SinkWriteBytes) ??
+    sumNumericMetricMap(metrics.TableSinkWriteBytes);
+  const committedBytes =
+    parseMetricNumber(metrics.SinkCommittedBytes) ??
+    sumNumericMetricMap(metrics.TableSinkCommittedBytes);
+  const readBps =
+    parseMetricNumber(metrics.SourceReceivedBytesPerSeconds) ??
+    sumNumericMetricMap(metrics.TableSourceReceivedBytesPerSeconds);
+  const writeBps =
+    parseMetricNumber(metrics.SinkWriteBytesPerSeconds) ??
+    sumNumericMetricMap(metrics.TableSinkWriteBytesPerSeconds);
+  return {readBytes, writeBytes, committedBytes, readBps, writeBps};
+}
+
+/**
+ * 判断快照是否具备可切换的字节体积指标；缺失时前端收敛隐藏「按体积」入口，避免空切。
+ * Check whether snapshot metrics contain usable byte volume data so the UI hides the volume toggle when absent.
+ */
+export function hasMetricByteData(metrics: Record<string, unknown>): boolean {
+  const totals = resolveMetricByteTotals(metrics);
+  return (
+    totals.readBytes !== null ||
+    totals.writeBytes !== null ||
+    totals.committedBytes !== null
+  );
+}
+
 export function buildPerTableMetricRows(metrics: Record<string, unknown>) {
   const sourceCount = toStringMetricMap(metrics.TableSourceReceivedCount);
   const sourceBytes = toStringMetricMap(metrics.TableSourceReceivedBytes);
   const sourceQps = toStringMetricMap(metrics.TableSourceReceivedQPS);
+  const sourceBps = toStringMetricMap(metrics.TableSourceReceivedBytesPerSeconds);
   const sinkCount = toStringMetricMap(metrics.TableSinkWriteCount);
   const sinkBytes = toStringMetricMap(metrics.TableSinkWriteBytes);
   const sinkQps = toStringMetricMap(metrics.TableSinkWriteQPS);
+  const sinkBps = toStringMetricMap(metrics.TableSinkWriteBytesPerSeconds);
   const committedCount = toStringMetricMap(metrics.TableSinkCommittedCount);
   const committedBytes = toStringMetricMap(metrics.TableSinkCommittedBytes);
 
@@ -4349,9 +4450,11 @@ export function buildPerTableMetricRows(metrics: Record<string, unknown>) {
       ...Object.keys(sourceCount),
       ...Object.keys(sourceBytes),
       ...Object.keys(sourceQps),
+      ...Object.keys(sourceBps),
       ...Object.keys(sinkCount),
       ...Object.keys(sinkBytes),
       ...Object.keys(sinkQps),
+      ...Object.keys(sinkBps),
       ...Object.keys(committedCount),
       ...Object.keys(committedBytes),
     ]),
@@ -4378,9 +4481,11 @@ export function buildPerTableMetricRows(metrics: Record<string, unknown>) {
       sourceCount: sourceCount[table] || '-',
       sourceBytes: sourceBytes[table] || '-',
       sourceQps: sourceQps[table] || '-',
+      sourceBps: sourceBps[table] || '-',
       sinkCount: sinkCount[table] || '-',
       sinkBytes: sinkBytes[table] || '-',
       sinkQps: sinkQps[table] || '-',
+      sinkBps: sinkBps[table] || '-',
       committedCount: committedCount[table] || '-',
       committedBytes: committedBytes[table] || '-',
     };
@@ -4416,7 +4521,7 @@ export function buildPairedMetricRows(metrics: Record<string, unknown>) {
       if (sourceRows.length === 1 && sinkRows.length === 1) {
         const source = sourceRows[0];
         const sink = sinkRows[0];
-        // 解析数值以计算条数差额与对等性 / Parse numbers to compute count disparity
+        // 解析数值以计算条数差额、行内占比条与字节口径指标 / Parse numbers for disparity, inline share bars, and byte mode
         const parseMetricNum = (v: string): number | null => {
           if (!v || v === '-') {return null;}
           const num = Number(v.replace(/,/g, ''));
@@ -4424,6 +4529,12 @@ export function buildPairedMetricRows(metrics: Record<string, unknown>) {
         };
         const srcNum = parseMetricNum(source.sourceCount);
         const sinkNum = parseMetricNum(sink.sinkCount);
+        const committedCountNum = parseMetricNum(sink.committedCount);
+        const sourceBytesNum = parseMetricNum(source.sourceBytes);
+        const sinkBytesNum = parseMetricNum(sink.sinkBytes);
+        const committedBytesNum = parseMetricNum(sink.committedBytes);
+        const sourceBpsNum = parseMetricNum(source.sourceBps);
+        const sinkBpsNum = parseMetricNum(sink.sinkBps);
         const countDiff =
           srcNum !== null && sinkNum !== null ? sinkNum - srcNum : null;
 
@@ -4436,12 +4547,24 @@ export function buildPairedMetricRows(metrics: Record<string, unknown>) {
           sourceCount: source.sourceCount,
           sourceBytes: source.sourceBytes,
           sourceQps: source.sourceQps,
+          sourceBps: source.sourceBps,
           sinkCount: sink.sinkCount,
           sinkBytes: sink.sinkBytes,
           sinkQps: sink.sinkQps,
+          sinkBps: sink.sinkBps,
           countDiff,
           committedCount: sink.committedCount,
           committedBytes: sink.committedBytes,
+          sourceCountNum: srcNum ?? 0,
+          sinkCountNum: sinkNum ?? 0,
+          committedCountNum: committedCountNum ?? 0,
+          hasCommittedCount: committedCountNum !== null,
+          sourceBytesNum: sourceBytesNum ?? 0,
+          sinkBytesNum: sinkBytesNum ?? 0,
+          committedBytesNum: committedBytesNum ?? 0,
+          hasCommittedBytes: committedBytesNum !== null,
+          sourceBpsNum,
+          sinkBpsNum,
         };
       }
       return null;
@@ -4491,20 +4614,36 @@ export interface MetricFlowSummary {
  */
 export function summarizeMetricFlow(
   metrics: Record<string, unknown>,
-  opts?: {failed?: boolean},
+  opts?: {failed?: boolean; unit?: MetricUnitMode},
 ): MetricFlowSummary {
+  const unit: MetricUnitMode = opts?.unit ?? 'rows';
+  const isBytes = unit === 'bytes';
+  const byteTotals = isBytes ? resolveMetricByteTotals(metrics) : null;
   const readCount = Math.max(
     0,
-    parseMetricNumber(metrics.SourceReceivedCount) ?? 0,
+    isBytes
+      ? (byteTotals?.readBytes ?? 0)
+      : (parseMetricNumber(metrics.SourceReceivedCount) ?? 0),
   );
-  const writeCount = Math.max(0, parseMetricNumber(metrics.SinkWriteCount) ?? 0);
-  const committedRaw = parseMetricNumber(metrics.SinkCommittedCount);
+  const writeCount = Math.max(
+    0,
+    isBytes
+      ? (byteTotals?.writeBytes ?? 0)
+      : (parseMetricNumber(metrics.SinkWriteCount) ?? 0),
+  );
+  const committedRaw = isBytes
+    ? (byteTotals?.committedBytes ?? null)
+    : parseMetricNumber(metrics.SinkCommittedCount);
   const hasCommitMetric = committedRaw !== null;
   // 提交量锚定写入侧：写超读时多写的行也算在已提交里，读侧不再截断。
-  // Committed rows anchor on the write side: rows written beyond the read still
-  // count as committed, so the read side does not clip them.
-  const committedCount = Math.max(0, Math.min(committedRaw ?? 0, writeCount));
-  const pendingCommitCount = Math.max(0, writeCount - committedCount);
+  // 体积口径下若连接器未上报 SinkCommittedBytes，不伪造待提交告警（分段条退化为已写入 / 待写）。
+  // Committed rows anchor on the write side so overshoot writes stay committed without being clipped by reads.
+  // In byte mode, when SinkCommittedBytes is absent, avoid fabricating a pending-commit warning (the bar degrades to written / backlog).
+  const committedCount = hasCommitMetric
+    ? Math.max(0, Math.min(committedRaw, writeCount))
+    : 0;
+  const pendingCommitCount =
+    isBytes && !hasCommitMetric ? 0 : Math.max(0, writeCount - committedCount);
   const backlogCount = Math.max(0, readCount - writeCount);
   const overWriteCount = Math.max(0, writeCount - readCount);
 
@@ -4550,12 +4689,21 @@ export function summarizeMetricFlow(
       values: {percent: Math.round((writeCount / readCount) * 100)},
     });
   } else if (countState === 'ahead') {
-    segments.push({
-      key: 'pipelineExtraWrite',
-      values: {count: formatMetricCompactValue(overWriteCount)},
-    });
+    segments.push(
+      isBytes
+        ? {
+            key: 'metricFlowExtraWriteBytes',
+            values: {value: formatBytesCompact(overWriteCount)},
+          }
+        : {
+            key: 'pipelineExtraWrite',
+            values: {count: formatMetricCompactValue(overWriteCount)},
+          },
+    );
   } else {
-    segments.push({key: 'metricFlowBalanced'});
+    segments.push({
+      key: isBytes ? 'metricFlowVolumeBalanced' : 'metricFlowBalanced',
+    });
   }
   // 写速落后独立成段：数量已追平但速率仍落后时也要提示。
   // Lagging write speed is its own segment so it still warns when counts already caught up.
@@ -4573,10 +4721,17 @@ export function summarizeMetricFlow(
   }
   if (writeCount > 0) {
     if (pendingCommitCount > 0) {
-      segments.push({
-        key: 'metricFlowPendingCommitCount',
-        values: {count: formatMetricCompactValue(pendingCommitCount)},
-      });
+      segments.push(
+        isBytes
+          ? {
+              key: 'metricFlowPendingCommitBytes',
+              values: {value: formatBytesCompact(pendingCommitCount)},
+            }
+          : {
+              key: 'metricFlowPendingCommitCount',
+              values: {count: formatMetricCompactValue(pendingCommitCount)},
+            },
+      );
     } else if (hasCommitMetric && committedCount >= writeCount) {
       segments.push({key: 'metricFlowAllCommitted'});
     }
@@ -4609,6 +4764,7 @@ export function summarizeMetricFlow(
 
 export type MetricFlowBarSegmentKey =
   | 'committed'
+  | 'written'
   | 'pendingCommit'
   | 'backlog';
 
@@ -4629,27 +4785,39 @@ export interface MetricFlowBar {
 
 /**
  * 分段条的数值：以读取量为总长，把写入拆成「已提交 / 待提交」两段、差额补「待写」段；
- * 写超读时总刻度扩到写入量。三段互斥且总和不超 1。
+ * 写超读时总刻度扩到写入量。无提交指标（如部分连接器的字节指标）时退化为「已写入 / 待写」两段。
  * Segment values for the flow bar: the read count is the full scale, written rows split into
- * committed / pending-commit, and the read-vs-write gap becomes the backlog segment; when write
- * overshoots read the scale extends to write. Segments are exclusive and their shares never exceed 1.
+ * committed / pending-commit, and the read-vs-write gap becomes backlog; when write overshoots read
+ * the scale extends to write. When commit metrics are unavailable (e.g. byte mode without committed bytes),
+ * it degrades to a two-segment written / backlog bar.
  */
 export function buildMetricFlowBar(
   readCount: number,
   writeCount: number,
   committedCount: number,
+  opts?: {hasCommitMetric?: boolean},
 ): MetricFlowBar {
   const read = Math.max(0, readCount);
   const write = Math.max(0, writeCount);
+  const backlog = Math.max(0, read - write);
+  const overWrite = Math.max(0, write - read);
+  const total = Math.max(read, write);
+  const share = (value: number) => (total > 0 ? value / total : 0);
+  if (opts?.hasCommitMetric === false) {
+    return {
+      total,
+      segments: [
+        {key: 'written', value: write, share: share(write)},
+        {key: 'backlog', value: backlog, share: share(backlog)},
+      ],
+      overWriteCount: overWrite,
+    };
+  }
   // 与 summarizeMetricFlow 同口径：提交量锚定写入侧，多写的行不进待提交。
   // Same contract as summarizeMetricFlow: committed anchors on write; overshoot
   // rows are reported separately, never as pending commit.
   const committed = Math.max(0, Math.min(committedCount, write));
   const pendingCommit = Math.max(0, write - committed);
-  const backlog = Math.max(0, read - write);
-  const overWrite = Math.max(0, write - read);
-  const total = Math.max(read, write);
-  const share = (value: number) => (total > 0 ? value / total : 0);
   return {
     total,
     segments: [
@@ -4663,6 +4831,7 @@ export function buildMetricFlowBar(
 
 export interface MetricFlowSankeyLabels {
   committed: string;
+  written?: string;
   pendingCommit: string;
   backlog: string;
   otherSources: (count: number) => string;
@@ -4703,12 +4872,12 @@ export interface MetricFlowSankey {
 
 /**
  * 按表指标 → 桑基图「源表 → 目标表 → 提交状态」三段流向：源到目标的带宽是写入量，
- * 已读未写挂到「待写」，写入再分流到「已提交 / 待提交」。链路超过 Top-N 时其余合成
- * 「其它 N 张表」一对节点；为零的分支不出节点。配对用 buildPairedMetricRows 的同一份数据。
+ * 已读未写挂到「待写」，写入再分流到「已提交 / 待提交」。支持按行数或字节体积构图；
+ * 字节口径缺失表级已提交字节时，写入侧归入「已写入」节点而非误判为待提交。
  * Per-table metrics to a "source table → sink table → commit state" Sankey: the source-to-sink
- * band is the write count, read-but-unwritten rows go to a backlog node, and writes split into
- * committed / pending-commit. Links past Top-N merge into one "other N tables" pair; zero-value
- * branches emit no node. Pairing reuses buildPairedMetricRows.
+ * band is the write amount, read-but-unwritten goes to backlog, and writes split into committed /
+ * pending-commit. Supports rows or bytes; in byte mode without per-table committed bytes, writes
+ * land on a written outcome node instead of being misreported as pending.
  */
 export function buildMetricFlowSankey(
   metrics: Record<string, unknown>,
@@ -4716,19 +4885,30 @@ export function buildMetricFlowSankey(
     labels: MetricFlowSankeyLabels;
     colors: MetricFlowSankeyColors;
     maxLinks?: number;
+    unit?: MetricUnitMode;
   },
 ): MetricFlowSankey {
   const {labels, colors} = opts;
+  const unit: MetricUnitMode = opts.unit ?? 'rows';
+  const isBytes = unit === 'bytes';
   const maxLinks = Math.max(1, Math.floor(opts.maxLinks ?? 8));
-  const numbered = buildPairedMetricRows(metrics)
+  const paired = buildPairedMetricRows(metrics);
+  const byteCommitAvailable =
+    !isBytes || paired.some((row) => row.hasCommittedBytes);
+  const numbered = paired
     .map((row) => {
-      const committedRaw = parseMetricNumber(row.committedCount) ?? 0;
-      const write = Math.max(0, parseMetricNumber(row.sinkCount) ?? 0);
+      const read = Math.max(0, isBytes ? row.sourceBytesNum : row.sourceCountNum);
+      const write = Math.max(0, isBytes ? row.sinkBytesNum : row.sinkCountNum);
+      const committedRaw = isBytes
+        ? byteCommitAvailable
+          ? row.committedBytesNum
+          : write
+        : row.committedCountNum;
       return {
         key: row.key,
         sourceTable: row.sourceTable || row.sourceNode,
         sinkTable: row.sinkTable || row.sinkNode,
-        read: Math.max(0, parseMetricNumber(row.sourceCount) ?? 0),
+        read,
         write,
         committed: Math.max(0, Math.min(committedRaw, Math.max(write, committedRaw))),
       };
@@ -4772,12 +4952,16 @@ export function buildMetricFlowSankey(
 
   const links: MetricFlowSankeyLink[] = [];
   const nodes: MetricFlowSankeyNode[] = [];
+  const outcomeId = byteCommitAvailable ? 'o:committed' : 'o:written';
+  const outcomeLabel = byteCommitAvailable
+    ? labels.committed
+    : (labels.written ?? labels.committed);
   let hasCommitted = false;
   let hasPending = false;
   let hasBacklog = false;
   for (const pair of pairs) {
     const committed = Math.min(pair.committed, pair.write);
-    const pending = Math.max(0, pair.write - committed);
+    const pending = byteCommitAvailable ? Math.max(0, pair.write - committed) : 0;
     const backlog = Math.max(0, pair.read - pair.write);
     const pairColor =
       typeof colors.table === 'function'
@@ -4788,7 +4972,7 @@ export function buildMetricFlowSankey(
       nodes.push({id: pair.sinkId, label: pair.sinkLabel, color: pairColor});
       links.push({source: pair.srcId, target: pair.sinkId, value: pair.write});
       if (committed > 0) {
-        links.push({source: pair.sinkId, target: 'o:committed', value: committed});
+        links.push({source: pair.sinkId, target: outcomeId, value: committed});
         hasCommitted = true;
       }
       if (pending > 0) {
@@ -4804,7 +4988,7 @@ export function buildMetricFlowSankey(
   // 结果节点放最后，保证列顺序是 源表 → 目标表 → 提交状态。
   // Outcome nodes go last so columns order as source tables → sink tables → commit state.
   if (hasCommitted) {
-    nodes.push({id: 'o:committed', label: labels.committed, color: colors.outcome});
+    nodes.push({id: outcomeId, label: outcomeLabel, color: colors.outcome});
   }
   if (hasPending) {
     nodes.push({id: 'o:pending', label: labels.pendingCommit, color: colors.warning});

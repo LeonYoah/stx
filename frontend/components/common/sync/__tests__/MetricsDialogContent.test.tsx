@@ -21,7 +21,16 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
 import {SyncService, type SyncJobInstance, type SyncJobTimeseries} from '@/lib/services/sync';
 import {MetricsDialogContent} from '../StudioDialogs';
+import type {MetricUnitMode} from '../sync-studio-utils';
 import {clearJobTimeseriesCache} from '../job-detail/metric-timeseries';
+
+vi.mock('@/components/charts/sankey-chart', () => ({
+  SankeyChart: ({label}: {label: string}) => (
+    <section aria-label={label} data-testid='snapshot-sankey-chart'>
+      {label}
+    </section>
+  ),
+}));
 
 vi.mock('@/lib/services/sync', async () => {
   const actual = await vi.importActual<typeof import('@/lib/services/sync')>('@/lib/services/sync');
@@ -54,10 +63,17 @@ function job(partial: Partial<SyncJobInstance> = {}): SyncJobInstance {
   } as SyncJobInstance;
 }
 
-function renderSnapshot(instance: SyncJobInstance | null) {
+function renderSnapshot(
+  instance: SyncJobInstance | null,
+  opts?: {unit?: MetricUnitMode; onOpenTrend?: () => void},
+) {
   return render(
     <NextIntlClientProvider locale='zh' messages={zh} timeZone='Asia/Shanghai'>
-      <MetricsDialogContent job={instance} />
+      <MetricsDialogContent
+        job={instance}
+        unit={opts?.unit}
+        onOpenTrend={opts?.onOpenTrend}
+      />
     </NextIntlClientProvider>,
   );
 }
@@ -213,5 +229,48 @@ describe('MetricsDialogContent', () => {
   it('keeps the empty state for jobs without metrics', () => {
     renderSnapshot(job());
     expect(screen.getByText(copy.noMetricsOutput)).toBeInTheDocument();
+  });
+
+  it('switches KPI, delivery bar, and per-table columns when unit is bytes', async () => {
+    const onOpenTrend = vi.fn();
+    renderSnapshot(
+      job({
+        status: 'running',
+        result_preview: {
+          metrics: {
+            SourceReceivedCount: 70,
+            SinkWriteCount: 70,
+            SinkCommittedCount: 62,
+            SourceReceivedBytes: 65536,
+            SinkWriteBytes: 65536,
+            SinkCommittedBytes: 49152,
+            SinkWriteBytesPerSeconds: 2048,
+            TableSourceReceivedCount: {'Source[0].db.a': 50, 'Source[1].db.b': 20},
+            TableSinkWriteCount: {'Sink[0].db.a': 50, 'Sink[1].db.b': 20},
+            TableSourceReceivedBytes: {'Source[0].db.a': 16384, 'Source[1].db.b': 49152},
+            TableSinkWriteBytes: {'Sink[0].db.a': 16384, 'Sink[1].db.b': 49152},
+            TableSinkCommittedBytes: {'Sink[0].db.a': 16384, 'Sink[1].db.b': 32768},
+          },
+        },
+      }),
+      {unit: 'bytes', onOpenTrend},
+    );
+    expect(screen.getByText(copy.metricFlowKpiReadBytes)).toBeInTheDocument();
+    expect(screen.getByText(copy.metricFlowKpiWriteBytes)).toBeInTheDocument();
+    expect(screen.getByText(copy.metricFlowKpiWriteThroughput)).toBeInTheDocument();
+    expect(screen.getByText(copy.metricFlowReadBytes)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(SyncService.getJobTimeseries).toHaveBeenCalledWith(26, {
+        range: '1h',
+        metrics: 'bytes_throughput',
+      }),
+    );
+
+    fireEvent.click(screen.getByRole('button', {name: /查看趋势/}));
+    expect(onOpenTrend).toHaveBeenCalledTimes(1);
+
+    // 多链路时可在逐表明细中就地切换至流向图。 / Multi-link jobs can switch per-table details to Sankey flow in place.
+    fireEvent.click(screen.getByRole('button', {name: copy.metricFlowDetailFlow}));
+    expect(screen.getByTestId('snapshot-sankey-chart')).toBeInTheDocument();
   });
 });

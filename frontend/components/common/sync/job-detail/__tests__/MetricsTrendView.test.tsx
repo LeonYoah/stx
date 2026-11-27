@@ -21,6 +21,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
 import {SyncService, type SyncJobInstance, type SyncJobTimeseries} from '@/lib/services/sync';
 import {MetricsTrendView} from '../MetricsTrendView';
+import type {MetricUnitMode} from '../../sync-studio-utils';
 import {LIFETIME_TAIL_MS} from '../metrics-trend-data';
 import {clearJobTimeseriesCache} from '../metric-timeseries';
 
@@ -123,10 +124,10 @@ function job(partial: Partial<SyncJobInstance> = {}): SyncJobInstance {
   } as SyncJobInstance;
 }
 
-function renderTrend(instance: SyncJobInstance | null) {
+function renderTrend(instance: SyncJobInstance | null, unit?: MetricUnitMode) {
   return render(
     <NextIntlClientProvider locale='zh' messages={zh} timeZone='Asia/Shanghai'>
-      <MetricsTrendView job={instance} active />
+      <MetricsTrendView job={instance} active unit={unit} />
     </NextIntlClientProvider>,
   );
 }
@@ -364,5 +365,39 @@ describe('MetricsTrendView', () => {
       end: PICKED.end.getTime(),
     });
     expect(screen.getByRole('button', {name: copy.rangeLifetime})).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('switches hero metrics, cumulative chart, and pipeline donut to bytes when unit is bytes', async () => {
+    const t0 = Date.UTC(2026, 10, 14, 2, 0);
+    const t1 = Date.UTC(2026, 10, 14, 2, 1);
+    vi.mocked(SyncService.getJobTimeseries).mockResolvedValue({
+      ...emptyPrometheus('1h'),
+      series: [
+        {key: 'bytes_throughput_read', label: 'read', unit: 'bytes/s', points: [[t0, 4096], [t1, 8192]]},
+        {key: 'bytes_throughput_write', label: 'write', unit: 'bytes/s', points: [[t0, 2048], [t1, 4096]]},
+        {key: 'bytes_read', label: 'read', unit: 'bytes', points: [[t1, 65536]]},
+        {key: 'bytes_write', label: 'write', unit: 'bytes', points: [[t1, 49152]]},
+      ],
+    } as SyncJobTimeseries);
+
+    renderTrend(
+      job({
+        result_preview: {
+          metrics: {
+            SourceReceivedBytesPerSeconds: 4096,
+            SinkWriteBytesPerSeconds: 2048,
+          },
+        },
+      }),
+      'bytes',
+    );
+
+    await waitFor(() => {
+      const labels = screen.getAllByRole('region').map((node) => node.getAttribute('aria-label'));
+      expect(labels).toContain(copy.charts.volume);
+      expect(labels).toContain(copy.pipeline.volumeLabel);
+    });
+    expect(screen.getByText(copy.hero.readBps)).toBeInTheDocument();
+    expect(screen.getByText(copy.hero.writeBps)).toBeInTheDocument();
   });
 });

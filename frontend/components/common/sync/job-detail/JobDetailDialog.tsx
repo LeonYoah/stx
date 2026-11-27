@@ -49,7 +49,10 @@ import {
   getRealtimeEntry,
   getRunModeLabel,
   getSyncJobClusterId,
+  hasMetricByteData,
   submitSpecExecutionMode,
+  toObject,
+  type MetricUnitMode,
 } from '../sync-studio-utils';
 import {normalizeJobDag} from './dag-model';
 import type {JobDetailTab} from './types';
@@ -151,9 +154,16 @@ export function JobDetailDialog({
   const tStudio = useTranslations('workbenchStudio');
   const [errorExpanded, setErrorExpanded] = useState(false);
   const [metricsView, setMetricsView] = useState<'snapshot' | 'trend'>('snapshot');
+  const [metricsUnit, setMetricsUnit] = useState<MetricUnitMode>('rows');
 
   const jobDag = job?.result_preview?.job_dag;
   const envOptions = useMemo(() => normalizeJobDag(jobDag).envOptions, [jobDag]);
+  const rawMetrics = job?.result_preview?.metrics;
+  const canSwitchMetricsUnit = useMemo(
+    () => hasMetricByteData(toObject(rawMetrics)),
+    [rawMetrics],
+  );
+  const effectiveMetricsUnit: MetricUnitMode = canSwitchMetricsUnit ? metricsUnit : 'rows';
 
   if (!job) {
     return null;
@@ -292,6 +302,17 @@ export function JobDetailDialog({
           </div>
           {tab === 'metrics' ? (
             <div className='ml-auto flex shrink-0 items-center gap-1.5'>
+              {canSwitchMetricsUnit ? (
+                <SegmentedControl
+                  label={tMetrics('unitMode')}
+                  value={effectiveMetricsUnit}
+                  onValueChange={(value) => setMetricsUnit(value as MetricUnitMode)}
+                  options={[
+                    {value: 'rows', label: tMetrics('unitRows')},
+                    {value: 'bytes', label: tMetrics('unitBytes')},
+                  ]}
+                />
+              ) : null}
               <SegmentedControl
                 label={t('tabs.metrics')}
                 value={metricsView}
@@ -325,7 +346,15 @@ export function JobDetailDialog({
               )}
             </TabsContent>
             <TabsContent value='metrics' className='mt-0! flex h-full min-h-0 flex-col overflow-hidden'>
-              {tab === 'metrics' ? <JobMetricsPanel job={job} active={tab === 'metrics'} view={metricsView} /> : null}
+              {tab === 'metrics' ? (
+                <JobMetricsPanel
+                  job={job}
+                  active={tab === 'metrics'}
+                  view={metricsView}
+                  unit={effectiveMetricsUnit}
+                  onViewChange={setMetricsView}
+                />
+              ) : null}
             </TabsContent>
             <TabsContent value='checkpoint' className='mt-0! h-full min-h-0 overflow-auto'>
               {tab === 'checkpoint' ? checkpointSlot : null}

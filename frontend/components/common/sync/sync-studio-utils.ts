@@ -45,7 +45,12 @@ import type {CustomVariableItem} from './CustomVariableDialog';
 import type {TaskScheduleValue} from './TaskScheduleSidebarPanel';
 import {formatDateTimeTz} from '@/lib/timezone';
 import {isReservedBuiltinVariableKey} from './builtin-time-variables';
-import type {MetricTableAlignment, MetricTableEndpointAlignment} from './metric-table-alignment';
+import {
+  buildMetricTableAlignment,
+  extractAlignmentVerticesFromJobDag,
+  type MetricTableAlignment,
+  type MetricTableEndpointAlignment,
+} from './metric-table-alignment';
 
 // ==========================================
 // 状态与类型定义
@@ -3841,9 +3846,16 @@ export function extractJobMetricSummary(job: SyncJobInstance): {
     ...Object.keys(tableSinkCountMap),
     ...Object.keys(tableSinkCommittedMap),
   ]);
-  // 多表以逻辑表为准，避免 Source[0].t / Sink[0].t 被计成 2 张表。
-  // Multi-table uses logical tables so Source[0].t / Sink[0].t count as one.
-  const tableCount = countLogicalTables(uniqueMetricKeys);
+  // 单链路命中对齐时将别名/兜底 key 收敛为 1 张逻辑表，避免误标为多表作业。
+  // Collapse single-link alias/fallback keys to 1 logical table so single-link jobs are not misclassified as multi-table.
+  const alignment = buildMetricTableAlignment(
+    extractAlignmentVerticesFromJobDag(job.result_preview?.job_dag),
+    metrics,
+  );
+  const tableCount =
+    alignment.source && alignment.sink && uniqueMetricKeys.size > 0
+      ? 1
+      : countLogicalTables(uniqueMetricKeys);
 
   // 当全局读指标为空但存在表级指标时，汇总表级读取行数
   // When global read metrics are absent but table-level metrics exist, aggregate table read counts
@@ -4387,6 +4399,30 @@ function metricNodeLabelFromKey(metricKey: string, inferredTone: 'source' | 'sin
   return 'Table';
 }
 
+function raiseMetricFloor(tableDisplay: string, jobRaw: unknown): string {
+  const jobNum = parseMetricNumber(jobRaw);
+  if (jobNum === null) {
+    return tableDisplay;
+  }
+  const tableNum = tableDisplay === '-' ? null : parseMetricNumber(tableDisplay);
+  if (tableNum === null || jobNum > tableNum) {
+    return formatMetricDisplayValue(jobNum);
+  }
+  return tableDisplay;
+}
+
+const PREFIXED_METRIC_ROW_KEY = /^(Source|Sink)\[\d+\]\./i;
+
+function pickPreferredPairingRows(rows: PerTableMetricRow[]): PerTableMetricRow[] {
+  if (rows.length <= 1) {
+    return rows;
+  }
+  // 非单链路多表场景下若混入同表名的无前缀残留 key，优先保留带 Source[n]./Sink[n]. 前缀的正式行，避免原有配对消失。
+  // In non-single-link multi-table jobs, prefer prefixed Source[n]./Sink[n]. rows if a stray unprefixed key collides on the same leaf name.
+  const prefixed = rows.filter((row) => PREFIXED_METRIC_ROW_KEY.test(row.rawTable));
+  return prefixed.length === 1 ? prefixed : rows;
+}
+
 export function buildPerTableMetricRows(
   metrics: Record<string, unknown>,
   alignment: MetricTableAlignment = {},
@@ -4412,21 +4448,25 @@ export function buildPerTableMetricRows(
     sinkKeys: Set<string>;
   }
   const groups = new Map<string, KeyGroup>();
+  const ensureGroup = (id: string, endpoint?: MetricTableEndpointAlignment): KeyGroup => {
+    let group = groups.get(id);
+    if (!group) {
+      group = {
+        id,
+        endpoint,
+        rawKeys: new Set<string>(),
+        sourceKeys: new Set<string>(),
+        sinkKeys: new Set<string>(),
+      };
+      groups.set(id, group);
+    }
+    return group;
+  };
   const addKeys = (metricMap: unknown, side: 'source' | 'sink') => {
     for (const key of Object.keys(toObject(metricMap))) {
       const endpoint = side === 'source' ? alignment.source : alignment.sink;
       const id = endpoint ? `aligned-${side}` : key;
-      let group = groups.get(id);
-      if (!group) {
-        group = {
-          id,
-          endpoint,
-          rawKeys: new Set<string>(),
-          sourceKeys: new Set<string>(),
-          sinkKeys: new Set<string>(),
-        };
-        groups.set(id, group);
-      }
+      const group = ensureGroup(id, endpoint);
       group.rawKeys.add(key);
       if (side === 'source') {
         group.sourceKeys.add(key);
@@ -4437,6 +4477,22 @@ export function buildPerTableMetricRows(
   };
   sourceMetricMaps.forEach((metricMap) => addKeys(metricMap, 'source'));
   sinkMetricMaps.forEach((metricMap) => addKeys(metricMap, 'sink'));
+
+  // 单链路作业若已存在表级指标但某侧表级映射被引擎丢弃（如 SQL/JsonPath 后仅保留作业级计数），补齐该侧分组以便正常配对与展示。
+  // On single-link jobs that emit table metrics, ensure both aligned endpoints exist when one side's Table* map was dropped while job-level totals are present.
+  const isSingleLink = Boolean(alignment.source && alignment.sink);
+  if (isSingleLink && groups.size > 0) {
+    if (alignment.source && parseMetricNumber(metrics.SourceReceivedCount) !== null) {
+      ensureGroup('aligned-source', alignment.source);
+    }
+    if (
+      alignment.sink &&
+      (parseMetricNumber(metrics.SinkWriteCount) !== null ||
+        parseMetricNumber(metrics.SinkCommittedCount) !== null)
+    ) {
+      ensureGroup('aligned-sink', alignment.sink);
+    }
+  }
 
   return Array.from(groups.values())
     .sort((left, right) => left.id.localeCompare(right.id))
@@ -4455,20 +4511,53 @@ export function buildPerTableMetricRows(
               ? 'sink'
               : 'neutral';
       const tablePath = group.endpoint?.tablePath || extractMetricTablePath(rawTable) || rawTable;
+      let sourceCount = aggregateMetricValues(metrics.TableSourceReceivedCount, group.sourceKeys);
+      let sourceBytes = aggregateMetricValues(metrics.TableSourceReceivedBytes, group.sourceKeys);
+      let sourceQps = aggregateMetricValues(metrics.TableSourceReceivedQPS, group.sourceKeys);
+      let sinkCount = aggregateMetricValues(metrics.TableSinkWriteCount, group.sinkKeys);
+      let sinkBytes = aggregateMetricValues(metrics.TableSinkWriteBytes, group.sinkKeys);
+      let sinkQps = aggregateMetricValues(metrics.TableSinkWriteQPS, group.sinkKeys);
+      let committedCount = aggregateMetricValues(metrics.TableSinkCommittedCount, group.sinkKeys);
+      let committedBytes = aggregateMetricValues(metrics.TableSinkCommittedBytes, group.sinkKeys);
+
+      // 与 dag-model.ts 口径一致：单链路对齐命中时，若表级计数为 0 或低于作业级总量，用作业级指标抬高下限。
+      // Align with dag-model.ts: when single-link alignment is active, raise zero or lower table-level counters to job-level totals.
+      if (isSingleLink && group.endpoint?.type === 'source') {
+        const nextCount = raiseMetricFloor(sourceCount, metrics.SourceReceivedCount);
+        if (nextCount !== sourceCount) {
+          sourceCount = nextCount;
+          sourceBytes = raiseMetricFloor(sourceBytes, metrics.SourceReceivedBytes);
+          sourceQps = raiseMetricFloor(sourceQps, metrics.SourceReceivedQPS);
+        }
+      } else if (isSingleLink && group.endpoint?.type === 'sink') {
+        const jobWrite =
+          parseMetricNumber(metrics.SinkWriteCount) !== null
+            ? metrics.SinkWriteCount
+            : metrics.SinkCommittedCount;
+        const nextCount = raiseMetricFloor(sinkCount, jobWrite);
+        if (nextCount !== sinkCount) {
+          sinkCount = nextCount;
+          sinkBytes = raiseMetricFloor(sinkBytes, metrics.SinkWriteBytes);
+          sinkQps = raiseMetricFloor(sinkQps, metrics.SinkWriteQPS);
+        }
+        committedCount = raiseMetricFloor(committedCount, metrics.SinkCommittedCount);
+        committedBytes = raiseMetricFloor(committedBytes, metrics.SinkCommittedBytes);
+      }
+
       return {
         rawTable,
         rawTables: Array.from(group.rawKeys).sort(),
         nodeLabel: group.endpoint?.nodeLabel || metricNodeLabelFromKey(rawTable, rowTone),
         rowTone,
         tablePath,
-        sourceCount: aggregateMetricValues(metrics.TableSourceReceivedCount, group.sourceKeys),
-        sourceBytes: aggregateMetricValues(metrics.TableSourceReceivedBytes, group.sourceKeys),
-        sourceQps: aggregateMetricValues(metrics.TableSourceReceivedQPS, group.sourceKeys),
-        sinkCount: aggregateMetricValues(metrics.TableSinkWriteCount, group.sinkKeys),
-        sinkBytes: aggregateMetricValues(metrics.TableSinkWriteBytes, group.sinkKeys),
-        sinkQps: aggregateMetricValues(metrics.TableSinkWriteQPS, group.sinkKeys),
-        committedCount: aggregateMetricValues(metrics.TableSinkCommittedCount, group.sinkKeys),
-        committedBytes: aggregateMetricValues(metrics.TableSinkCommittedBytes, group.sinkKeys),
+        sourceCount,
+        sourceBytes,
+        sourceQps,
+        sinkCount,
+        sinkBytes,
+        sinkQps,
+        committedCount,
+        committedBytes,
       };
     });
 }
@@ -4539,8 +4628,8 @@ export function buildPairedMetricRows(
   ).sort();
   return keys
     .map((key) => {
-      const sourceRows = sourceBuckets.get(key) || [];
-      const sinkRows = sinkBuckets.get(key) || [];
+      const sourceRows = pickPreferredPairingRows(sourceBuckets.get(key) || []);
+      const sinkRows = pickPreferredPairingRows(sinkBuckets.get(key) || []);
       if (sourceRows.length === 1 && sinkRows.length === 1) {
         return buildPairedMetricRow(key, sourceRows[0], sinkRows[0]);
       }

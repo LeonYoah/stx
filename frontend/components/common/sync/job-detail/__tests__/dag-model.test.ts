@@ -289,6 +289,41 @@ describe('buildMetricIndex', () => {
     expect(index.tables.get('Sink[0]')?.has('db.t2')).toBe(false);
   });
 
+  it('does not overwrite a lone reported table when vertex tablePaths are omitted', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [{vertexId: 1, type: 'sink', vertexName: 'pipeline-1 [Sink[0]-MultiTableSink]', tablePaths: []}],
+    });
+    const index = buildMetricIndex(
+      {
+        SinkWriteCount: '300',
+        TableSinkWriteCount: {'Sink[0].db.t1': '100'},
+      },
+      graph.vertices,
+    );
+    expect(index.vertices.get('Sink[0]')?.writeCount).toBe(300);
+    expect(index.tables.get('Sink[0]')?.get('db.t1')?.writeCount).toBe(100);
+  });
+
+  it('keeps dynamic multi-table metrics separate even if static DAG lists one tablePath', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [
+        {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-MySQL-CDC]', tablePaths: ['db.orders_1']},
+        {vertexId: 2, type: 'sink', vertexName: 'pipeline-1 [Sink[0]-Iceberg]', tablePaths: ['ods.orders_1']},
+      ],
+    });
+    const index = buildMetricIndex(
+      {
+        TableSourceReceivedCount: {'Source[0].db.orders_1': '100', 'Source[0].db.orders_2': '200'},
+        TableSinkWriteCount: {'Sink[0].ods.orders_1': '100', 'Sink[0].ods.orders_2': '200'},
+      },
+      graph.vertices,
+    );
+    expect(index.tables.get('Source[0]')?.get('db.orders_1')?.readCount).toBe(100);
+    expect(index.tables.get('Source[0]')?.get('db.orders_2')?.readCount).toBe(200);
+    expect(index.tables.get('Sink[0]')?.get('ods.orders_1')?.writeCount).toBe(100);
+    expect(index.tables.get('Sink[0]')?.get('ods.orders_2')?.writeCount).toBe(200);
+  });
+
   it('does not assign job-level totals when several vertices of the same type exist', () => {
     const graph = normalizeJobDag({
       vertexInfoMap: [

@@ -519,8 +519,12 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
     group.items.filter((item) => isZeroMetricValue(item.value)),
   );
   const metricAlignment = useMemo(
-    () => buildMetricTableAlignment(normalizeJobDag(job?.result_preview?.job_dag).vertices),
-    [job?.result_preview?.job_dag],
+    () =>
+      buildMetricTableAlignment(
+        normalizeJobDag(job?.result_preview?.job_dag).vertices,
+        job?.result_preview?.metrics,
+      ),
+    [job?.result_preview?.job_dag, job?.result_preview?.metrics],
   );
   const perTableRows = useMemo(
     () => buildPerTableMetricRows(rawMetrics, metricAlignment),
@@ -819,9 +823,11 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
                                   ? ` · ${t('metricCountDiff')}: ${row.countDiff.toLocaleString()}`
                                   : ''}
                               </div>
-                              <div className='font-mono break-all'>
-                                {t('metricFlowRawKeys')}: {[...row.sourceRawTables, ...row.sinkRawTables].join(', ')}
-                              </div>
+                              {row.sourceRawTables.length > 0 || row.sinkRawTables.length > 0 ? (
+                                <div className='font-mono break-all'>
+                                  {t('metricFlowRawKeys')}: {Array.from(new Set([...row.sourceRawTables, ...row.sinkRawTables])).join(', ')}
+                                </div>
+                              ) : null}
                             </div>
                           </TooltipContent>
                         </Tooltip>
@@ -916,9 +922,11 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
                                   <div>
                                     {t('metricFlowCommitted')}: {row.committedCount} ({row.committedBytes})
                                   </div>
-                                  <div className='font-mono break-all'>
-                                    {t('metricFlowRawKeys')}: {row.rawTables.join(', ')}
-                                  </div>
+                                  {row.rawTables.length > 0 ? (
+                                    <div className='font-mono break-all'>
+                                      {t('metricFlowRawKeys')}: {row.rawTables.join(', ')}
+                                    </div>
+                                  ) : null}
                                 </div>
                               </TooltipContent>
                             </Tooltip>

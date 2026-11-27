@@ -680,6 +680,64 @@ func TestBuildJobLiveMetricsParity(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("单链路别名与兜底 key 在列表摘要中收敛为 1 张表", func(t *testing.T) {
+		job := &JobInstance{
+			Status: JobStatusRunning,
+			ResultPreview: map[string]interface{}{
+				"job_dag": map[string]interface{}{
+					"vertexInfoMap": []interface{}{
+						map[string]interface{}{"vertexId": 1, "type": "source", "tablePaths": []interface{}{"wcan-common-tbox1-r1p24"}},
+						map[string]interface{}{"vertexId": 2, "type": "sink", "tablePaths": []interface{}{"ah1110.ods_wcan_common_tbox1_json"}},
+					},
+				},
+				"metrics": map[string]interface{}{
+					"SourceReceivedCount": float64(233132),
+					"SinkWriteCount":      float64(233132),
+					"TableSourceReceivedCount": map[string]interface{}{
+						"Source[0].wcan-common-tbox1-r1p24":  float64(0),
+						"Optional[wcan-common-tbox1-r1p24]":  float64(233132),
+					},
+					"TableSinkWriteCount": map[string]interface{}{
+						"Sink[0].ah1110.ods_wcan_common_tbox1_json": float64(0),
+						"default.default.default":                   float64(233132),
+					},
+				},
+			},
+		}
+		got := buildJobLiveMetrics(job)
+		if got == nil || got.TableCount == nil || *got.TableCount != 1 {
+			t.Fatalf("single-link aliased job should report TableCount=1, got %+v", got)
+		}
+	})
+
+	t.Run("动态多表作业即使静态 DAG 仅列 1 张表仍按实际多表计数", func(t *testing.T) {
+		job := &JobInstance{
+			Status: JobStatusRunning,
+			ResultPreview: map[string]interface{}{
+				"job_dag": map[string]interface{}{
+					"vertexInfoMap": []interface{}{
+						map[string]interface{}{"vertexId": 1, "type": "source", "tablePaths": []interface{}{"db.orders_1"}},
+						map[string]interface{}{"vertexId": 2, "type": "sink", "tablePaths": []interface{}{"ods.orders_1"}},
+					},
+				},
+				"metrics": map[string]interface{}{
+					"TableSourceReceivedCount": map[string]interface{}{
+						"Source[0].db.orders_1": float64(100),
+						"Source[0].db.orders_2": float64(200),
+					},
+					"TableSinkWriteCount": map[string]interface{}{
+						"Sink[0].ods.orders_1": float64(100),
+						"Sink[0].ods.orders_2": float64(200),
+					},
+				},
+			},
+		}
+		got := buildJobLiveMetrics(job)
+		if got == nil || got.TableCount == nil || *got.TableCount != 2 {
+			t.Fatalf("dynamic multi-table job should report TableCount=2, got %+v", got)
+		}
+	})
 }
 
 // TestListJobsActiveWindowFilter 覆盖「窗口内活跃」重叠语义：窗口内运行过的作业命中，

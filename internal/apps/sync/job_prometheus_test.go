@@ -171,10 +171,85 @@ func TestJobPrometheusExporter_alignsSingleLinkTableAliases(t *testing.T) {
 	if values["write|ah1110.ods_wcan_common_tbox1_json"] != 233132 {
 		t.Fatalf("aligned sink series mismatch: %#v", values)
 	}
+	if _, phantom := values["write|wcan-common-tbox1-r1p24"]; phantom {
+		t.Fatalf("source-only table must not emit phantom write counter: %#v", values)
+	}
+	if _, phantom := values["read|ah1110.ods_wcan_common_tbox1_json"]; phantom {
+		t.Fatalf("sink-only table must not emit phantom read counter: %#v", values)
+	}
 	for key := range values {
 		if strings.Contains(key, "Optional[") || strings.Contains(key, "default.default.default") {
 			t.Fatalf("raw alias series should not be exported after alignment: %#v", values)
 		}
+	}
+}
+
+func TestJobPrometheusExporter_doesNotAlignDynamicMultiTableMetrics(t *testing.T) {
+	originalEnabled := config.Config.Observability.Enabled
+	t.Cleanup(func() { config.Config.Observability.Enabled = originalEnabled })
+	config.Config.Observability.Enabled = true
+	exp := newJobPrometheusExporter()
+	job := &JobInstance{
+		ID:         81,
+		TaskID:     8,
+		Status:     JobStatusRunning,
+		SubmitSpec: JSONMap{"cluster_id": float64(3)},
+		ResultPreview: JSONMap{"job_dag": map[string]any{
+			"vertexInfoMap": []any{
+				map[string]any{"vertexId": 1, "type": "source", "tablePaths": []any{"db.orders_1"}},
+				map[string]any{"vertexId": 2, "type": "sink", "tablePaths": []any{"ods.orders_1"}},
+			},
+		}},
+	}
+	exp.observeJobMetrics(job, map[string]interface{}{
+		"TableSourceReceivedCount": map[string]interface{}{
+			"Source[0].db.orders_1": float64(100),
+			"Source[0].db.orders_2": float64(200),
+		},
+		"TableSinkWriteCount": map[string]interface{}{
+			"Sink[0].ods.orders_1": float64(100),
+			"Sink[0].ods.orders_2": float64(200),
+		},
+	})
+	values := gatherTableRowSeries(t, exp, "81")
+	if values["read|Source[0].db.orders_1"] != 100 || values["read|Source[0].db.orders_2"] != 200 {
+		t.Fatalf("dynamic multi-table source series must remain separate: %#v", values)
+	}
+	if values["write|Sink[0].ods.orders_1"] != 100 || values["write|Sink[0].ods.orders_2"] != 200 {
+		t.Fatalf("dynamic multi-table sink series must remain separate: %#v", values)
+	}
+}
+
+func TestJobPrometheusExporter_singleLinkJobTotalFallback(t *testing.T) {
+	originalEnabled := config.Config.Observability.Enabled
+	t.Cleanup(func() { config.Config.Observability.Enabled = originalEnabled })
+	config.Config.Observability.Enabled = true
+	exp := newJobPrometheusExporter()
+	job := &JobInstance{
+		ID:         82,
+		TaskID:     8,
+		Status:     JobStatusRunning,
+		SubmitSpec: JSONMap{"cluster_id": float64(3)},
+		ResultPreview: JSONMap{"job_dag": map[string]any{
+			"vertexInfoMap": []any{
+				map[string]any{"vertexId": 1, "type": "source", "tablePaths": []any{"topic-a"}},
+				map[string]any{"vertexId": 2, "type": "sink", "tablePaths": []any{"db.target"}},
+			},
+		}},
+	}
+	exp.observeJobMetrics(job, map[string]interface{}{
+		"SourceReceivedCount": float64(300),
+		"SinkWriteCount":      float64(300),
+		"TableSourceReceivedCount": map[string]interface{}{
+			"Source[0].topic-a": float64(0),
+		},
+		"TableSinkWriteCount": map[string]interface{}{
+			"Sink[0].db.target": float64(0),
+		},
+	})
+	values := gatherTableRowSeries(t, exp, "82")
+	if values["read|topic-a"] != 300 || values["write|db.target"] != 300 {
+		t.Fatalf("single-link job totals should raise zero per-table counters: %#v", values)
 	}
 }
 

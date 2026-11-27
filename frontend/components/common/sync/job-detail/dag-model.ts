@@ -305,7 +305,7 @@ export function buildMetricIndex(metrics: unknown, vertices: DagVertex[] = []): 
   const root = toObject(metrics);
   const tables = new Map<string, Map<string, TableStats>>();
   const totals = new Map<string, TableStats>();
-  const alignment = buildMetricTableAlignment(vertices);
+  const alignment = buildMetricTableAlignment(vertices, root);
   for (const [metricKey, field] of TABLE_METRIC_FIELDS) {
     const endpoint = metricKey.startsWith('TableSource') ? alignment.source : alignment.sink;
     for (const [rawKey, rawValue] of Object.entries(toObject(root[metricKey]))) {
@@ -369,10 +369,10 @@ export function buildMetricIndex(metrics: unknown, vertices: DagVertex[] = []): 
     const countField = type === 'source' ? 'readCount' : 'writeCount';
     if ((fallback[countField] ?? 0) > (existing[countField] ?? 0)) {
       totals.set(prefix, {...existing, ...fallback});
-      // 多表节点即使仅上报了一张表的指标，也不得把作业总量覆盖到该单表上。
-      // Never overwrite a single reported table with job-level totals on a multi-table vertex.
+      // 仅当 DAG 明确声明该节点为单表时才用作业总量覆盖表行；多表或未声明 tablePaths 的节点只更新节点总计。
+      // Only overwrite a table row with job totals when the DAG explicitly declares a single tablePath; multi-table or unknown-table vertices update vertex totals only.
       const byTable = tables.get(prefix);
-      if (ofType[0].tablePaths.length <= 1 && byTable?.size === 1) {
+      if (ofType[0].tablePaths.length === 1 && byTable?.size === 1) {
         const [table, tableStats] = [...byTable.entries()][0];
         if ((fallback[countField] ?? 0) > (tableStats[countField] ?? 0)) {
           byTable.set(table, {...tableStats, ...fallback});

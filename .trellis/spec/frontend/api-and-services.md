@@ -130,9 +130,9 @@ services.sync.getJobPlanDag(jobId)                                   // GET /syn
 - **数据合并**（`dag-model.ts`）：拓扑以运行时 `result_preview.job_dag` 为准；计划 DAG（`webui_job.jobDag`）按 `vertexId + type`
   → `type + tablePaths 集合` → `type + 指标前缀` 依次匹配补表结构，匹配不上标 `planMatched=false`。指标按 `Source[0].<表>` 前缀一次索引；
   单 Source/Sink 节点场景下，如果表级计数缺失、为 0 或低于作业级聚合计数（引擎在 SQL/JsonPath 等 transform 后可能丢失 tableId），节点汇总与唯一表行必须用作业级指标兜底；同类型多节点不能把全局指标错挂到任一节点。
-  当运行时 DAG 恰好只有 1 个 Source 与 1 个 Sink、且各自只有 1 个非 `default.default.default` 逻辑表时，`Table*` 指标 key 不按相似表名猜测，
-  而是按端点归并到 DAG 表名；`Optional[...]`、未带 `Source[n]./Sink[n].` 前缀的 key、`default.default.default` 兜底 key 都只能在满足这个唯一映射时对齐。
-  不满足唯一映射、端点多表或表名为 default 时保留原始 key。拓扑、指标页逐表链路与 Sankey 使用同一份对齐结果；指标页悬停必须保留原始 key 便于排查。
+  当运行时 DAG 恰好只有 1 个 Source 与 1 个 Sink、且各自只有 1 个具体（非 `default.default.default`、不含模板/通配符）逻辑表，且指标任一侧未上报 ≥2 张不同真实表时，`Table*` 指标 key 不按相似表名猜测，
+  而是按端点归并到 DAG 表名（并允许在表级计数为 0 或低于作业级总量时补齐下限、摘要 `tableCount` 同步收敛为 1）；`Optional[...]`、未带 `Source[n]./Sink[n].` 前缀的 key、`default.default.default` 兜底 key 都只能在满足这个唯一映射时对齐。
+  不满足唯一映射、动态多表指标、端点多表或表名为 default 时保留原始 key，且非单链路配对优先采用带前缀正式行避免被同表无前缀残留 key 打断。拓扑、指标页逐表链路与 Sankey 使用同一份对齐结果；指标页悬停必须保留去重后的原始 key 便于排查。
 - **实时叠加**：节点忙碌度取 `latestVertexBusy`；连线背压按 `target_vertex_id` 取最新 `bpRatio`；节点“被反压” = 出边背压最大值。
   节点配色照 Flink：默认 `#1890ff`，按忙碌度向 `#ee2222` 混合，再按被反压向 `#888888` 混合（`nodeColors`）。连线只标背压 %（引擎没有按边的吞吐）。
 - **布局与性能**：`dag-layout.ts` 用 dagre，参数照 Flink（`LR` / `network-simplex` / `DL` / `ranksep 150` / `edgesep 150`），节点固定

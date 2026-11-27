@@ -21,8 +21,10 @@ import {
   buildMetricFlowSankey,
   buildPairedMetricRows,
   buildPerTableMetricRows,
+  extractJobMetricSummary,
   summarizeMetricFlow,
 } from '../sync-studio-utils';
+import type {SyncJobInstance} from '@/lib/services/sync';
 import {buildMetricTableAlignment} from '../metric-table-alignment';
 
 const flowMetrics = (over: Record<string, unknown> = {}) => ({
@@ -301,6 +303,87 @@ describe('metric table alignment', () => {
       alignment,
     );
     expect(rows[0].rawTable).toBe('Optional[topic-a]');
+  });
+
+  it('disables single-link alignment when metrics report dynamic multi-table keys or template DAG paths', () => {
+    const dynamicMetrics = {
+      TableSourceReceivedCount: {
+        'Source[0].db.orders_1': '100',
+        'Source[0].db.orders_2': '200',
+      },
+      TableSinkWriteCount: {
+        'Sink[0].ods.orders_1': '100',
+        'Sink[0].ods.orders_2': '200',
+      },
+    };
+    const alignment = buildMetricTableAlignment(
+      [
+        {type: 'source', metricPrefix: 'Source[0]', tablePaths: ['db.orders_1']},
+        {type: 'sink', metricPrefix: 'Sink[0]', tablePaths: ['ods.orders_1']},
+      ],
+      dynamicMetrics,
+    );
+    expect(alignment.source).toBeUndefined();
+    expect(alignment.sink).toBeUndefined();
+    const paired = buildPairedMetricRows(dynamicMetrics, alignment);
+    expect(paired).toHaveLength(2);
+
+    const templateAlignment = buildMetricTableAlignment([
+      {type: 'source', metricPrefix: 'Source[0]', tablePaths: ['orders_.*']},
+      {type: 'sink', metricPrefix: 'Sink[0]', tablePaths: ['ods.${table_name}']},
+    ]);
+    expect(templateAlignment.source).toBeUndefined();
+    expect(templateAlignment.sink).toBeUndefined();
+  });
+
+  it('preserves prefixed multi-table pairing when a stray unprefixed key shares the same leaf name', () => {
+    const paired = buildPairedMetricRows({
+      TableSourceReceivedCount: {
+        'Source[0].db.orders': '100',
+        'Source[0].db.users': '200',
+      },
+      TableSinkWriteCount: {
+        'Sink[0].ods.orders': '100',
+        'Sink[0].ods.users': '200',
+        'ods.orders': '0',
+      },
+    });
+    expect(paired).toHaveLength(2);
+    expect(paired.map((row) => row.key)).toEqual(['orders', 'users']);
+  });
+
+  it('raises zero per-table counters to job-level totals on an unambiguous single-link job', () => {
+    const metrics = {
+      SourceReceivedCount: '300',
+      SinkWriteCount: '300',
+      SinkCommittedCount: '300',
+      TableSourceReceivedCount: {'Source[0].wcan-common-tbox1-r1p24': '0'},
+      TableSinkWriteCount: {'Sink[0].ah1110.ods_wcan_common_tbox1_json': '0'},
+    };
+    const alignment = buildMetricTableAlignment(singleLinkVertices, metrics);
+    const paired = buildPairedMetricRows(metrics, alignment);
+    expect(paired).toHaveLength(1);
+    expect(paired[0]).toMatchObject({
+      sourceCount: '300',
+      sinkCount: '300',
+      committedCount: '300',
+    });
+  });
+
+  it('counts an aligned single-link aliased job as 1 logical table in extractJobMetricSummary', () => {
+    const summary = extractJobMetricSummary({
+      result_preview: {
+        job_dag: {
+          vertexInfoMap: [
+            {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-Kafka]', tablePaths: ['wcan-common-tbox1-r1p24']},
+            {vertexId: 2, type: 'sink', vertexName: 'pipeline-1 [Sink[0]-ClickHouse]', tablePaths: ['ah1110.ods_wcan_common_tbox1_json']},
+          ],
+        },
+        metrics: aliasedMetrics,
+      },
+    } as unknown as SyncJobInstance);
+    expect(summary.tableCount).toBe(1);
+    expect(summary.isMultiTable).toBe(false);
   });
 });
 

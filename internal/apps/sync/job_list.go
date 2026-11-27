@@ -410,7 +410,13 @@ func buildJobLiveMetrics(job *JobInstance) *JobLiveMetrics {
 	if live.WriteTotal == nil {
 		live.WriteTotal = tableMetricSum(metrics, "TableSinkWriteCount", "TableSinkCommittedCount")
 	}
-	if n := logicalTableCount(metrics); n > 0 {
+	alignment := singleLinkMetricTablesForJob(job, metrics)
+	if alignment.sourceTable != "" && alignment.sinkTable != "" {
+		if len(collectTableMetricKeys(metrics)) > 0 {
+			n := 1
+			live.TableCount = &n
+		}
+	} else if n := logicalTableCount(metrics); n > 0 {
 		live.TableCount = &n
 	}
 	if jobStatusGroupOf(job.Status) == JobStatusGroupRunning {

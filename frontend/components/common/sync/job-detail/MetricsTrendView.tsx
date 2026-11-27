@@ -213,8 +213,12 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
   const segmentValue = selection.kind === 'preset' ? selection.range : selection.kind === 'lifetime' ? LIFETIME : '';
 
   const metricAlignment = useMemo(
-    () => buildMetricTableAlignment(normalizeJobDag(job?.result_preview?.job_dag).vertices),
-    [job?.result_preview?.job_dag],
+    () =>
+      buildMetricTableAlignment(
+        normalizeJobDag(job?.result_preview?.job_dag).vertices,
+        job?.result_preview?.metrics,
+      ),
+    [job?.result_preview?.job_dag, job?.result_preview?.metrics],
   );
 
   const seriesByKey = useCallback(

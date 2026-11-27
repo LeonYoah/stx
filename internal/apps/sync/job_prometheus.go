@@ -248,7 +248,7 @@ func (e *jobPrometheusExporter) applyJobMetrics(instance *JobInstance, metrics m
 		e.setCounterAbs(e.sinkCommitted, base, *v, jobKey+"|sink_committed")
 	}
 
-	e.observeTableRows(base, jobKey, metrics, singleLinkMetricTablesForJob(instance))
+	e.observeTableRows(base, jobKey, metrics, singleLinkMetricTablesForJob(instance, metrics))
 
 	if !updateUp {
 		return
@@ -330,7 +330,9 @@ func (e *jobPrometheusExporter) observeTableRows(base []string, jobKey string, m
 		read              float64
 		write             float64
 		committedFallback float64
+		hasRead           bool
 		hasWrite          bool
+		hasCommitted      bool
 	}
 	rowsByName := map[string]*scored{}
 	rowFor := func(name string) *scored {
@@ -346,10 +348,10 @@ func (e *jobPrometheusExporter) observeTableRows(base []string, jobKey string, m
 		if alignment.sourceTable != "" {
 			name = alignment.sourceTable
 		}
+		row := rowFor(name)
+		row.hasRead = true
 		if v := tableMetricNumber(metrics, "TableSourceReceivedCount", key); v != nil {
-			rowFor(name).read += *v
-		} else {
-			rowFor(name)
+			row.read += *v
 		}
 	}
 	for _, key := range collectTableMetricKeysFrom(metrics, "TableSinkWriteCount", "TableSinkCommittedCount") {
@@ -364,6 +366,32 @@ func (e *jobPrometheusExporter) observeTableRows(base []string, jobKey string, m
 		}
 		if v := tableMetricNumber(metrics, "TableSinkCommittedCount", key); v != nil {
 			row.committedFallback += *v
+			row.hasCommitted = true
+		}
+	}
+	// 单链路命中时与前端 dag-model.ts 保持一致：若作业级总量高于归并后的表级计数，抬高该单表下限。
+	// Match frontend dag-model.ts on single-link jobs: raise zero or lower table counters to job-level totals.
+	if alignment.sourceTable != "" && alignment.sinkTable != "" {
+		if v := metricNumber(metrics, "SourceReceivedCount"); v != nil && *v > 0 {
+			row := rowFor(alignment.sourceTable)
+			row.hasRead = true
+			if *v > row.read {
+				row.read = *v
+			}
+		}
+		if v := metricNumber(metrics, "SinkWriteCount"); v != nil && *v > 0 {
+			row := rowFor(alignment.sinkTable)
+			row.hasWrite = true
+			if *v > row.write {
+				row.write = *v
+			}
+		}
+		if v := metricNumber(metrics, "SinkCommittedCount"); v != nil && *v > 0 {
+			row := rowFor(alignment.sinkTable)
+			row.hasCommitted = true
+			if *v > row.committedFallback {
+				row.committedFallback = *v
+			}
 		}
 	}
 	if len(rowsByName) == 0 {
@@ -371,8 +399,9 @@ func (e *jobPrometheusExporter) observeTableRows(base []string, jobKey string, m
 	}
 	rows := make([]scored, 0, len(rowsByName))
 	for _, row := range rowsByName {
-		if !row.hasWrite || row.committedFallback > row.write {
+		if row.hasCommitted && (!row.hasWrite || row.committedFallback > row.write) {
 			row.write = row.committedFallback
+			row.hasWrite = true
 		}
 		rows = append(rows, *row)
 	}
@@ -385,19 +414,32 @@ func (e *jobPrometheusExporter) observeTableRows(base []string, jobKey string, m
 		return si > sj
 	})
 	var otherRead, otherWrite float64
+	var hasOtherRead, hasOtherWrite bool
 	for i, row := range rows {
 		table := row.name
 		read, write := row.read, row.write
 		if i >= jobMetricsTableCap {
-			otherRead += read
-			otherWrite += write
+			if row.hasRead || read > 0 {
+				otherRead += read
+				hasOtherRead = true
+			}
+			if row.hasWrite || write > 0 {
+				otherWrite += write
+				hasOtherWrite = true
+			}
 			continue
 		}
-		e.setCounterAbs(e.tableRows, append(append([]string{}, base...), "read", table), read, jobKey+"|tbl|read|"+table)
-		e.setCounterAbs(e.tableRows, append(append([]string{}, base...), "write", table), write, jobKey+"|tbl|write|"+table)
+		if row.hasRead || read > 0 {
+			e.setCounterAbs(e.tableRows, append(append([]string{}, base...), "read", table), read, jobKey+"|tbl|read|"+table)
+		}
+		if row.hasWrite || write > 0 {
+			e.setCounterAbs(e.tableRows, append(append([]string{}, base...), "write", table), write, jobKey+"|tbl|write|"+table)
+		}
 	}
-	if otherRead > 0 || otherWrite > 0 || len(rows) > jobMetricsTableCap {
+	if hasOtherRead || otherRead > 0 {
 		e.setCounterAbs(e.tableRows, append(append([]string{}, base...), "read", "other"), otherRead, jobKey+"|tbl|read|other")
+	}
+	if hasOtherWrite || otherWrite > 0 {
 		e.setCounterAbs(e.tableRows, append(append([]string{}, base...), "write", "other"), otherWrite, jobKey+"|tbl|write|other")
 	}
 }
@@ -407,9 +449,72 @@ type singleLinkMetricTables struct {
 	sinkTable   string
 }
 
-func singleLinkMetricTablesForJob(instance *JobInstance) singleLinkMetricTables {
+func isConcreteSingleTablePath(tablePath string) bool {
+	trimmed := strings.TrimSpace(tablePath)
+	if trimmed == "" || strings.EqualFold(trimmed, "default.default.default") {
+		return false
+	}
+	if strings.Contains(trimmed, "${") || strings.ContainsAny(trimmed, "*?[]|") {
+		return false
+	}
+	return true
+}
+
+func normalizeUnwrappedMetricLeaf(rawKey string) string {
+	trimmed := strings.TrimSpace(rawKey)
+	if trimmed == "" {
+		return ""
+	}
+	path := strings.TrimSpace(metricTablePathRe.ReplaceAllString(trimmed, ""))
+	if len(path) > len("Optional[]") && strings.EqualFold(path[:len("Optional[")], "Optional[") && strings.HasSuffix(path, "]") {
+		path = strings.TrimSpace(path[len("Optional[") : len(path)-1])
+	}
+	if path == "" || strings.EqualFold(path, "default.default.default") {
+		return ""
+	}
+	leaf := path
+	if idx := strings.LastIndex(path, "."); idx >= 0 {
+		leaf = path[idx+1:]
+	}
+	leaf = strings.ToLower(strings.TrimSpace(leaf))
+	return strings.TrimPrefix(leaf, "archive_")
+}
+
+func metricSideHasMultipleTables(metrics map[string]interface{}, mapKeys ...string) bool {
+	prefixedPaths := map[string]struct{}{}
+	leafNames := map[string]struct{}{}
+	for _, rawKey := range collectTableMetricKeysFrom(metrics, mapKeys...) {
+		trimmed := strings.TrimSpace(rawKey)
+		if loc := metricTablePathRe.FindStringIndex(trimmed); loc != nil {
+			path := strings.ToLower(strings.TrimSpace(trimmed[loc[1]:]))
+			if path != "" && path != "default.default.default" {
+				prefixedPaths[path] = struct{}{}
+				if len(prefixedPaths) > 1 {
+					return true
+				}
+			}
+		}
+		if leaf := normalizeUnwrappedMetricLeaf(trimmed); leaf != "" {
+			leafNames[leaf] = struct{}{}
+			if len(leafNames) > 1 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func metricsHasMultipleTables(metrics map[string]interface{}) bool {
+	if len(metrics) == 0 {
+		return false
+	}
+	return metricSideHasMultipleTables(metrics, "TableSourceReceivedCount", "TableSourceReceivedBytes", "TableSourceReceivedQPS") ||
+		metricSideHasMultipleTables(metrics, "TableSinkWriteCount", "TableSinkWriteBytes", "TableSinkWriteQPS", "TableSinkCommittedCount", "TableSinkCommittedBytes")
+}
+
+func singleLinkMetricTablesForJob(instance *JobInstance, metrics map[string]interface{}) singleLinkMetricTables {
 	var result singleLinkMetricTables
-	if instance == nil {
+	if instance == nil || metricsHasMultipleTables(metrics) {
 		return result
 	}
 	dag := mapValue(instance.ResultPreview, "job_dag")
@@ -452,7 +557,7 @@ func singleMetricTablePath(vertices []map[string]any, vertexType string) string 
 		return ""
 	}
 	paths := metricVertexTablePaths(matches[0])
-	if len(paths) != 1 || strings.EqualFold(paths[0], "default.default.default") {
+	if len(paths) != 1 || !isConcreteSingleTablePath(paths[0]) {
 		return ""
 	}
 	return paths[0]

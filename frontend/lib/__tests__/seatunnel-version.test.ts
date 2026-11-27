@@ -16,7 +16,101 @@
  */
 
 import {describe, expect, it} from 'vitest';
-import {nextEventChannelEnabled} from '@/lib/seatunnel-version';
+import {
+  nextEventChannelEnabled,
+  resolveSeatunnelVersion,
+  resolveSelectableSeatunnelVersions,
+} from '@/lib/seatunnel-version';
+import type {PackageInfo} from '@/lib/services/installer/types';
+
+function makeLocalPackage(version: string): PackageInfo {
+  return {
+    version,
+    file_name: `apache-seatunnel-${version}-bin.tar.gz`,
+    file_size: 1024,
+    download_urls: {aliyun: '', apache: '', huaweicloud: ''},
+    is_local: true,
+    has_source: false,
+    source_download_urls: {aliyun: '', apache: '', huaweicloud: ''},
+  };
+}
+
+describe('resolveSelectableSeatunnelVersions', () => {
+  it('merges manually uploaded intranet packages with catalog versions in descending order', () => {
+    const versions = resolveSelectableSeatunnelVersions({
+      versions: ['2.3.12', '2.3.11'],
+      local_packages: [
+        makeLocalPackage('2.3.9'),
+        makeLocalPackage('3.1.0'),
+        makeLocalPackage('3.2.0-custom'),
+      ],
+    });
+
+    expect(versions).toEqual([
+      '3.2.0-custom',
+      '3.1.0',
+      '2.3.12',
+      '2.3.11',
+      '2.3.9',
+    ]);
+  });
+
+  it('deduplicates and preserves extra active versions', () => {
+    const versions = resolveSelectableSeatunnelVersions(
+      {
+        versions: ['3.1.0', '2.3.12'],
+        local_packages: [makeLocalPackage('3.1.0')],
+      },
+      ['3.0.0-internal', '3.1.0', '', undefined],
+    );
+
+    expect(versions).toEqual(['3.1.0', '3.0.0-internal', '2.3.12']);
+  });
+
+  it('returns an empty array when metadata is missing', () => {
+    expect(resolveSelectableSeatunnelVersions(null)).toEqual([]);
+  });
+});
+
+describe('resolveSeatunnelVersion', () => {
+  it('prefers the newest local package over online/fallback catalog versions', () => {
+    expect(
+      resolveSeatunnelVersion({
+        versions: ['3.1.0', '3.0.0', '2.3.13', '2.3.12'],
+        recommended_version: '3.1.0',
+        local_packages: [
+          makeLocalPackage('2.3.12'),
+          makeLocalPackage('2.3.13'),
+        ],
+      }),
+    ).toBe('2.3.13');
+
+    expect(
+      resolveSeatunnelVersion({
+        versions: ['2.3.12', '2.3.11'],
+        recommended_version: '2.3.12',
+        local_packages: [makeLocalPackage('3.1.0')],
+      }),
+    ).toBe('3.1.0');
+  });
+
+  it('falls back to the newest catalog version when no local packages exist', () => {
+    expect(
+      resolveSeatunnelVersion({
+        versions: ['2.3.12', '3.1.0', '3.0.0'],
+        recommended_version: '2.3.12',
+        local_packages: [],
+      }),
+    ).toBe('3.1.0');
+  });
+
+  it('returns empty string when metadata has no versions', () => {
+    expect(resolveSeatunnelVersion(null)).toBe('');
+    expect(resolveSeatunnelVersion({versions: [], local_packages: []})).toBe(
+      '',
+    );
+  });
+});
 
 describe('nextEventChannelEnabled', () => {
   it('defaults on for a supported version until the user changes it', () => {

@@ -29,10 +29,65 @@ export const DEFAULT_SEATUNNEL_INSTALL_DIR_TEMPLATE =
   '/opt/seatunnel-{version}';
 export const DEFAULT_SEATUNNEL_DOC_VERSION = '2.3.13';
 
+type SeatunnelVersionMetadata = Partial<
+  Pick<AvailableVersions, 'versions' | 'local_packages' | 'recommended_version'>
+>;
+
+/**
+ * 合并本地安装包与可用版本目录，去重并按版本号降序排列，确保内网手动上传的新版本或自定义版本始终可选。
+ * Merge local packages with catalog versions, deduplicate, and sort descending so manually uploaded intranet or custom builds are always selectable.
+ */
+export function resolveSelectableSeatunnelVersions(
+  metadata?: SeatunnelVersionMetadata | null,
+  extraVersions?: readonly (string | undefined | null)[],
+): string[] {
+  const unique = new Set<string>();
+  const add = (value?: string | null) => {
+    const trimmed = String(value || '').trim();
+    if (trimmed) {
+      unique.add(trimmed);
+    }
+  };
+
+  for (const pkg of metadata?.local_packages || []) {
+    add(pkg?.version);
+  }
+  for (const version of metadata?.versions || []) {
+    add(version);
+  }
+  for (const extra of extraVersions || []) {
+    add(extra);
+  }
+  if (unique.size === 0) {
+    add(metadata?.recommended_version);
+  }
+
+  return Array.from(unique).sort((a, b) => {
+    const cmp = compareSeatunnelVersions(b, a);
+    return cmp !== 0 ? cmp : a.localeCompare(b);
+  });
+}
+
+/**
+ * 解析默认选中的 SeaTunnel 版本：存在本地安装包时优先选最新本地版本（内网即选即装），否则选最新可用版本。
+ * Resolve the default SeaTunnel version: prefer the newest local package when present (ready offline), otherwise pick the newest available version.
+ */
 export function resolveSeatunnelVersion(
-  metadata?: Pick<AvailableVersions, 'recommended_version' | 'versions'> | null,
+  metadata?: SeatunnelVersionMetadata | null,
 ): string {
-  return metadata?.recommended_version || metadata?.versions?.[0] || '';
+  const localVersions = resolveSelectableSeatunnelVersions({
+    local_packages: metadata?.local_packages,
+  });
+  if (localVersions.length > 0) {
+    return localVersions[0];
+  }
+  const catalogVersions = resolveSelectableSeatunnelVersions({
+    versions: metadata?.versions,
+  });
+  if (catalogVersions.length > 0) {
+    return catalogVersions[0];
+  }
+  return metadata?.recommended_version?.trim() || '';
 }
 
 export function buildSeatunnelInstallDir(version?: string): string {

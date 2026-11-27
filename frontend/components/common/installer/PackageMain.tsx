@@ -43,7 +43,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {Card} from '@/components/ui/card';
-import {Badge} from '@/components/ui/badge';
 import {
   RefreshCw,
   Package,
@@ -407,16 +406,6 @@ export function PackageMain() {
           }
           actions={
             <div className='flex items-center gap-2'>
-              {packages?.recommended_version && (
-                <Badge
-                  variant='outline'
-                  data-testid='package-recommended-version-pill'
-                  className='h-7.5 rounded-full border-primary/30 bg-primary/10 px-2 text-xs font-medium text-primary'
-                >
-                  {t('installer.recommendedVersion')}: v
-                  {packages.recommended_version}
-                </Badge>
-              )}
               <Button
                 variant='outline'
                 size='sm'
@@ -493,7 +482,6 @@ export function PackageMain() {
                   type='online'
                   versions={packages?.versions || []}
                   localPackages={packages?.local_packages || []}
-                  recommendedVersion={packages?.recommended_version}
                   loading={loading}
                   error={error}
                   viewMode={onlineViewMode}

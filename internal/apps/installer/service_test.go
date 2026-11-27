@@ -947,3 +947,57 @@ func TestBuildInstallParamsAgentLocalFallback(t *testing.T) {
 		t.Fatalf("agent_package_path=%q", params["agent_package_path"])
 	}
 }
+
+func TestListAvailableVersionsSortsLocalPackagesAndKeepsCapabilities(t *testing.T) {
+	packageDir := t.TempDir()
+	for _, fileName := range []string{
+		"apache-seatunnel-2.3.9-bin.tar.gz",
+		"apache-seatunnel-2.3.12-bin.tar.gz",
+		"apache-seatunnel-3.1.0-bin.tar.gz",
+		"apache-seatunnel-3.2.0-custom-bin.tar.gz",
+	} {
+		if err := os.WriteFile(filepath.Join(packageDir, fileName), []byte("stub"), 0o644); err != nil {
+			t.Fatalf("write stub package %s: %v", fileName, err)
+		}
+	}
+
+	service := NewService(packageDir, nil)
+	// 预填旧在线缓存模拟内网落后目录，确认本地高版本与自定义版本仍被识别与排序。
+	// Seed a stale online cache to simulate an intranet fallback list and verify newer/custom local packages are still recognized and ordered.
+	service.versionsMu.Lock()
+	service.cachedVersions = []string{"2.3.12", "2.3.11"}
+	service.versionsCacheTime = time.Now()
+	service.versionsMu.Unlock()
+
+	available, err := service.ListAvailableVersions(context.Background())
+	if err != nil {
+		t.Fatalf("ListAvailableVersions failed: %v", err)
+	}
+
+	wantLocalOrder := []string{"3.2.0-custom", "3.1.0", "2.3.12", "2.3.9"}
+	if len(available.LocalPackages) != len(wantLocalOrder) {
+		t.Fatalf("expected %d local packages, got %d", len(wantLocalOrder), len(available.LocalPackages))
+	}
+	for i, want := range wantLocalOrder {
+		if available.LocalPackages[i].Version != want {
+			t.Fatalf("local package[%d] = %q, want %q", i, available.LocalPackages[i].Version, want)
+		}
+	}
+
+	// 在线目录列表不混入自定义本地包，保持在线 Tab 语义纯净。
+	// Online catalog versions must not be polluted by custom local packages.
+	if len(available.Versions) != 2 || available.Versions[0] != "2.3.12" {
+		t.Fatalf("unexpected online versions: %v", available.Versions)
+	}
+	if available.RecommendedVersion != "3.2.0-custom" {
+		t.Fatalf("expected recommended_version compatibility field to prefer newest local package 3.2.0-custom, got %q", available.RecommendedVersion)
+	}
+
+	cap310, ok := available.VersionCapabilities["3.1.0"]
+	if !ok {
+		t.Fatal("expected VersionCapabilities to include local package 3.1.0")
+	}
+	if cap310.MinJavaVersion != 11 || !cap310.SupportsEventChannel {
+		t.Fatalf("unexpected 3.1.0 capabilities: %+v", cap310)
+	}
+}

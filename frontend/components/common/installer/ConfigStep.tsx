@@ -99,6 +99,7 @@ import {
 import {
   buildSeatunnelInstallDir,
   nextEventChannelEnabled,
+  resolveSelectableSeatunnelVersions,
   resolveSeatunnelVersionCapabilities,
 } from '@/lib/seatunnel-version';
 
@@ -149,10 +150,12 @@ export function ConfigStep({
   const [validatingKind, setValidatingKind] =
     useState<RuntimeStorageValidationKind | null>(null);
 
-  // Get available versions / 获取可用版本
-  const availableVersions = packages?.versions || [];
+  // 合并本地安装包与目录版本，确保离线手动上传的新版本也可选 / Merge local packages and catalog versions so uploaded offline builds are selectable
+  const availableVersions = useMemo(
+    () => resolveSelectableSeatunnelVersions(packages, [config.version]),
+    [packages, config.version],
+  );
   const localPackages = packages?.local_packages || [];
-  const recommendedVersion = packages?.recommended_version;
   const versionCapabilities = useMemo(
     () => resolveSeatunnelVersionCapabilities(packages, config.version),
     [packages, config.version],
@@ -512,14 +515,7 @@ export function ConfigStep({
                     <SelectContent>
                       {availableVersions.map((version) => (
                         <SelectItem key={version} value={version}>
-                          <div className='flex items-center gap-2'>
-                            {version}
-                            {version === recommendedVersion && (
-                              <Badge variant='secondary' className='text-xs'>
-                                {t('installer.recommended')}
-                              </Badge>
-                            )}
-                          </div>
+                          {version}
                         </SelectItem>
                       ))}
                     </SelectContent>

@@ -35,8 +35,11 @@ const (
 )
 
 var defaultVersionMetadata = VersionMetadata{
-	RecommendedVersion: "2.3.12",
+	RecommendedVersion: "3.1.0",
 	FallbackVersions: []string{
+		"3.1.0",
+		"3.0.0",
+		"2.3.13",
 		"2.3.12",
 		"2.3.11",
 		"2.3.10",

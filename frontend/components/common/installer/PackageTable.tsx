@@ -29,7 +29,6 @@ import {
   Download,
   FileCode2,
   Package,
-  Star,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -51,7 +50,6 @@ interface PackageTableProps {
   type: 'online' | 'local';
   versions?: string[];
   localPackages?: PackageInfo[];
-  recommendedVersion?: string;
   loading?: boolean;
   error?: string | null;
   viewMode: MarketplaceViewMode;
@@ -101,7 +99,6 @@ export function PackageTable({
   type,
   versions = [],
   localPackages = [],
-  recommendedVersion,
   loading,
   error = null,
   viewMode,
@@ -123,7 +120,6 @@ export function PackageTable({
         const localPackage = localPackages.find((pkg) => pkg.version === version);
         const task = downloads.find((d) => d.version === version);
         const isDownloaded = Boolean(localPackage);
-        const isRecommended = version === recommendedVersion;
         const isBusy =
           Boolean(task) &&
           (task?.status === 'downloading' || task?.status === 'pending');
@@ -172,14 +168,8 @@ export function PackageTable({
         }
 
         const badges: MarketplaceCatalogItem['badges'] = [
-          {label: `v${version}`, highlight: isRecommended},
+          {label: `v${version}`},
         ];
-        if (isRecommended) {
-          badges.push({
-            label: t('marketplaceUi.statusRecommended'),
-            highlight: true,
-          });
-        }
 
         // Visible download / retry only — whole row must not trigger download.
         // 仅可见下载/重试按钮；整行不得触发下载。
@@ -214,12 +204,6 @@ export function PackageTable({
         // 仅用接口真实字段填卡；无数据不编造（高度已统一，不再按字段数压缩）。
         // Only real API fields; never invent values (height is unified — no field-count compacting).
         const fields: NonNullable<MarketplaceCatalogItem['fields']> = [
-          {
-            label: t('marketplaceUi.fieldRecommended'),
-            value: isRecommended
-              ? t('marketplaceUi.fieldRecommendedYes')
-              : t('marketplaceUi.fieldRecommendedNo'),
-          },
           {
             label: t('marketplaceUi.fieldSource'),
             value: sourceLabel,
@@ -281,16 +265,10 @@ export function PackageTable({
         return {
           id: `online-${version}`,
           title: `v${version}`,
-          subtitle: isRecommended
-            ? t('installer.recommendedVersion')
-            : t('installer.available'),
+          subtitle: t('installer.available'),
           icon: (
             <span className='inline-flex size-9 items-center justify-center rounded-full bg-primary/10 text-primary'>
-              {isRecommended ? (
-                <Star className='size-4' />
-              ) : (
-                <Package className='size-4' />
-              )}
+              <Package className='size-4' />
             </span>
           ),
           badges,
@@ -446,7 +424,6 @@ export function PackageTable({
     onSourceDownload,
     onSourceFetch,
     onSourceUpload,
-    recommendedVersion,
     t,
     type,
     versions,

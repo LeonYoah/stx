@@ -736,6 +736,20 @@ func (s *Service) ListAvailableVersions(ctx context.Context) (*AvailableVersions
 		}
 	}
 
+	// 按版本号降序排列本地安装包，避免 ReadDir 字典序把 2.3.9 排在 2.3.12 之前。
+	// Sort local packages by descending version so ReadDir lexicographical order cannot place 2.3.9 ahead of 2.3.12.
+	sort.Slice(result.LocalPackages, func(i, j int) bool {
+		if cmp := compareVersions(result.LocalPackages[i].Version, result.LocalPackages[j].Version); cmp != 0 {
+			return cmp > 0
+		}
+		return result.LocalPackages[i].FileName < result.LocalPackages[j].FileName
+	})
+	if len(result.LocalPackages) > 0 && result.LocalPackages[0].Version != "" {
+		// 兼容仍读取 recommended_version 的旧调用方：存在本地包时优先返回最新本地包版本。
+		// Compatibility for callers still reading recommended_version: prefer the newest local package when present.
+		result.RecommendedVersion = result.LocalPackages[0].Version
+	}
+
 	return result, nil
 }
 

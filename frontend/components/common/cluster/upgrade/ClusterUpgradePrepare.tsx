@@ -52,7 +52,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import services from '@/lib/services';
-import {resolveSeatunnelVersion} from '@/lib/seatunnel-version';
+import {
+  resolveSeatunnelVersion,
+  resolveSelectableSeatunnelVersions,
+} from '@/lib/seatunnel-version';
 import {
   clearStUpgradeSession,
   loadStUpgradeSession,
@@ -78,6 +81,7 @@ interface ClusterUpgradePrepareProps {
 export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
   const t = useTranslations('stUpgrade');
   const commonT = useTranslations('common');
+  const wizardT = useTranslations('cluster.wizard');
   const router = useRouter();
 
   const [cluster, setCluster] = useState<ClusterInfo | null>(null);
@@ -135,6 +139,22 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
       setPrecheck(draft.precheck);
     }
   }, [clusterId]);
+
+  const localVersionSet = useMemo(
+    () =>
+      new Set(
+        (availableVersions?.local_packages || []).map((pkg) => pkg.version),
+      ),
+    [availableVersions?.local_packages],
+  );
+  const selectableVersions = useMemo(
+    () =>
+      resolveSelectableSeatunnelVersions(availableVersions, [
+        targetVersion,
+        cluster?.version,
+      ]),
+    [availableVersions, targetVersion, cluster?.version],
+  );
 
   const suggestedTargetInstallDir = useMemo(
     () =>
@@ -548,11 +568,14 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
               data-testid='upgrade-prepare-target-version'
               label={t('targetVersion')}
               value={targetVersion}
+              displayValue={targetVersion || undefined}
               onValueChange={setTargetVersion}
               placeholder={t('targetVersionPlaceholder')}
-              options={(availableVersions?.versions || []).map((version) => ({
+              options={selectableVersions.map((version) => ({
                 value: version,
-                label: version,
+                label: localVersionSet.has(version)
+                  ? `${version} · ${wizardT('localReady')}`
+                  : version,
               }))}
             />
 

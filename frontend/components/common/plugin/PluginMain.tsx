@@ -72,7 +72,10 @@ import {
 } from '@/components/common/layout';
 import {PluginService} from '@/lib/services/plugin';
 import {usePackages} from '@/hooks/use-installer';
-import {resolveSeatunnelVersion} from '@/lib/seatunnel-version';
+import {
+  resolveSeatunnelVersion,
+  resolveSelectableSeatunnelVersions,
+} from '@/lib/seatunnel-version';
 import {resolvePreferredClusterId} from '@/lib/cluster-preference';
 import {ClusterService} from '@/lib/services/cluster';
 import type {
@@ -208,8 +211,10 @@ export function PluginMain() {
   // After a manual version pick, do not overwrite with cluster / packages defaults.
   const userOverrideVersionRef = useRef(false);
   const {packages, loading: packagesLoading} = usePackages();
-  const availableVersions = packages?.versions || [];
-  const recommendedVersion = resolveSeatunnelVersion(packages);
+  const defaultPackageVersion = useMemo(
+    () => resolveSeatunnelVersion(packages),
+    [packages],
+  );
   // 用于解析默认版本的集群列表（含偏好 / 唯一默认集群）。
   // Cluster list used to resolve default version (preferred / sole default).
   const [preferenceClusters, setPreferenceClusters] = useState<ClusterInfo[]>(
@@ -318,25 +323,21 @@ export function PluginMain() {
     return String(cluster?.version || '').trim();
   }, [preferenceClusters]);
 
-  // 版本优先级：默认集群版本 > packages 最新推荐。
-  // Version priority: preferred cluster version > packages recommended.
+  // 版本优先级：默认集群版本 > 最新本地安装包 > 最新可用版本。
+  // Version priority: preferred cluster version > newest local package > newest catalog version.
   const resolvedDefaultVersion =
-    preferredClusterVersion || recommendedVersion || '';
+    preferredClusterVersion || defaultPackageVersion || '';
 
-  // 下拉选项需包含当前选中版本（集群版本可能不在 packages 列表中）。
-  // Version options must include the current selection (cluster version may be absent from packages).
-  const versionOptions = useMemo(() => {
-    const base =
-      availableVersions.length > 0
-        ? availableVersions
-        : recommendedVersion
-          ? [recommendedVersion]
-          : [];
-    if (selectedVersion && !base.includes(selectedVersion)) {
-      return [selectedVersion, ...base];
-    }
-    return base;
-  }, [availableVersions, recommendedVersion, selectedVersion]);
+  // 下拉选项合并本地安装包、目录版本与当前选中/集群版本。
+  // Merge local packages, catalog versions, and active cluster/selection versions into dropdown options.
+  const versionOptions = useMemo(
+    () =>
+      resolveSelectableSeatunnelVersions(packages, [
+        selectedVersion,
+        preferredClusterVersion,
+      ]),
+    [packages, selectedVersion, preferredClusterVersion],
+  );
 
   /**
    * Load available plugins

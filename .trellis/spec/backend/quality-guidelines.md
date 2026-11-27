@@ -96,6 +96,7 @@
 - **在 API 中直接暴露 gorm.ErrRecordNotFound**：不得向 handler 返回 `gorm.ErrRecordNotFound`，应在 repository 中映射为领域错误（如 `ErrClusterNotFound`），再在 handler 中映射为 HTTP 状态码。
 - **记录敏感信息**：不得在日志中输出密码、令牌、API 密钥或任何用于认证的配置，也不得记录可能包含凭据的请求/响应体。
 - **忽略错误**：不得对影响正确性的错误使用 `_ = ...`，要么处理错误，要么在注释中说明为何可以忽略（如尽力而为的清理）。
+- **跨挂载目录裸调 `os.Rename`**：不得直接把独立可配置目录（如 `storage.temp_dir`）里的临时文件通过裸 `os.Rename` 移到另一持久化目录（如 `storage.packages_dir` / `storage.plugins_dir`）；Docker 多卷挂载或分盘部署下必报 `EXDEV (invalid cross-device link)`。落盘临时文件应直接建在目标同目录（隐藏 `.tmp` 名称），或统一走带 `syscall.EXDEV` 同目录拷贝原子替换兜底的 helper（参考 `internal/apps/installer/service.go` 的 `moveFileAtomic`）。
 
 ---
 

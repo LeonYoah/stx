@@ -30,6 +30,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -916,8 +917,11 @@ func TestService_CancelDownloadStopsRequestAndRemovesPartialFile(t *testing.T) {
 		t.Fatalf("取消后状态错误 / unexpected status after cancel: %s", task.Status)
 	}
 	fileName := packageFileName(version)
+	if _, err := os.Stat(filepath.Join(packageDir, "."+fileName+".tmp")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("临时文件仍然存在 / partial file still exists in packageDir: %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(tempDir, fileName+".tmp")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("临时文件仍然存在 / partial file still exists: %v", err)
+		t.Fatalf("临时文件仍然存在 / partial file still exists in tempDir: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(packageDir, fileName)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("最终文件不应存在 / final file must not exist: %v", err)
@@ -1000,4 +1004,98 @@ func TestListAvailableVersionsSortsLocalPackagesAndKeepsCapabilities(t *testing.
 	if cap310.MinJavaVersion != 11 || !cap310.SupportsEventChannel {
 		t.Fatalf("unexpected 3.1.0 capabilities: %+v", cap310)
 	}
+}
+
+func TestMoveFileAtomicFallsBackOnCrossDeviceLink(t *testing.T) {
+	t.Run("cross-device rename falls back to sibling copy and atomic rename", func(t *testing.T) {
+		srcDir := t.TempDir()
+		dstDir := t.TempDir()
+		src := filepath.Join(srcDir, "package-upload.tmp")
+		dst := filepath.Join(dstDir, "apache-seatunnel-3.0.0-bin.tar.gz")
+		payload := []byte("fake-seatunnel-3.0.0-archive")
+		if err := os.WriteFile(src, payload, 0o600); err != nil {
+			t.Fatalf("write src: %v", err)
+		}
+
+		origRename := renameFile
+		renameFile = func(oldPath, newPath string) error {
+			return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: syscall.EXDEV}
+		}
+		defer func() { renameFile = origRename }()
+
+		if err := moveFileAtomic(src, dst); err != nil {
+			t.Fatalf("moveFileAtomic returned unexpected error: %v", err)
+		}
+		got, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatalf("read dst: %v", err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("dst payload mismatch: got %q, want %q", got, payload)
+		}
+		if _, err := os.Stat(src); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("expected src to be removed after fallback copy, err=%v", err)
+		}
+		entries, err := os.ReadDir(dstDir)
+		if err != nil {
+			t.Fatalf("readdir dstDir: %v", err)
+		}
+		if len(entries) != 1 || entries[0].Name() != filepath.Base(dst) {
+			t.Fatalf("expected only final file in dstDir, got %d entries", len(entries))
+		}
+	})
+
+	t.Run("savePackageFromReader succeeds when rename hits EXDEV", func(t *testing.T) {
+		packageDir := t.TempDir()
+		tempDir := t.TempDir()
+		service := NewService(packageDir, nil)
+		service.tempDir = tempDir
+
+		origRename := renameFile
+		renameFile = func(oldPath, newPath string) error {
+			return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: syscall.EXDEV}
+		}
+		defer func() { renameFile = origRename }()
+
+		payload := []byte("seatunnel-3.0.0-tar-gz-content")
+		info, err := service.savePackageFromReader(
+			context.Background(),
+			"3.0.0",
+			"apache-seatunnel-3.0.0-bin.tar.gz",
+			int64(len(payload)),
+			bytes.NewReader(payload),
+		)
+		if err != nil {
+			t.Fatalf("savePackageFromReader failed on EXDEV: %v", err)
+		}
+		if info.Version != "3.0.0" || !info.IsLocal {
+			t.Fatalf("unexpected package info: %+v", info)
+		}
+		got, err := os.ReadFile(filepath.Join(packageDir, "apache-seatunnel-3.0.0-bin.tar.gz"))
+		if err != nil {
+			t.Fatalf("read saved package: %v", err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("saved package mismatch: got %q, want %q", got, payload)
+		}
+	})
+
+	t.Run("non-EXDEV rename error is returned directly", func(t *testing.T) {
+		src := filepath.Join(t.TempDir(), "src.tmp")
+		dst := filepath.Join(t.TempDir(), "dst.tar.gz")
+		if err := os.WriteFile(src, []byte("x"), 0o600); err != nil {
+			t.Fatalf("write src: %v", err)
+		}
+
+		origRename := renameFile
+		renameFile = func(oldPath, newPath string) error {
+			return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: syscall.EACCES}
+		}
+		defer func() { renameFile = origRename }()
+
+		err := moveFileAtomic(src, dst)
+		if !errors.Is(err, syscall.EACCES) {
+			t.Fatalf("expected EACCES error, got %v", err)
+		}
+	})
 }

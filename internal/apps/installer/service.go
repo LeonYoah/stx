@@ -39,6 +39,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
@@ -1036,7 +1037,12 @@ func (s *Service) savePackageFromReader(ctx context.Context, version, fileName s
 		return nil, ErrPackageAlreadyExists
 	}
 
-	tempFile, err := os.CreateTemp(s.tempDir, "package-upload-*.tmp")
+	if err := os.MkdirAll(s.packageDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create package directory: %w", err)
+	}
+	// 临时文件建在目标安装包同目录下，避免 Docker / 分盘挂载下跨设备 rename 报 EXDEV 且省去二次大文件拷贝。
+	// Create the staging temp file inside packageDir to avoid cross-device EXDEV on Docker bind mounts and avoid copying large archives twice.
+	tempFile, err := os.CreateTemp(s.packageDir, ".package-upload-*.tmp")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp package file: %w", err)
 	}
@@ -1057,7 +1063,7 @@ func (s *Service) savePackageFromReader(ctx context.Context, version, fileName s
 		return nil, fmt.Errorf("failed to close package file: %w", err)
 	}
 
-	if err := os.Rename(tempPath, destPath); err != nil {
+	if err := moveFileAtomic(tempPath, destPath); err != nil {
 		return nil, fmt.Errorf("failed to move package file: %w", err)
 	}
 
@@ -1092,7 +1098,10 @@ func (s *Service) saveSourceFromReader(ctx context.Context, version string, file
 	if maxPackageSize > 0 && fileSize > maxPackageSize {
 		return ErrPackageTooLarge
 	}
-	tempFile, err := os.CreateTemp(s.tempDir, "source-upload-*.tar.gz")
+	if err := os.MkdirAll(s.packageDir, 0o755); err != nil {
+		return fmt.Errorf("create package dir: %w", err)
+	}
+	tempFile, err := os.CreateTemp(s.packageDir, ".source-upload-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create source temp file: %w", err)
 	}
@@ -1115,7 +1124,7 @@ func (s *Service) saveSourceFromReader(ctx context.Context, version string, file
 	if err != nil {
 		return ErrInvalidPackagePath
 	}
-	if err := os.Rename(tempPath, destPath); err != nil {
+	if err := moveFileAtomic(tempPath, destPath); err != nil {
 		return fmt.Errorf("store source package: %w", err)
 	}
 	logger.InfoF(ctx, "[Installer] source package saved: version=%s path=%s", version, destPath)
@@ -1448,7 +1457,19 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	s.downloadsMu.Unlock()
 
 	fileName := packageFileName(task.Version)
-	tempPath, err := normalizePathInDir(s.tempDir, filepath.Join(s.tempDir, fileName+".tmp"))
+	if err := os.MkdirAll(s.packageDir, 0o755); err != nil {
+		logger.ErrorF(ctx, "Failed to create package directory: version=%s, error=%v", task.Version, err)
+		s.downloadsMu.Lock()
+		now := time.Now()
+		task.Status = DownloadStatusFailed
+		task.Error = locale.Pick(ctx, fmt.Sprintf("创建安装包目录失败: %v", err), fmt.Sprintf("Failed to create package directory: %v", err))
+		task.EndTime = &now
+		s.downloadsMu.Unlock()
+		return
+	}
+	// 下载临时文件放在 packageDir 下（隐藏 .tmp），与最终文件同挂载卷，避免 Docker 下跨设备 rename 失败。
+	// Stage the download temp file in packageDir (hidden .tmp) on the same mount as finalPath to avoid Docker EXDEV on rename.
+	tempPath, err := normalizePathInDir(s.packageDir, filepath.Join(s.packageDir, "."+fileName+".tmp"))
 	if err != nil {
 		logger.ErrorF(ctx, "Invalid temp download path: version=%s, error=%v", task.Version, err)
 		s.downloadsMu.Lock()
@@ -1600,7 +1621,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		s.markDownloadCancelled(task, tempPath)
 		return
 	}
-	if err := os.Rename(tempPath, finalPath); err != nil {
+	if err := moveFileAtomic(tempPath, finalPath); err != nil {
 		s.markDownloadFailed(task, locale.Pick(ctx, fmt.Sprintf("移动文件失败: %v", err), fmt.Sprintf("Failed to move file: %v", err)), tempPath)
 		return
 	}
@@ -1666,7 +1687,10 @@ func (s *Service) downloadSourceArchive(ctx context.Context, version, sourceURL 
 	if maxPackageSize > 0 && response.ContentLength > maxPackageSize {
 		return "", ErrPackageTooLarge
 	}
-	tempFile, err := os.CreateTemp(s.tempDir, "source-download-*.tar.gz")
+	if err := os.MkdirAll(s.packageDir, 0o755); err != nil {
+		return "", fmt.Errorf("create package dir: %w", err)
+	}
+	tempFile, err := os.CreateTemp(s.packageDir, ".source-download-*.tmp")
 	if err != nil {
 		return "", fmt.Errorf("create source temp file: %w", err)
 	}
@@ -1722,7 +1746,7 @@ func (s *Service) downloadSourceArchive(ctx context.Context, version, sourceURL 
 	if err != nil {
 		return "", ErrInvalidPackagePath
 	}
-	if err := os.Rename(tempPath, destPath); err != nil {
+	if err := moveFileAtomic(tempPath, destPath); err != nil {
 		return "", fmt.Errorf("store source package: %w", err)
 	}
 	return checksum, nil
@@ -3938,6 +3962,64 @@ func normalizeProfileKeys(keys []string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+var renameFile = os.Rename
+
+// moveFileAtomic 先尝试直接原子重命名；遇到跨挂载卷（EXDEV）时拷贝到目标同目录临时文件后再原子替换并删除源文件。
+// moveFileAtomic tries an atomic rename first; on cross-device link (EXDEV) it copies into a sibling temp file in dst's directory, renames atomically into place, and removes src.
+func moveFileAtomic(src, dst string) error {
+	if err := renameFile(src, dst); err == nil {
+		return nil
+	} else if !errors.Is(err, syscall.EXDEV) {
+		return err
+	}
+
+	dstDir := filepath.Dir(dst)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	tmp, err := os.CreateTemp(dstDir, "."+filepath.Base(dst)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanupTmp := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanupTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := io.Copy(tmp, in); err != nil {
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	_ = in.Close()
+
+	if err := os.Rename(tmpPath, dst); err != nil {
+		return err
+	}
+	cleanupTmp = false
+	// 目标文件已原子落盘，源文件清理失败不回滚主流程（调用方 defer 也会兜底清理）。
+	// Destination is already committed atomically; best-effort removal of src (caller defer also cleans up).
+	_ = os.Remove(src)
+	return nil
 }
 
 func normalizePathInDir(baseDir, candidatePath string) (string, error) {

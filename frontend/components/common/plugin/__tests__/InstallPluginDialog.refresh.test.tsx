@@ -85,6 +85,7 @@ const samplePlugin: Plugin = {
   description: '',
   group_id: 'org.apache.seatunnel',
   artifact_id: 'connector-jdbc',
+  requires_profile_selection: true,
   dependencies: [],
 };
 

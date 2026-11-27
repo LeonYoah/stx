@@ -37,6 +37,7 @@ on:
           - plugin-real
           - scheduler-contract
           - scheduler-real
+          - metrics-real
       database:
         description: Target database for E2E (sqlite, postgres, mysql)
         required: false
@@ -83,6 +84,7 @@ jobs:
       run_plugin_real: ${{ steps.scope.outputs.run_plugin_real }}
       run_scheduler_contract: ${{ steps.scope.outputs.run_scheduler_contract }}
       run_scheduler_real: ${{ steps.scope.outputs.run_scheduler_real }}
+      run_metrics_real: ${{ steps.scope.outputs.run_metrics_real }}
 
     steps:
       - name: Checkout
@@ -223,6 +225,12 @@ jobs:
               - 'scripts/e2e/README-scheduler-contract.md'
               - '.github/workflows/e2e.yml'
 
+            metrics_real:
+              - 'frontend/components/common/sync/job-detail/**'
+              - 'scripts/e2e/run-seatunnel-metrics-real.sh'
+              - 'scripts/e2e/seatunnel-metrics-real/**'
+              - '.github/workflows/e2e.yml'
+
             scheduler_real:
               - 'frontend/e2e/scheduler-real.spec.ts'
               - 'frontend/e2e/helpers/scheduler-real.ts'
@@ -254,6 +262,7 @@ jobs:
           FILTER_PLUGIN_REAL: ${{ steps.filter.outputs.plugin_real }}
           FILTER_SCHEDULER_CONTRACT: ${{ steps.filter.outputs.scheduler_contract }}
           FILTER_SCHEDULER_REAL: ${{ steps.filter.outputs.scheduler_real }}
+          FILTER_METRICS_REAL: ${{ steps.filter.outputs.metrics_real }}
         run: |
           frontend=false
           backend=false
@@ -265,6 +274,7 @@ jobs:
           run_plugin_real=false
           run_scheduler_contract=false
           run_scheduler_real=false
+          run_metrics_real=false
 
           if [ "${EVENT_NAME}" = "pull_request" ]; then
             frontend="${FILTER_FRONTEND}"
@@ -292,6 +302,9 @@ jobs:
             fi
             if [ "${FILTER_SCHEDULER_REAL}" = "true" ]; then
               run_scheduler_real=true
+            fi
+            if [ "${FILTER_METRICS_REAL}" = "true" ]; then
+              run_metrics_real=true
             fi
           else
             frontend=true
@@ -321,6 +334,9 @@ jobs:
               scheduler-real)
                 run_scheduler_real=true
                 ;;
+              metrics-real)
+                run_metrics_real=true
+                ;;
               *)
                 run_smoke=true
                 run_installer_real=true
@@ -330,6 +346,7 @@ jobs:
                 run_plugin_real=true
                 run_scheduler_contract=true
                 run_scheduler_real=true
+                run_metrics_real=true
                 ;;
             esac
           fi
@@ -344,6 +361,7 @@ jobs:
           echo "run_plugin_real=${run_plugin_real}" >> "$GITHUB_OUTPUT"
           echo "run_scheduler_contract=${run_scheduler_contract}" >> "$GITHUB_OUTPUT"
           echo "run_scheduler_real=${run_scheduler_real}" >> "$GITHUB_OUTPUT"
+          echo "run_metrics_real=${run_metrics_real}" >> "$GITHUB_OUTPUT"
 
       - name: Print E2E scope
         run: |
@@ -357,6 +375,7 @@ jobs:
           echo "run_plugin_real=${{ steps.scope.outputs.run_plugin_real }}"
           echo "run_scheduler_contract=${{ steps.scope.outputs.run_scheduler_contract }}"
           echo "run_scheduler_real=${{ steps.scope.outputs.run_scheduler_real }}"
+          echo "run_metrics_real=${{ steps.scope.outputs.run_metrics_real }}"
 
   prepare-package:
     name: Prepare SeaTunnel Package
@@ -574,6 +593,53 @@ jobs:
           path: |
             frontend/playwright-report
             frontend/test-results
+          if-no-files-found: ignore
+
+
+  metrics-real:
+    name: E2E Real SeaTunnel Metrics
+    runs-on: ubuntu-24.04
+    needs: changes
+    if: needs.changes.outputs.run_metrics_real == 'true'
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.10.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          pnpm install --frozen-lockfile
+
+      - name: Run SeaTunnel Kafka metrics environment
+        run: bash scripts/e2e/run-seatunnel-metrics-real.sh
+
+      - name: Validate live engine metrics contract
+        env:
+          STX_SEATUNNEL_METRICS_FIXTURE: scripts/e2e/seatunnel-metrics-real/out/job-info.json
+        run: |
+          cd frontend
+          pnpm vitest run components/common/sync/job-detail/__tests__/dag-model.live.test.ts
+
+      - name: Upload metrics real artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seatunnel-metrics-real
+          path: scripts/e2e/seatunnel-metrics-real/out
           if-no-files-found: ignore
 
   installer-real:

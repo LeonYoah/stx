@@ -262,3 +262,53 @@ func TestHandleSyncLocalStatusDetectsFinishedRuntimeWithoutProcess(t *testing.T)
 		t.Fatalf("expected success status, got %#v", payload["status"])
 	}
 }
+
+func TestCheckpointConfigFromParamsPreservesRuntimeStorageFields(t *testing.T) {
+	cfg, err := checkpointConfigFromParams(map[string]string{
+		"storage_type":                 string(installer.CheckpointStorageHDFS),
+		"namespace":                    "/seatunnel/checkpoint/",
+		"hdfs_ha_enabled":              "true",
+		"hdfs_name_services":           "hpcluster",
+		"hdfs_ha_namenodes":            "namenode326,namenode129",
+		"hdfs_namenode_rpc_address_1":  "nn1.example.com:8020",
+		"hdfs_namenode_rpc_address_2":  "nn2.example.com:8020",
+		"hdfs_failover_proxy_provider": "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+		"hdfs_site_path":               "/etc/hadoop/conf/hdfs-site.xml",
+		"disable_cache":                "true",
+		"kerberos_principal":           "hive/_HOST@EXAMPLE.COM",
+		"kerberos_keytab_file_path":    "/etc/security/keytabs/hdfs.keytab",
+		"s3_credentials_provider":      "com.example.CustomProvider",
+	})
+	if err != nil {
+		t.Fatalf("checkpointConfigFromParams returned error: %v", err)
+	}
+	if !cfg.HDFSHAEnabled || cfg.HDFSNameServices != "hpcluster" || cfg.HDFSHANamenodes != "namenode326,namenode129" {
+		t.Fatalf("HDFS HA params not preserved: %#v", cfg)
+	}
+	if cfg.HdfsSitePath != "/etc/hadoop/conf/hdfs-site.xml" || cfg.DisableCache == nil || !*cfg.DisableCache {
+		t.Fatalf("HDFS advanced params not preserved: %#v", cfg)
+	}
+	if cfg.KerberosPrincipal == "" || cfg.KerberosKeytabFilePath == "" || cfg.S3CredentialsProvider == "" {
+		t.Fatalf("security or S3 params not preserved: %#v", cfg)
+	}
+}
+
+func TestIMAPConfigFromParamsPreservesRuntimeStorageFields(t *testing.T) {
+	cfg, err := imapConfigFromParams(map[string]string{
+		"storage_type":                string(installer.IMAPStorageHDFS),
+		"namespace":                   "/seatunnel/imap/",
+		"hdfs_ha_enabled":             "true",
+		"hdfs_name_services":          "hpcluster",
+		"hdfs_ha_namenodes":           "namenode326,namenode129",
+		"hdfs_namenode_rpc_address_1": "nn1.example.com:8020",
+		"hdfs_namenode_rpc_address_2": "nn2.example.com:8020",
+		"hdfs_site_path":              "/etc/hadoop/conf/hdfs-site.xml",
+		"disable_cache":               "true",
+	})
+	if err != nil {
+		t.Fatalf("imapConfigFromParams returned error: %v", err)
+	}
+	if !cfg.HDFSHAEnabled || cfg.HdfsSitePath == "" || cfg.DisableCache == nil || !*cfg.DisableCache {
+		t.Fatalf("IMAP runtime storage params not preserved: %#v", cfg)
+	}
+}

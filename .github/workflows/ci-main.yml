@@ -81,6 +81,9 @@ jobs:
       - name: Copy conventions gate
         run: python3 scripts/check_copy_conventions.py
 
+      - name: Runtime storage cross-layer contract
+        run: python3 scripts/check_runtime_storage_contract.py
+
   # 安装脚本轻量门禁：语法 / shellcheck、安装链路不依赖 python3、download-lib / install-core 单测。
   # Lightweight installer gate: syntax / shellcheck, no python3 in the install path, download-lib / install-core tests.
   install-scripts-test:
@@ -97,7 +100,7 @@ jobs:
           scripts=(install/*.sh install/bin/*.sh scripts/check-release-asset-globs.sh
             scripts/test-release-download-lib.sh scripts/test-yaml-set-differential.sh scripts/release-deps-publish.sh
             scripts/test-release-deps.sh scripts/ci-install-smoke.sh scripts/test-offline-bundle.sh
-            scripts/smoke-offline-bundle.sh)
+            scripts/smoke-offline-bundle.sh scripts/e2e/run-seatunnel-metrics-real.sh)
           for f in "${scripts[@]}"; do
             bash -n "$f"
           done

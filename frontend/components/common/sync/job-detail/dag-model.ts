@@ -329,7 +329,7 @@ export function buildMetricIndex(metrics: unknown, vertices: DagVertex[] = []): 
 
   for (const type of ['source', 'sink'] as const) {
     const ofType = vertices.filter((vertex) => vertex.type === type && vertex.metricPrefix);
-    if (ofType.length !== 1 || totals.has(ofType[0].metricPrefix as string)) {
+    if (ofType.length !== 1) {
       continue;
     }
     const fallback: TableStats = {};
@@ -343,8 +343,33 @@ export function buildMetricIndex(metrics: unknown, vertices: DagVertex[] = []): 
         fallback[field] = value;
       }
     }
-    if (Object.keys(fallback).length > 0) {
-      totals.set(ofType[0].metricPrefix as string, fallback);
+    if (Object.keys(fallback).length === 0) {
+      continue;
+    }
+    const prefix = ofType[0].metricPrefix as string;
+    const existing = totals.get(prefix);
+    if (!existing) {
+      totals.set(prefix, fallback);
+      if (ofType[0].tablePaths.length === 1) {
+        let byTable = tables.get(prefix);
+        if (!byTable) {
+          byTable = new Map();
+          tables.set(prefix, byTable);
+        }
+        byTable.set(ofType[0].tablePaths[0], {...fallback});
+      }
+      continue;
+    }
+    const countField = type === 'source' ? 'readCount' : 'writeCount';
+    if ((fallback[countField] ?? 0) > (existing[countField] ?? 0)) {
+      totals.set(prefix, {...existing, ...fallback});
+      const byTable = tables.get(prefix);
+      if (byTable?.size === 1) {
+        const [table, tableStats] = [...byTable.entries()][0];
+        if ((fallback[countField] ?? 0) > (tableStats[countField] ?? 0)) {
+          byTable.set(table, {...tableStats, ...fallback});
+        }
+      }
     }
   }
   return {tables, vertices: totals};

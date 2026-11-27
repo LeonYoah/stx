@@ -497,6 +497,7 @@ stx installer runtime-storage validate --request-file <json>
 - 列表响应的 `items` 必须始终是数组；没有文件时返回 `[]`，不能省略，也不能返回 `null`。
 - IMAP 为 `DISABLED` 时：`validate` 返回成功并说明无需外部存储；`list` 返回 `items: []`；`preview` 和 `inspect` 返回明确的关闭状态错误。
 - Agent 命令日志保留实际命令参数，但 access key、secret key 等敏感字段必须显示为掩码。
+- checkpoint / IMAP 校验的控制面 → Agent 参数必须完整透传 HDFS HA、Kerberos、`hdfs_site_path`、`disable_cache` 与 S3 credentials provider；HA RPC 地址按 `dfs.ha.namenodes.<nameservice>` 中的真实别名解析，不能假设别名固定为 `nn1/nn2`。
 
 ### 12.4 校验与错误对应表
 
@@ -521,6 +522,7 @@ stx installer runtime-storage validate --request-file <json>
 - CLI 单元测试检查六条命令的路径、正文、能力查询和输出。
 - 缺少路径、非法 `kind` 时，断言网络请求数为 0。
 - 服务测试覆盖 IMAP `DISABLED` 的校验、空列表和明确错误。
+- 服务测试覆盖 HDFS HA 自定义 namenode 别名（如 `namenode326,namenode129`）的 YAML 解析、集群配置解析和 Agent 参数透传；`scripts/check_runtime_storage_contract.py` 在 CI 中静态检查跨层参数不缺失。
 - 列表为空时断言 JSON 中存在 `"items":[]`。
 - 真实测试连接本机 STX 和 Agent，至少完成 checkpoint 校验、列表、文本预览和安装前校验；存在合法 checkpoint/WAL 样本时再验证解析成功。
 - 审计检查确认 `request_id`、`client_type=cli`、`created_by` 和脱敏参数正确。

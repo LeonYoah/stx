@@ -186,6 +186,60 @@ describe('buildMetricIndex', () => {
     const index = buildMetricIndex({SourceReceivedCount: '12', SinkWriteCount: '10'}, graph.vertices);
     expect(index.vertices.get('Source[0]')?.readCount).toBe(12);
     expect(index.vertices.get('Sink[0]')?.writeCount).toBe(10);
+    expect(index.tables.get('Source[0]')?.get('seatunnel_test.public.cdc_orders')?.readCount).toBe(12);
+  });
+  it('prefers job-level totals when zero per-table rows contradict a flowing single-vertex job', () => {
+    const graph = normalizeJobDag(runtimeJob26);
+    const index = buildMetricIndex(
+      {
+        SourceReceivedCount: '500',
+        SourceReceivedBytes: '38056',
+        SourceReceivedQPS: '25.3',
+        SinkWriteCount: '500',
+        SinkWriteBytes: '31000',
+        SinkWriteQPS: '25.3',
+        SinkCommittedCount: '500',
+        TableSourceReceivedCount: {'Source[0].orders': '0'},
+        TableSourceReceivedBytes: {'Source[0].orders': '0'},
+        TableSourceReceivedQPS: {'Source[0].orders': '0'},
+        TableSinkWriteCount: {'Sink[0].lakehouse.orders': '0'},
+        TableSinkWriteBytes: {'Sink[0].lakehouse.orders': '0'},
+        TableSinkWriteQPS: {'Sink[0].lakehouse.orders': '0'},
+        TableSinkCommittedCount: {'Sink[0].lakehouse.orders': '0'},
+      },
+      graph.vertices,
+    );
+    expect(index.vertices.get('Source[0]')).toMatchObject({readCount: 500, readBytes: 38056});
+    expect(index.vertices.get('Sink[0]')).toMatchObject({writeCount: 500, writeBytes: 31000, committedCount: 500});
+    expect(index.tables.get('Source[0]')?.get('orders')).toMatchObject({readCount: 500, readBytes: 38056});
+    expect(index.tables.get('Sink[0]')?.get('lakehouse.orders')).toMatchObject({writeCount: 500, writeBytes: 31000});
+  });
+
+  it('uses the job total for a single multi-table vertex without inventing per-table attribution', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [{vertexId: 1, type: 'sink', vertexName: 'pipeline-1 [Sink[0]-ClickHouse]', tablePaths: ['db.t1', 'db.t2']}],
+    });
+    const index = buildMetricIndex(
+      {
+        SinkWriteCount: '300',
+        TableSinkWriteCount: {'Sink[0].db.t1': '100', 'Sink[0].db.t2': '0'},
+      },
+      graph.vertices,
+    );
+    expect(index.vertices.get('Sink[0]')?.writeCount).toBe(300);
+    expect(index.tables.get('Sink[0]')?.get('db.t1')?.writeCount).toBe(100);
+    expect(index.tables.get('Sink[0]')?.get('db.t2')?.writeCount).toBe(0);
+  });
+
+  it('does not assign job-level totals when several vertices of the same type exist', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [
+        {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-Kafka]'},
+        {vertexId: 2, type: 'source', vertexName: 'pipeline-1 [Source[1]-Kafka]'},
+      ],
+    });
+    const index = buildMetricIndex({SourceReceivedCount: '500'}, graph.vertices);
+    expect(index.vertices.size).toBe(0);
   });
 });
 

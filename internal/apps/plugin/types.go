@@ -326,7 +326,6 @@ type AvailablePluginsResponse struct {
 	CacheHit            bool             `json:"cache_hit"`                       // 是否命中缓存 / Whether cache was hit
 	CatalogSourceMirror string           `json:"catalog_source_mirror,omitempty"` // 目录实际来源镜像 / Catalog source mirror
 	CatalogRefreshedAt  *time.Time       `json:"catalog_refreshed_at,omitempty"`  // 最近刷新时间 / Catalog refreshed at
-	SeedReviewed        bool             `json:"seed_reviewed,omitempty"`
 }
 
 // ==================== Plugin Download Types 插件下载类型 ====================

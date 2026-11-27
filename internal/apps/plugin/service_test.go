@@ -683,9 +683,6 @@ func TestListAvailablePluginsFallsBackToBundledSeedWhenRemoteRateLimited(t *test
 	if result.Total == 0 {
 		t.Fatalf("expected bundled seed plugins to be returned")
 	}
-	if !result.SeedReviewed {
-		t.Fatalf("expected reviewed official version seed to be marked reviewed")
-	}
 	if calls != 1 {
 		t.Fatalf("expected first call to try remote once, got %d", calls)
 	}

@@ -7045,13 +7045,19 @@
   },
   "k8s": {
     "imagePicker": {
-      "placeholder": "选择容器镜像",
-      "customImage": "自定义镜像…",
-      "backToList": "返回列表",
-      "defaultBadge": "默认",
-      "versionRecognized": "识别版本：{version}",
-      "versionUnrecognized": "未识别出版本，请确认镜像 tag",
-      "retry": "重试"
+      "retry": "重试",
+      "registryLabel": "镜像仓库",
+      "registryPlaceholder": "选择镜像仓库",
+      "officialBadge": "官方",
+      "repoLabel": "镜像名",
+      "repoPlaceholder": "选择镜像",
+      "repoFilterLabel": "过滤",
+      "repoFilterPlaceholder": "输入关键字过滤镜像",
+      "tagLabel": "Tag",
+      "tagPlaceholder": "选择 tag",
+      "tagUnverified": "tag 探测失败，手动输入的镜像未验证",
+      "versionLabel": "引擎版本",
+      "versionUndetermined": "无法从 tag 提取确定性版本（如 3.1.0），请手动填写，否则配置将按保守默认生成"
     },
     "images": {
       "description": "注册 Kubernetes 部署与升级使用的容器镜像；官方预设由版本目录自动生成。",
@@ -7092,6 +7098,52 @@
       "registryPassword": "密码 / Token",
       "registryPasswordKeep": "留空保持既有凭据",
       "registryIncomplete": "凭据不完整：仓库地址、用户名与密码需同时填写"
+    }
+  },
+  "packages": {
+    "registry": {
+      "title": "镜像仓库",
+      "subtitle": "登记仓库 host 与凭据；部署与升级从仓库探测结果中选择镜像，不再逐行注册镜像",
+      "add": "注册仓库",
+      "retry": "重试",
+      "empty": "暂无登记的镜像仓库",
+      "emptyAction": "注册第一个仓库",
+      "colHost": "仓库地址",
+      "colAuth": "认证",
+      "colProbe": "连通性",
+      "colRepos": "可用镜像",
+      "colActions": "操作",
+      "officialBadge": "官方",
+      "anonymous": "匿名",
+      "test": "测试连接",
+      "testing": "测试中…",
+      "delete": "删除",
+      "deleteConfirm": "确认删除",
+      "dialogTitle": "注册镜像仓库",
+      "hostLabel": "仓库地址",
+      "usernameLabel": "用户名（可选）",
+      "passwordLabel": "密码（可选）",
+      "hint": "注册后自动探测仓库镜像列表；私仓请确保 harbor 项目或 registry 路径可从集群访问",
+      "cancel": "取消",
+      "submit": "注册",
+      "submitting": "注册中…",
+      "status": {
+        "ok": "连通",
+        "public": "公开",
+        "reachable": "可达",
+        "failed": "失败",
+        "unknown": "未知"
+      },
+      "edit": "编辑",
+      "editDialogTitle": "编辑镜像仓库",
+      "passwordKeepHint": "留空则保持原密码",
+      "submitEdit": "保存",
+      "hostImmutable": "仓库地址创建后不可修改",
+      "probeOk": "连接成功",
+      "probeReachable": "连通但无法枚举镜像",
+      "probeFailed": "连接失败",
+      "deleteSelected": "删除所选",
+      "probeFirst": "测试连接"
     }
   }
 }

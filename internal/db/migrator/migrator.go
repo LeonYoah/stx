@@ -102,6 +102,18 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 		log.Printf("[Database] failed to allow null CLI token expires_at: %v\n", err)
 	}
 
+	// 未发版零兼容：旧版按镜像行登记的 container_images 表直接删除；
+	// docker.io 官方仓库行预置（IsSystem 不可删），凭据体系收敛为按仓库登记。
+	// Pre-release breaking change with zero compatibility: the legacy per-image
+	// container_images table is dropped outright; the docker.io row is seeded as a
+	// non-deletable system row since credentials are now per-registry.
+	if database.Migrator().HasTable("container_images") {
+		if err := database.Migrator().DropTable("container_images"); err != nil {
+			log.Printf("[Database] failed to drop legacy container_images: %v\n", err)
+		}
+	}
+	seedContainerRegistries(database)
+
 	// 一次性把历史本地时区时间迁移为 UTC / One-time migration of legacy local-time columns to UTC
 	if err := MigrateTimeColumnsToUTC(database, dbType, managedModels(), config.GetDatabaseLegacyTimezone()); err != nil {
 		return fmt.Errorf("migrate time columns to utc failed: %w", err)
@@ -409,7 +421,7 @@ func managedModels() []interface{} {
 		&auth.User{},                               // 统一用户表（支持密码认证和 OAuth 认证）/ Unified user table
 		&auth.CLIToken{},                           // CLI 令牌表 / CLI token table
 		&host.Host{},                               // 主机管理表 / Host management table
-		&installer.ContainerImage{},                // 容器镜像表 / Container image table
+		&installer.ContainerRegistry{},              // 镜像仓库表 / Container registry table
 		&cluster.Cluster{},                         // 集群表 / Cluster table
 		&cluster.ClusterNode{},                     // 集群节点表 / Cluster node table
 		&cluster.ClusterScaleOperation{},           // 集群伸缩操作表 / Cluster scaling operation table
@@ -468,5 +480,30 @@ func managedModels() []interface{} {
 		&syncapp.PreviewRow{},                      // 数据同步预览数据行表 / Sync preview row table
 		&syncapp.SchedulerConnection{},             // 外部调度器连接表 / External scheduler connection table
 		&syncapp.TaskSchedulerBinding{},            // 任务与 Dolphin 绑定表 / Task-to-Dolphin binding table
+	}
+}
+
+// seedContainerRegistries 预置 docker.io 系统行（幂等）。
+// seedContainerRegistries seeds the docker.io system row idempotently.
+func seedContainerRegistries(database *gorm.DB) {
+	if database == nil {
+		return
+	}
+	var count int64
+	if err := database.Model(&installer.ContainerRegistry{}).Where("host = ?", installer.DockerHubRegistryHost).Count(&count).Error; err != nil {
+		log.Printf("[Database] failed to check container registry seed: %v\n", err)
+		return
+	}
+	if count > 0 {
+		return
+	}
+	row := &installer.ContainerRegistry{
+		Host:        installer.DockerHubRegistryHost,
+		IsSystem:    true,
+		ProbeStatus: "public",
+		ProbeScheme: "https",
+	}
+	if err := database.Create(row).Error; err != nil {
+		log.Printf("[Database] failed to seed docker.io registry: %v\n", err)
 	}
 }

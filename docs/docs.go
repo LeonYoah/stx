@@ -4764,7 +4764,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/packages/images": {
+        "/api/v1/packages/registries": {
             "get": {
                 "produces": [
                     "application/json"
@@ -4772,7 +4772,7 @@ const docTemplate = `{
                 "tags": [
                     "packages"
                 ],
-                "summary": "列出注册容器镜像 / List registered container images",
+                "summary": "列出镜像仓库 / List container registries",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -4790,10 +4790,10 @@ const docTemplate = `{
                 "tags": [
                     "packages"
                 ],
-                "summary": "注册容器镜像（管理员） / Register a container image (admin)",
+                "summary": "登记镜像仓库（管理员） / Register a container registry (admin)",
                 "parameters": [
                     {
-                        "description": "镜像定义 / Image definition",
+                        "description": "仓库定义 / Registry definition",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -4814,7 +4814,41 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/packages/images/{id}": {
+        "/api/v1/packages/registries/probe": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "summary": "注册前测试仓库连通性 / Probe a registry before registration",
+                "parameters": [
+                    {
+                        "description": "仓库信息 / Registry payload",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/installer.ContainerRegistryRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/registries/{id}": {
             "put": {
                 "produces": [
                     "application/json"
@@ -4822,17 +4856,17 @@ const docTemplate = `{
                 "tags": [
                     "packages"
                 ],
-                "summary": "更新容器镜像（管理员） / Update a container image (admin)",
+                "summary": "更新镜像仓库（管理员） / Update a container registry (admin)",
                 "parameters": [
                     {
                         "type": "integer",
-                        "description": "镜像 ID / Image ID",
+                        "description": "仓库 ID / Registry ID",
                         "name": "id",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "description": "镜像定义 / Image definition",
+                        "description": "仓库定义 / Registry definition",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -4859,11 +4893,76 @@ const docTemplate = `{
                 "tags": [
                     "packages"
                 ],
-                "summary": "删除容器镜像（管理员） / Delete a container image (admin)",
+                "summary": "删除镜像仓库（管理员） / Delete a container registry (admin)",
                 "parameters": [
                     {
                         "type": "integer",
-                        "description": "镜像 ID / Image ID",
+                        "description": "仓库 ID / Registry ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/registries/{id}/tags": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "summary": "探测镜像 tag 列表 / Probe tags of a repository",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "仓库 ID / Registry ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "镜像名 / Repository",
+                        "name": "repo",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/registries/{id}/test": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "summary": "测试镜像仓库连通性 / Test registry connectivity and refresh catalog",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "仓库 ID / Registry ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -11472,6 +11571,20 @@ const docTemplate = `{
                     "$ref": "#/definitions/host.HostInfo"
                 },
                 "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "installer.ContainerRegistryRequest": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }

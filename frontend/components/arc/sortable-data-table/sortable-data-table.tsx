@@ -68,6 +68,10 @@ export type SortableDataTableProps<T extends Record<string, unknown>> = {
   onSelectionChange?: (keys: string[]) => void;
   /** Noun for the count line, as in "6 projects". */
   itemName?: { one: string; other: string };
+  /** 行点击激活（打开编辑/详情）；提供时行点击不再切换选中，复选框多选不受影响。
+   * Row activation (open edit/detail); when provided, body clicks activate
+   * instead of toggling selection, while checkboxes still multi-select. */
+  onRowActivate?: (row: T) => void;
 };
 
 const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
@@ -154,7 +158,7 @@ function SelectBox({ checked, mixed = false, label, nav, reduced, onToggle, inpu
   </label>;
 }
 
-export function SortableDataTable<T extends Record<string, unknown>>({ rows, columns, rowKey, caption = "Data table", emptyMessage = "No rows to show", defaultSort, onSortChange, selectable = false, selectedKeys, defaultSelectedKeys, onSelectionChange, itemName = { one: "row", other: "rows" } }: SortableDataTableProps<T>) {
+export function SortableDataTable<T extends Record<string, unknown>>({ rows, columns, rowKey, caption = "Data table", emptyMessage = "No rows to show", defaultSort, onSortChange, selectable = false, selectedKeys, defaultSelectedKeys, onSelectionChange, itemName = { one: "row", other: "rows" }, onRowActivate }: SortableDataTableProps<T>) {
   const reduced = useReducedMotion() ?? false;
   const tableRef = useRef<HTMLTableElement>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
@@ -267,7 +271,13 @@ export function SortableDataTable<T extends Record<string, unknown>>({ rows, col
   }
 
   function onRowClick(event: ReactMouseEvent<HTMLTableRowElement>, key: string) {
-    if (!selectable || (event.target as HTMLElement).closest("a, button, input, label, select, textarea, [role='button'], [contenteditable='true']") || window.getSelection()?.toString()) {return;}
+    if ((event.target as HTMLElement).closest("a, button, input, label, select, textarea, [role='button'], [contenteditable='true']") || window.getSelection()?.toString()) {return;}
+    if (onRowActivate) {
+      const row = sortedRows.find((entry) => getRowKey(entry) === key);
+      if (row) {onRowActivate(row);}
+      return;
+    }
+    if (!selectable) {return;}
     toggleRow(key, event.shiftKey);
     // Keep the keyboard path where the pointer left off, so arrows continue from this row.
     event.currentTarget.querySelector<HTMLInputElement>("input[type='checkbox']")?.focus({ preventScroll: true });

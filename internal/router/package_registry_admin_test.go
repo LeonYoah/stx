@@ -33,17 +33,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestPackageImageWriteRoutesRequireAdmin 用内存 sqlite 与真实用户行验证管理员中间件：
-// 非管理员 403、管理员放行。镜像写接口的供应链闸门行为即此中间件。
-// TestPackageImageWriteRoutesRequireAdmin verifies the admin middleware against in-memory
+// TestPackageRegistryWriteRoutesRequireAdmin 用内存 sqlite 与真实用户行验证管理员中间件：
+// 非管理员 403、管理员放行。仓库写接口的供应链闸门行为即此中间件。
+// TestPackageRegistryWriteRoutesRequireAdmin verifies the admin middleware against in-memory
 // sqlite with real user rows: non-admin yields 403, admin passes.
-func TestPackageImageWriteRoutesRequireAdmin(t *testing.T) {
+func TestPackageRegistryWriteRoutesRequireAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, database.AutoMigrate(&auth.User{}))
-	adminUser := &auth.User{Username: "img-admin", IsAdmin: true}
-	normalUser := &auth.User{Username: "img-user", IsAdmin: false}
+	adminUser := &auth.User{Username: "reg-admin", IsAdmin: true}
+	normalUser := &auth.User{Username: "reg-user", IsAdmin: false}
 	require.NoError(t, database.Create(adminUser).Error)
 	require.NoError(t, database.Create(normalUser).Error)
 	previous := db.GetGlobalDB()
@@ -57,11 +57,11 @@ func TestPackageImageWriteRoutesRequireAdmin(t *testing.T) {
 			c.Request = c.Request.WithContext(context.Background())
 			c.Next()
 		})
-		r.POST("/api/v1/packages/images", admin.LoginAdminRequired(), func(c *gin.Context) {
+		r.POST("/api/v1/packages/registries", admin.LoginAdminRequired(), func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"ok": true})
 		})
 		recorder := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/packages/images", nil)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/packages/registries", nil)
 		r.ServeHTTP(recorder, req)
 		return recorder
 	}

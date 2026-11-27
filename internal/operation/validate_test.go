@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 304)
+	require.Len(t, Registry(), 307)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -120,7 +120,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"config.get": {}, "config.version.list": {},
 		"host.install.status.get": {}, "cluster.plugin.list": {}, "cluster.plugin.progress.get": {},
 		"package.list": {}, "package.get": {}, "package.version.refresh": {}, "package.download.list": {}, "package.download.get": {},
-		"package.offline-bundle.list": {}, "package.image.list": {},
+		"package.offline-bundle.list": {}, "package.registry.list": {}, "package.registry.tags": {},
 		"plugin.list": {}, "plugin.get": {}, "plugin.local.list": {}, "plugin.download.list": {},
 		"plugin.download.status.get": {}, "plugin.dependency.list": {}, "plugin.official-dependency.list": {},
 		"stupgrade.plan.get": {}, "stupgrade.task.list": {}, "stupgrade.task.get": {},

@@ -7045,13 +7045,19 @@
   },
   "k8s": {
     "imagePicker": {
-      "placeholder": "Select a container image",
-      "customImage": "Custom image…",
-      "backToList": "Back to list",
-      "defaultBadge": "Default",
-      "versionRecognized": "Detected version: {version}",
-      "versionUnrecognized": "Version not detected; check the image tag",
-      "retry": "Retry"
+      "retry": "Retry",
+      "registryLabel": "Image registry",
+      "registryPlaceholder": "Select a registry",
+      "officialBadge": "Official",
+      "repoLabel": "Repository",
+      "repoPlaceholder": "Select a repository",
+      "repoFilterLabel": "Filter",
+      "repoFilterPlaceholder": "Type to filter repositories",
+      "tagLabel": "Tag",
+      "tagPlaceholder": "Select a tag",
+      "tagUnverified": "Tag probing failed; manually entered images are unverified",
+      "versionLabel": "Engine version",
+      "versionUndetermined": "No deterministic version (e.g. 3.1.0) could be extracted from the tag; fill it in manually or config rendering falls back to conservative defaults"
     },
     "images": {
       "description": "Register container images used by Kubernetes deploys and upgrades; official presets derive from the version catalog.",
@@ -7092,6 +7098,52 @@
       "registryPassword": "Password / token",
       "registryPasswordKeep": "Leave empty to keep existing credential",
       "registryIncomplete": "Incomplete credentials: host, username and password are all required"
+    }
+  },
+  "packages": {
+    "registry": {
+      "title": "Image registries",
+      "subtitle": "Register registry hosts and credentials; deploys and upgrades pick images from probed results instead of per-row image registration",
+      "add": "Register registry",
+      "retry": "Retry",
+      "empty": "No registries yet",
+      "emptyAction": "Register the first registry",
+      "colHost": "Host",
+      "colAuth": "Auth",
+      "colProbe": "Probe",
+      "colRepos": "Repositories",
+      "colActions": "Actions",
+      "officialBadge": "Official",
+      "anonymous": "Anonymous",
+      "test": "Test connection",
+      "testing": "Testing…",
+      "delete": "Delete",
+      "deleteConfirm": "Confirm delete",
+      "dialogTitle": "Register image registry",
+      "hostLabel": "Registry host",
+      "usernameLabel": "Username (optional)",
+      "passwordLabel": "Password (optional)",
+      "hint": "The repository catalog is probed after registration; make sure private registries are reachable from the cluster",
+      "cancel": "Cancel",
+      "submit": "Register",
+      "submitting": "Registering…",
+      "status": {
+        "ok": "Connected",
+        "public": "Public",
+        "reachable": "Reachable",
+        "failed": "Failed",
+        "unknown": "Unknown"
+      },
+      "edit": "Edit",
+      "editDialogTitle": "Edit image registry",
+      "passwordKeepHint": "Leave empty to keep the current password",
+      "submitEdit": "Save",
+      "hostImmutable": "The registry host cannot be changed after creation",
+      "probeOk": "Connection succeeded",
+      "probeReachable": "Reachable but catalog unavailable",
+      "probeFailed": "Connection failed",
+      "deleteSelected": "Delete selected",
+      "probeFirst": "Test connection"
     }
   }
 }

@@ -28,7 +28,7 @@ import {toast} from '@/lib/toast';
 import {usePackages} from '@/hooks/use-installer';
 import {notifyOnboardingResourcesChanged} from '@/lib/onboarding/events';
 import {PackageTable} from './PackageTable';
-import {ContainerImagePanel} from './ContainerImagePanel';
+import {ContainerRegistryPanel} from './ContainerRegistryPanel';
 import {UploadPackageDialog} from './UploadPackageDialog';
 import {DownloadPackageDialog} from './DownloadPackageDialog';
 import {OfflineBundleDialog} from './OfflineBundleDialog';
@@ -496,7 +496,7 @@ export function PackageMain() {
 
           <div className='flex flex-1 flex-col gap-4 p-3 sm:p-4'>
             {activeTab === 'images' ? (
-              <ContainerImagePanel />
+              <ContainerRegistryPanel />
             ) : activeTab === 'online' ? (
               <>
                 <PackageTable

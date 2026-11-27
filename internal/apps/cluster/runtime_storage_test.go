@@ -117,6 +117,48 @@ seatunnel:
 	}
 }
 
+func TestParseCheckpointValidationConfigFromYAMLDefaultHDFSHAWithoutStorageType(t *testing.T) {
+	content := `
+seatunnel:
+  engine:
+    checkpoint:
+      storage:
+        plugin-config:
+          namespace: /seatunnel/checkpoint/
+          fs.defaultFS: hdfs://hpcluster
+          seatunnel.hadoop.dfs.nameservices: hpcluster
+          seatunnel.hadoop.dfs.ha.namenodes.hpcluster: namenode326,namenode129
+          seatunnel.hadoop.dfs.namenode.rpc-address.hpcluster.namenode326: nn1.example.com:8020
+          seatunnel.hadoop.dfs.namenode.rpc-address.hpcluster.namenode129: nn2.example.com:8020
+`
+	cfg := parseCheckpointValidationConfigFromYAML(content)
+	if cfg == nil {
+		t.Fatal("expected checkpoint validation config")
+	}
+	if cfg.StorageType != installerapp.CheckpointStorageHDFS || !cfg.HDFSHAEnabled {
+		t.Fatalf("omitted storage.type should default to HDFS HA: %#v", cfg)
+	}
+	if cfg.HDFSNamenodeRPCAddress1 != "nn1.example.com:8020" || cfg.HDFSNamenodeRPCAddress2 != "nn2.example.com:8020" {
+		t.Fatalf("custom namenode RPC addresses missing when storage.type omitted: %#v", cfg)
+	}
+}
+
+func TestOptionalBoolPtrEmptyStringReturnsNil(t *testing.T) {
+	if got := optionalBoolPtr(""); got != nil {
+		t.Fatalf("expected nil for empty string, got %v", *got)
+	}
+	if got := optionalBoolPtr("   "); got != nil {
+		t.Fatalf("expected nil for whitespace string, got %v", *got)
+	}
+	spec := runtimeSpecFromClusterConfig("checkpoint", map[string]interface{}{
+		"storage_type":  "HDFS",
+		"disable_cache": "",
+	})
+	if spec.DisableCache != nil {
+		t.Fatalf("empty disable_cache must stay nil, got %v", *spec.DisableCache)
+	}
+}
+
 func TestRuntimeSpecFromPluginConfigHDFSACustomNamenodes(t *testing.T) {
 	spec := runtimeSpecFromPluginConfig("checkpoint", map[string]interface{}{
 		"namespace":                         "/seatunnel/checkpoint/",

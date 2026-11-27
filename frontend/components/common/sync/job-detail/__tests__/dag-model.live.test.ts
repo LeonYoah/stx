@@ -34,9 +34,15 @@ describe.skipIf(!fixturePath)('buildMetricIndex with a live SeaTunnel response',
 
     expect(source?.metricPrefix).toBeTruthy();
     expect(sink?.metricPrefix).toBeTruthy();
-    expect(Number(payload.metrics?.SourceReceivedCount)).toBeGreaterThan(0);
-    expect(Number(payload.metrics?.SinkWriteCount)).toBeGreaterThan(0);
-    expect(index.vertices.get(source?.metricPrefix as string)?.readCount).toBeGreaterThan(0);
-    expect(index.vertices.get(sink?.metricPrefix as string)?.writeCount).toBeGreaterThan(0);
+    expect(Number(payload.metrics?.SourceReceivedCount)).toBeGreaterThanOrEqual(300);
+    expect(Number(payload.metrics?.SinkWriteCount)).toBeGreaterThanOrEqual(300);
+    expect(index.vertices.get(source?.metricPrefix as string)?.readCount).toBeGreaterThanOrEqual(300);
+    expect(index.vertices.get(sink?.metricPrefix as string)?.writeCount).toBeGreaterThanOrEqual(300);
+    if (source?.tablePaths.length === 1) {
+      expect(index.tables.get(source.metricPrefix as string)?.get(source.tablePaths[0])?.readCount).toBeGreaterThanOrEqual(300);
+    }
+    if (sink?.tablePaths.length === 1) {
+      expect(index.tables.get(sink.metricPrefix as string)?.get(sink.tablePaths[0])?.writeCount).toBeGreaterThanOrEqual(300);
+    }
   });
 });

@@ -461,6 +461,10 @@ func resolvedConfigFromPluginConfig(kind string, pluginConfig map[string]interfa
 	if storageType == "" {
 		if fsDefault := asString(pluginConfig["fs.defaultFS"]); strings.HasPrefix(fsDefault, "file:///") {
 			storageType = "LOCAL_FILE"
+		} else {
+			// 与 runtimeSpecFromPluginConfig 一致：未显式声明 storage.type 且非 file:/// 时默认按 HDFS 解析。
+			// Match runtimeSpecFromPluginConfig: default omitted non-file storage.type to HDFS.
+			storageType = "HDFS"
 		}
 	}
 	cfg := &runtimeStorageResolvedConfig{
@@ -812,6 +816,9 @@ func asInt(value interface{}) int {
 
 func optionalBoolPtr(value interface{}) *bool {
 	if value == nil {
+		return nil
+	}
+	if raw, ok := value.(string); ok && strings.TrimSpace(raw) == "" {
 		return nil
 	}
 	parsed := asBool(value)

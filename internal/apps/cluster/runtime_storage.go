@@ -548,10 +548,7 @@ func runtimeSpecFromClusterConfig(kind string, raw map[string]interface{}) *Runt
 	spec.HDFSNamenodeRPCAddress2 = asString(raw["hdfs_namenode_rpc_address_2"])
 	spec.HDFSFailoverProxyProvider = asString(raw["hdfs_failover_proxy_provider"])
 	spec.HdfsSitePath = asString(raw["hdfs_site_path"])
-	if raw["disable_cache"] != nil {
-		disableCache := asBool(raw["disable_cache"])
-		spec.DisableCache = &disableCache
-	}
+	spec.DisableCache = optionalBoolPtr(raw["disable_cache"])
 	spec.S3CredentialsProvider = asString(raw["s3_credentials_provider"])
 	return spec
 }

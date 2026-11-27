@@ -235,6 +235,28 @@ func TestJobPrometheusExporter_committedCountRaisesAlignedWriteFloor(t *testing.
 	if values["write|db.target"] != 42 {
 		t.Fatalf("committed fallback should raise the aligned write floor: %#v", values)
 	}
+
+	// 同 key 写入为 0、提交非 0 时，也应以提交量抬高下限。
+	// When the same key reports 0 written and nonzero committed, committed count should also raise the floor.
+	jobSameKey := &JobInstance{
+		ID:            80,
+		TaskID:        8,
+		Status:        JobStatusRunning,
+		SubmitSpec:    JSONMap{"cluster_id": float64(3)},
+		ResultPreview: job.ResultPreview,
+	}
+	exp.observeJobMetrics(jobSameKey, map[string]interface{}{
+		"TableSinkWriteCount": map[string]interface{}{
+			"Sink[0].db.target": float64(0),
+		},
+		"TableSinkCommittedCount": map[string]interface{}{
+			"Sink[0].db.target": float64(55),
+		},
+	})
+	sameKeyValues := gatherTableRowSeries(t, exp, "80")
+	if sameKeyValues["write|db.target"] != 55 {
+		t.Fatalf("same-key committed fallback should raise the aligned write floor: %#v", sameKeyValues)
+	}
 }
 
 func gatherTableRowSeries(t *testing.T, exp *jobPrometheusExporter, jobID string) map[string]float64 {

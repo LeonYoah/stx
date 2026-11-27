@@ -1159,7 +1159,7 @@ jobs:
   gate:
     name: E2E Gate
     runs-on: ubuntu-latest
-    needs: [changes, smoke-select, smoke, installer-real, workbench-real, config-real, upgrade-real, upgrade-real-profiles-missing, plugin-real, scheduler-contract, scheduler-real]
+    needs: [changes, smoke-select, smoke, metrics-real, installer-real, workbench-real, config-real, upgrade-real, upgrade-real-profiles-missing, plugin-real, scheduler-contract, scheduler-real]
     if: always()
 
     steps:
@@ -1168,6 +1168,8 @@ jobs:
           echo "run_smoke=${{ needs.changes.outputs.run_smoke }}"
           echo "has_specs=${{ needs.smoke-select.outputs.has_specs }}"
           echo "smoke_result=${{ needs.smoke.result }}"
+          echo "run_metrics_real=${{ needs.changes.outputs.run_metrics_real }}"
+          echo "metrics_real_result=${{ needs.metrics-real.result }}"
           echo "run_installer_real=${{ needs.changes.outputs.run_installer_real }}"
           echo "installer_real_result=${{ needs.installer-real.result }}"
           echo "run_workbench_real=${{ needs.changes.outputs.run_workbench_real }}"
@@ -1236,6 +1238,12 @@ jobs:
           if [ "${{ needs.changes.outputs.run_scheduler_real }}" = "true" ] &&
              [ "${{ needs.scheduler-real.result }}" != "success" ]; then
             echo "::error::Real scheduler E2E did not succeed."
+            exit 1
+          fi
+
+          if [ "${{ needs.changes.outputs.run_metrics_real }}" = "true" ] &&
+             [ "${{ needs.metrics-real.result }}" != "success" ]; then
+            echo "::error::Real SeaTunnel metrics E2E did not succeed."
             exit 1
           fi
 

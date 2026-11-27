@@ -361,7 +361,8 @@ func (e *jobPrometheusExporter) observeTableRows(base []string, jobKey string, m
 		if v := tableMetricNumber(metrics, "TableSinkWriteCount", key); v != nil {
 			row.write += *v
 			row.hasWrite = true
-		} else if v := tableMetricNumber(metrics, "TableSinkCommittedCount", key); v != nil {
+		}
+		if v := tableMetricNumber(metrics, "TableSinkCommittedCount", key); v != nil {
 			row.committedFallback += *v
 		}
 	}

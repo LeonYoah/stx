@@ -334,8 +334,8 @@ export function buildMetricIndex(metrics: unknown, vertices: DagVertex[] = []): 
   }
 
   for (const type of ['source', 'sink'] as const) {
-    const ofType = vertices.filter((vertex) => vertex.type === type && vertex.metricPrefix);
-    if (ofType.length !== 1) {
+    const ofType = vertices.filter((vertex) => vertex.type === type);
+    if (ofType.length !== 1 || !ofType[0].metricPrefix) {
       continue;
     }
     const fallback: TableStats = {};
@@ -369,8 +369,10 @@ export function buildMetricIndex(metrics: unknown, vertices: DagVertex[] = []): 
     const countField = type === 'source' ? 'readCount' : 'writeCount';
     if ((fallback[countField] ?? 0) > (existing[countField] ?? 0)) {
       totals.set(prefix, {...existing, ...fallback});
+      // 多表节点即使仅上报了一张表的指标，也不得把作业总量覆盖到该单表上。
+      // Never overwrite a single reported table with job-level totals on a multi-table vertex.
       const byTable = tables.get(prefix);
-      if (byTable?.size === 1) {
+      if (ofType[0].tablePaths.length <= 1 && byTable?.size === 1) {
         const [table, tableStats] = [...byTable.entries()][0];
         if ((fallback[countField] ?? 0) > (tableStats[countField] ?? 0)) {
           byTable.set(table, {...tableStats, ...fallback});

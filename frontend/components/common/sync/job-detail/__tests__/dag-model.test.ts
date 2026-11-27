@@ -273,11 +273,38 @@ describe('buildMetricIndex', () => {
     expect(index.tables.get('Sink[0]')?.get('db.t2')?.writeCount).toBe(0);
   });
 
+  it('does not overwrite a lone reported table on a multi-table vertex with job totals', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [{vertexId: 1, type: 'sink', vertexName: 'pipeline-1 [Sink[0]-ClickHouse]', tablePaths: ['db.t1', 'db.t2']}],
+    });
+    const index = buildMetricIndex(
+      {
+        SinkWriteCount: '300',
+        TableSinkWriteCount: {'Sink[0].db.t1': '100'},
+      },
+      graph.vertices,
+    );
+    expect(index.vertices.get('Sink[0]')?.writeCount).toBe(300);
+    expect(index.tables.get('Sink[0]')?.get('db.t1')?.writeCount).toBe(100);
+    expect(index.tables.get('Sink[0]')?.has('db.t2')).toBe(false);
+  });
+
   it('does not assign job-level totals when several vertices of the same type exist', () => {
     const graph = normalizeJobDag({
       vertexInfoMap: [
         {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-Kafka]'},
         {vertexId: 2, type: 'source', vertexName: 'pipeline-1 [Source[1]-Kafka]'},
+      ],
+    });
+    const index = buildMetricIndex({SourceReceivedCount: '500'}, graph.vertices);
+    expect(index.vertices.size).toBe(0);
+  });
+
+  it('does not assign job-level totals when a sibling vertex of the same type lacks metricPrefix', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [
+        {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-Kafka]'},
+        {vertexId: 2, type: 'source', vertexName: 'CustomSource'},
       ],
     });
     const index = buildMetricIndex({SourceReceivedCount: '500'}, graph.vertices);

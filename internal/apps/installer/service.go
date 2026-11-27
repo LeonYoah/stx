@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -1067,6 +1068,12 @@ func (s *Service) savePackageFromReader(ctx context.Context, version, fileName s
 		return nil, fmt.Errorf("failed to move package file: %w", err)
 	}
 
+	if connectorCount, extractErr := s.extractBundledConnectors(version, destPath); extractErr != nil {
+		logger.WarnF(ctx, "[Installer] package saved but bundled connectors were not imported: version=%s error=%v", version, extractErr)
+	} else if connectorCount > 0 {
+		logger.InfoF(ctx, "[Installer] imported %d bundled connectors from package version=%s", connectorCount, version)
+	}
+
 	fileInfo, err := os.Stat(destPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get package file info: %w", err)
@@ -1086,6 +1093,86 @@ func (s *Service) savePackageFromReader(ctx context.Context, version, fileName s
 		DownloadURLs:       getDownloadURLs(version),
 		SourceDownloadURLs: getSourceDownloadURLs(version),
 	}, nil
+}
+
+func directConnectorJarInArchive(name string) (string, bool) {
+	clean := path.Clean(strings.TrimPrefix(strings.ReplaceAll(name, "\\", "/"), "./"))
+	parts := strings.Split(strings.Trim(clean, "/"), "/")
+	if len(parts) < 2 {
+		return "", false
+	}
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == "connectors" && i == len(parts)-2 {
+			base := parts[len(parts)-1]
+			if strings.HasPrefix(base, "connector-") && strings.HasSuffix(base, ".jar") {
+				return base, true
+			}
+		}
+	}
+	return "", false
+}
+
+func (s *Service) extractBundledConnectors(version, packagePath string) (int, error) {
+	file, err := os.Open(packagePath)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return 0, err
+	}
+	defer gzipReader.Close()
+
+	targetDir := filepath.Join(s.pluginsDir(), version, "connectors")
+	reader := tar.NewReader(gzipReader)
+	count := 0
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return count, nil
+		}
+		if err != nil {
+			return count, err
+		}
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
+		base, ok := directConnectorJarInArchive(header.Name)
+		if !ok {
+			continue
+		}
+		if err := os.MkdirAll(targetDir, 0o755); err != nil {
+			return count, err
+		}
+		targetPath := filepath.Join(targetDir, base)
+		if _, err := os.Stat(targetPath); err == nil {
+			continue
+		}
+		tempFile, err := os.CreateTemp(targetDir, ".connector-import-*")
+		if err != nil {
+			return count, err
+		}
+		tempPath := tempFile.Name()
+		_, copyErr := io.Copy(tempFile, reader)
+		closeErr := tempFile.Close()
+		if copyErr != nil || closeErr != nil {
+			_ = os.Remove(tempPath)
+			if copyErr != nil {
+				return count, copyErr
+			}
+			return count, closeErr
+		}
+		if err := os.Chmod(tempPath, 0o644); err != nil {
+			_ = os.Remove(tempPath)
+			return count, err
+		}
+		if err := os.Rename(tempPath, targetPath); err != nil {
+			_ = os.Remove(tempPath)
+			return count, err
+		}
+		count++
+	}
 }
 
 // saveSourceFromReader validates a gzip/tar source archive before replacing the stored source atomically.

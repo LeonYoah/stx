@@ -196,3 +196,15 @@ func TestDownloadPlugin_dependencyFailureIsRecordedWithoutBlocking(t *testing.T)
 		t.Fatalf("expected local plugin to expose dependency failure, got %+v", locals)
 	}
 }
+
+func TestConnectorEmbeddedVersionMatchesInternalSuffix(t *testing.T) {
+	if !connectorEmbeddedVersionMatches("3.1.0", "3.1.0-hotfix1") {
+		t.Fatalf("expected base embedded version to match internal suffix version")
+	}
+	if !connectorEmbeddedVersionMatches("3.1.0-hotfix1", "3.1.0-hotfix1") {
+		t.Fatalf("expected exact embedded version to match")
+	}
+	if connectorEmbeddedVersionMatches("3.1.1", "3.1.0-hotfix1") {
+		t.Fatalf("different embedded version must not match")
+	}
+}

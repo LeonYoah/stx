@@ -1212,6 +1212,17 @@ func shouldHideAutoAttachedLocalPlugin(plugin LocalPlugin, hiddenPlugins map[str
 	return ok
 }
 
+func connectorEmbeddedVersionMatches(embeddedVersion, version string) bool {
+	if embeddedVersion == version {
+		return true
+	}
+	base := version
+	if idx := strings.IndexAny(base, "-+"); idx >= 0 {
+		base = base[:idx]
+	}
+	return base != version && embeddedVersion == base
+}
+
 // parsePluginNameFromFilename extracts the plugin name from a jar filename.
 // parsePluginNameFromFilename 从 jar 文件名中提取插件名称。
 // Returns plugin name, artifact ID and embedded version.

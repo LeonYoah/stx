@@ -87,6 +87,55 @@ func TestCreateAndImportOfflineBundle(t *testing.T) {
 	}
 }
 
+func TestImportOfflineBundleExtractsBundledConnectorsWhenPluginsOmitted(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "packages")
+	pluginsDir := filepath.Join(root, "plugins")
+	tempDir := filepath.Join(root, "temp")
+	_ = os.MkdirAll(packageDir, 0o755)
+	_ = os.MkdirAll(pluginsDir, 0o755)
+	_ = os.MkdirAll(tempDir, 0o755)
+
+	const version = "9.9.95"
+	archive := createRuntimePackageArchive(t, version, map[string]string{
+		"connectors/connector-fake-9.9.95.jar": "fake-jar",
+	})
+	if err := os.WriteFile(filepath.Join(packageDir, packageFileName(version)), archive, 0o644); err != nil {
+		t.Fatalf("write package: %v", err)
+	}
+
+	svc := NewService(packageDir, nil)
+	svc.tempDir = tempDir
+	include := false
+	info, err := svc.CreateOfflineBundle(t.Context(), &OfflineBundleCreateRequest{Version: version, IncludePlugins: &include})
+	if err != nil {
+		t.Fatalf("CreateOfflineBundle: %v", err)
+	}
+	path, err := svc.ResolveOfflineBundlePath(info.FileName)
+	if err != nil {
+		t.Fatalf("ResolveOfflineBundlePath: %v", err)
+	}
+
+	importRoot := filepath.Join(root, "import-site")
+	importPackages := filepath.Join(importRoot, "packages")
+	_ = os.MkdirAll(importPackages, 0o755)
+	_ = os.MkdirAll(filepath.Join(importRoot, "plugins"), 0o755)
+	importSvc := NewService(importPackages, nil)
+	importSvc.tempDir = tempDir
+	if _, err := importSvc.ImportOfflineBundle(t.Context(), path); err != nil {
+		t.Fatalf("ImportOfflineBundle: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(importRoot, "plugins", version, "connectors", "connector-fake-9.9.95.jar"))
+	if err != nil {
+		t.Fatalf("expected bundled connector extracted from package: %v", err)
+	}
+	if string(got) != "fake-jar" {
+		t.Fatalf("unexpected connector content %q", got)
+	}
+}
+
 func TestCreateOfflineBundleRequiresLocalPackage(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

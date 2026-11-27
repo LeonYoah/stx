@@ -321,6 +321,13 @@ func (s *Service) ImportOfflineBundle(ctx context.Context, srcPath string) (*Off
 		return nil, fmt.Errorf("import plugins: %w", err)
 	}
 
+	packagePath := filepath.Join(s.packageDir, packageFileName(manifest.SeatunnelVersion))
+	if connectorCount, extractErr := s.extractBundledConnectors(manifest.SeatunnelVersion, packagePath); extractErr != nil {
+		logger.WarnF(ctx, "[Installer] offline bundle imported but bundled connectors were not extracted: version=%s error=%v", manifest.SeatunnelVersion, extractErr)
+	} else if connectorCount > 0 {
+		logger.InfoF(ctx, "[Installer] extracted %d bundled connectors while importing offline bundle version=%s", connectorCount, manifest.SeatunnelVersion)
+	}
+
 	// 导入后把包归档到 offline-bundles，便于再次下载。
 	// Archive imported file into offline-bundles for re-download.
 	bundlesDir := s.offlineBundlesDir()

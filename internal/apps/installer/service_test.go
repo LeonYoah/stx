@@ -576,6 +576,66 @@ func TestValidateSourceArchiveReadsEntireStream(t *testing.T) {
 	}
 }
 
+func createRuntimePackageArchive(t *testing.T, version string, files map[string]string) []byte {
+	t.Helper()
+	buffer := &bytes.Buffer{}
+	gzipWriter := gzip.NewWriter(buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	for name, content := range files {
+		data := []byte(content)
+		entryName := "apache-seatunnel-" + version + "/" + name
+		if err := tarWriter.WriteHeader(&tar.Header{Name: entryName, Mode: 0o644, Size: int64(len(data)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatalf("write tar header: %v", err)
+		}
+		if _, err := tarWriter.Write(data); err != nil {
+			t.Fatalf("write tar content: %v", err)
+		}
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatalf("close tar writer: %v", err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatalf("close gzip writer: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+func TestService_UploadPackageImportsBundledConnectors(t *testing.T) {
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "packages")
+	if err := os.MkdirAll(filepath.Join(root, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(packageDir, nil)
+	const version = "9.9.94"
+	archive := createRuntimePackageArchive(t, version, map[string]string{
+		"connectors/connector-fake-9.9.94.jar":          "fake-jar",
+		"connectors/connector-console-9.9.94.jar":       "console-jar",
+		"connectors/nested/connector-ignore-9.9.94.jar": "ignored",
+		"lib/not-a-connector.jar":                       "ignored",
+	})
+	fileHeader := createUploadFileHeader(t, "file", packageFileName(version), archive)
+
+	if _, err := service.UploadPackage(context.Background(), version, fileHeader); err != nil {
+		t.Fatalf("upload package with bundled connectors: %v", err)
+	}
+	for name, want := range map[string]string{
+		"connector-fake-9.9.94.jar":    "fake-jar",
+		"connector-console-9.9.94.jar": "console-jar",
+	} {
+		got, err := os.ReadFile(filepath.Join(root, "plugins", version, "connectors", name))
+		if err != nil {
+			t.Fatalf("expected bundled connector %s: %v", name, err)
+		}
+		if string(got) != want {
+			t.Fatalf("connector %s content = %q, want %q", name, got, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "plugins", version, "connectors", "connector-ignore-9.9.94.jar")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("nested connector jar must not be imported, stat err=%v", err)
+	}
+}
+
 func TestService_UploadPackageValidation(t *testing.T) {
 	service := NewService(t.TempDir(), nil)
 	ctx := context.Background()

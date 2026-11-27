@@ -299,6 +299,16 @@ func (s *Service) enrichPluginsWithDependencyState(ctx context.Context, version 
 		if len(profiles) == 1 {
 			result[i].Dependencies = effective
 		}
+		if len(profiles) > 1 {
+			hasDefault := false
+			for _, profile := range profiles {
+				if profile.IsDefault {
+					hasDefault = true
+					break
+				}
+			}
+			result[i].RequiresProfileSelection = !hasDefault
+		}
 	}
 	return result
 }

@@ -820,6 +820,21 @@ func TestListAvailablePluginsFor2312UsesRemoteCatalogAndSeedDependencyBaseline(t
 	if names["jdbc"].DependencyStatus != PluginDependencyStatusUnknown {
 		t.Fatalf("expected jdbc unknown due to multiple seeded profiles, got %q", names["jdbc"].DependencyStatus)
 	}
+	if !names["jdbc"].RequiresProfileSelection {
+		t.Fatalf("expected jdbc to require profile selection")
+	}
+	if names["hive"].RequiresProfileSelection {
+		t.Fatalf("expected hive default profile not to require explicit selection")
+	}
+}
+
+func TestRequiresExplicitProfileSelectionUsesEnrichedProfileData(t *testing.T) {
+	if !requiresExplicitProfileSelection(&Plugin{Name: "custom-db", ArtifactID: "connector-custom-db", RequiresProfileSelection: true}) {
+		t.Fatalf("expected non-JDBC plugin with ambiguous profiles to require selection")
+	}
+	if requiresExplicitProfileSelection(&Plugin{Name: "jdbc", ArtifactID: "connector-jdbc"}) {
+		t.Fatalf("expected unenriched JDBC fallback not to force selection")
+	}
 }
 
 func TestAddDependencyUsesIsolatedTargetDirFor2312(t *testing.T) {

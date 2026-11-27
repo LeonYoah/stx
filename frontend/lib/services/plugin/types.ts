@@ -112,6 +112,14 @@ export interface PluginDependency {
   original_file_name?: string;
 }
 
+export interface PluginDependencyFailure {
+  group_id: string;
+  artifact_id: string;
+  version: string;
+  target_dir: string;
+  error: string;
+}
+
 /**
  * Plugin information
  * 插件信息
@@ -131,6 +139,7 @@ export interface Plugin {
   dependency_count?: number;
   dependency_baseline_version?: string;
   dependency_resolution_mode?: DependencyResolutionMode;
+  requires_profile_selection?: boolean;
 }
 
 /**
@@ -302,6 +311,7 @@ export interface PluginDownloadProgress {
   connector_completed?: number;
   dependency_count?: number;
   dependency_completed?: number;
+  dependency_failures?: PluginDependencyFailure[];
   selected_profile_keys?: string[];
 }
 
@@ -333,6 +343,7 @@ export interface LocalPlugin {
   selected_profile_keys?: string[];
   attached_connectors?: string[];
   dependencies?: PluginDependency[];
+  dependency_failures?: PluginDependencyFailure[];
 }
 
 /**

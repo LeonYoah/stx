@@ -30,17 +30,25 @@ describe('plugin-profile-selection', () => {
     );
   });
 
-  it('detects JDBC plugins that require profile selection', () => {
+  it('uses backend-provided profile requirement without connector hardcoding', () => {
+    expect(
+      pluginRequiresProfileSelection({
+        name: 'custom-db',
+        artifact_id: 'connector-custom-db',
+        requires_profile_selection: true,
+      }),
+    ).toBe(true);
     expect(
       pluginRequiresProfileSelection({
         name: 'jdbc',
         artifact_id: 'connector-jdbc',
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       pluginRequiresProfileSelection({
-        name: 'kafka',
-        artifact_id: 'connector-kafka',
+        name: 'jdbc',
+        artifact_id: 'connector-jdbc',
+        requires_profile_selection: false,
       }),
     ).toBe(false);
   });

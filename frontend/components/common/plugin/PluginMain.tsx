@@ -304,6 +304,7 @@ export function PluginMain() {
   // 已提示过的失败下载，避免轮询重复 toast。
   // Already-notified failed downloads to avoid toast spam while polling.
   const notifiedFailedDownloadsRef = useRef<Set<string>>(new Set());
+  const notifiedDependencyFailuresRef = useRef<Set<string>>(new Set());
 
   // Plugin installation status per cluster / 每个集群的插件安装状态
   // Map: pluginName:version -> { clusterId -> InstalledPlugin }
@@ -505,6 +506,43 @@ export function PluginMain() {
     [],
   );
 
+  const notifyDependencyFailures = useCallback(
+    (items: LocalPlugin[]) => {
+      for (const item of items) {
+        const failures = item.dependency_failures || [];
+        if (failures.length === 0) {
+          continue;
+        }
+        const fingerprint = `${item.name}:${item.version}:${failures
+          .map((failure) => `${failure.artifact_id}:${failure.version}`)
+          .sort()
+          .join('|')}`;
+        if (notifiedDependencyFailuresRef.current.has(fingerprint)) {
+          continue;
+        }
+        notifiedDependencyFailuresRef.current.add(fingerprint);
+        const artifacts = failures
+          .map((failure) => failure.artifact_id)
+          .slice(0, 3)
+          .join(', ');
+        toast.warning(
+          t('plugin.dependencyDownloadPartialFailed', {
+            name: item.name,
+            version: item.version,
+            count: failures.length,
+          }),
+          {
+            description: t('plugin.dependencyDownloadPartialFailedDesc', {
+              artifacts,
+            }),
+            duration: 10000,
+          },
+        );
+      }
+    },
+    [t],
+  );
+
   /**
    * 轻量轮询：只拉活动下载与本地落盘，不打集群安装态、不闪 loading。
    * Lightweight poll: active downloads + local disk only; skip cluster status and loading flash.
@@ -530,6 +568,7 @@ export function PluginMain() {
         }
         return downloadedKeys;
       });
+      notifyDependencyFailures(localResult || []);
       setLocalPlugins((prev) => {
         const next = localResult || [];
         if (
@@ -592,7 +631,7 @@ export function PluginMain() {
     } catch (err) {
       console.error('Failed to poll active downloads:', err);
     }
-  }, [mergeDownloadingPlugins, t]);
+  }, [mergeDownloadingPlugins, notifyDependencyFailures, t]);
 
   /**
    * Load local downloaded plugins and their cluster installation status
@@ -609,6 +648,7 @@ export function PluginMain() {
       ]);
 
       setLocalPlugins(localResult || []);
+      notifyDependencyFailures(localResult || []);
       // 用已下载产物上的画像覆盖会话映射，保证安装预填与下载时选择一致。
       // Overlay in-memory profiles with artifact metadata so install prefills match download-time picks.
       setSelectedProfileKeysByPlugin((prev) =>
@@ -688,7 +728,7 @@ export function PluginMain() {
     } finally {
       setLocalPluginsLoading(false);
     }
-  }, [mergeDownloadingPlugins, t]);
+  }, [mergeDownloadingPlugins, notifyDependencyFailures, t]);
 
   const getSelectedProfileKeysForPlugin = useCallback(
     (pluginName: string) => selectedProfileKeysByPlugin[pluginName] || [],

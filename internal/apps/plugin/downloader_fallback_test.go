@@ -25,6 +25,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -124,5 +125,74 @@ func TestShouldTryNextMirror(t *testing.T) {
 		if got := shouldTryNextMirror(c.err); got != c.want {
 			t.Errorf("shouldTryNextMirror(%v) = %v, want %v", c.err, got, c.want)
 		}
+	}
+}
+
+func TestDownloadPlugin_dependencyFailureIsRecordedWithoutBlocking(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "missing-dep") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, ".sha1") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte("jar-bytes"))
+	}))
+	defer server.Close()
+
+	oldMirrors := make(map[MirrorSource]string, len(MirrorURLs))
+	for key, value := range MirrorURLs {
+		oldMirrors[key] = value
+		MirrorURLs[key] = server.URL
+	}
+	defer func() {
+		for key, value := range oldMirrors {
+			MirrorURLs[key] = value
+		}
+	}()
+
+	pluginsDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(pluginsDir, "9.9.91", "connectors"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginsDir, "9.9.91", "connectors", "connector-jdbc-9.9.91.jar"), []byte("connector"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	d := NewDownloader(pluginsDir)
+	plugin := &Plugin{
+		Name:       "jdbc",
+		ArtifactID: "connector-jdbc",
+		GroupID:    "org.apache.seatunnel",
+		Version:    "9.9.91",
+		Dependencies: []PluginDependency{
+			{GroupID: "example", ArtifactID: "good-dep", Version: "1.0", TargetDir: "lib"},
+			{GroupID: "example", ArtifactID: "missing-dep", Version: "1.0", TargetDir: "lib"},
+		},
+	}
+
+	if err := d.DownloadPlugin(context.Background(), plugin, MirrorSourceApache, []string{"mysql"}, true, false, nil); err != nil {
+		t.Fatalf("expected dependency failure not to block plugin download, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(pluginsDir, "9.9.91", "lib", "good-dep-1.0.jar")); err != nil {
+		t.Fatalf("expected successful dependency to be downloaded: %v", err)
+	}
+
+	metadata, err := d.readPluginMetadata("jdbc", "9.9.91")
+	if err != nil {
+		t.Fatalf("expected plugin metadata: %v", err)
+	}
+	if len(metadata.DependencyFailures) != 1 || metadata.DependencyFailures[0].ArtifactID != "missing-dep" {
+		t.Fatalf("expected missing dependency failure in metadata, got %+v", metadata.DependencyFailures)
+	}
+
+	locals, err := d.ListLocalPlugins()
+	if err != nil {
+		t.Fatalf("list local plugins: %v", err)
+	}
+	if len(locals) != 1 || len(locals[0].DependencyFailures) != 1 || locals[0].DependencyFailures[0].ArtifactID != "missing-dep" {
+		t.Fatalf("expected local plugin to expose dependency failure, got %+v", locals)
 	}
 }

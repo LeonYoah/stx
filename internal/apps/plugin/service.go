@@ -1301,6 +1301,8 @@ func (s *Service) DownloadAllPlugins(ctx context.Context, version string, mirror
 
 	// Get all available plugins / 获取所有可用插件
 	plugins, _, _, _, _ := s.getPlugins(ctx, version, mirror)
+	s.ensureBundledSeedLoaded(ctx, version)
+	plugins = s.enrichPluginsWithDependencyState(ctx, version, plugins)
 	if len(plugins) == 0 {
 		return nil, fmt.Errorf("no plugins found for version %s", version)
 	}
@@ -1356,7 +1358,7 @@ func requiresExplicitProfileSelection(plugin *Plugin) bool {
 	if plugin == nil {
 		return false
 	}
-	return plugin.ArtifactID == "connector-jdbc" || plugin.Name == "jdbc"
+	return plugin.RequiresProfileSelection
 }
 
 func (s *Service) isPluginConnectorDownloaded(plugin *Plugin, version string) bool {
@@ -1645,7 +1647,7 @@ func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, re
 			}
 		}
 		if !dependenciesReady {
-			if err := s.downloader.DownloadDependencies(ctx, pluginInfo, mirror, progressCallback); err != nil {
+			if _, err := s.downloader.DownloadDependencies(ctx, pluginInfo, mirror, progressCallback); err != nil {
 				progress.Status = "failed"
 				progress.Error = err.Error()
 				s.setInstallProgress(clusterID, req.PluginName, progress)

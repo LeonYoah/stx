@@ -106,6 +106,14 @@ type PluginDependency struct {
 	StoredPath       string                 `json:"-"`                            // 控制面存储路径（仅服务端内部使用）/ Stored path (server-side only)
 }
 
+type PluginDependencyFailure struct {
+	GroupID    string `json:"group_id"`
+	ArtifactID string `json:"artifact_id"`
+	Version    string `json:"version"`
+	TargetDir  string `json:"target_dir"`
+	Error      string `json:"error"`
+}
+
 // PluginDependencySource represents the source type of an effective dependency.
 // PluginDependencySource 表示依赖来源类型。
 type PluginDependencySource string
@@ -178,6 +186,7 @@ type Plugin struct {
 	DependencyCount           int                      `json:"dependency_count,omitempty"`            // 生效依赖数量 / Effective dependency count
 	DependencyBaselineVersion string                   `json:"dependency_baseline_version,omitempty"` // 依赖基线版本 / Dependency baseline version
 	DependencyResolutionMode  DependencyResolutionMode `json:"dependency_resolution_mode,omitempty"`  // 依赖解析模式 / Dependency resolution mode
+	RequiresProfileSelection  bool                     `json:"requires_profile_selection,omitempty"`
 }
 
 // InstalledPlugin represents a plugin installed on a cluster (GORM model).

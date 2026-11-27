@@ -97,6 +97,9 @@
 - **记录敏感信息**：不得在日志中输出密码、令牌、API 密钥或任何用于认证的配置，也不得记录可能包含凭据的请求/响应体。
 - **忽略错误**：不得对影响正确性的错误使用 `_ = ...`，要么处理错误，要么在注释中说明为何可以忽略（如尽力而为的清理）。
 - **跨挂载目录裸调 `os.Rename`**：不得直接把独立可配置目录（如 `storage.temp_dir`）里的临时文件通过裸 `os.Rename` 移到另一持久化目录（如 `storage.packages_dir` / `storage.plugins_dir`）；Docker 多卷挂载或分盘部署下必报 `EXDEV (invalid cross-device link)`。落盘临时文件应直接建在目标同目录（隐藏 `.tmp` 名称），或统一走带 `syscall.EXDEV` 同目录拷贝原子替换兜底的 helper（参考 `internal/apps/installer/service.go` 的 `moveFileAtomic`）。
+- **单测篡改包级可变钩子**：不得用包级可变函数或 map（如 `var renameFile = os.Rename`）作为测试注入点并在单测中原地覆写；同包存在 `t.Parallel()` 或并发 goroutine 时，在 `go test -race` 下必然触发数据竞争。应通过实例字段或显式 helper 参数注入测试替身（例如 `moveFileAtomicWith(src, dst, renameFn)`）。
+- **外部归档未防穿越/无限流解压及非原子覆写落盘**：解压外部上传或导入的压缩包前，必须校验归档内路径（拒绝绝对路径与 `..` 越界，配合目标目录前缀归一校验），且限制单条目与总解压字节上限（如 `io.LimitReader`）防压缩炸弹；向持久化目录写入或归档文件时，禁止直接截断覆写目标路径，必须先写同目录隐藏临时文件再原子替换。
+- **同步本地状态查询隐式触发远端网络请求**：检查本地缓存/磁盘状态的只读查询方法，不得在未命中缓存时顺手触发同步 HTTP 或远端仓库抓取，避免断网/慢网环境下阻塞主流程与列表轮询；本地查询只查本地快照、内置基线与磁盘文件。
 
 ---
 
@@ -116,6 +119,7 @@
 - **覆盖重点**：以 repository 和 service 逻辑为主；handler 常通过间接方式覆盖。关键路径（如重名、未找到）应有测试。
 - **命名**：测试函数名为 `TestXxx`；子测试用 `t.Run("描述", ...)`。示例：`TestRepository_Create_clusterNameDuplicate_returnsErrClusterNameDuplicate`。
 - **DB 测试**：使用真实 DB 时，避免依赖共享全局状态；尽量每个测试使用独立 DB 或事务（参见现有 `repository_test.go` 写法）。
+- **并发与竞态校验**：涉及文件落盘、后台 goroutine 或共享内存状态的包，修改后应运行 `go test -race` 确认无数据竞争；测试替身优先采用实例级依赖注入，避免修改包级全局变量。
 - **Java Proxy**：测试目录必须采用与主代码相同的功能包结构；提交前运行 Maven Spotless 和相关 JUnit 测试。若完整测试依赖本机未安装的 SeaTunnel 连接器，须记录缺失夹具，并单独运行不依赖这些夹具的测试。
 
 ---

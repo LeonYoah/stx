@@ -248,7 +248,7 @@ func (e *jobPrometheusExporter) applyJobMetrics(instance *JobInstance, metrics m
 		e.setCounterAbs(e.sinkCommitted, base, *v, jobKey+"|sink_committed")
 	}
 
-	e.observeTableRows(base, jobKey, metrics)
+	e.observeTableRows(base, jobKey, metrics, singleLinkMetricTablesForJob(instance))
 
 	if !updateUp {
 		return
@@ -324,26 +324,56 @@ func (e *jobPrometheusExporter) applyPendingDeletes(batch map[string]prometheus.
 	}
 }
 
-func (e *jobPrometheusExporter) observeTableRows(base []string, jobKey string, metrics map[string]interface{}) {
-	keys := collectTableMetricKeys(metrics)
-	if len(keys) == 0 {
+func (e *jobPrometheusExporter) observeTableRows(base []string, jobKey string, metrics map[string]interface{}, alignment singleLinkMetricTables) {
+	type scored struct {
+		name              string
+		read              float64
+		write             float64
+		committedFallback float64
+		hasWrite          bool
+	}
+	rowsByName := map[string]*scored{}
+	rowFor := func(name string) *scored {
+		row := rowsByName[name]
+		if row == nil {
+			row = &scored{name: name}
+			rowsByName[name] = row
+		}
+		return row
+	}
+	for _, key := range collectTableMetricKeysFrom(metrics, "TableSourceReceivedCount") {
+		name := key
+		if alignment.sourceTable != "" {
+			name = alignment.sourceTable
+		}
+		if v := tableMetricNumber(metrics, "TableSourceReceivedCount", key); v != nil {
+			rowFor(name).read += *v
+		} else {
+			rowFor(name)
+		}
+	}
+	for _, key := range collectTableMetricKeysFrom(metrics, "TableSinkWriteCount", "TableSinkCommittedCount") {
+		name := key
+		if alignment.sinkTable != "" {
+			name = alignment.sinkTable
+		}
+		row := rowFor(name)
+		if v := tableMetricNumber(metrics, "TableSinkWriteCount", key); v != nil {
+			row.write += *v
+			row.hasWrite = true
+		} else if v := tableMetricNumber(metrics, "TableSinkCommittedCount", key); v != nil {
+			row.committedFallback += *v
+		}
+	}
+	if len(rowsByName) == 0 {
 		return
 	}
-	type scored struct {
-		name  string
-		read  float64
-		write float64
-	}
-	rows := make([]scored, 0, len(keys))
-	for _, key := range keys {
-		item := scored{name: key}
-		if v := tableMetricNumber(metrics, "TableSourceReceivedCount", key); v != nil {
-			item.read = *v
+	rows := make([]scored, 0, len(rowsByName))
+	for _, row := range rowsByName {
+		if !row.hasWrite || row.committedFallback > row.write {
+			row.write = row.committedFallback
 		}
-		if v := firstTableMetricNumber(metrics, key, "TableSinkWriteCount", "TableSinkCommittedCount"); v != nil {
-			item.write = *v
-		}
-		rows = append(rows, item)
+		rows = append(rows, *row)
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		si := rows[i].read + rows[i].write
@@ -369,6 +399,93 @@ func (e *jobPrometheusExporter) observeTableRows(base []string, jobKey string, m
 		e.setCounterAbs(e.tableRows, append(append([]string{}, base...), "read", "other"), otherRead, jobKey+"|tbl|read|other")
 		e.setCounterAbs(e.tableRows, append(append([]string{}, base...), "write", "other"), otherWrite, jobKey+"|tbl|write|other")
 	}
+}
+
+type singleLinkMetricTables struct {
+	sourceTable string
+	sinkTable   string
+}
+
+func singleLinkMetricTablesForJob(instance *JobInstance) singleLinkMetricTables {
+	var result singleLinkMetricTables
+	if instance == nil {
+		return result
+	}
+	dag := mapValue(instance.ResultPreview, "job_dag")
+	if dag == nil {
+		return result
+	}
+	vertices := make([]map[string]any, 0)
+	visit := func(raw any) {
+		if entry, ok := raw.(map[string]any); ok {
+			vertices = append(vertices, entry)
+		}
+	}
+	switch infoMap := dag["vertexInfoMap"].(type) {
+	case map[string]any:
+		for _, raw := range infoMap {
+			visit(raw)
+		}
+	case []any:
+		for _, raw := range infoMap {
+			visit(raw)
+		}
+	}
+	sourceTable := singleMetricTablePath(vertices, "source")
+	sinkTable := singleMetricTablePath(vertices, "sink")
+	if sourceTable == "" || sinkTable == "" {
+		return singleLinkMetricTables{}
+	}
+	return singleLinkMetricTables{sourceTable: sourceTable, sinkTable: sinkTable}
+}
+
+func singleMetricTablePath(vertices []map[string]any, vertexType string) string {
+	matches := make([]map[string]any, 0, 1)
+	for _, vertex := range vertices {
+		typ, _ := vertex["type"].(string)
+		if strings.EqualFold(strings.TrimSpace(typ), vertexType) {
+			matches = append(matches, vertex)
+		}
+	}
+	if len(matches) != 1 {
+		return ""
+	}
+	paths := metricVertexTablePaths(matches[0])
+	if len(paths) != 1 || strings.EqualFold(paths[0], "default.default.default") {
+		return ""
+	}
+	return paths[0]
+}
+
+func metricVertexTablePaths(vertex map[string]any) []string {
+	seen := map[string]struct{}{}
+	paths := make([]string, 0)
+	add := func(raw any) {
+		value, ok := raw.(string)
+		if !ok {
+			return
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, exists := seen[value]; exists {
+			return
+		}
+		seen[value] = struct{}{}
+		paths = append(paths, value)
+	}
+	switch rawPaths := vertex["tablePaths"].(type) {
+	case []any:
+		for _, raw := range rawPaths {
+			add(raw)
+		}
+	case []string:
+		for _, raw := range rawPaths {
+			add(raw)
+		}
+	}
+	return paths
 }
 
 // observeCDCDelay 写入 CDC 延迟 gauge（秒）。

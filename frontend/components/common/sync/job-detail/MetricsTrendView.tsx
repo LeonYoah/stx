@@ -34,6 +34,8 @@ import {SankeyChart} from '@/components/charts/sankey-chart';
 import {type SyncJobInstance, type SyncJobTimeseries} from '@/lib/services/sync';
 import {buildMetricFlowSankey, buildPairedMetricRows, toObject} from '../sync-studio-utils';
 import {fetchJobTimeseriesCached} from './metric-timeseries';
+import {normalizeJobDag} from './dag-model';
+import {buildMetricTableAlignment} from '../metric-table-alignment';
 import {
   TREND_COLORS,
   brushMinSpan,
@@ -210,6 +212,11 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
   }, []);
   const segmentValue = selection.kind === 'preset' ? selection.range : selection.kind === 'lifetime' ? LIFETIME : '';
 
+  const metricAlignment = useMemo(
+    () => buildMetricTableAlignment(normalizeJobDag(job?.result_preview?.job_dag).vertices),
+    [job?.result_preview?.job_dag],
+  );
+
   const seriesByKey = useCallback(
     (key: string) => (data?.series ?? []).filter((item) => item.key === key || item.key.startsWith(key)),
     [data?.series],
@@ -351,7 +358,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
     // 与按表曲线同一套配色：同一张表在桑基图和下方按表图里同色。未匹配（「其它」归并）退回中性色。
     // Same palette as the per-table charts so a table keeps its color here; unmatched (merged "other") falls back to neutral.
     const tableColors = colorByTable(
-      buildPairedMetricRows(metrics).map((row) => row.sinkTable || row.sinkNode),
+      buildPairedMetricRows(metrics, metricAlignment).map((row) => row.sinkTable || row.sinkNode),
     );
     return buildMetricFlowSankey(metrics, {
       labels: {
@@ -368,8 +375,9 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
         warning: 'var(--warning)',
       },
       maxLinks: 8,
+      alignment: metricAlignment,
     });
-  }, [job, t]);
+  }, [job, metricAlignment, t]);
   // beUI 自己做占位符插值（{count}/{source}/{share}），必须走 t.raw 取未插值模板，
   // 直接 t() 会被 next-intl 当成缺参报错。
   // beUI interpolates placeholders ({count}/{source}/{share}) itself, so pass raw

@@ -19,8 +19,11 @@ import {describe, expect, it} from 'vitest';
 import {
   buildMetricFlowBar,
   buildMetricFlowSankey,
+  buildPairedMetricRows,
+  buildPerTableMetricRows,
   summarizeMetricFlow,
 } from '../sync-studio-utils';
+import {buildMetricTableAlignment} from '../metric-table-alignment';
 
 const flowMetrics = (over: Record<string, unknown> = {}) => ({
   SourceReceivedCount: 1000,
@@ -209,6 +212,97 @@ const tableMetrics = (
   }
   return metrics;
 };
+
+
+const aliasedMetrics = {
+  TableSourceReceivedCount: {
+    'Source[0].wcan-common-tbox1-r1p24': '0',
+    'Optional[wcan-common-tbox1-r1p24]': '233132',
+  },
+  TableSinkWriteCount: {
+    'Sink[0].ah1110.ods_wcan_common_tbox1_json': '0',
+    'default.default.default': '233132',
+  },
+  TableSinkCommittedCount: {
+    'Sink[0].ah1110.ods_wcan_common_tbox1_json': '0',
+    'default.default.default': '232832',
+  },
+};
+
+const singleLinkVertices = [
+  {type: 'source', metricPrefix: 'Source[0]', tablePaths: ['wcan-common-tbox1-r1p24']},
+  {type: 'transform', metricPrefix: 'Transform[0]', tablePaths: []},
+  {type: 'sink', metricPrefix: 'Sink[0]', tablePaths: ['ah1110.ods_wcan_common_tbox1_json']},
+];
+
+describe('metric table alignment', () => {
+  it('merges alias and fallback keys into the only source and sink tables while preserving raw keys', () => {
+    const alignment = buildMetricTableAlignment(singleLinkVertices);
+    const rows = buildPerTableMetricRows(aliasedMetrics, alignment);
+    expect(rows).toHaveLength(2);
+    const source = rows.find((row) => row.rowTone === 'source');
+    const sink = rows.find((row) => row.rowTone === 'sink');
+    expect(source).toMatchObject({
+      nodeLabel: 'Source #1',
+      tablePath: 'wcan-common-tbox1-r1p24',
+      sourceCount: '233,132',
+      sinkCount: '-',
+    });
+    expect(sink).toMatchObject({
+      nodeLabel: 'Sink #1',
+      tablePath: 'ah1110.ods_wcan_common_tbox1_json',
+      sourceCount: '-',
+      sinkCount: '233,132',
+      committedCount: '232,832',
+    });
+    expect(source?.rawTables).toEqual([
+      'Optional[wcan-common-tbox1-r1p24]',
+      'Source[0].wcan-common-tbox1-r1p24',
+    ]);
+    expect(sink?.rawTables).toEqual([
+      'Sink[0].ah1110.ods_wcan_common_tbox1_json',
+      'default.default.default',
+    ]);
+  });
+
+  it('pairs different source and sink table names when the single link is unambiguous', () => {
+    const alignment = buildMetricTableAlignment(singleLinkVertices);
+    const paired = buildPairedMetricRows(aliasedMetrics, alignment);
+    expect(paired).toHaveLength(1);
+    expect(paired[0]).toMatchObject({
+      sourceNode: 'Source #1',
+      sourceTable: 'wcan-common-tbox1-r1p24',
+      sinkNode: 'Sink #1',
+      sinkTable: 'ah1110.ods_wcan_common_tbox1_json',
+      sourceCount: '233,132',
+      sinkCount: '233,132',
+      committedCount: '232,832',
+    });
+  });
+
+  it('falls back to raw keys when the topology does not identify a single link', () => {
+    const rows = buildPerTableMetricRows(aliasedMetrics);
+    expect(rows).toHaveLength(4);
+    expect(rows.find((row) => row.rawTable === 'Optional[wcan-common-tbox1-r1p24]')?.rowTone).toBe('source');
+    expect(rows.find((row) => row.rawTable === 'default.default.default')?.rowTone).toBe('sink');
+    const paired = buildPairedMetricRows(aliasedMetrics);
+    expect(paired).toHaveLength(0);
+  });
+
+  it('does not align when either endpoint has several logical tables', () => {
+    const alignment = buildMetricTableAlignment([
+      {type: 'source', metricPrefix: 'Source[0]', tablePaths: ['topic-a', 'topic-b']},
+      {type: 'sink', metricPrefix: 'Sink[0]', tablePaths: ['db.t']},
+    ]);
+    expect(alignment.source).toBeUndefined();
+    expect(alignment.sink).toBeUndefined();
+    const rows = buildPerTableMetricRows(
+      {TableSourceReceivedCount: {'Optional[topic-a]': '100'}},
+      alignment,
+    );
+    expect(rows[0].rawTable).toBe('Optional[topic-a]');
+  });
+});
 
 describe('buildMetricFlowSankey', () => {
   it('builds source → sink → commit-state links plus a backlog branch', () => {

@@ -196,8 +196,12 @@ func firstTableMetricNumber(metrics map[string]interface{}, tableKey string, map
 }
 
 func collectTableMetricKeys(metrics map[string]interface{}) []string {
+	return collectTableMetricKeysFrom(metrics, "TableSourceReceivedCount", "TableSinkWriteCount", "TableSinkCommittedCount")
+}
+
+func collectTableMetricKeysFrom(metrics map[string]interface{}, mapKeys ...string) []string {
 	keys := map[string]struct{}{}
-	for _, mapKey := range []string{"TableSourceReceivedCount", "TableSinkWriteCount", "TableSinkCommittedCount"} {
+	for _, mapKey := range mapKeys {
 		raw, ok := metrics[mapKey]
 		if !ok || raw == nil {
 			continue

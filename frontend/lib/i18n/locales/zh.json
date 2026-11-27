@@ -6097,6 +6097,7 @@
     "metricFlowZeroTitle": "全为 0 的指标",
     "metricFlowItemCount": "{count} 项",
     "metricFlowEndpoints": "{count} 个端点",
+    "metricFlowRawKeys": "原始指标 key",
     "metricFlowSearchEmpty": "没有匹配 \"{query}\" 的链路",
     "copyCheckpoint": "复制位点",
     "copyError": "复制错误"

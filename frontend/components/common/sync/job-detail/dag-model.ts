@@ -31,6 +31,7 @@ import type {
   SyncRealtimeVertex,
   SyncSinkSaveModePreviewTable,
 } from '@/lib/services/sync';
+import {buildMetricTableAlignment} from '../metric-table-alignment';
 
 export type DagVertexType = 'source' | 'transform' | 'sink' | string;
 
@@ -304,22 +305,27 @@ export function buildMetricIndex(metrics: unknown, vertices: DagVertex[] = []): 
   const root = toObject(metrics);
   const tables = new Map<string, Map<string, TableStats>>();
   const totals = new Map<string, TableStats>();
+  const alignment = buildMetricTableAlignment(vertices);
   for (const [metricKey, field] of TABLE_METRIC_FIELDS) {
+    const endpoint = metricKey.startsWith('TableSource') ? alignment.source : alignment.sink;
     for (const [rawKey, rawValue] of Object.entries(toObject(root[metricKey]))) {
       const match = TABLE_METRIC_KEY.exec(rawKey);
       const value = toNumber(rawValue);
-      if (!match || value === undefined) {
+      if (!match && !endpoint?.metricPrefix) {
         continue;
       }
-      const prefix = match[1];
-      const table = match[2];
+      if (value === undefined) {
+        continue;
+      }
+      const prefix = endpoint?.metricPrefix || (match?.[1] as string);
+      const table = endpoint?.tablePath || (match?.[2] as string);
       let byTable = tables.get(prefix);
       if (!byTable) {
         byTable = new Map();
         tables.set(prefix, byTable);
       }
       const stats = byTable.get(table) ?? {};
-      stats[field] = value;
+      addStat(stats, field, value);
       byTable.set(table, stats);
       const total = totals.get(prefix) ?? {};
       addStat(total, field, value);

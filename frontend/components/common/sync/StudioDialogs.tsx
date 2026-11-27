@@ -71,6 +71,8 @@ import {
   type UserFacingErrorState,
 } from './sync-studio-utils';
 import {useWriteRateSparkline} from './job-detail/metric-timeseries';
+import {normalizeJobDag} from './job-detail/dag-model';
+import {buildMetricTableAlignment} from './metric-table-alignment';
 import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
@@ -516,8 +518,18 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
   const zeroMetricItems = allMetricGroups.flatMap((group) =>
     group.items.filter((item) => isZeroMetricValue(item.value)),
   );
-  const perTableRows = buildPerTableMetricRows(rawMetrics);
-  const pairedMetricRows = buildPairedMetricRows(rawMetrics);
+  const metricAlignment = useMemo(
+    () => buildMetricTableAlignment(normalizeJobDag(job?.result_preview?.job_dag).vertices),
+    [job?.result_preview?.job_dag],
+  );
+  const perTableRows = useMemo(
+    () => buildPerTableMetricRows(rawMetrics, metricAlignment),
+    [rawMetrics, metricAlignment],
+  );
+  const pairedMetricRows = useMemo(
+    () => buildPairedMetricRows(rawMetrics, metricAlignment),
+    [rawMetrics, metricAlignment],
+  );
   const [detailsExpanded, setDetailsExpanded] = useState(true);
   const [moreExpanded, setMoreExpanded] = useState(false);
   const [tableSearch, setTableSearch] = useState('');
@@ -807,6 +819,9 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
                                   ? ` · ${t('metricCountDiff')}: ${row.countDiff.toLocaleString()}`
                                   : ''}
                               </div>
+                              <div className='font-mono break-all'>
+                                {t('metricFlowRawKeys')}: {[...row.sourceRawTables, ...row.sinkRawTables].join(', ')}
+                              </div>
                             </div>
                           </TooltipContent>
                         </Tooltip>
@@ -877,7 +892,7 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
                     </TableHeader>
                     <TableBody>
                       {perTableRows.map((row) => (
-                        <TableRow key={row.rawTable} className='border-border/40 hover:bg-muted/40'>
+                        <TableRow key={`${row.rowTone}-${row.rawTable}`} className='border-border/40 hover:bg-muted/40'>
                           <TableCell className='py-1.5 px-2'>
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -900,6 +915,9 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
                                   </div>
                                   <div>
                                     {t('metricFlowCommitted')}: {row.committedCount} ({row.committedBytes})
+                                  </div>
+                                  <div className='font-mono break-all'>
+                                    {t('metricFlowRawKeys')}: {row.rawTables.join(', ')}
                                   </div>
                                 </div>
                               </TooltipContent>

@@ -45,6 +45,7 @@ import type {CustomVariableItem} from './CustomVariableDialog';
 import type {TaskScheduleValue} from './TaskScheduleSidebarPanel';
 import {formatDateTimeTz} from '@/lib/timezone';
 import {isReservedBuiltinVariableKey} from './builtin-time-variables';
+import type {MetricTableAlignment, MetricTableEndpointAlignment} from './metric-table-alignment';
 
 // ==========================================
 // 状态与类型定义
@@ -4334,61 +4335,188 @@ export function toStringMetricMap(value: unknown): Record<string, string> {
   );
 }
 
-export function buildPerTableMetricRows(metrics: Record<string, unknown>) {
-  const sourceCount = toStringMetricMap(metrics.TableSourceReceivedCount);
-  const sourceBytes = toStringMetricMap(metrics.TableSourceReceivedBytes);
-  const sourceQps = toStringMetricMap(metrics.TableSourceReceivedQPS);
-  const sinkCount = toStringMetricMap(metrics.TableSinkWriteCount);
-  const sinkBytes = toStringMetricMap(metrics.TableSinkWriteBytes);
-  const sinkQps = toStringMetricMap(metrics.TableSinkWriteQPS);
-  const committedCount = toStringMetricMap(metrics.TableSinkCommittedCount);
-  const committedBytes = toStringMetricMap(metrics.TableSinkCommittedBytes);
-
-  const allTables = Array.from(
-    new Set([
-      ...Object.keys(sourceCount),
-      ...Object.keys(sourceBytes),
-      ...Object.keys(sourceQps),
-      ...Object.keys(sinkCount),
-      ...Object.keys(sinkBytes),
-      ...Object.keys(sinkQps),
-      ...Object.keys(committedCount),
-      ...Object.keys(committedBytes),
-    ]),
-  ).sort();
-
-  return allTables.map((table) => {
-    const path = extractMetricTablePath(table);
-    const match = table.match(/^(Source|Sink)\[(\d+)\]\.(.+)$/i);
-    const nodeType = match?.[1]
-      ? match[1][0].toUpperCase() + match[1].slice(1).toLowerCase()
-      : 'Table';
-    const nodeIndex = match?.[2] ? Number(match[2]) + 1 : null;
-    const tablePath = path || table;
-    return {
-      rawTable: table,
-      nodeLabel: nodeIndex !== null ? `${nodeType} #${nodeIndex}` : nodeType,
-      rowTone:
-        nodeType === 'Source'
-          ? 'source'
-          : nodeType === 'Sink'
-            ? 'sink'
-            : 'neutral',
-      tablePath,
-      sourceCount: sourceCount[table] || '-',
-      sourceBytes: sourceBytes[table] || '-',
-      sourceQps: sourceQps[table] || '-',
-      sinkCount: sinkCount[table] || '-',
-      sinkBytes: sinkBytes[table] || '-',
-      sinkQps: sinkQps[table] || '-',
-      committedCount: committedCount[table] || '-',
-      committedBytes: committedBytes[table] || '-',
-    };
-  });
+export interface PerTableMetricRow {
+  rawTable: string;
+  rawTables: string[];
+  nodeLabel: string;
+  rowTone: 'source' | 'sink' | 'neutral';
+  tablePath: string;
+  sourceCount: string;
+  sourceBytes: string;
+  sourceQps: string;
+  sinkCount: string;
+  sinkBytes: string;
+  sinkQps: string;
+  committedCount: string;
+  committedBytes: string;
 }
 
-export function buildPairedMetricRows(metrics: Record<string, unknown>) {
-  const perTableRows = buildPerTableMetricRows(metrics);
+function aggregateMetricValues(metricMap: unknown, keys: Iterable<string>): string {
+  const root = toObject(metricMap);
+  let sum = 0;
+  let seen = false;
+  let fallback = '-';
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(root, key)) {
+      continue;
+    }
+    const raw = root[key];
+    const numeric = parseMetricNumber(raw);
+    if (numeric === null) {
+      fallback = formatMetricDisplayValue(raw);
+      continue;
+    }
+    sum += numeric;
+    seen = true;
+  }
+  return seen ? formatMetricDisplayValue(sum) : fallback;
+}
+
+function metricNodeLabelFromKey(metricKey: string, inferredTone: 'source' | 'sink' | 'neutral'): string {
+  const match = metricKey.match(/^(Source|Sink)\[(\d+)\]\.(.+)$/i);
+  if (match?.[1]) {
+    const nodeType = match[1][0].toUpperCase() + match[1].slice(1).toLowerCase();
+    return `${nodeType} #${Number(match[2]) + 1}`;
+  }
+  if (inferredTone === 'source') {
+    return 'Source';
+  }
+  if (inferredTone === 'sink') {
+    return 'Sink';
+  }
+  return 'Table';
+}
+
+export function buildPerTableMetricRows(
+  metrics: Record<string, unknown>,
+  alignment: MetricTableAlignment = {},
+): PerTableMetricRow[] {
+  const sourceMetricMaps = [
+    metrics.TableSourceReceivedCount,
+    metrics.TableSourceReceivedBytes,
+    metrics.TableSourceReceivedQPS,
+  ];
+  const sinkMetricMaps = [
+    metrics.TableSinkWriteCount,
+    metrics.TableSinkWriteBytes,
+    metrics.TableSinkWriteQPS,
+    metrics.TableSinkCommittedCount,
+    metrics.TableSinkCommittedBytes,
+  ];
+
+  interface KeyGroup {
+    id: string;
+    endpoint?: MetricTableEndpointAlignment;
+    rawKeys: Set<string>;
+    sourceKeys: Set<string>;
+    sinkKeys: Set<string>;
+  }
+  const groups = new Map<string, KeyGroup>();
+  const addKeys = (metricMap: unknown, side: 'source' | 'sink') => {
+    for (const key of Object.keys(toObject(metricMap))) {
+      const endpoint = side === 'source' ? alignment.source : alignment.sink;
+      const id = endpoint ? `aligned-${side}` : key;
+      let group = groups.get(id);
+      if (!group) {
+        group = {
+          id,
+          endpoint,
+          rawKeys: new Set<string>(),
+          sourceKeys: new Set<string>(),
+          sinkKeys: new Set<string>(),
+        };
+        groups.set(id, group);
+      }
+      group.rawKeys.add(key);
+      if (side === 'source') {
+        group.sourceKeys.add(key);
+      } else {
+        group.sinkKeys.add(key);
+      }
+    }
+  };
+  sourceMetricMaps.forEach((metricMap) => addKeys(metricMap, 'source'));
+  sinkMetricMaps.forEach((metricMap) => addKeys(metricMap, 'sink'));
+
+  return Array.from(groups.values())
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((group) => {
+      const rawTable = group.endpoint?.canonicalKey || group.id;
+      const prefixed = rawTable.match(/^(Source|Sink)\[(\d+)\]\.(.+)$/i);
+      const hasSourceValues = group.sourceKeys.size > 0;
+      const hasSinkValues = group.sinkKeys.size > 0;
+      const rowTone: PerTableMetricRow['rowTone'] = group.endpoint
+        ? group.endpoint.type
+        : prefixed?.[1]
+          ? (prefixed[1].toLowerCase() as 'source' | 'sink')
+          : hasSourceValues && !hasSinkValues
+            ? 'source'
+            : hasSinkValues && !hasSourceValues
+              ? 'sink'
+              : 'neutral';
+      const tablePath = group.endpoint?.tablePath || extractMetricTablePath(rawTable) || rawTable;
+      return {
+        rawTable,
+        rawTables: Array.from(group.rawKeys).sort(),
+        nodeLabel: group.endpoint?.nodeLabel || metricNodeLabelFromKey(rawTable, rowTone),
+        rowTone,
+        tablePath,
+        sourceCount: aggregateMetricValues(metrics.TableSourceReceivedCount, group.sourceKeys),
+        sourceBytes: aggregateMetricValues(metrics.TableSourceReceivedBytes, group.sourceKeys),
+        sourceQps: aggregateMetricValues(metrics.TableSourceReceivedQPS, group.sourceKeys),
+        sinkCount: aggregateMetricValues(metrics.TableSinkWriteCount, group.sinkKeys),
+        sinkBytes: aggregateMetricValues(metrics.TableSinkWriteBytes, group.sinkKeys),
+        sinkQps: aggregateMetricValues(metrics.TableSinkWriteQPS, group.sinkKeys),
+        committedCount: aggregateMetricValues(metrics.TableSinkCommittedCount, group.sinkKeys),
+        committedBytes: aggregateMetricValues(metrics.TableSinkCommittedBytes, group.sinkKeys),
+      };
+    });
+}
+
+function buildPairedMetricRow(key: string, source: PerTableMetricRow, sink: PerTableMetricRow) {
+  const parseMetricNum = (value: string): number | null => {
+    if (!value || value === '-') {
+      return null;
+    }
+    const num = Number(value.replace(/,/g, ''));
+    return Number.isNaN(num) ? null : num;
+  };
+  const srcNum = parseMetricNum(source.sourceCount);
+  const sinkNum = parseMetricNum(sink.sinkCount);
+  const countDiff = srcNum !== null && sinkNum !== null ? sinkNum - srcNum : null;
+  return {
+    key,
+    sourceNode: source.nodeLabel,
+    sourceTable: source.tablePath,
+    sourceRawTables: source.rawTables,
+    sinkNode: sink.nodeLabel,
+    sinkTable: sink.tablePath,
+    sinkRawTables: sink.rawTables,
+    sourceCount: source.sourceCount,
+    sourceBytes: source.sourceBytes,
+    sourceQps: source.sourceQps,
+    sinkCount: sink.sinkCount,
+    sinkBytes: sink.sinkBytes,
+    sinkQps: sink.sinkQps,
+    countDiff,
+    committedCount: sink.committedCount,
+    committedBytes: sink.committedBytes,
+  };
+}
+
+export function buildPairedMetricRows(
+  metrics: Record<string, unknown>,
+  alignment: MetricTableAlignment = {},
+) {
+  const perTableRows = buildPerTableMetricRows(metrics, alignment);
+  if (alignment.source && alignment.sink) {
+    const alignedSourceRows = perTableRows.filter((row) => row.rowTone === 'source');
+    const alignedSinkRows = perTableRows.filter((row) => row.rowTone === 'sink');
+    if (alignedSourceRows.length === 1 && alignedSinkRows.length === 1) {
+      return [buildPairedMetricRow('link', alignedSourceRows[0], alignedSinkRows[0])];
+    }
+  }
+
   const sourceBuckets = new Map<string, typeof perTableRows>();
   const sinkBuckets = new Map<string, typeof perTableRows>();
   for (const row of perTableRows) {
@@ -4414,35 +4542,7 @@ export function buildPairedMetricRows(metrics: Record<string, unknown>) {
       const sourceRows = sourceBuckets.get(key) || [];
       const sinkRows = sinkBuckets.get(key) || [];
       if (sourceRows.length === 1 && sinkRows.length === 1) {
-        const source = sourceRows[0];
-        const sink = sinkRows[0];
-        // 解析数值以计算条数差额与对等性 / Parse numbers to compute count disparity
-        const parseMetricNum = (v: string): number | null => {
-          if (!v || v === '-') {return null;}
-          const num = Number(v.replace(/,/g, ''));
-          return isNaN(num) ? null : num;
-        };
-        const srcNum = parseMetricNum(source.sourceCount);
-        const sinkNum = parseMetricNum(sink.sinkCount);
-        const countDiff =
-          srcNum !== null && sinkNum !== null ? sinkNum - srcNum : null;
-
-        return {
-          key,
-          sourceNode: source.nodeLabel,
-          sourceTable: source.tablePath,
-          sinkNode: sink.nodeLabel,
-          sinkTable: sink.tablePath,
-          sourceCount: source.sourceCount,
-          sourceBytes: source.sourceBytes,
-          sourceQps: source.sourceQps,
-          sinkCount: sink.sinkCount,
-          sinkBytes: sink.sinkBytes,
-          sinkQps: sink.sinkQps,
-          countDiff,
-          committedCount: sink.committedCount,
-          committedBytes: sink.committedBytes,
-        };
+        return buildPairedMetricRow(key, sourceRows[0], sinkRows[0]);
       }
       return null;
     })
@@ -4716,11 +4816,12 @@ export function buildMetricFlowSankey(
     labels: MetricFlowSankeyLabels;
     colors: MetricFlowSankeyColors;
     maxLinks?: number;
+    alignment?: MetricTableAlignment;
   },
 ): MetricFlowSankey {
   const {labels, colors} = opts;
   const maxLinks = Math.max(1, Math.floor(opts.maxLinks ?? 8));
-  const numbered = buildPairedMetricRows(metrics)
+  const numbered = buildPairedMetricRows(metrics, opts.alignment)
     .map((row) => {
       const committedRaw = parseMetricNumber(row.committedCount) ?? 0;
       const write = Math.max(0, parseMetricNumber(row.sinkCount) ?? 0);

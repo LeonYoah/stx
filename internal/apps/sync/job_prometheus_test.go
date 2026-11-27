@@ -132,6 +132,136 @@ func sumGauge(mf *dto.MetricFamily) float64 {
 	return sum
 }
 
+func TestJobPrometheusExporter_alignsSingleLinkTableAliases(t *testing.T) {
+	originalEnabled := config.Config.Observability.Enabled
+	t.Cleanup(func() { config.Config.Observability.Enabled = originalEnabled })
+	config.Config.Observability.Enabled = true
+	exp := newJobPrometheusExporter()
+	job := &JobInstance{
+		ID:         77,
+		TaskID:     8,
+		Status:     JobStatusRunning,
+		SubmitSpec: JSONMap{"cluster_id": float64(3)},
+		ResultPreview: JSONMap{"job_dag": map[string]any{
+			"vertexInfoMap": []any{
+				map[string]any{"vertexId": 1, "type": "source", "tablePaths": []any{"wcan-common-tbox1-r1p24"}},
+				map[string]any{"vertexId": 2, "type": "transform", "tablePaths": []any{}},
+				map[string]any{"vertexId": 3, "type": "sink", "tablePaths": []any{"ah1110.ods_wcan_common_tbox1_json"}},
+			},
+		}},
+	}
+	exp.observeJobMetrics(job, map[string]interface{}{
+		"TableSourceReceivedCount": map[string]interface{}{
+			"Source[0].wcan-common-tbox1-r1p24": float64(0),
+			"Optional[wcan-common-tbox1-r1p24]": float64(233132),
+		},
+		"TableSinkWriteCount": map[string]interface{}{
+			"Sink[0].ah1110.ods_wcan_common_tbox1_json": float64(0),
+			"default.default.default":                   float64(233132),
+		},
+		"TableSinkCommittedCount": map[string]interface{}{
+			"Sink[0].ah1110.ods_wcan_common_tbox1_json": float64(0),
+			"default.default.default":                   float64(232832),
+		},
+	})
+	values := gatherTableRowSeries(t, exp, "77")
+	if values["read|wcan-common-tbox1-r1p24"] != 233132 {
+		t.Fatalf("aligned source series mismatch: %#v", values)
+	}
+	if values["write|ah1110.ods_wcan_common_tbox1_json"] != 233132 {
+		t.Fatalf("aligned sink series mismatch: %#v", values)
+	}
+	for key := range values {
+		if strings.Contains(key, "Optional[") || strings.Contains(key, "default.default.default") {
+			t.Fatalf("raw alias series should not be exported after alignment: %#v", values)
+		}
+	}
+}
+
+func TestJobPrometheusExporter_doesNotAlignAmbiguousTableAliases(t *testing.T) {
+	originalEnabled := config.Config.Observability.Enabled
+	t.Cleanup(func() { config.Config.Observability.Enabled = originalEnabled })
+	config.Config.Observability.Enabled = true
+	exp := newJobPrometheusExporter()
+	job := &JobInstance{
+		ID:         78,
+		TaskID:     8,
+		Status:     JobStatusRunning,
+		SubmitSpec: JSONMap{"cluster_id": float64(3)},
+		ResultPreview: JSONMap{"job_dag": map[string]any{
+			"vertexInfoMap": []any{
+				map[string]any{"vertexId": 1, "type": "source", "tablePaths": []any{"topic-a"}},
+				map[string]any{"vertexId": 2, "type": "source", "tablePaths": []any{"topic-b"}},
+			},
+		}},
+	}
+	exp.observeJobMetrics(job, map[string]interface{}{
+		"TableSourceReceivedCount": map[string]interface{}{
+			"Optional[topic-a]": float64(100),
+		},
+	})
+	values := gatherTableRowSeries(t, exp, "78")
+	if values["read|Optional[topic-a]"] != 100 {
+		t.Fatalf("ambiguous raw key must remain unaligned: %#v", values)
+	}
+}
+
+func TestJobPrometheusExporter_committedCountRaisesAlignedWriteFloor(t *testing.T) {
+	originalEnabled := config.Config.Observability.Enabled
+	t.Cleanup(func() { config.Config.Observability.Enabled = originalEnabled })
+	config.Config.Observability.Enabled = true
+	exp := newJobPrometheusExporter()
+	job := &JobInstance{
+		ID:         79,
+		TaskID:     8,
+		Status:     JobStatusRunning,
+		SubmitSpec: JSONMap{"cluster_id": float64(3)},
+		ResultPreview: JSONMap{"job_dag": map[string]any{
+			"vertexInfoMap": []any{
+				map[string]any{"vertexId": 1, "type": "source", "tablePaths": []any{"topic-a"}},
+				map[string]any{"vertexId": 2, "type": "sink", "tablePaths": []any{"db.target"}},
+			},
+		}},
+	}
+	exp.observeJobMetrics(job, map[string]interface{}{
+		"TableSinkWriteCount": map[string]interface{}{
+			"Sink[0].db.target": float64(0),
+		},
+		"TableSinkCommittedCount": map[string]interface{}{
+			"default.default.default": float64(42),
+		},
+	})
+	values := gatherTableRowSeries(t, exp, "79")
+	if values["write|db.target"] != 42 {
+		t.Fatalf("committed fallback should raise the aligned write floor: %#v", values)
+	}
+}
+
+func gatherTableRowSeries(t *testing.T, exp *jobPrometheusExporter, jobID string) map[string]float64 {
+	t.Helper()
+	mfs, err := exp.reg.Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+	values := map[string]float64{}
+	for _, mf := range mfs {
+		if mf.GetName() != "stx_job_table_rows_total" {
+			continue
+		}
+		for _, metric := range mf.GetMetric() {
+			labels := map[string]string{}
+			for _, label := range metric.GetLabel() {
+				labels[label.GetName()] = label.GetValue()
+			}
+			if labels["job_id"] != jobID {
+				continue
+			}
+			values[labels["direction"]+"|"+labels["table"]] = metric.GetCounter().GetValue()
+		}
+	}
+	return values
+}
+
 func TestJobPrometheusExporter_tableCapRollsIntoOther(t *testing.T) {
 	originalEnabled := config.Config.Observability.Enabled
 	t.Cleanup(func() { config.Config.Observability.Enabled = originalEnabled })

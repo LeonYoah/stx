@@ -211,8 +211,50 @@ describe('buildMetricIndex', () => {
     );
     expect(index.vertices.get('Source[0]')).toMatchObject({readCount: 500, readBytes: 38056});
     expect(index.vertices.get('Sink[0]')).toMatchObject({writeCount: 500, writeBytes: 31000, committedCount: 500});
-    expect(index.tables.get('Source[0]')?.get('orders')).toMatchObject({readCount: 500, readBytes: 38056});
-    expect(index.tables.get('Sink[0]')?.get('lakehouse.orders')).toMatchObject({writeCount: 500, writeBytes: 31000});
+    expect(index.tables.get('Source[0]')?.get('seatunnel_test.public.cdc_orders')).toMatchObject({readCount: 500, readBytes: 38056});
+    expect(index.tables.get('Sink[0]')?.get('seatunnel_test.public.cdc_orders')).toMatchObject({writeCount: 500, writeBytes: 31000});
+  });
+
+
+  it('aligns alias and fallback table metric keys for a single-link job', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [
+        {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-Kafka]', tablePaths: ['wcan-common-tbox1-r1p24']},
+        {vertexId: 2, type: 'transform', vertexName: 'pipeline-1 [Transform[0]-Sql]'},
+        {vertexId: 3, type: 'sink', vertexName: 'pipeline-1 [Sink[0]-ClickHouse]', tablePaths: ['ah1110.ods_wcan_common_tbox1_json']},
+      ],
+    });
+    const index = buildMetricIndex(
+      {
+        TableSourceReceivedCount: {
+          'Source[0].wcan-common-tbox1-r1p24': '0',
+          'Optional[wcan-common-tbox1-r1p24]': '233132',
+        },
+        TableSinkWriteCount: {
+          'Sink[0].ah1110.ods_wcan_common_tbox1_json': '0',
+          'default.default.default': '233132',
+        },
+      },
+      graph.vertices,
+    );
+    expect(index.tables.get('Source[0]')?.get('wcan-common-tbox1-r1p24')?.readCount).toBe(233132);
+    expect(index.tables.get('Sink[0]')?.get('ah1110.ods_wcan_common_tbox1_json')?.writeCount).toBe(233132);
+    expect(index.tables.get('Source[0]')?.size).toBe(1);
+    expect(index.tables.get('Sink[0]')?.size).toBe(1);
+  });
+
+  it('does not align ambiguous table metric keys when the job is not single-link', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [
+        {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-Kafka]', tablePaths: ['topic-a']},
+        {vertexId: 2, type: 'source', vertexName: 'pipeline-1 [Source[1]-Kafka]', tablePaths: ['topic-b']},
+      ],
+    });
+    const index = buildMetricIndex(
+      {TableSourceReceivedCount: {'Optional[topic-a]': '100'}},
+      graph.vertices,
+    );
+    expect(index.vertices.size).toBe(0);
   });
 
   it('uses the job total for a single multi-table vertex without inventing per-table attribution', () => {

@@ -152,6 +152,43 @@ describe('MetricsDialogContent', () => {
     expect(screen.queryByPlaceholderText(copy.pipelineSearchTable)).not.toBeInTheDocument();
   });
 
+
+  it('aligns aliased single-link table metrics to the DAG tables', () => {
+    renderSnapshot(
+      job({
+        result_preview: {
+          job_dag: {
+            vertexInfoMap: [
+              {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-Kafka]', tablePaths: ['wcan-common-tbox1-r1p24']},
+              {vertexId: 2, type: 'transform', vertexName: 'pipeline-1 [Transform[0]-Sql]'},
+              {vertexId: 3, type: 'sink', vertexName: 'pipeline-1 [Sink[0]-ClickHouse]', tablePaths: ['ah1110.ods_wcan_common_tbox1_json']},
+            ],
+          },
+          metrics: {
+            ...healthyMetrics,
+            TableSourceReceivedCount: {
+              'Source[0].wcan-common-tbox1-r1p24': '0',
+              'Optional[wcan-common-tbox1-r1p24]': '233132',
+            },
+            TableSinkWriteCount: {
+              'Sink[0].ah1110.ods_wcan_common_tbox1_json': '0',
+              'default.default.default': '233132',
+            },
+            TableSinkCommittedCount: {
+              'Sink[0].ah1110.ods_wcan_common_tbox1_json': '0',
+              'default.default.default': '232832',
+            },
+          },
+        },
+      }),
+    );
+    expect(screen.getByText('wcan-common-tbox1-r1p24')).toBeInTheDocument();
+    expect(screen.getByText('ah1110.ods_wcan_common_tbox1_json')).toBeInTheDocument();
+    expect(screen.queryByText('Optional[wcan-common-tbox1-r1p24]')).not.toBeInTheDocument();
+    expect(screen.queryByText('default.default.default')).not.toBeInTheDocument();
+    expect(screen.getAllByText('233,132').length).toBeGreaterThan(0);
+  });
+
   it('shows the search box only beyond five links', () => {
     renderSnapshot(
       job({

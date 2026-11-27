@@ -45,6 +45,7 @@ import {
 } from '@/components/arc/dropdown-menu/dropdown-menu';
 import {NeutralChip, SoftChip} from '@/components/common/layout';
 import {useViewMorph} from '@/lib/animations/view-morph';
+import {getClusterDeployModeLabel} from '@/lib/infra';
 import {
   OperationType,
   type ClusterInfo,
@@ -84,6 +85,7 @@ export function ClusterCard({
     getClusterActionFlags(cluster);
   const modeKey = `cluster.modes.${cluster.deployment_mode}`;
   const modeLabel = t.has(modeKey) ? t(modeKey) : cluster.deployment_mode;
+  const deployModeLabel = getClusterDeployModeLabel(cluster.infra_type);
   const totalNodes = cluster.node_count ?? 0;
   const onlineNodes = cluster.online_nodes ?? 0;
   const hasOfflineNodes = totalNodes > 0 && onlineNodes < totalNodes;
@@ -223,6 +225,7 @@ export function ClusterCard({
           >
             <ClusterStatusChip cluster={cluster} />
           </motion.span>
+          <NeutralChip>{deployModeLabel}</NeutralChip>
           <motion.span
             layoutId={morph.id(String(cluster.id), 'mode')}
             transition={morph.transition}

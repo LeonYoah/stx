@@ -29,6 +29,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/gin-gonic/gin"
 )
 
@@ -38,6 +39,7 @@ type Handler struct {
 	service          *Service
 	auditRepo        *audit.Repository
 	executionService *executionapp.Service
+	k8sManager       *k8s.ClientManager
 }
 
 // NewHandler creates a new Handler instance.
@@ -362,7 +364,10 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		errors.Is(err, ErrHostTypeInvalid),
 		errors.Is(err, ErrDockerAPIURLInvalid),
 		errors.Is(err, ErrK8sAPIURLInvalid),
-		errors.Is(err, ErrK8sCredentialsRequired):
+		errors.Is(err, ErrK8sCredentialsRequired),
+		errors.Is(err, ErrK8sAuthModeInvalid),
+		errors.Is(err, ErrK8sAccessModeInvalid),
+		errors.Is(err, ErrK8sKubeconfigInvalid):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrHostHasCluster),
 		errors.Is(err, ErrHostHasRunningNode):

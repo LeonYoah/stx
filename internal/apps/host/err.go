@@ -22,6 +22,9 @@ import "errors"
 // Error definitions for host management operations.
 // 主机管理操作的错误定义。
 var (
+	// errK8sManagerNotConfigured 表示共享 K8sClientManager 尚未注入（router 组装缺漏）。
+	// errK8sManagerNotConfigured means the shared K8sClientManager was not injected (router wiring gap).
+	errK8sManagerNotConfigured = errors.New("host: k8s client manager not configured")
 	// ErrHostNotFound indicates the requested host does not exist.
 	// ErrHostNotFound 表示请求的主机不存在。
 	ErrHostNotFound = errors.New("host: host not found")
@@ -56,6 +59,15 @@ var (
 	// ErrK8sCredentialsRequired indicates K8s credentials are required.
 	// ErrK8sCredentialsRequired 表示需要 K8s 凭证。
 	ErrK8sCredentialsRequired = errors.New("host: kubernetes host requires kubeconfig or token")
+	// ErrK8sAuthModeInvalid indicates the Kubernetes auth mode is unsupported.
+	// ErrK8sAuthModeInvalid 表示不支持的 Kubernetes 认证方式。
+	ErrK8sAuthModeInvalid = errors.New("host: unsupported kubernetes auth mode, must be kubeconfig or token")
+	// ErrK8sAccessModeInvalid indicates the Kubernetes access mode is unsupported.
+	// ErrK8sAccessModeInvalid 表示不支持的 Kubernetes 连接方式。
+	ErrK8sAccessModeInvalid = errors.New("host: unsupported kubernetes access mode, must be in_cluster or external")
+	// ErrK8sKubeconfigInvalid indicates the kubeconfig content cannot be parsed.
+	// ErrK8sKubeconfigInvalid 表示 kubeconfig 内容无法解析。
+	ErrK8sKubeconfigInvalid = errors.New("host: invalid kubeconfig content")
 )
 
 // Error codes for host management operations.

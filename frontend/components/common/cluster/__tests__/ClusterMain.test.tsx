@@ -201,6 +201,16 @@ describe('ClusterMain', () => {
     expect(
       screen.getByText(zh.cluster.healthStatuses.unhealthy),
     ).toBeInTheDocument();
+
+    // 顶栏保持统一的「注册集群」「创建集群」双入口，无割裂的独立 K8s 按钮。
+    // Header keeps unified Register + Create buttons without an isolated K8s button.
+    expect(
+      screen.getByRole('button', {name: zh.cluster.registerCluster}),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {name: zh.cluster.createCluster}),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /K8s/i})).not.toBeInTheDocument();
   });
 
   it('switches to card view via ViewToggle and syncs view=grid to URL', async () => {

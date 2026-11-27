@@ -61,6 +61,14 @@ import services from '@/lib/services';
 import {DeploymentMode, CreateClusterRequest} from '@/lib/services/cluster/types';
 import {HostInfo, AgentStatus} from '@/lib/services/host/types';
 import {DiscoveredProcess} from '@/lib/services/discovery/discovery.service';
+import {
+  INITIAL_K8S_ADOPT_FORM,
+  K8sAdoptClusterSection,
+  type K8sAdoptFormErrors,
+  type K8sAdoptFormState,
+} from './K8sAdoptClusterSection';
+
+type RegisterInfraTarget = 'bare_metal' | 'kubernetes';
 
 interface CreateClusterDialogProps {
   open: boolean;
@@ -77,6 +85,12 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [loadingHosts, setLoadingHosts] = useState(false);
+  const [infraTarget, setInfraTarget] =
+    useState<RegisterInfraTarget>('bare_metal');
+  const [k8sForm, setK8sForm] = useState<K8sAdoptFormState>(() => ({
+    ...INITIAL_K8S_ADOPT_FORM,
+  }));
+  const [k8sErrors, setK8sErrors] = useState<K8sAdoptFormErrors>({});
 
   // Form state / 表单状态
   const [name, setName] = useState('');
@@ -115,11 +129,17 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
   const versionInputRef = useRef<HTMLInputElement>(null);
 
   const dirty =
-    name.trim().length > 0 ||
-    description.trim().length > 0 ||
-    version.trim().length > 0 ||
-    selectedHostIds.size > 0 ||
-    selectedProcesses.size > 0;
+    infraTarget === 'kubernetes'
+      ? k8sForm.name.trim().length > 0 ||
+        k8sForm.description.trim().length > 0 ||
+        k8sForm.master_service_name.trim().length > 0 ||
+        k8sForm.cluster_service_name.trim().length > 0 ||
+        k8sForm.master_workload_name.trim().length > 0
+      : name.trim().length > 0 ||
+        description.trim().length > 0 ||
+        version.trim().length > 0 ||
+        selectedHostIds.size > 0 ||
+        selectedProcesses.size > 0;
   useBeforeUnload(open && dirty);
 
   /**
@@ -160,6 +180,9 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
    * 重置表单
    */
   const resetForm = () => {
+    setInfraTarget('bare_metal');
+    setK8sForm({...INITIAL_K8S_ADOPT_FORM});
+    setK8sErrors({});
     setName('');
     setDescription('');
     setDeploymentMode(DeploymentMode.HYBRID);
@@ -466,6 +489,83 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
    * 处理提交
    */
   const handleSubmit = async () => {
+    if (infraTarget === 'kubernetes') {
+      const nextErrors: K8sAdoptFormErrors = {};
+      if (!k8sForm.host_id) {
+        nextErrors.host = t('cluster.k8s.hostRequired');
+      }
+      if (!k8sForm.namespace.trim()) {
+        nextErrors.namespace = t('cluster.k8s.namespaceRequired');
+      }
+      if (!k8sForm.name.trim()) {
+        nextErrors.name = t('cluster.nameRequired');
+      }
+      setK8sErrors(nextErrors);
+      if (nextErrors.host || nextErrors.namespace || nextErrors.name) {
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const payload: Record<string, unknown> = {
+          name: k8sForm.name.trim(),
+          description: k8sForm.description.trim() || undefined,
+          host_id: k8sForm.host_id,
+          namespace: k8sForm.namespace.trim(),
+          management_source: 'adopted',
+          master_service_name: k8sForm.master_service_name.trim(),
+          cluster_service_name: k8sForm.cluster_service_name.trim(),
+          master_workload_name: k8sForm.master_workload_name.trim(),
+          worker_workload_name: k8sForm.worker_workload_name.trim(),
+          configmap_name: k8sForm.configmap_name.trim(),
+          label_selector: k8sForm.label_selector.trim(),
+          master_http_port: k8sForm.master_http_port,
+          hazelcast_port: k8sForm.hazelcast_port,
+        };
+        if (k8sForm.master_workload_kind) {
+          payload.master_workload_kind = k8sForm.master_workload_kind;
+        }
+        if (k8sForm.worker_workload_kind) {
+          payload.worker_workload_kind = k8sForm.worker_workload_kind;
+        }
+        if (k8sForm.image.trim()) {
+          payload.image = k8sForm.image.trim();
+        }
+        const created = (await services.cluster.createKubernetesCluster(
+          payload,
+        )) as
+          | {
+              cluster?: {id?: number};
+              proxy_status?: {
+                healthy?: boolean;
+                message?: string;
+                pod_events?: string[];
+              };
+            }
+          | undefined;
+        const proxyStatus = created?.proxy_status;
+        if (proxyStatus && !proxyStatus.healthy) {
+          // 探活失败不阻断保存，直接提示事件以便在集群详情页一键重试。
+          // Proxy probe failure never blocks saving; surface pod events so the user can retry in detail view.
+          const events = (proxyStatus.pod_events || []).slice(0, 3).join(' · ');
+          toast.warning(
+            `${t('cluster.k8s.proxyUnhealthy')}: ${proxyStatus.message || ''}${events ? ` · ${events}` : ''}`,
+          );
+        } else {
+          toast.success(t('cluster.createSuccess'));
+        }
+        resetForm();
+        onSuccess();
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : t('cluster.createError'),
+        );
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     const selectedProcessInfo = getSelectedProcessesWithHost();
     const errors = validateForm(selectedProcessInfo.length);
     setFormErrors(errors);
@@ -655,7 +755,43 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
         title={t('cluster.registerCluster')}
       >
         <div className='space-y-4'>
-          <div className='max-h-[68vh] space-y-5 overflow-y-auto pr-1'>
+          <div className='flex flex-wrap items-center justify-between gap-2 border-b-[0.5px] border-border/80 pb-3'>
+            <span className='text-xs font-medium text-foreground'>
+              {t('cluster.k8s.targetEnvironment')}
+            </span>
+            <SegmentedControl
+              label={t('cluster.k8s.targetEnvironment')}
+              value={infraTarget}
+              onValueChange={(value) => {
+                setInfraTarget(value as RegisterInfraTarget);
+                setFormErrors({});
+                setK8sErrors({});
+              }}
+              options={[
+                {value: 'bare_metal', label: t('host.types.bareMetal')},
+                {value: 'kubernetes', label: t('host.types.kubernetes')},
+              ]}
+            />
+          </div>
+
+          <div className='max-h-[64vh] space-y-5 overflow-y-auto pr-1'>
+            {infraTarget === 'kubernetes' ? (
+              <K8sAdoptClusterSection
+                active={open && infraTarget === 'kubernetes'}
+                form={k8sForm}
+                errors={k8sErrors}
+                onChange={setK8sForm}
+                onClearError={(field) =>
+                  setK8sErrors((prev) => ({...prev, [field]: undefined}))
+                }
+                onNavigateToHosts={() => {
+                  resetForm();
+                  onOpenChange(false);
+                  router.push('/hosts');
+                }}
+              />
+            ) : (
+              <>
             {/* Step 1: pick hosts & discover processes / 第一步：选择主机并发现进程 */}
             <section ref={nodesSectionRef} className='space-y-3'>
               <div className='flex items-center justify-between'>
@@ -1146,6 +1282,8 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                 </div>
               </div>
             </section>
+              </>
+            )}
           </div>
 
           <div className='flex items-center justify-end gap-2 border-t-[0.5px] border-border/80 pt-4'>

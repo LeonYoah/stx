@@ -47,46 +47,46 @@ type stubConfigToolClient struct {
 	lastValidReq *ConfigToolValidateRequest
 }
 
-func (s *stubConfigToolClient) InspectDAG(ctx context.Context, endpoint string, req *ConfigToolContentRequest) (*ConfigToolDAGResponse, error) {
+func (s *stubConfigToolClient) InspectDAG(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolContentRequest) (*ConfigToolDAGResponse, error) {
 	s.lastDAGReq = req
 	return s.dagResp, s.dagErr
 }
 
-func (s *stubConfigToolClient) InspectWebUIDAG(ctx context.Context, endpoint string, req *ConfigToolContentRequest) (*ConfigToolWebUIDAGResponse, error) {
+func (s *stubConfigToolClient) InspectWebUIDAG(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolContentRequest) (*ConfigToolWebUIDAGResponse, error) {
 	s.lastWebUIReq = req
 	return s.webuiResp, s.webuiErr
 }
 
-func (s *stubConfigToolClient) ValidateConfig(ctx context.Context, endpoint string, req *ConfigToolValidateRequest) (*ConfigToolValidateResponse, error) {
+func (s *stubConfigToolClient) ValidateConfig(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolValidateRequest) (*ConfigToolValidateResponse, error) {
 	s.lastValidReq = req
 	return s.validateResp, s.validateErr
 }
 
-func (s *stubConfigToolClient) DeriveSourcePreview(ctx context.Context, endpoint string, req *ConfigToolPreviewRequest) (*ConfigToolPreviewResponse, error) {
+func (s *stubConfigToolClient) DeriveSourcePreview(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPreviewRequest) (*ConfigToolPreviewResponse, error) {
 	return nil, nil
 }
 
-func (s *stubConfigToolClient) DeriveTransformPreview(ctx context.Context, endpoint string, req *ConfigToolPreviewRequest) (*ConfigToolPreviewResponse, error) {
+func (s *stubConfigToolClient) DeriveTransformPreview(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPreviewRequest) (*ConfigToolPreviewResponse, error) {
 	return nil, nil
 }
 
-func (s *stubConfigToolClient) ListPlugins(ctx context.Context, endpoint string, req *ConfigToolPluginListRequest) (*ConfigToolPluginListResponse, error) {
+func (s *stubConfigToolClient) ListPlugins(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPluginListRequest) (*ConfigToolPluginListResponse, error) {
 	return nil, nil
 }
 
-func (s *stubConfigToolClient) GetPluginOptions(ctx context.Context, endpoint string, req *ConfigToolPluginOptionsRequest) (*ConfigToolPluginOptionsResponse, error) {
+func (s *stubConfigToolClient) GetPluginOptions(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPluginOptionsRequest) (*ConfigToolPluginOptionsResponse, error) {
 	return nil, nil
 }
 
-func (s *stubConfigToolClient) RenderPluginTemplate(ctx context.Context, endpoint string, req *ConfigToolPluginTemplateRequest) (*ConfigToolPluginTemplateResponse, error) {
+func (s *stubConfigToolClient) RenderPluginTemplate(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPluginTemplateRequest) (*ConfigToolPluginTemplateResponse, error) {
 	return nil, nil
 }
 
-func (s *stubConfigToolClient) ListPluginEnumValues(ctx context.Context, endpoint string, req *ConfigToolPluginEnumValuesRequest) (*ConfigToolPluginEnumValuesResponse, error) {
+func (s *stubConfigToolClient) ListPluginEnumValues(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolPluginEnumValuesRequest) (*ConfigToolPluginEnumValuesResponse, error) {
 	return nil, nil
 }
 
-func (s *stubConfigToolClient) PreviewSinkSaveMode(ctx context.Context, endpoint string, req *ConfigToolSinkSaveModePreviewRequest) (*ConfigToolSinkSaveModePreviewResponse, error) {
+func (s *stubConfigToolClient) PreviewSinkSaveMode(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolSinkSaveModePreviewRequest) (*ConfigToolSinkSaveModePreviewResponse, error) {
 	return nil, nil
 }
 
@@ -95,11 +95,14 @@ type stubConfigToolResolver struct {
 	err      error
 }
 
-func (s *stubConfigToolResolver) ResolveConfigToolEndpoint(ctx context.Context, clusterID uint, taskDefinition JSONMap) (string, error) {
+func (s *stubConfigToolResolver) ResolveConfigToolEndpoint(ctx context.Context, clusterID uint, taskDefinition JSONMap) (*ConfigToolEndpoint, error) {
 	if s.err != nil {
-		return "", s.err
+		return nil, s.err
 	}
-	return s.endpoint, nil
+	if s.endpoint == "" {
+		return nil, nil
+	}
+	return &ConfigToolEndpoint{BaseURL: s.endpoint}, nil
 }
 
 type stubAgentSender struct {

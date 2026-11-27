@@ -736,6 +736,9 @@ export interface SyncEventChannelStatus {
   auth_fail_count: number;
   expect_missed_at?: string;
   expect_satisfied_at?: string;
+  is_kubernetes?: boolean;
+  stx_callback_url?: string;
+  default_url?: string;
   configs?: SyncEventChannelConfigResult[];
 }
 

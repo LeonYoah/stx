@@ -58,11 +58,14 @@ import {
   DropdownMenu,
   type DropdownItem,
 } from '@/components/arc/dropdown-menu/dropdown-menu';
+import {DEFAULT_STX_MANAGER_SA, renderK8sCleanupCommand} from '@/lib/k8s-rbac-templates';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import {HostInfo, HostStatus, HostType} from '@/lib/services/host/types';
 import {formatDateTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {TruncatedText} from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
+import {getHostStatusLabel, getK8sPermissionModeLabel} from './host-status';
 
 interface HostTableProps {
   hosts: HostInfo[];
@@ -151,6 +154,16 @@ export function HostTable({
 }: HostTableProps) {
   const t = useTranslations();
   const [deleteTarget, setDeleteTarget] = useState<HostInfo | null>(null);
+  const [includeRunnerCleanup, setIncludeRunnerCleanup] = useState(false);
+
+  const k8sCleanupCmd =
+    deleteTarget?.host_type === HostType.KUBERNETES
+      ? renderK8sCleanupCommand(deleteTarget.k8s_namespace, DEFAULT_STX_MANAGER_SA, {
+          includeClusterRole: deleteTarget.k8s_permission_mode === 'full',
+          runnerServiceAccount: deleteTarget.k8s_default_service_account,
+          includeRunner: includeRunnerCleanup,
+        })
+      : '';
 
   const onRowKeyDown = (
     e: React.KeyboardEvent<HTMLElement>,
@@ -249,7 +262,8 @@ export function HostTable({
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => e.stopPropagation()}
             >
-              {host.host_type === HostType.BARE_METAL &&
+              {(host.host_type === HostType.BARE_METAL ||
+                host.host_type === HostType.KUBERNETES) &&
               host.status === HostStatus.PENDING &&
               onInstallAgent ? (
                 <TooltipProvider>
@@ -264,39 +278,59 @@ export function HostTable({
                           <span className='absolute inline-flex size-full animate-ping rounded-full bg-amber-400 opacity-75' />
                           <span className='relative inline-flex size-1.5 rounded-full bg-amber-500' />
                         </span>
-                        <span>{t(`host.statuses.${host.status}`)}</span>
+                        <span>{getHostStatusLabel(host, t)}</span>
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {t('host.installGuide.installAgentTooltip')}
+                      {host.host_type === HostType.KUBERNETES
+                        ? t('host.k8sGuide.testConnectionTooltip')
+                        : t('host.installGuide.installAgentTooltip')}
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               ) : (
                 <Badge variant={getStatusBadgeVariant(host.status)}>
-                  {t(`host.statuses.${host.status}`)}
+                  {getHostStatusLabel(host, t)}
                 </Badge>
               )}
             </div>
-            <div className='space-y-0.5 text-xs'>
-              <div>
-                <span className='text-muted-foreground'>CPU </span>
-                <span className='font-mono'>
-                  {host.cpu_usage?.toFixed(1) || 0}%
-                </span>
-              </div>
-              <div>
-                <span className='text-muted-foreground'>Mem </span>
-                <span className='font-mono'>
-                  {host.memory_usage?.toFixed(1) || 0}%
-                </span>
-              </div>
-              {host.host_type === HostType.BARE_METAL && host.total_memory ? (
-                <div className='text-[11px] text-muted-foreground'>
-                  {formatBytes(host.total_memory)}
+            {host.host_type === HostType.KUBERNETES ? (
+              <div className='space-y-0.5 text-xs'>
+                <div className='flex flex-wrap items-center gap-1.5'>
+                  <span className='font-mono tabular-nums'>
+                    {host.k8s_version || '-'}
+                  </span>
+                  {host.k8s_permission_mode ? (
+                    <span className='text-[11px] text-muted-foreground'>
+                      {getK8sPermissionModeLabel(host.k8s_permission_mode, t)}
+                    </span>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
+                <div className='truncate font-mono text-[11px] text-muted-foreground'>
+                  ns: {host.k8s_namespace || 'default'}
+                </div>
+              </div>
+            ) : (
+              <div className='space-y-0.5 text-xs'>
+                <div>
+                  <span className='text-muted-foreground'>CPU </span>
+                  <span className='font-mono'>
+                    {host.cpu_usage?.toFixed(1) || 0}%
+                  </span>
+                </div>
+                <div>
+                  <span className='text-muted-foreground'>Mem </span>
+                  <span className='font-mono'>
+                    {host.memory_usage?.toFixed(1) || 0}%
+                  </span>
+                </div>
+                {host.host_type === HostType.BARE_METAL && host.total_memory ? (
+                  <div className='text-[11px] text-muted-foreground'>
+                    {formatBytes(host.total_memory)}
+                  </div>
+                ) : null}
+              </div>
+            )}
             <span className={cn(layout.sub, 'whitespace-nowrap')}>
               {formatDateTz(host.created_at)}
             </span>
@@ -318,6 +352,13 @@ export function HostTable({
                     onSelect: () => onInstallAgent(host),
                   });
                 }
+                if (host.host_type === HostType.KUBERNETES && onInstallAgent) {
+                  items.push({
+                    label: t('host.testK8sConnection'),
+                    icon: <Cloud className='size-4' aria-hidden />,
+                    onSelect: () => onInstallAgent(host),
+                  });
+                }
                 items.push(
                   {
                     label: t('common.edit'),
@@ -329,7 +370,10 @@ export function HostTable({
                     icon: <Trash2 className='size-4' aria-hidden />,
                     destructive: true,
                     separatorBefore: true,
-                    onSelect: () => setDeleteTarget(host),
+                    onSelect: () => {
+                      setIncludeRunnerCleanup(false);
+                      setDeleteTarget(host);
+                    },
                   },
                 );
                 return (
@@ -359,6 +403,7 @@ export function HostTable({
         onOpenChange={(open) => {
           if (!open) {
             setDeleteTarget(null);
+            setIncludeRunnerCleanup(false);
           }
         }}
       >
@@ -369,6 +414,38 @@ export function HostTable({
               {t('host.deleteConfirm', {name: deleteTarget?.name || ''})}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {deleteTarget?.host_type === HostType.KUBERNETES ? (
+            <div
+              className='space-y-2 rounded-[var(--radius-control)] border-[0.5px] border-border/80 bg-muted/20 p-3 text-xs'
+              data-testid='k8s-delete-cleanup-panel'
+            >
+              <div className='flex items-center justify-between gap-2'>
+                <span className='font-medium text-foreground'>
+                  {t('host.k8sDeleteCleanupTitle')}
+                </span>
+                <CopyButton
+                  value={k8sCleanupCmd}
+                  label={t('common.copy')}
+                  variant='plain'
+                  className='h-7 px-2 text-xs'
+                />
+              </div>
+              <p className='text-[11px] text-muted-foreground'>
+                {t('host.k8sDeleteCleanupHint')}
+              </p>
+              <pre className='m-0 max-h-36 overflow-auto rounded-md bg-muted/50 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-foreground dark:bg-muted/30'>
+                {k8sCleanupCmd}
+              </pre>
+              <Checkbox
+                checked={includeRunnerCleanup}
+                onCheckedChange={(checked) =>
+                  setIncludeRunnerCleanup(checked === true)
+                }
+                label={t('host.k8sDeleteIncludeRunner')}
+                data-testid='k8s-delete-include-runner'
+              />
+            </div>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction

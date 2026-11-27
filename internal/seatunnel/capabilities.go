@@ -280,3 +280,48 @@ func parseVersionPart(part string) (int, string) {
 	fmt.Sscanf(part[:idx], "%d", &num)
 	return num, part[idx:]
 }
+
+// InfraCapabilities 描述基础设施形态维度的工作台/运维能力位；与版本维度正交。
+// InfraCapabilities describes workbench/operation capability bits along the infrastructure
+// dimension, orthogonal to the version dimension.
+type InfraCapabilities struct {
+	// SupportsLocalExecution local 模式依赖宿主机进程语义，K8s 集群不可用。
+	// SupportsLocalExecution is unavailable on K8s since local mode relies on host process semantics.
+	SupportsLocalExecution bool `json:"supports_local_execution"`
+	// SupportsDynamicPluginInstall K8s 遵循不可变镜像原则，禁止动态安装/卸载插件。
+	// SupportsDynamicPluginInstall is forbidden on K8s under the immutable-image principle.
+	SupportsDynamicPluginInstall bool `json:"supports_dynamic_plugin_install"`
+	// SupportsImmutableImageUpgrade K8s 集群通过镜像 Tag 滚动升级。
+	// SupportsImmutableImageUpgrade means the cluster upgrades by rolling the image tag.
+	SupportsImmutableImageUpgrade bool `json:"supports_immutable_image_upgrade"`
+	// SupportsPodLogRead K8s 集群经 pods/log 读取引擎日志。
+	// SupportsPodLogRead means engine logs are read through pods/log.
+	SupportsPodLogRead bool `json:"supports_pod_log_read"`
+	// SupportsWebUIProxy 引擎 HTTP 服务可经控制面代理访问。
+	// SupportsWebUIProxy means the engine HTTP service can be proxied through the control plane.
+	SupportsWebUIProxy bool `json:"supports_web_ui_proxy"`
+}
+
+// InfraCapabilitiesFor 返回给定 infra_type 的能力位；未知形态按 bare_metal 全能力处理。
+// InfraCapabilitiesFor returns capability bits for the given infra_type; unknown shapes fall
+// back to bare_metal full capabilities.
+func InfraCapabilitiesFor(infraType string) InfraCapabilities {
+	switch {
+	case infraType == "kubernetes" || len(infraType) > len("kubernetes_") && infraType[:len("kubernetes_")] == "kubernetes_":
+		return InfraCapabilities{
+			SupportsLocalExecution:        false,
+			SupportsDynamicPluginInstall:  false,
+			SupportsImmutableImageUpgrade: true,
+			SupportsPodLogRead:            true,
+			SupportsWebUIProxy:            true,
+		}
+	default:
+		return InfraCapabilities{
+			SupportsLocalExecution:        true,
+			SupportsDynamicPluginInstall:  true,
+			SupportsImmutableImageUpgrade: false,
+			SupportsPodLogRead:            false,
+			SupportsWebUIProxy:            true,
+		}
+	}
+}

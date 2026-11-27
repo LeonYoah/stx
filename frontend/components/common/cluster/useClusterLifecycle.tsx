@@ -28,6 +28,7 @@ import {useTranslations} from 'next-intl';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {ConfirmDialog} from '@/components/common/layout';
 import {toast} from '@/lib/toast';
+import {isK8sInfra} from '@/lib/infra';
 import services from '@/lib/services';
 import {
   ClusterStatus,
@@ -43,17 +44,22 @@ export interface ClusterActionFlags {
 }
 
 export function getClusterActionFlags(
-  cluster: Pick<ClusterInfo, 'status'>,
+  cluster: Pick<ClusterInfo, 'status' | 'infra_type'>,
 ): ClusterActionFlags {
+  // K8s 集群的"删除"即资源生命周期本身（解绑/卸载工作负载），后端允许运行态删除，前端必须对齐。
+  // For K8s clusters deletion IS the resource lifecycle (unbind/uninstall workloads);
+  // the backend permits deleting running clusters and the frontend must match.
+  const isK8s = isK8sInfra(cluster.infra_type);
   return {
     canStart:
       cluster.status === ClusterStatus.CREATED ||
       cluster.status === ClusterStatus.STOPPED,
     canStop: cluster.status === ClusterStatus.RUNNING,
     canRestart: cluster.status === ClusterStatus.RUNNING,
-    canDelete:
-      cluster.status !== ClusterStatus.RUNNING &&
-      cluster.status !== ClusterStatus.DEPLOYING,
+    canDelete: isK8s
+      ? cluster.status !== ClusterStatus.DEPLOYING
+      : cluster.status !== ClusterStatus.RUNNING &&
+        cluster.status !== ClusterStatus.DEPLOYING,
   };
 }
 
@@ -239,6 +245,20 @@ export function useClusterLifecycle(
   const isDestructiveLifecycle =
     pendingLifecycle?.operation === OperationType.STOP;
 
+  // adopted=解绑并仅清理 STX Java Proxy；stx_deployed=卸载控制面部署的 K8s 资源；非 K8s 走原文案。
+  // adopted=unbind plus STX Java Proxy cleanup only; stx_deployed=uninstall the control-plane
+  // deployed K8s resources; non-K8s keeps the original copy.
+  const deleteDialogK8sKind = (() => {
+    if (!pendingDelete || !isK8sInfra(pendingDelete.infra_type)) {
+      return null;
+    }
+    const cfg = (pendingDelete.config as Record<string, unknown> | undefined)?.['kubernetes'] as
+      | Record<string, unknown>
+      | undefined;
+    const source = cfg?.['management_source'];
+    return source === 'stx_deployed' ? 'stx_deployed' : 'adopted';
+  })();
+
   const dialogs = (
     <>
       <ConfirmDialog
@@ -282,20 +302,32 @@ export function useClusterLifecycle(
         confirmVariant='danger'
         onConfirm={() => {
           if (pendingDelete) {
-            void executeDelete(pendingDelete, forceDelete);
+            // stx_deployed 的删除文案已承诺卸载 K8s 资源，必须强制携带 force 标志，
+            // 否则 StatefulSet/ConfigMap 等主工作负载会成为孤儿残留。
+            // stx_deployed delete copy already promises uninstalling the K8s resources, so
+            // the force flag must ride along or StatefulSets/ConfigMaps are orphaned.
+            const force =
+              forceDelete || deleteDialogK8sKind === 'stx_deployed';
+            void executeDelete(pendingDelete, force);
           }
         }}
       >
         <p className='text-sm text-muted-foreground'>
-          {t('cluster.deleteConfirmWarning')}
+          {deleteDialogK8sKind === 'adopted'
+            ? t('cluster.k8s.deleteAdoptedDesc')
+            : deleteDialogK8sKind === 'stx_deployed'
+              ? t('cluster.k8s.deleteDeployedDesc')
+              : t('cluster.deleteConfirmWarning')}
         </p>
-        <div className='pt-1'>
-          <Checkbox
-            checked={forceDelete}
-            onCheckedChange={(v) => setForceDelete(v === true)}
-            label={t('cluster.forceDeleteOption')}
-          />
-        </div>
+        {deleteDialogK8sKind === null ? (
+          <div className='pt-1'>
+            <Checkbox
+              checked={forceDelete}
+              onCheckedChange={(v) => setForceDelete(v === true)}
+              label={t('cluster.forceDeleteOption')}
+            />
+          </div>
+        ) : null}
       </ConfirmDialog>
     </>
   );

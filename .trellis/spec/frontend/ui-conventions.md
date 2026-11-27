@@ -35,6 +35,11 @@
 
 ## 3. 控件语义与浮层分工
 
+- **输入减负与默认值收敛（设计第一优先级的落地口径）**：
+  - **能推断的不询问**：系统已持有或可推导的值（上下文已选集群/命名空间、可继承的回调地址、已登记的镜像凭据）自动回填或直接使用，不在表单里重复追问；向导跨步骤保持已填信息，不让用户二次输入。
+  - **能安全默认的不留空**：默认值取多数场景的最佳答案且选错代价低（内存规格、副本数、常用端口、超时时长），用户可一键改但不必填；**删除、付费、对外暴露、秘钥明文等无安全默认的决策必须显式选择，不得预勾选、不得替用户默认**。
+  - **封闭值域不自由输入**：枚举与受控集合（模式、版本、节点、命名空间）一律用选择控件，用户从可见选项中识别而非凭记忆拼写；自由文本只留给真正开放的值域（名称、路径、注释）。
+  - **低频高级项不进主干**：高级/罕见配置收进折叠区、「高级设置」二级入口或向导后续步骤；每个屏幕只保留完成当前这一步所需的最少决策点，其余不抢注意力。
 - **选择控件选型（按语义而非外观）**：
   - **即时开关 vs 表单勾选**：`Switch` 仅用于**拨动后立即持久化生效**的设置项（旁置轻量保存态，失败回滚）；需要点底部「保存 / 提交」才生效的布尔选项一律用 `Checkbox`。禁止用两个 Radio 表示开/关。
   - **单选数量规则**：2–5 个固定短选项一律用 Arc `SegmentedControl`（一目了然、一次点击，禁止藏进 `Select`）；≥6 项或选项会动态增长（如集群列表、版本号、主机）用 Arc `Select` / 可搜索 `Combobox`；带说明行的 2–5 个选项用竖排 Radio。
@@ -72,7 +77,7 @@
 - **列表 + 常驻详情分栏（`DetailHost` + #178 克制联动）**：
   - 统一复用 `components/common/layout/DetailHost` + `common/layout/list-detail.module.css`（`.page` / `.pageViewport` / `.split` / `.listCol[data-mcols]` / `.row`）。
   - **联动外观（克制版）**：≥1080px 下 `.split` 存在 `> .rail[data-state='open']` 且本页有 `.rowActive` 时，列表自动退为底层色面板（卡片无框、行线消失、间距收 0）、选中行浮起并与详情栏 10px 凹圆角相接、其余行按距离逐级变淡（不模糊）、工具栏降透明；关闭时播完退出动画再卸载（600ms 兜底）。翻页后本页无选中行时不进入联动。
-  - **接入约束**：行必须是 `.tableScroll` 的**直接子元素**，选中行挂 `.rowActive`；`rowHead`、`[data-slot='table-card-footer']` 与 `.tableScroll` 须同卡片。
+  - **接入约束**：行必须是 `.tableScroll` 的**直接子元素**，选中行挂 `.rowActive`；`rowHead`、`[data-slot='table-card-footer']` 与 `.tableScroll` 须同卡片。**禁止**在使用 `DetailHost` 的页面中混用 Arc `SortableDataTable`（独立 `<table>` 无法匹配 `.tableScroll > .rowActive` 联动规则，已由 `frontend/eslint.config.mjs` 的 `no-restricted-syntax` 硬门禁拦截）。
   - **名称飞入**：行内名称节点挂 `data-detail-name`，仅在**行点击 / 行内 Enter 打开或切换**时写入 `flyOriginRef`（J/K、头部 `↑↓`、深链恢复不写）；`DetailHost` 配 `nameSlot='title' | 'meta'`；窄屏、`prefers-reduced-motion`、来源与落点文字不一致时自动降级不飞。
 
 ---
@@ -152,7 +157,7 @@
 
 ## 10. 控制台首页（监控大盘 + 全局作业列表）
 
-> 布局与视觉由 PR #168 落地；任务 `11-18-unified-admin-console-lists` **不改大盘布局**。`HomeDashboard` 头部 Combobox 的 `[&_label]:sr-only` 清理仅为可选小遗留（须保留可见 label 或 `aria-label`），不阻塞审计 / 用户 / 主机三页迁移。
+> 本节为大盘既定布局契约，迁移类任务不得借故重排。`HomeDashboard` 头部 Combobox 若清理历史 `[&_label]:sr-only`，须保留可见 label 或 `aria-label`（§8）。
 
 - **结构**：`app/(main)/dashboard/page.tsx` 只装配 `HomeDashboard`（`components/common/dashboard/`）。顶部 `WorkspaceHeader`（操作区放范围选择与刷新）→ `KpiStrip` 指标条 → 「需要处理」横条 → Arc `Tabs`（集群 / 作业 / 主机 / 平台 / 作业列表）。页签、范围（`cluster`）与列表筛选写在 URL（`useDashboardQuery`）。区块页签按内容宽度：Arc `listShell` 是 `inline-flex`，在 `flex-col` 父级里外包 `<div className='flex'>`。
 - **头部集群范围**：Arc `Combobox`（集群名不固定，需搜索）。`label` 可选；去掉历史 `[&_label]:sr-only` 后必须保留可见标签或 `aria-label`（§8）。`data-testid='home-scope'` 透传到输入框；`all` → `clusterId: undefined`；当前 `cluster` 不在已加载列表时保留 `clusterFallback`。
@@ -160,7 +165,7 @@
 - **面板层级（`DashboardPanel`）**：`primary` / `secondary` 两档；`empty` 收成 `h-11` 矮条；`flush` 去内边距用于指标页签行与表格。
 - **吞吐页签（`ThroughputTabs`）**：读 / 写 × 行 / 字节 4 格驱动 `BrushChart`，**不再**使用分段控件；与 `ClusterScopeStrip` 共用 `use-roving-keys.ts`。
 - **集群范围条（`ClusterScopeStrip`）**：替代大圆角 `RadioCards`；底板 + 分隔线格子，`radiogroup` + roving tabindex，选中格顶部 accent 色条；保留健康徽标与节点 / 运行 / 堆 / 告警说明。
-- **作业列表**：**不要**恢复已删除的「全部 / 正式 / 预览」运行类型分段控件；状态筛选仍为工具栏现状（`StatPillsBar`，计数来自 `with_counts`）；`chip-group` 多选替换不在本期三页迁移范围内。详情就地走 `JobDetailHost`，不复刻工作台整页。
+- **作业列表**：**不要**恢复已删除的「全部 / 正式 / 预览」运行类型分段控件；状态筛选保留现状（`StatPillsBar`，计数来自 `with_counts`），后续迁移时按 §3 统一走 `chip-group` 多选。详情就地走 `JobDetailHost`，不复刻工作台整页。
 - **需要处理**：无事项时只渲染无框单行文字，不留空边框。
 - **图表选型 / 配色 / 时间窗 / 轮询 / 空态 / 产品文案**：延续既有大盘约定（一个指标一种图；`colorForLabels` / `SERIES_PALETTE`；自定义窗口写 URL `start`/`end`，前端截取 366 天；`usePolledResource` 30s；`TrendEmptyState` 按 `reason` 区分；界面不出现底层实现名）。
 - **平台页签**：`tab=platform`，主体 `PlatformTab`；快照 `getPlatformSnapshotSafe()`；降级用 `TrendEmptyState`；Agent 表用 `StudioTable`。
@@ -169,6 +174,7 @@
 
 ## 11. 提交前检查
 
+- [ ] 设计第一优先级落地：表单与流程中系统能推断的字段未重复询问；有安全默认的字段已预置默认值（高危/付费/暴露类无预勾选）；封闭值域用枚举选择控件而非自由输入；低频高级项收进折叠或后续步骤，首屏决策点最少。
 - [ ] 业务页根容器挂 `.arc-compact`，未使用冲突的外层 `max-w-*` 容器；头部用 `WorkspaceHeader` 且图标与 Dock 对齐；新/改图标已列出候选并经确认。
 - [ ] 详情页、右侧详情栏与管理类弹窗均压平为单层画布 + `0.5px` 细线分隔，无嵌套 `<Card>`、无冗余阴影与虚线占位盒；原子字段有防被迫换行保护（`ScrollArea` 内截断用 `w-0 min-w-0 flex-1`）。
 - [ ] 控件与浮层语义准确：`Switch` 即时生效、表单布尔用 `Checkbox`、2–5 短选项用 `SegmentedControl`、`Select`/`Combobox`/纯图标按钮具备可见标签或 `aria-label`、同一区域控件统一（`ui/badge` 豁免）、弹层走 `--radius-popover`；高危确认用具名动作 `AlertDialog`（无 `window.confirm`）；编辑态离开走 `UnsavedChangesDialog` / `DirtyCloseDialog`。

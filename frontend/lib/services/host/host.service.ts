@@ -36,6 +36,9 @@ import {
   CreateHostResponse,
   GetHostResponse,
   UpdateHostResponse,
+  K8sDraftTestRequest,
+  K8sKubeconfigInspectResult,
+  K8sTestConnectionResult,
   GetInstallCommandResponse,
   InstallCommandData,
 } from './types';
@@ -232,6 +235,33 @@ export class HostService extends BaseService {
   }
 
   /**
+   * List ALL hosts of one type by looping pages / 循环分页拉取某类型的全部主机
+   *
+   * 后端单页 size 上限为 100（host handler 校验 max=100），调用方手写更大的 size 会直接 400。
+   * Backend caps page size at 100 (host handler validation); a larger hand-written size yields HTTP 400.
+   */
+  static async getAllHostsByTypeSafe(hostType: string): Promise<{
+    success: boolean;
+    hosts: HostInfo[];
+    error?: string;
+  }> {
+    const pageSize = 100;
+    const all: HostInfo[] = [];
+    for (let page = 1; page <= 50; page++) {
+      const res = await this.getHostsSafe({current: page, size: pageSize, host_type: hostType} as ListHostsRequest);
+      if (!res.success) {
+        return {success: false, hosts: all, error: res.error};
+      }
+      const items = res.data?.hosts || [];
+      all.push(...items);
+      if (items.length < pageSize) {
+        break;
+      }
+    }
+    return {success: true, hosts: all};
+  }
+
+  /**
    * Get host by ID (with error handling)
    * 根据 ID 获取主机详情（带错误处理）
    *
@@ -343,4 +373,105 @@ export class HostService extends BaseService {
       return {success: false, error: errorMessage};
     }
   }
+
+  /**
+   * Run read-only K8s connectivity probe (version + RBAC precheck) / 执行只读 K8s 连通性体检（版本+RBAC 预检）
+   */
+  static async testK8sConnection(
+    hostId: number,
+    options?: {signal?: AbortSignal; timeoutMs?: number},
+  ): Promise<K8sTestConnectionResult> {
+    const response = await apiClient.post<{error_msg: string; data: K8sTestConnectionResult}>(
+      `${this.basePath}/${hostId}/test-connection`,
+      {},
+      {
+        signal: options?.signal,
+        timeout: options?.timeoutMs ?? 20000,
+      },
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data;
+  }
+
+  /**
+   * Probe draft/rotation K8s credentials without writing DB state / 预检未保存或轮换的 K8s 凭据（不写库）
+   */
+  static async testK8sDraftConnection(
+    payload: K8sDraftTestRequest,
+    options?: {signal?: AbortSignal; timeoutMs?: number},
+  ): Promise<K8sTestConnectionResult> {
+    const response = await apiClient.post<{error_msg: string; data: K8sTestConnectionResult}>(
+      `${this.basePath}/k8s/test-connection`,
+      payload,
+      {
+        signal: options?.signal,
+        timeout: options?.timeoutMs ?? 20000,
+      },
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data;
+  }
+
+  /**
+   * Parse kubeconfig contexts, endpoints, expirations, and warnings / 解析 kubeconfig 上下文与警告
+   */
+  static async inspectK8sKubeconfig(
+    kubeconfig: string,
+    context?: string,
+    signal?: AbortSignal,
+  ): Promise<K8sKubeconfigInspectResult> {
+    const response = await apiClient.post<{error_msg: string; data: K8sKubeconfigInspectResult}>(
+      `${this.basePath}/k8s/inspect-kubeconfig`,
+      {kubeconfig, context},
+      {signal},
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data;
+  }
+
+  /**
+   * List namespaces visible to this host / 列出该主机可见的 Namespace
+   */
+  static async listK8sNamespaces(hostId: number): Promise<string[]> {
+    const response = await apiClient.get<{error_msg: string; data: string[]}>(
+      `${this.basePath}/${hostId}/k8s/namespaces`,
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data || [];
+  }
+
+  /**
+   * List existing namespace objects by kind / 按 kind 列出 namespace 内已有对象
+   */
+  static async listK8sNamespaceObjects(hostId: number, namespace: string, kind: string): Promise<string[]> {
+    const response = await apiClient.get<{error_msg: string; data: string[]}>(
+      `${this.basePath}/${hostId}/k8s/namespaces/${encodeURIComponent(namespace)}/objects?kind=${encodeURIComponent(kind)}`,
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data || [];
+  }
+
+  /**
+   * Discover SeaTunnel clusters in a namespace / 发现 Namespace 下的 SeaTunnel 集群
+   */
+  static async discoverK8sClusters(hostId: number, namespace: string): Promise<unknown[]> {
+    const response = await apiClient.get<{error_msg: string; data: unknown[]}>(
+      `${this.basePath}/${hostId}/k8s/discover?namespace=${encodeURIComponent(namespace)}`,
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data || [];
+  }
+
 }

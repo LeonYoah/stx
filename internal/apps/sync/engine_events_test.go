@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -569,4 +570,173 @@ func TestIngestEngineEvents_bumpsDelayAcrossBatches(t *testing.T) {
 	if int64Field(minute.Payload, "delay_ms") != 9100 {
 		t.Fatalf("cross-batch ingest must keep the larger delay, got %v", minute.Payload)
 	}
+}
+
+// fakeK8sCallbackProvider 实现 ClusterK8sCallbackProvider 的最小内存版。
+// fakeK8sCallbackProvider is a minimal in-memory ClusterK8sCallbackProvider.
+type fakeK8sCallbackProvider struct {
+	k8s       bool
+	override  string
+	setValues []string
+}
+
+func (f *fakeK8sCallbackProvider) IsKubernetesCluster(_ context.Context, _ uint) bool {
+	return f.k8s
+}
+
+func (f *fakeK8sCallbackProvider) GetK8sSTXCallbackURL(_ context.Context, _ uint) (string, error) {
+	return f.override, nil
+}
+
+func (f *fakeK8sCallbackProvider) SetK8sSTXCallbackURL(_ context.Context, _ uint, callbackURL string) error {
+	f.override = callbackURL
+	f.setValues = append(f.setValues, callbackURL)
+	return nil
+}
+
+// TestUpdateEventChannelK8sCallbackResolution 覆盖两级 URL 解析、覆写持久化、清空覆写与 loopback 拦截。
+// TestUpdateEventChannelK8sCallbackResolution covers two-level URL resolution, override
+// persistence, override clearing and the loopback guard.
+func TestUpdateEventChannelK8sCallbackResolution(t *testing.T) {
+	ctx := context.Background()
+	enabled := true
+
+	newK8sService := func(t *testing.T, externalURL, override string) (*Service, *recordingEventApplier, *fakeK8sCallbackProvider) {
+		t.Helper()
+		withEventConfig(t, "secret", externalURL)
+		service, applier := newEventTestService(t, "3.1.0")
+		provider := &fakeK8sCallbackProvider{k8s: true, override: override}
+		service.SetClusterK8sCallbackProvider(provider)
+		return service, applier, provider
+	}
+
+	t.Run("k8s override wins over global external url", func(t *testing.T) {
+		service, applier, _ := newK8sService(t, "http://stx.example.com:17800", "http://stx.stx-system.svc.cluster.local:17800/")
+		if _, err := service.UpdateEventChannelForActor(ctx, adminActor, 9, &UpdateEventChannelRequest{Enabled: &enabled}); err != nil {
+			t.Fatalf("enable: %v", err)
+		}
+		want := "http://stx.stx-system.svc.cluster.local:17800/api/v1/sync/engine-events/9"
+		if applier.calls[0].URL != want {
+			t.Fatalf("url = %q, want %q", applier.calls[0].URL, want)
+		}
+	})
+
+	t.Run("k8s without override falls back to global", func(t *testing.T) {
+		service, applier, _ := newK8sService(t, "http://stx.example.com:17800", "")
+		if _, err := service.UpdateEventChannelForActor(ctx, adminActor, 9, &UpdateEventChannelRequest{Enabled: &enabled}); err != nil {
+			t.Fatalf("enable: %v", err)
+		}
+		want := "http://stx.example.com:17800/api/v1/sync/engine-events/9"
+		if applier.calls[0].URL != want {
+			t.Fatalf("url = %q, want %q", applier.calls[0].URL, want)
+		}
+	})
+
+	t.Run("loopback override is rejected before any config write", func(t *testing.T) {
+		service, applier, _ := newK8sService(t, "http://stx.example.com:17800", "http://127.0.0.1:17800")
+		_, err := service.UpdateEventChannelForActor(ctx, adminActor, 9, &UpdateEventChannelRequest{Enabled: &enabled})
+		if !errors.Is(err, ErrEventChannelCallbackLoopback) {
+			t.Fatalf("expected loopback error, got %v", err)
+		}
+		if len(applier.calls) != 0 {
+			t.Fatalf("configmap must not be written on loopback rejection, calls=%d", len(applier.calls))
+		}
+	})
+
+	t.Run("loopback global url is rejected for k8s", func(t *testing.T) {
+		service, applier, _ := newK8sService(t, "http://localhost:17800", "")
+		_, err := service.UpdateEventChannelForActor(ctx, adminActor, 9, &UpdateEventChannelRequest{Enabled: &enabled})
+		if !errors.Is(err, ErrEventChannelCallbackLoopback) {
+			t.Fatalf("expected loopback error, got %v", err)
+		}
+		if len(applier.calls) != 0 {
+			t.Fatalf("no writes allowed, calls=%d", len(applier.calls))
+		}
+	})
+
+	t.Run("bare-metal keeps loopback external url working (no k8s guard)", func(t *testing.T) {
+		withEventConfig(t, "secret", "http://127.0.0.1:17800")
+		service, applier := newEventTestService(t, "3.1.0")
+		service.SetClusterK8sCallbackProvider(&fakeK8sCallbackProvider{k8s: false})
+		if _, err := service.UpdateEventChannelForActor(ctx, adminActor, 9, &UpdateEventChannelRequest{Enabled: &enabled}); err != nil {
+			t.Fatalf("bare-metal loopback must not be rejected: %v", err)
+		}
+		if len(applier.calls) != 1 {
+			t.Fatalf("expected one write, got %d", len(applier.calls))
+		}
+	})
+
+	t.Run("stx_callback_url persistence and explicit clear", func(t *testing.T) {
+		service, _, provider := newK8sService(t, "http://stx.example.com:17800", "")
+		override := "http://10.0.2.2:17800"
+		if _, err := service.UpdateEventChannelForActor(ctx, adminActor, 9, &UpdateEventChannelRequest{STXCallbackURL: &override}); err != nil {
+			t.Fatalf("persist override: %v", err)
+		}
+		if provider.override != override {
+			t.Fatalf("override = %q, want %q", provider.override, override)
+		}
+		empty := ""
+		if _, err := service.UpdateEventChannelForActor(ctx, adminActor, 9, &UpdateEventChannelRequest{STXCallbackURL: &empty}); err != nil {
+			t.Fatalf("clear override: %v", err)
+		}
+		if provider.override != "" {
+			t.Fatalf("override must be cleared, got %q", provider.override)
+		}
+	})
+
+	t.Run("non-k8s cluster rejects non-empty override", func(t *testing.T) {
+		withEventConfig(t, "secret", "http://stx.example.com:17800")
+		service, _ := newEventTestService(t, "3.1.0")
+		service.SetClusterK8sCallbackProvider(&fakeK8sCallbackProvider{k8s: false})
+		override := "http://10.0.2.2:17800"
+		_, err := service.UpdateEventChannelForActor(ctx, adminActor, 9, &UpdateEventChannelRequest{STXCallbackURL: &override})
+		if !errors.Is(err, ErrEventChannelCallbackNotApplicable) {
+			t.Fatalf("expected not-applicable error, got %v", err)
+		}
+	})
+
+	t.Run("status exposes override and both urls", func(t *testing.T) {
+		service, _, _ := newK8sService(t, "http://stx.example.com:17800", "http://10.0.2.2:17800")
+		status, err := service.GetEventChannel(ctx, 9)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		if !status.IsKubernetes || status.STXCallbackURL != "http://10.0.2.2:17800" {
+			t.Fatalf("unexpected status: %+v", status)
+		}
+		if status.URL != "http://10.0.2.2:17800/api/v1/sync/engine-events/9" {
+			t.Fatalf("resolved url wrong: %q", status.URL)
+		}
+		if status.DefaultURL != "http://stx.example.com:17800/api/v1/sync/engine-events/9" {
+			t.Fatalf("default url wrong: %q", status.DefaultURL)
+		}
+	})
+}
+
+// TestIsLoopbackCallbackHost 覆盖回环判定的边界输入。
+// TestIsLoopbackCallbackHost covers boundary inputs of the loopback detection.
+func TestIsLoopbackCallbackHost(t *testing.T) {
+	for host, want := range map[string]bool{
+		"localhost":             true,
+		"127.0.0.1":             true,
+		"127.1.2.3":             true,
+		"::1":                   true,
+		"0.0.0.0":               true,
+		"":                      true,
+		"10.0.2.2":              false,
+		"stx.stx-system.svc":    false,
+		"192.168.49.1":          false,
+		"localhost.example.com": false,
+	} {
+		if got := isLoopbackCallbackHost(host); got != want {
+			t.Fatalf("host %q = %v, want %v", host, got, want)
+		}
+	}
+}
+
+func TestNormalizeCallbackBase(t *testing.T) {
+	assert.Equal(t, "http://host:17800", normalizeCallbackBase("http://host:17800"))
+	assert.Equal(t, "http://host:17800", normalizeCallbackBase("http://host:17800/"))
+	assert.Equal(t, "http://host:17800", normalizeCallbackBase("http://host:17800/api/v1/sync/engine-events"))
+	assert.Equal(t, "http://host:17800", normalizeCallbackBase("http://host:17800/api/v1/sync/engine-events/10"))
 }

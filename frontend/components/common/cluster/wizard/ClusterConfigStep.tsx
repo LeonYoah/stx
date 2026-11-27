@@ -84,6 +84,7 @@ interface ClusterConfigStepProps {
   eventChannelSupported: boolean;
   /** Mark the event-channel checkbox as user-controlled / 标记事件通道勾选已被用户改过 */
   onEventChannelUserSet: () => void;
+  onHttpServiceUserSet: () => void;
   /** Apply checkpoint config to IMAP / 同步检查点配置到 IMAP */
   applyCheckpointToImap: () => void;
   /** Update one host JDK (AC1) / 更新单个主机 JDK（AC1） */
@@ -105,6 +106,7 @@ export function ClusterConfigStep({
   httpServiceSupported,
   eventChannelSupported,
   onEventChannelUserSet,
+  onHttpServiceUserSet,
   applyCheckpointToImap,
   setHostJavaHome,
   fillAllJavaHome,
@@ -579,14 +581,15 @@ export function ClusterConfigStep({
                 <Checkbox
                   checked={httpServiceSupported && config.runtime.enable_http}
                   disabled={!httpServiceSupported}
-                  onCheckedChange={(checked) =>
+                  onCheckedChange={(checked) => {
+                    onHttpServiceUserSet();
                     updateConfig({
                       runtime: {
                         ...config.runtime,
                         enable_http: checked === true,
                       },
-                    })
-                  }
+                    });
+                  }}
                   label={t('cluster.wizard.enableRestService')}
                 />
                 <Input

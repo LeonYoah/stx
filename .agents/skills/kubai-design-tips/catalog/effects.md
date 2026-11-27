@@ -35,3 +35,12 @@
 - Skip: Dense lists and tables, text-heavy cards, forms and settings, screens people scan or search quickly, and platforms with no GPU drawing.
 - Demo: https://vibedesign.tips/021-ring-cards/
 - Text: tips/021-ring-cards.md (12.3k characters)
+
+## 024 Image Loading (effect)
+
+- Also called: 生图点阵等待与出图, 生图加载, 图片加载, 点阵 loading, 出图动画, 图片转场, AI 生图等待
+- Applies: Products where people wait seconds for an image: AI image generation and editing, avatar, poster and product-shot makers, chat assistants that draw, design and photo tools that render on a server.
+- Signals: Calls to an image generation API or job queue (OpenAI images, Stable Diffusion, Flux, Midjourney, Replicate, fal, DashScope); a spinner, skeleton or progress bar over an image box while it is made; polling or streaming for an image result; a grid of results from one prompt; images that take several seconds to render.
+- Skip: Images that arrive in well under a second (thumbnails, avatars, CDN feeds), long lists of small images loading together, text-only products, and quiet tools where a moving loading state would distract.
+- Demo: https://vibedesign.tips/024-image-loading/
+- Text: tips/024-image-loading.md (15.4k characters)

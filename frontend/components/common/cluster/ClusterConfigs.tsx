@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import {Alert as ArcAlert} from '@/components/arc/alert/alert';
 import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {DropdownMenu as ArcDropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
@@ -86,6 +87,11 @@ interface ClusterConfigsProps {
   clusterId: number;
   deploymentMode: string;
   onConfigChanged?: () => void;
+  /** K8s 集群配置唯一真相是 ConfigMap：无节点/模板/下发概念，编辑保存走 updateK8sConfigMapFile。
+      K8s clusters treat the in-cluster ConfigMap as the single source of truth — no
+      node/template/push semantics; saving edits goes through updateK8sConfigMapFile. */
+  isKubernetes?: boolean;
+  k8sConfigMapName?: string;
 }
 
 interface DiffRow {
@@ -273,6 +279,8 @@ export function ClusterConfigs({
   clusterId,
   deploymentMode,
   onConfigChanged,
+  isKubernetes = false,
+  k8sConfigMapName,
 }: ClusterConfigsProps) {
   const t = useTranslations();
   const [configs, setConfigs] = useState<ConfigInfo[]>([]);
@@ -283,10 +291,23 @@ export function ClusterConfigs({
   >(null);
   const [hasLoaded, setHasLoaded] = useState(false);
 
-  const availableConfigTypes = useMemo(
-    () => getConfigTypesForMode(deploymentMode),
-    [deploymentMode],
-  );
+  const availableConfigTypes = useMemo(() => {
+    if (!isKubernetes) {
+      return getConfigTypesForMode(deploymentMode);
+    }
+    // K8s 文件清单以 ConfigMap 实际内容为准：先排已知类型，再追加自定义文件名，
+    // 避免硬编码漏掉 ConfigMap 里真实挂载的文件。
+    // For K8s the file rail follows the actual ConfigMap contents: known types first,
+    // then any custom file names, so nothing mounted in the ConfigMap is hidden by
+    // a hardcoded list.
+    const known = getConfigTypesForMode(deploymentMode).filter((type) =>
+      configs.some((c) => c.config_type === type),
+    );
+    const extras = configs
+      .map((c) => c.config_type)
+      .filter((type) => !known.includes(type));
+    return [...new Set([...known, ...extras])];
+  }, [isKubernetes, deploymentMode, configs]);
   const [selectedConfigType, setSelectedConfigType] = useState<ConfigType>(
     availableConfigTypes[0],
   );
@@ -297,6 +318,7 @@ export function ClusterConfigs({
   const [editingConfig, setEditingConfig] = useState<ConfigInfo | null>(null);
   const [editContent, setEditContent] = useState('');
   const [editComment, setEditComment] = useState('');
+  const [k8sRestartAfterSave, setK8sRestartAfterSave] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMode, setSaveMode] = useState<'save' | 'save-and-sync'>('save');
   const [portChangeConfirmOpen, setPortChangeConfirmOpen] = useState(false);
@@ -381,6 +403,20 @@ export function ClusterConfigs({
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  // K8s 文件名来自 ConfigMap 实际内容，初始选中的裸机枚举值可能不在其中，
+  // 必须自动校正到第一个真实文件，否则右侧永远空态。
+  // K8s file names come from the actual ConfigMap contents, so the initially selected
+  // bare-metal enum value may not exist; correct it to the first real file or the
+  // right pane stays empty forever.
+  useEffect(() => {
+    if (!isKubernetes || availableConfigTypes.length === 0) {
+      return;
+    }
+    if (!availableConfigTypes.includes(selectedConfigType)) {
+      setSelectedConfigType(availableConfigTypes[0]);
+    }
+  }, [isKubernetes, availableConfigTypes, selectedConfigType]);
 
   // 统计每个配置文件的待同步/异常节点数，在左侧文件清单直接透出
   // Per-file mismatch/pending counts surfaced directly in the left file rail
@@ -510,6 +546,18 @@ export function ClusterConfigs({
     setSaveMode(syncAfterSave ? 'save-and-sync' : 'save');
     setSaving(true);
     try {
+      // K8s：写回 ConfigMap 并按勾选滚动重启生效；无版本/模板/节点推送语义。
+      // K8s: write back into the ConfigMap and optionally roll-restart per the
+      // checkbox; there is no version/template/node-push semantics.
+      if (isKubernetes) {
+        const fileName = editingConfig.file_path || editingConfig.config_type;
+        await services.cluster.updateK8sConfigMapFile(clusterId, fileName, editContent, k8sRestartAfterSave);
+        toast.success(t('config.saveSuccess'));
+        setEditDialogOpen(false);
+        await loadData();
+        notifyConfigChanged();
+        return;
+      }
       const result = await ConfigService.updateConfig(editingConfig.id, {
         content: editContent,
         comment: editComment || undefined,
@@ -798,6 +846,7 @@ export function ClusterConfigs({
                 {t('config.title')}
               </span>
               <div className='flex items-center gap-1'>
+                {!isKubernetes ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -817,6 +866,7 @@ export function ClusterConfigs({
                     {t('config.initFromNode')} — {t('config.tipInit')}
                   </TooltipContent>
                 </Tooltip>
+                ) : null}
                 <Button
                   type='button'
                   variant='ghost'
@@ -848,7 +898,7 @@ export function ClusterConfigs({
                     key={type}
                     type='button'
                     // 固定按钮无障碍名称，避免待同步角标数字拼入 getByRole 匹配串 / Keep button accessible name stable when alert count badge renders
-                    aria-label={ConfigTypeNames[type]}
+                    aria-label={ConfigTypeNames[type] || type}
                     onClick={() => handleSelectFile(type)}
                     data-testid={`cluster-configs-file-${type}`}
                     aria-current={active ? 'page' : undefined}
@@ -859,7 +909,7 @@ export function ClusterConfigs({
                         : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
                     )}
                   >
-                    <span className='truncate'>{ConfigTypeNames[type]}</span>
+                    <span className='truncate'>{ConfigTypeNames[type] || type}</span>
                     {alertCount > 0 ? (
                       <SoftChip
                         tone='amber'
@@ -881,9 +931,14 @@ export function ClusterConfigs({
             <div className='flex flex-wrap items-center justify-between gap-3 px-5 py-3.5'>
               <div className='flex min-w-0 flex-wrap items-center gap-2'>
                 <h3 className='truncate font-mono text-sm font-semibold text-foreground'>
-                  {ConfigTypeNames[selectedConfigType]}
+                  {ConfigTypeNames[selectedConfigType] || selectedConfigType}
                 </h3>
-                {templateConfig ? (
+                {isKubernetes && k8sConfigMapName ? (
+                  <NeutralChip className='font-mono'>
+                    {`ConfigMap: ${k8sConfigMapName}`}
+                  </NeutralChip>
+                ) : null}
+                {templateConfig && !isKubernetes ? (
                   <>
                     <NeutralChip className='font-mono tabular-nums'>
                       v{templateConfig.version}
@@ -897,6 +952,7 @@ export function ClusterConfigs({
 
               {templateConfig ? (
                 <div className='flex flex-wrap items-center gap-1.5'>
+                  {!isKubernetes ? (
                   <Button
                     type='button'
                     variant='secondary'
@@ -908,6 +964,8 @@ export function ClusterConfigs({
                     <History className='size-3.5' aria-hidden />
                     {t('config.versions')}
                   </Button>
+                  ) : null}
+                  {!isKubernetes ? (
                   <Button
                     type='button'
                     variant={mismatchedNodeCount > 0 ? 'primary' : 'secondary'}
@@ -921,6 +979,7 @@ export function ClusterConfigs({
                     <Download className='size-3.5' aria-hidden />
                     {t('config.syncToAllNodes')}
                   </Button>
+                  ) : null}
                   <Button
                     type='button'
                     variant={mismatchedNodeCount > 0 ? 'secondary' : 'primary'}
@@ -938,7 +997,7 @@ export function ClusterConfigs({
 
             {/* 配置内容区 / Config content section */}
             <div className='space-y-3.5 px-5 py-4'>
-              {templateConfig && mismatchedNodeCount > 0 ? (
+              {templateConfig && !isKubernetes && mismatchedNodeCount > 0 ? (
                 <div data-testid='cluster-configs-pending-sync'>
                   <ArcAlert
                     tone='warning'
@@ -1026,11 +1085,12 @@ export function ClusterConfigs({
                 </pre>
               ) : (
                 <p className='py-6 text-center text-xs text-muted-foreground'>
-                  {t('config.noTemplate')}
+                  {isKubernetes ? t('cluster.k8s.noConfigFile') : t('config.noTemplate')}
                 </p>
               )}
             </div>
 
+            {!isKubernetes ? (<>
             {/* 同页节点同步状态区：一眼查看全部节点一致性，无需切 Tab */}
             {/* Inline node sync status table right below content, no secondary tab switch */}
             <div className='space-y-3 px-5 py-4'>
@@ -1221,6 +1281,7 @@ export function ClusterConfigs({
                 </div>
               )}
             </div>
+            </>) : null}
           </div>
         </div>
       )}
@@ -1366,13 +1427,25 @@ export function ClusterConfigs({
                 data-testid='cluster-configs-edit-content'
               />
             </div>
-            <Input
-              label={t('config.comment')}
-              value={editComment}
-              onChange={(e) => setEditComment(e.target.value)}
-              placeholder={t('config.commentPlaceholder')}
-            />
+            {!isKubernetes ? (
+              <Input
+                label={t('config.comment')}
+                value={editComment}
+                onChange={(e) => setEditComment(e.target.value)}
+                placeholder={t('config.commentPlaceholder')}
+              />
+            ) : null}
             <div className='flex items-center justify-end gap-2 border-t-[0.5px] border-border/80 pt-4'>
+              {isKubernetes ? (
+                <label className='mr-auto flex items-center gap-2 text-xs text-foreground'>
+                  <Checkbox
+                    checked={k8sRestartAfterSave}
+                    onCheckedChange={(checked) => setK8sRestartAfterSave(checked === true)}
+                    data-testid='cluster-configs-k8s-restart-checkbox'
+                  />
+                  {t('cluster.k8s.saveAndRollout')}
+                </label>
+              ) : null}
               <Button
                 type='button'
                 variant='secondary'
@@ -1382,7 +1455,7 @@ export function ClusterConfigs({
               >
                 {t('common.cancel')}
               </Button>
-              {editingConfig?.is_template ? (
+              {!isKubernetes && editingConfig?.is_template ? (
                 <Button
                   type='button'
                   variant='secondary'
@@ -1399,7 +1472,7 @@ export function ClusterConfigs({
                 type='button'
                 size='sm'
                 onClick={() =>
-                  void handleSave(Boolean(editingConfig?.is_template))
+                  void handleSave(!isKubernetes && Boolean(editingConfig?.is_template))
                 }
                 loading={
                   saving &&
@@ -1408,7 +1481,7 @@ export function ClusterConfigs({
                 disabled={saving}
                 data-testid='cluster-configs-save-primary'
               >
-                {editingConfig?.is_template
+                {!isKubernetes && editingConfig?.is_template
                   ? t('config.saveAndSync')
                   : t('common.save')}
               </Button>

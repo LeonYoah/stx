@@ -33,6 +33,7 @@
 | [平台自监控](./platform-self-monitoring.md) | server HTTP/gRPC/DB/build 指标、Agent 进程上报白名单、平台快照接口与告警模板、外部探活边界 | 已填写 |
 | [内嵌 tsdb 容量与默认值](./embedded-tsdb-capacity.md) | `max_samples` / `sample_limit` 收紧、序列规模基准 | 已填写 |
 | [进程剖析 pprof](./pprof.md) | 本机 loopback 监听、管理员 API/CLI、内嵌 tsdb 接口怎么测 | 已填写 |
+| [全局部署模式模型](../guides/deployment-mode-model.md) | Standalone / K8s Session / K8s Application / 规划 YARN 术语、`internal/pkg/infra` 单一真源与双 SA 边界 | 已填写 |
 
 ---
 

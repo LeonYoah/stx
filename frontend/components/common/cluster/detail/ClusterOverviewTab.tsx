@@ -37,12 +37,14 @@ import {
 } from '@/components/common/layout';
 import type {NodeJavaRuntimeView} from '@/components/common/java/NodeJavaHomeCell';
 import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
+import {getClusterDeployModeLabel, isK8sInfra} from '@/lib/infra';
 import {
   HealthStatus,
   NodeRole,
   type ClusterHealthReason,
   type ClusterInfo,
   type ClusterStatusInfo,
+  type K8sPodInfo,
   type NodeInfo,
   type RuntimeStorageDetails,
   type StxJavaProxyStatus,
@@ -70,6 +72,10 @@ export interface ClusterOverviewTabProps {
   stxJavaProxy: StxJavaProxyStatus | null;
   eventChannel?: SyncEventChannelStatus | null;
   monitoringOverview?: ClusterMonitoringOverviewData | null;
+  /** K8s 集群节点概览以 Pod 为真相，物理机 nodes 为空。K8s node overview is pod-driven; bare-metal nodes stay empty. */
+  k8sPods?: K8sPodInfo[];
+  k8sPodsError?: string | null;
+  onRetryK8sPods?: () => void;
   diagnosticsGroupTotal?: number;
   inspectionStarting?: boolean;
   onSwitchJobLogMode: (mode: 'per_job' | 'mixed') => Promise<void> | void;
@@ -140,6 +146,9 @@ export function ClusterOverviewTab({
   stxJavaProxy,
   eventChannel,
   monitoringOverview,
+  k8sPods,
+  k8sPodsError,
+  onRetryK8sPods,
   diagnosticsGroupTotal = 0,
   inspectionStarting = false,
   onSwitchJobLogMode,
@@ -160,18 +169,27 @@ export function ClusterOverviewTab({
     jobLogMode === 'per_job' ? 'per_job' : 'mixed';
 
 
-  const hazelcastPort =
-    nodes.find((node) => node.hazelcast_port > 0)?.hazelcast_port || '-';
-  const httpPortLabel =
-    enableHTTP === false
+  const isK8s = isK8sInfra(cluster.infra_type);
+  const deployModeLabel = getClusterDeployModeLabel(cluster.infra_type);
+  const k8sCfg = ((cluster.config as Record<string, unknown> | undefined)?.['kubernetes'] || {}) as Record<string, unknown>;
+  const hazelcastPort = isK8s
+    ? Number(k8sCfg['hazelcast_port']) || '-'
+    : nodes.find((node) => node.hazelcast_port > 0)?.hazelcast_port || '-';
+  const httpPortLabel = isK8s
+    ? Number(k8sCfg['master_http_port']) || '-'
+    : enableHTTP === false
       ? t('cluster.httpDisabled')
       : webUINode?.api_port || '-';
-  const masterCount = nodes.filter(
-    (n) => n.role === NodeRole.MASTER || n.role === NodeRole.MASTER_WORKER,
-  ).length;
-  const workerCount = nodes.filter(
-    (n) => n.role === NodeRole.WORKER || n.role === NodeRole.MASTER_WORKER,
-  ).length;
+  const masterCount = isK8s
+    ? (k8sPods || []).filter((pod) => pod.role === 'master').length
+    : nodes.filter(
+        (n) => n.role === NodeRole.MASTER || n.role === NodeRole.MASTER_WORKER,
+      ).length;
+  const workerCount = isK8s
+    ? (k8sPods || []).filter((pod) => pod.role === 'worker').length
+    : nodes.filter(
+        (n) => n.role === NodeRole.WORKER || n.role === NodeRole.MASTER_WORKER,
+      ).length;
   const modeKey = `cluster.modes.${cluster.deployment_mode}`;
   const modeLabel = t.has(modeKey) ? t(modeKey) : cluster.deployment_mode;
 
@@ -293,18 +311,18 @@ export function ClusterOverviewTab({
           <div className='grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]'>
             <div className='min-w-0 space-y-1'>
               <div className='text-xs text-muted-foreground'>
-                {t('cluster.installDir')}
+                {isK8s ? t('cluster.k8s.namespace') : t('cluster.installDir')}
               </div>
               <div className='flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 font-mono text-xs'>
                 <span
                   className='min-w-0 flex-1 truncate text-foreground'
-                  title={cluster.install_dir || '-'}
+                  title={isK8s ? String(k8sCfg['namespace'] || '-') : cluster.install_dir || '-'}
                 >
-                  {cluster.install_dir || '-'}
+                  {isK8s ? String(k8sCfg['namespace'] || '-') : cluster.install_dir || '-'}
                 </span>
-                {cluster.install_dir ? (
+                {isK8s || cluster.install_dir ? (
                   <CopyButton
-                    value={cluster.install_dir}
+                    value={isK8s ? String(k8sCfg['namespace'] || '') : cluster.install_dir}
                     label={t('common.copy')}
                     variant='plain'
                     iconOnly
@@ -344,6 +362,7 @@ export function ClusterOverviewTab({
               <dt className='text-muted-foreground'>{t('cluster.version')}</dt>
               <dd className='flex flex-wrap items-center gap-1.5 font-mono text-sm font-medium tabular-nums'>
                 <span>{cluster.version || '-'}</span>
+                <NeutralChip>{deployModeLabel}</NeutralChip>
                 <NeutralChip>{modeLabel}</NeutralChip>
               </dd>
             </div>
@@ -377,6 +396,7 @@ export function ClusterOverviewTab({
               </dd>
             </div>
 
+            {!isK8s ? (
             <div className='col-span-2 min-w-0 space-y-1.5'>
               <dt className='text-muted-foreground'>
                 {t('cluster.logOutputMode')}
@@ -411,6 +431,7 @@ export function ClusterOverviewTab({
                 />
               </dd>
             </div>
+            ) : null}
 
             <div className='min-w-0 space-y-1'>
               <dt className='text-muted-foreground'>
@@ -455,7 +476,57 @@ export function ClusterOverviewTab({
             </Button>
           </div>
 
-          {nodes.length === 0 ? (
+          {isK8s ? (
+            k8sPodsError ? (
+              <div className='flex items-center gap-2 py-4'>
+                <p className='text-xs text-destructive'>{k8sPodsError}</p>
+                {onRetryK8sPods ? (
+                  <button
+                    type='button'
+                    className='text-xs text-primary underline-offset-2 hover:underline'
+                    onClick={onRetryK8sPods}
+                    data-testid='k8s-pods-retry'
+                  >
+                    {t('common.retry')}
+                  </button>
+                ) : null}
+              </div>
+            ) : (k8sPods || []).length === 0 ? (
+              <p className='py-4 text-xs text-muted-foreground'>
+                {t('cluster.noNodes')}
+              </p>
+            ) : (
+              <div className='divide-y-[0.5px] divide-border/70'>
+                {(k8sPods || []).map((pod) => (
+                  <div
+                    key={pod.name}
+                    className='grid grid-cols-1 items-center gap-2 py-2.5 text-xs md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_auto]'
+                  >
+                    <div className='flex min-w-0 items-center gap-2.5'>
+                      <span className='truncate font-mono font-medium text-foreground'>
+                        {pod.name}
+                      </span>
+                      <span className='truncate font-mono text-muted-foreground tabular-nums'>
+                        {pod.pod_ip || '-'}
+                      </span>
+                    </div>
+                    <div className='flex min-w-0 items-center gap-2 font-mono text-[11px] text-muted-foreground'>
+                      {pod.role ? (
+                        <span className='whitespace-nowrap'>{pod.role}</span>
+                      ) : null}
+                    </div>
+                    <span className='justify-self-end'>
+                      {pod.ready ? (
+                        <SoftChip tone='emerald'>{t('cluster.k8s.filterReady')}</SoftChip>
+                      ) : (
+                        <SoftChip tone='rose'>{pod.phase || t('cluster.k8s.filterAbnormal')}</SoftChip>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )
+          ) : nodes.length === 0 ? (
             <p className='py-4 text-xs text-muted-foreground'>
               {t('cluster.noNodes')}
             </p>

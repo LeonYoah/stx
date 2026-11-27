@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/LeonYoah/stx/internal/pkg/timex"
+	"github.com/LeonYoah/stx/internal/utils/secretbox"
 	"github.com/prometheus/common/model"
 	"github.com/spf13/viper"
 )
@@ -49,6 +50,10 @@ func init() {
 			_ = timex.SetDisplayTimezone(timex.DefaultDisplayTimezone)
 			Config.App.DisplayTimezone = timex.DefaultDisplayTimezone
 		}
+		// secretbox 密钥材料与配置同生命周期：session_secret 为空时加密调用会显式报错而非静默降级明文。
+		// secretbox key material follows the config lifecycle: an empty session_secret makes Encrypt
+		// fail loudly instead of silently degrading to plaintext storage.
+		secretbox.SetSecret(Config.App.SessionSecret)
 	}
 }
 

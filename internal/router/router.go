@@ -27,6 +27,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,9 +65,11 @@ import (
 	"github.com/LeonYoah/stx/internal/otel_trace"
 	"github.com/LeonYoah/stx/internal/pkg/debugpprof"
 	"github.com/LeonYoah/stx/internal/pkg/embedts"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/pkg/selfmetrics"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 	pb "github.com/LeonYoah/stx/internal/proto/agent"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 	"github.com/LeonYoah/stx/internal/session"
 	"github.com/LeonYoah/stx/internal/tlsbootstrap"
 	"github.com/LeonYoah/stx/internal/version"
@@ -300,6 +304,38 @@ func Serve() {
 			hostHandler := host.NewHandler(hostService, auditRepo)
 			hostHandler.SetExecutionService(executionService)
 
+			// 共享 K8sClientManager 全应用唯一实例：host/cluster/sync/monitoring 复用同一套
+			// 指纹缓存与 clientset 连接池，避免每个域各自重复建连。
+			// The shared K8sClientManager is a single application-wide instance reused by the
+			// host/cluster/sync/monitoring domains so fingerprint caching and clientset pooling
+			// are shared instead of each domain connecting independently.
+			k8sClientManager := k8s.NewClientManager(host.K8sCredentialsLoaderFromRepository(hostRepo))
+			hostHandler.SetK8sClientManager(k8sClientManager)
+
+			// 伴生 Proxy jar 加载器：按代际从 lib/ 读取本地资产；缺失时返回错误并在
+			// Proxy 状态中可见，绝不静默跳过。
+			// The companion proxy jar loader reads epoch-specific local assets from lib/;
+			// missing assets surface as errors visible in proxy status rather than being
+			// silently skipped.
+			k8sJarLoader := func(epoch string) ([]byte, error) {
+				path := filepath.Join("lib", seatunnel.STXJavaProxyJarFileName(epoch))
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return nil, fmt.Errorf("read java proxy jar %s: %w", path, err)
+				}
+				return data, nil
+			}
+			k8sHostTypeChecker := func(ctx context.Context, hostID uint) (bool, error) {
+				h, err := hostRepo.GetByID(ctx, hostID)
+				if err != nil {
+					return false, err
+				}
+				if h == nil {
+					return false, nil
+				}
+				return h.HostType == host.HostTypeKubernetes, nil
+			}
+
 			hostRouter := apiV1Router.Group("/hosts")
 			hostRouter.Use(auth.LoginRequired())
 			{
@@ -309,6 +345,12 @@ func Serve() {
 				hostRouter.PUT("/:id", hostHandler.UpdateHost)
 				hostRouter.DELETE("/:id", hostHandler.DeleteHost)
 				hostRouter.GET("/:id/install-command", hostHandler.GetInstallCommand)
+				hostRouter.POST("/k8s/test-connection", hostHandler.TestK8sDraftConnection)
+				hostRouter.POST("/k8s/inspect-kubeconfig", hostHandler.InspectK8sKubeconfig)
+				hostRouter.POST("/:id/test-connection", hostHandler.TestK8sConnection)
+				hostRouter.GET("/:id/k8s/namespaces", hostHandler.ListK8sNamespaces)
+				hostRouter.GET("/:id/k8s/namespaces/:namespace/objects", hostHandler.ListK8sNamespaceObjects)
+				hostRouter.GET("/:id/k8s/discover", hostHandler.DiscoverK8sSeaTunnelClusters)
 			}
 
 			// Dashboard Overview 仪表盘概览
@@ -336,6 +378,7 @@ func Serve() {
 				// Agents may pull script/jar from this base when starting java-proxy (DEF-R2-1).
 				AssetBaseURL: strings.TrimRight(config.GetExternalURL(), "/") + "/api/v1/agent/assets",
 			})
+			clusterService.SetK8sDependencies(k8sClientManager, k8sJarLoader, k8sHostTypeChecker)
 			bindEngineLocationLookup(clusterService)
 
 			// Inject agent command sender if agent manager is available
@@ -369,6 +412,19 @@ func Serve() {
 			{
 				// Cluster CRUD 集群增删改查
 				clusterRouter.POST("", clusterHandler.CreateCluster)
+				clusterRouter.POST("/kubernetes", clusterHandler.CreateKubernetesCluster)
+				// 创建向导预检：无集群 ID 前置（部署前校验，不落库）。
+				// Deploy wizard precheck: no cluster ID yet (pre-deploy validation, nothing persisted).
+				clusterRouter.POST("/k8s/precheck", clusterHandler.K8sPrecheckHandler)
+				clusterRouter.POST("/:id/k8s/scale", clusterHandler.ScaleK8s)
+				clusterRouter.POST("/:id/k8s/rollout-restart", clusterHandler.RolloutRestartK8s)
+				clusterRouter.POST("/:id/k8s/upgrade-image", clusterHandler.UpgradeK8sImage)
+				clusterRouter.GET("/:id/k8s/pods", clusterHandler.GetK8sPodsHandler)
+				clusterRouter.GET("/:id/k8s/pods/:pod/logs", clusterHandler.GetK8sPodLogsHandler)
+				clusterRouter.DELETE("/:id/k8s/pods/:pod", clusterHandler.DeleteK8sPodHandler)
+				clusterRouter.POST("/:id/k8s/java-proxy/retry", clusterHandler.RetryK8sJavaProxy)
+				clusterRouter.GET("/:id/k8s/configmap", clusterHandler.GetK8sConfigMap)
+				clusterRouter.PUT("/:id/k8s/configmap/:file", clusterHandler.UpdateK8sConfigMapFile)
 				clusterRouter.GET("", clusterHandler.ListClusters)
 				clusterRouter.GET("/:id", clusterHandler.GetCluster)
 				clusterRouter.PUT("/:id", clusterHandler.UpdateCluster)
@@ -432,6 +488,9 @@ func Serve() {
 
 			// Inject node provider and config sender if agent manager is available
 			// 如果 Agent Manager 可用，注入节点提供者和配置发送器
+			monitorService.SetKubernetesChecker(func(ctx context.Context, clusterID uint) bool {
+				return clusterService.IsKubernetesCluster(ctx, clusterID)
+			})
 			if agentManager != nil {
 				monitorService.SetNodeProvider(&monitorClusterNodeProviderAdapter{
 					clusterService: clusterService,
@@ -466,6 +525,7 @@ func Serve() {
 			// The platform snapshot merges metrics onto the hosts table (offline / legacy
 			// agents still appear).
 			monitoringService.SetPlatformHostLister(hostService)
+			monitoringService.SetK8sClientManager(k8sClientManager)
 			monitoringService.StartNodeHealthEvaluator(ctx)
 			clusterHandler.SetOnOperationExecuted(func(ctx context.Context, event *cluster.OperationEvent) error {
 				if event == nil {
@@ -777,6 +837,7 @@ func Serve() {
 			// 使用配置中的 packages_dir，而不是硬编码仓库路径，
 			// 这样 E2E / 测试才能在各自隔离目录中预热安装包。
 			installerService := installer.NewService("", nil)
+			installerService.SetDB(db.GetDB(context.Background()))
 			installerService.SetExecutionService(executionService)
 			executionProviders.Register("installer", installerService)
 			// Set host provider for precheck operations
@@ -804,6 +865,23 @@ func Serve() {
 				// POST /api/v1/packages/versions/refresh - 刷新版本列表
 				// POST /api/v1/packages/versions/refresh - Refresh version list
 				packageRouter.POST("/versions/refresh", installerHandler.RefreshVersions)
+
+				// 镜像仓库管理（须注册在 /:version 之前）
+				// Container registry management (register before /:version)
+				packageRouter.GET("/registries", installerHandler.ListContainerRegistries)
+				packageRouter.GET("/registries/:id/tags", installerHandler.ListContainerRegistryTags)
+				// 写操作仅管理员：仓库凭据影响所有 K8s 集群的部署与升级供应链，
+				// 普通用户只读不出写，防止低权限账号注入带后门的私有仓库。
+				// Writes are admin-only: registry credentials feed the deploy/upgrade supply
+				// chain of every Kubernetes cluster, so regular users stay read-only to stop
+				// low-privilege accounts injecting backdoored private registries.
+				packageRouter.POST("/registries", admin.LoginAdminRequired(), installerHandler.CreateContainerRegistry)
+				packageRouter.PUT("/registries/:id", admin.LoginAdminRequired(), installerHandler.UpdateContainerRegistry)
+				packageRouter.DELETE("/registries/:id", admin.LoginAdminRequired(), installerHandler.DeleteContainerRegistry)
+				packageRouter.POST("/registries/:id/test", admin.LoginAdminRequired(), installerHandler.TestContainerRegistry)
+				// probe 同样限管理员：防止普通账号拿接口当内网探测跳板（SSRF）。
+				// probe is also admin-only so regular accounts cannot abuse it for internal SSRF scanning.
+				packageRouter.POST("/registries/probe", admin.LoginAdminRequired(), installerHandler.ProbeRegistryTransient)
 
 				// 离线资产包（须注册在 /:version 之前，避免被版本参数吞掉）
 				// Offline asset bundles (register before /:version so Gin does not swallow the path)
@@ -864,13 +942,18 @@ func Serve() {
 			syncService.SetExecutionService(executionService)
 			executionProviders.Register("sync", syncService)
 			syncService.SetEngineClient(syncapp.NewSeaTunnelEngineClient())
-			syncService.SetRuntimeResolver(syncapp.NewDefaultClusterRuntimeResolver(clusterRepo, hostRepo))
+			syncRuntimeResolver := syncapp.NewDefaultClusterRuntimeResolver(clusterRepo, hostRepo)
+			syncRuntimeResolver.SetK8sClientManager(k8sClientManager)
+			syncService.SetRuntimeResolver(syncRuntimeResolver)
 			syncService.SetExecutionTargetResolver(syncapp.NewDefaultExecutionTargetResolver(clusterRepo, hostRepo))
 			syncService.SetClusterLogProvider(clusterService)
 			syncService.SetClusterVersionProvider(clusterService)
+			syncService.SetClusterK8sCallbackProvider(clusterService)
 			syncService.SetClusterDiscoveryProvider(clusterService)
 			syncService.SetConfigToolClient(syncapp.NewDefaultConfigToolClient())
-			syncService.SetConfigToolResolver(syncapp.NewDefaultConfigToolResolver(clusterService))
+			configToolResolver := syncapp.NewDefaultConfigToolResolver(clusterService)
+			configToolResolver.SetK8sManager(k8sClientManager)
+			syncService.SetConfigToolResolver(configToolResolver)
 			if agentManager != nil {
 				syncService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 			}
@@ -1191,6 +1274,7 @@ func Serve() {
 					log.Printf("[Config] re-pushed %d pending config(s) to host %d after agent reconnect", committed, hostID)
 				}
 			})
+			configService.SetK8sConfigMapSource(clusterService)
 			configHandler := appconfig.NewHandler(configService)
 			configHandler.SetExecutionService(executionService)
 			// 事件通道开关通过 config 应用改写 seatunnel.yaml。
@@ -1230,6 +1314,7 @@ func Serve() {
 			// 将配置初始化器注入安装服务，用于安装后初始化配置
 			installerService.SetConfigInitializer(configService)
 			installerService.SetEventChannelEnabler(syncService)
+			clusterService.SetK8sEventChannelEnabler(syncService)
 			log.Println("[API] Config initializer injected into installer service")
 
 			// Config management routes 配置管理路由

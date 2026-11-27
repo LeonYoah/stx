@@ -175,7 +175,7 @@ func (c *SeaTunnelEngineClient) getRealtime(ctx context.Context, endpoint *Engin
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForEndpoint(endpoint).Do(httpReq)
 	if err != nil {
 		return nil, err
 	}

@@ -236,6 +236,12 @@ func (s *Service) SetClusterVersionProvider(provider ClusterVersionProvider) {
 	s.clusterVersionProvider = provider
 }
 
+// SetClusterK8sCallbackProvider 注入 K8s 回调地址覆写读写器。
+// SetClusterK8sCallbackProvider injects the Kubernetes callback override accessor.
+func (s *Service) SetClusterK8sCallbackProvider(provider ClusterK8sCallbackProvider) {
+	s.clusterK8sCallbackProvider = provider
+}
+
 func taskExecutionMode(task *Task) string {
 	if task == nil {
 		return "cluster"

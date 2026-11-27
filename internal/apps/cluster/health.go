@@ -21,11 +21,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/LeonYoah/stx/internal/pkg/locale"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 )
 
 // memberProbeTTL 控制成员探测结果的缓存时间，避免每次状态查询都打到所有 Agent。
@@ -125,6 +128,10 @@ func clusterExpectsRunning(status ClusterStatus) bool {
 func (s *Service) evaluateClusterHealth(ctx context.Context, cluster *Cluster, statusInfo *ClusterStatusInfo) {
 	statusInfo.HealthReasons = nil
 	statusInfo.HealthReasonDetails = nil
+	if cluster != nil && cluster.IsKubernetes() {
+		s.evaluateK8sClusterHealth(ctx, cluster, statusInfo)
+		return
+	}
 	if statusInfo.TotalNodes == 0 {
 		statusInfo.HealthStatus = HealthStatusUnknown
 		return
@@ -181,6 +188,16 @@ func (s *Service) evaluateClusterHealth(ctx context.Context, cluster *Cluster, s
 	if len(reasons) > 0 {
 		statusInfo.HealthStatus = HealthStatusUnhealthy
 		return
+	}
+	if cluster.Status == ClusterStatusDeploying {
+		// deploying 自动收敛 running：Pod 全部就绪且 /overview 200 才会走到这里，
+		// 持久化一次避免每轮健康检查重复写库。
+		// Deploying converges to running: reaching here means every pod is Ready and
+		// /overview answered 200; persist once so health checks don't rewrite the row.
+		cluster.Status = ClusterStatusRunning
+		if err := s.repo.Update(ctx, cluster); err != nil {
+			statusInfo.HealthReasons = append(statusInfo.HealthReasons, locale.Pick(ctx, "状态收敛写入失败: "+err.Error(), "status convergence write failed: "+err.Error()))
+		}
 	}
 	statusInfo.HealthStatus = HealthStatusHealthy
 }
@@ -383,4 +400,165 @@ func nodeLabel(node *NodeStatusInfo) string {
 		return node.HostIP
 	}
 	return fmt.Sprintf("#%d", node.NodeID)
+}
+
+// evaluateK8sClusterHealth K8s 双校验健康：Pod Ready 计数 + 经 K8sTransport 探 master /overview。
+// evaluateK8sClusterHealth performs the K8s dual health check: ready pod counts plus an
+// /overview probe of the master service through K8sTransport.
+func (s *Service) evaluateK8sClusterHealth(ctx context.Context, cluster *Cluster, statusInfo *ClusterStatusInfo) {
+	if s.k8sManager == nil {
+		statusInfo.HealthStatus = HealthStatusUnknown
+		return
+	}
+	cfg := cluster.K8sSessionConfig()
+	if cfg == nil {
+		statusInfo.HealthStatus = HealthStatusUnknown
+		return
+	}
+	reasons := make([]string, 0)
+	details := make([]ClusterHealthReason, 0)
+	expectRunning := clusterExpectsRunning(cluster.Status)
+
+	ops := k8s.NewSessionManager(s.k8sManager)
+	pods, err := ops.SessionPods(ctx, cfg, cluster.EffectiveClusterCode())
+	if err != nil {
+		statusInfo.HealthStatus = HealthStatusUnknown
+		statusInfo.HealthReasons = append(statusInfo.HealthReasons, err.Error())
+		return
+	}
+	ready := 0
+	bootFailures := make([]string, 0)
+	for _, pod := range pods {
+		if pod != nil && pod.Ready {
+			ready++
+		}
+		// 引擎启动失败（拉取镜像失败/崩溃循环）直接透出原因与 Pod 名，
+		// 状态里能看到 ImagePullBackOff/CrashLoopBackOff 而不是只有就绪计数。
+		// Engine boot failures (image pull / crash loop) surface with the pod name so
+		// the status shows ImagePullBackOff/CrashLoopBackOff instead of bare counts.
+		if pod != nil && pod.WaitingReason != "" {
+			bootFailures = append(bootFailures, fmt.Sprintf("%s: %s", pod.Name, pod.WaitingReason))
+		}
+	}
+	// 期望副本数优先取 Workload 实时 spec.replicas 之和：外部 kubectl scale 或
+	// 缩容后持久化配置可能过期，按旧值比对会误报不健康；读取失败才回落持久化配置。
+	// The expected replica count prefers the live sum of workload spec.replicas: after an
+	// external kubectl scale or a downscale the persisted config can be stale and would
+	// false-positive unhealthy; the persisted value is only a fallback.
+	want := 0
+	liveQueried := false
+	liveOK := true
+	liveTotal := 0
+	if cfg.IsHybrid() {
+		if strings.TrimSpace(cfg.HybridWorkloadName) != "" {
+			liveQueried = true
+			if n, err := ops.GetReplicas(ctx, cfg, "hybrid"); err == nil {
+				liveTotal += n
+			} else {
+				liveOK = false
+			}
+		}
+	} else {
+		if strings.TrimSpace(cfg.MasterWorkloadName) != "" {
+			liveQueried = true
+			if n, err := ops.GetReplicas(ctx, cfg, "master"); err == nil {
+				liveTotal += n
+			} else {
+				liveOK = false
+			}
+		}
+		if strings.TrimSpace(cfg.WorkerWorkloadName) != "" {
+			liveQueried = true
+			if n, err := ops.GetReplicas(ctx, cfg, "worker"); err == nil {
+				liveTotal += n
+			} else {
+				liveOK = false
+			}
+		}
+	}
+	if liveQueried && liveOK {
+		want = liveTotal
+	} else if cfg.IsHybrid() {
+		want = cfg.HybridReplicas
+	} else {
+		want = cfg.MasterReplicas + cfg.WorkerReplicas
+	}
+	if want <= 0 {
+		want = len(pods)
+	}
+	// 节点计数必须在任何返回前写入：列表页在线比例与详情概览卡都读这三个字段。
+	// Node counts must be written before any return: the list page online ratio and the
+	// detail overview card both read these fields.
+	statusInfo.RunningNodes = ready
+	statusInfo.OnlineNodes = ready
+	total := want
+	if len(pods) > total {
+		total = len(pods)
+	}
+	statusInfo.TotalNodes = total
+	offline := total - ready
+	if offline < 0 {
+		offline = 0
+	}
+	statusInfo.OfflineNodes = offline
+	if !expectRunning {
+		statusInfo.HealthStatus = HealthStatusUnknown
+		return
+	}
+	if want == 0 {
+		reasons = append(reasons, locale.Pick(ctx, "未发现运行中的引擎 Pod", "no engine pods found"))
+		details = append(details, ClusterHealthReason{Code: ClusterHealthReasonProcessNotRunning, Status: "0/0"})
+	} else if ready < want {
+		reasons = append(reasons, locale.Pick(ctx, fmt.Sprintf("Pod 就绪 %d/%d", ready, want), fmt.Sprintf("pods ready %d/%d", ready, want)))
+		details = append(details, ClusterHealthReason{Code: ClusterHealthReasonProcessNotRunning, Status: fmt.Sprintf("%d/%d", ready, want)})
+	}
+	if len(bootFailures) > 0 {
+		reasons = append(reasons, locale.Pick(ctx, "引擎启动失败: "+strings.Join(bootFailures, "；"), "engine boot failure: "+strings.Join(bootFailures, "; ")))
+	}
+
+	if ready > 0 {
+		transport := k8s.NewTransport(s.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
+		port := cfg.MasterHTTPPort
+		if port <= 0 {
+			port = 8080
+		}
+		serviceName := cfg.MasterServiceName
+		if serviceName == "" {
+			serviceName = cfg.ClusterServiceName
+		}
+		if base, err := transport.ServiceBaseURL(ctx, serviceName, port); err == nil {
+			if client, err := transport.HTTPClient(ctx, 8*time.Second); err == nil {
+				resp, err := client.Get(strings.TrimRight(base, "/") + "/overview")
+				if err != nil {
+					reasons = append(reasons, locale.Pick(ctx, "引擎 /overview 探活失败", "engine /overview probe failed"))
+					details = append(details, ClusterHealthReason{Code: ClusterHealthReasonEngineNotReady})
+				} else {
+					resp.Body.Close()
+					if resp.StatusCode != http.StatusOK {
+						reasons = append(reasons, locale.Pick(ctx, fmt.Sprintf("引擎 /overview 返回 %d", resp.StatusCode), fmt.Sprintf("engine /overview returned %d", resp.StatusCode)))
+						details = append(details, ClusterHealthReason{Code: ClusterHealthReasonEngineNotReady, Status: fmt.Sprintf("%d", resp.StatusCode)})
+					}
+				}
+			}
+		}
+	}
+
+	statusInfo.HealthReasons = append(statusInfo.HealthReasons, reasons...)
+	statusInfo.HealthReasonDetails = append(statusInfo.HealthReasonDetails, details...)
+	if len(reasons) > 0 {
+		statusInfo.HealthStatus = HealthStatusUnhealthy
+		return
+	}
+	if cluster.Status == ClusterStatusDeploying {
+		// deploying 自动收敛 running：Pod 全部就绪且 /overview 200 才会走到这里，
+		// 持久化一次避免每轮健康检查重复写库；K8s 路径在本函数内 return，收敛必须放在这里。
+		// Deploying converges to running: reaching here means every pod is Ready and
+		// /overview answered 200; persist once. The K8s path returns inside this
+		// function, so the convergence must live here rather than the bare-metal path.
+		cluster.Status = ClusterStatusRunning
+		if err := s.repo.Update(ctx, cluster); err != nil {
+			statusInfo.HealthReasons = append(statusInfo.HealthReasons, locale.Pick(ctx, "状态收敛写入失败: "+err.Error(), "status convergence write failed: "+err.Error()))
+		}
+	}
+	statusInfo.HealthStatus = HealthStatusHealthy
 }

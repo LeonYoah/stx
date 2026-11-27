@@ -27,29 +27,37 @@ STX 控制台为 **Next.js 15**（App Router）应用，使用 **React 19**、**
 | [目录结构](./directory-structure.md) | App Router、`components/arc/` 与 `components/common/layout/` 模块组织、services 与 hooks 约定 | 已更新 |
 | [API 与 Services](./api-and-services.md) | API 客户端、BaseService 服务层、执行协议、错误拦截、类型与运行时兜底、作业拓扑契约 | 已填写 |
 | [E2E 测试](./e2e-testing.md) | Playwright 目录、夹具策略、功能流样例、CI 门禁过滤规则 | 已填写 |
+| [全局部署模式模型](../guides/deployment-mode-model.md) | Standalone / K8s Session / K8s Application / 规划 YARN 术语、集群架构命名、`@/lib/infra` 单一真源与 ESLint 防线 | 已填写 |
 
 ---
 
 ## 核心设计与交互原则
 
-1. **单层画布 + `0.5px` 细线压平（Flat Single-Canvas Architecture）**
+1. **收敛复杂度，按需披露（设计第一优先级，Decision Reduction First）**
+   - 任何面向用户的交互与流程，先在全局视角替用户收敛决策，再呈现界面：**能推断的不询问、能安全默认的不留空、值域封闭的用枚举选择而非自由输入、低频高级选项收进下一层**。
+   - 能推断的不询问：系统已持有或可推导的值（上下文已选对象、可继承的地址与配置）自动回填，不重复追问。
+   - 能安全默认的不留空：默认值取多数场景的最佳答案且选错代价低；删除、付费、对外暴露、秘钥等无安全默认的决策必须显式选择，不得预勾选。
+   - 值域封闭不自由输入：枚举与受控集合一律用选择控件，自由文本只留给开放值域；控件按选项数量选型（详见 [UI 约定](./ui-conventions.md) §3）。
+   - 低频高级项不进主干：高级/罕见配置收进折叠区、二级弹窗或向导后续步骤；每个屏幕只保留完成当前这一步所需的最少决策点。
+   - 理论依据：渐进式披露（Progressive Disclosure）、识别优于回忆（Recognition over Recall）、智能默认值（Smart Defaults）、希克定律（Hick's Law）。
+2. **单层画布 + `0.5px` 细线压平（Flat Single-Canvas Architecture）**
    - 详情页、右侧详情栏、管理类弹窗只保留唯一外层表面；严禁在画布内再嵌套 `<Card>`、`rounded-lg border shadow-xs` 或虚线占位盒。
    - 各信息组以留白（`pb-5` / `py-5`）与 `border-t-[0.5px] border-border/80` 自然分隔；内嵌表格直接落在画布上并用 `[&_tr]:border-b-[0.5px] [&_tr]:border-border/70` 分行。
-2. **零塌陷且克制的加载反馈（Zero-Collapse & Single-Indicator Loading）**
+3. **零塌陷且克制的加载反馈（Zero-Collapse & Single-Indicator Loading）**
    - 列表页统一通过 `TableCard` 实现：**300ms** 延迟显现骨架、显现后至少驻留 **500ms** 防闪烁；刷新/翻页保留旧数据与可交互性，只亮顶部 `TableLoadingBar`（不压暗、不禁点整表）。
    - 独立表单/详情区首次加载用同构骨架屏，严禁居中单个 Spinner 替换整卡；请求失败保留旧数据并在卡片内给出错误原因与重试入口。
-3. **语义准确的控件与浮层分工（Semantic Controls & Overlays）**
+4. **语义准确的控件与浮层分工（Semantic Controls & Overlays）**
    - `Switch` 仅用于拨动即刻生效的设置；随表单「保存」提交的布尔项用 `Checkbox`。
    - 2–5 个短选项用 Arc `SegmentedControl`（不塞进 `Select`）；≥6 项或动态增长项用 Arc `Select` / `Combobox`；动作集合用 `DropdownMenu`。
    - 高危/不可逆确认用居中 `AlertDialog`（写清影响对象与具名动作按钮）；编辑表单离开统一走 `DirtyCloseDialog` / `UnsavedChangesDialog` 脏态拦截。
-4. **反噪音、高信噪比与渐进式披露（Anti-Noise & Progressive Disclosure）**
+5. **反噪音与高信噪比展示（Anti-Noise Display，原则 1 在展示侧的延伸）**
    - 严禁在列表或卡片顶部堆砌无交互价值的静态长说明；帮助文案收进 `Tooltip`、`HelpHint` 或场景化 `EmptyState`。
    - 禁止在单屏内无脑平铺过多平级 Tab 或重型子表；一级 Tab 控制在合理数量，关联子域用内部 `SegmentedControl` 分段隔离。
    - 禁止仅按当前页数据拼凑与总数矛盾的状态计数。
-5. **原子信息完整与数值稳态（Atomic Integrity & Tabular Numerics）**
+6. **原子信息完整与数值稳态（Atomic Integrity & Tabular Numerics）**
    - 技术标识符、路径、代码、URL 禁止 `break-all` 硬折；采用单行 `truncate` + Tooltip + 复制，或独立横向滚动容器。
    - 计数、版本号、端口、PID、内存、进度百分比与时间统一启用 `tabular-nums`，刷新时列宽不抖动。
-6. **凭证安全保密契约（Masked Secret Credentials）**
+7. **凭证安全保密契约（Masked Secret Credentials）**
    - 敏感凭据（Secret / Password / Token）列表与详情严禁明文回显；编辑框默认留空表示保留原值，防二次展示泄露。
 
 ---

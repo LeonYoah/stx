@@ -54,6 +54,7 @@ import {
 import type {ClusterMonitoringOverviewData} from '@/lib/services/monitoring';
 import {ClusterStatusChip, NodeStatusChip} from './ClusterStatusChip';
 import {getClusterActionFlags} from './useClusterLifecycle';
+import {getClusterDeployModeLabel} from '@/lib/infra';
 import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 const MAX_PREVIEW_NODES = 5;
@@ -180,6 +181,7 @@ export function ClusterQuickDetail({
   const previewNodes = nodes.slice(0, MAX_PREVIEW_NODES);
   const modeKey = `cluster.modes.${mergedCluster.deployment_mode}`;
   const modeLabel = t.has(modeKey) ? t(modeKey) : mergedCluster.deployment_mode;
+  const deployModeLabel = getClusterDeployModeLabel(mergedCluster.infra_type);
 
   return (
     <div className={layout.detailScroll} data-testid='cluster-quick-detail'>
@@ -187,6 +189,7 @@ export function ClusterQuickDetail({
       <div className='space-y-3 border-b-[0.5px] border-border/80 pb-4'>
         <div className='flex flex-wrap items-center gap-2'>
           <ClusterStatusChip cluster={mergedCluster} />
+          <NeutralChip>{deployModeLabel}</NeutralChip>
           <NeutralChip>{modeLabel}</NeutralChip>
           {mergedCluster.version ? (
             <NeutralChip className='font-mono tabular-nums'>

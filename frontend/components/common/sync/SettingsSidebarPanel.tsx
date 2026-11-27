@@ -21,6 +21,7 @@ import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Collapsible as CollapsiblePrimitive} from 'radix-ui';
 import {isSoleDefaultCluster} from '@/lib/cluster-preference';
+import {isBareMetalInfra} from '@/lib/infra';
 import {ChevronRight, Plus} from 'lucide-react';
 import {Combobox} from '@/components/arc/combobox/combobox';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
@@ -352,10 +353,17 @@ export function SettingsSidebarPanel({
                 onValueChange={(value) =>
                   onExecutionModeChange(value as ExecutionMode)
                 }
-                options={[
-                  {value: 'cluster', label: t('clusterMode')},
-                  {value: 'local', label: t('localMode')},
-                ]}
+                options={(() => {
+                  // 仅 Standalone 主机集群具备本地进程语义；K8s / YARN 等外部调度形态隐藏 local 模式（后端亦硬拦截）。
+                  // Only Standalone host clusters support local process semantics; hide local mode on K8s/YARN.
+                  const selected = clusters.find((c) => String(c.id) === String(clusterId));
+                  const supportsLocal = !selected || isBareMetalInfra(selected.infra_type);
+                  const opts = [{value: 'cluster', label: t('clusterMode')}];
+                  if (supportsLocal) {
+                    opts.push({value: 'local', label: t('localMode')});
+                  }
+                  return opts;
+                })()}
               />
             </div>
 

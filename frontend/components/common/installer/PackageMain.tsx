@@ -28,6 +28,7 @@ import {toast} from '@/lib/toast';
 import {usePackages} from '@/hooks/use-installer';
 import {notifyOnboardingResourcesChanged} from '@/lib/onboarding/events';
 import {PackageTable} from './PackageTable';
+import {ContainerRegistryPanel} from './ContainerRegistryPanel';
 import {UploadPackageDialog} from './UploadPackageDialog';
 import {DownloadPackageDialog} from './DownloadPackageDialog';
 import {OfflineBundleDialog} from './OfflineBundleDialog';
@@ -107,7 +108,7 @@ export function PackageMain() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteVersion, setDeleteVersion] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [activeTab, setActiveTab] = useState<'online' | 'local'>('online');
+  const [activeTab, setActiveTab] = useState<'online' | 'local' | 'images'>('online');
   const [offlineBundleOpen, setOfflineBundleOpen] = useState(false);
   const [selectedOnlineIds, setSelectedOnlineIds] = useState<Set<string>>(
     () => new Set(),
@@ -367,6 +368,11 @@ export function PackageMain() {
         icon: <HardDrive className='h-3.5 w-3.5' />,
         variant: localCount > 0 ? 'success' : 'default',
       },
+      {
+        key: 'images',
+        label: t('packages.registry.title'),
+        icon: <Package className='h-3.5 w-3.5' />,
+      },
     ],
     [localCount, onlineCount, t],
   );
@@ -457,10 +463,11 @@ export function PackageMain() {
             <StatPillsBar
               items={pillItems}
               activeKey={activeTab}
-              onChange={(key) => setActiveTab(key as 'online' | 'local')}
+              onChange={(key) => setActiveTab(key as 'online' | 'local' | 'images')}
             />
 
             <div className='flex items-center gap-2'>
+              {activeTab !== 'images' ? (
               <MarketplaceViewToggle
                 viewMode={
                   activeTab === 'online' ? onlineViewMode : localViewMode
@@ -469,6 +476,7 @@ export function PackageMain() {
                   activeTab === 'online' ? setOnlineViewMode : setLocalViewMode
                 }
               />
+              ) : null}
               {activeTab === 'online' && (
                 <Button
                   variant='ghost'
@@ -487,7 +495,9 @@ export function PackageMain() {
           </div>
 
           <div className='flex flex-1 flex-col gap-4 p-3 sm:p-4'>
-            {activeTab === 'online' ? (
+            {activeTab === 'images' ? (
+              <ContainerRegistryPanel />
+            ) : activeTab === 'online' ? (
               <>
                 <PackageTable
                   type='online'

@@ -1,0 +1,121 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package k8s
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"gopkg.in/yaml.v3"
+)
+
+func TestRenderDynamicRuntimeSections(t *testing.T) {
+	off := false
+	slotNum := 8
+	expire := 2880
+	cfg := &SessionConfig{
+		MasterHTTPPort: 8080,
+		Image:          "apache/seatunnel:3.1.0",
+		Runtime: &SessionRuntimeConfig{
+			DynamicSlot:             &off,
+			SlotNum:                 &slotNum,
+			SlotAllocationStrategy:  "random",
+			JobScheduleStrategy:     "reject",
+			HistoryJobExpireMinutes: &expire,
+		},
+	}
+	out := renderSeatunnelYAML(cfg)
+	var parsed map[string]interface{}
+	if err := yaml.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("rendered yaml invalid: %v\n%s", err, out)
+	}
+	assert.Contains(t, out, "dynamic-slot: false")
+	assert.Contains(t, out, "slot-num: 8")
+	assert.Contains(t, out, "slot-allocate-strategy: RANDOM")
+	assert.Contains(t, out, "job-schedule-strategy: REJECT")
+	assert.Contains(t, out, "history-job-expire-minutes: 2880")
+	assert.NotContains(t, out, "slot-allocation-strategy")
+}
+
+func TestRenderPerRoleHeap(t *testing.T) {
+	cfg := &SessionConfig{
+		MasterHTTPPort: 8080,
+		DeploymentMode: "separated",
+		JVM:            &SessionJVMConfig{MasterHeapMB: 1024, WorkerHeapMB: 3072},
+	}
+	files := sessionConfigFiles(cfg, "demo")
+	assert.Contains(t, files["jvm_master_options"], "-Xmx1024m")
+	assert.Contains(t, files["jvm_master_options"], "-Xms512m")
+	assert.Contains(t, files["jvm_worker_options"], "-Xmx3072m")
+	hybrid := &SessionConfig{MasterHTTPPort: 8080, DeploymentMode: "hybrid", JVM: &SessionJVMConfig{HybridHeapMB: 2048}}
+	hf := sessionConfigFiles(hybrid, "demo")
+	assert.Contains(t, hf["jvm_options"], "-Xmx2048m")
+}
+
+// TestRenderHeapDerivesFromContainerMemory 验证未显式配置堆时按容器内存 1/2 自动推导，
+// 用户只需调整容器内存；显式 heap_mb 仍优先。
+// TestRenderHeapDerivesFromContainerMemory verifies heap auto-derives as half the
+// container memory when not explicitly set; explicit heap_mb still wins.
+func TestRenderHeapDerivesFromContainerMemory(t *testing.T) {
+	cfg := &SessionConfig{
+		Resources: SessionResources{
+			Master: ResourceRequirement{CPU: "1", Memory: "2Gi"},
+			Worker: ResourceRequirement{CPU: "1", Memory: "4Gi"},
+		},
+	}
+	files := sessionConfigFiles(cfg, "derive-demo")
+	// 2Gi → 堆 1024m，Xms 半量 512m；4Gi → 堆 2048m。
+	// 2Gi yields a 1024m heap with 512m Xms; 4Gi yields 2048m.
+	assert.Contains(t, files["jvm_master_options"], "-Xmx1024m")
+	assert.Contains(t, files["jvm_master_options"], "-Xms512m")
+	assert.Contains(t, files["jvm_worker_options"], "-Xmx2048m")
+
+	// 显式 heap_mb 覆盖推导。
+	// Explicit heap_mb overrides derivation.
+	cfg.JVM = &SessionJVMConfig{MasterHeapMB: 1500}
+	files = sessionConfigFiles(cfg, "derive-demo")
+	assert.Contains(t, files["jvm_master_options"], "-Xmx1500m")
+
+	// hybrid 指针空安全 + 推导。
+	// Hybrid nil-pointer safety plus derivation.
+	hybridCfg := &SessionConfig{
+		DeploymentMode:   "hybrid",
+		HybridReplicas:   1,
+		Resources:        SessionResources{Hybrid: &ResourceRequirement{CPU: "1", Memory: "4Gi"}},
+	}
+	hf := sessionConfigFiles(hybridCfg, "derive-hybrid")
+	assert.Contains(t, hf["jvm_options"], "-Xmx2048m")
+
+	// 无资源声明回落保守默认 2g。
+	// Missing resource sizing falls back to the conservative 2g default.
+	empty := sessionConfigFiles(&SessionConfig{}, "derive-empty")
+	assert.Contains(t, empty["jvm_master_options"], "-Xmx2g")
+	assert.Equal(t, 0, deriveHeapFromContainerMemory("not-a-quantity"))
+	assert.Equal(t, 0, deriveHeapFromContainerMemory("256Mi"))
+
+	// 工单验收口径：1Gi → -Xms256m -Xmx512m；4Gi → -Xms1024m -Xmx2048m。
+	// Acceptance contract: 1Gi yields -Xms256m -Xmx512m; 4Gi yields -Xms1024m -Xmx2048m.
+	oneGi := sessionConfigFiles(&SessionConfig{
+		Resources: SessionResources{Master: ResourceRequirement{CPU: "1", Memory: "1Gi"}},
+	}, "derive-1gi")
+	assert.Contains(t, oneGi["jvm_master_options"], "-Xms256m -Xmx512m")
+	fourGi := sessionConfigFiles(&SessionConfig{
+		Resources: SessionResources{Master: ResourceRequirement{CPU: "1", Memory: "4Gi"}},
+	}, "derive-4gi")
+	assert.Contains(t, fourGi["jvm_master_options"], "-Xms1024m -Xmx2048m")
+}

@@ -126,6 +126,13 @@ func (r *Repository) ListWithWarnings(ctx context.Context, filter *ClusterFilter
 		if filter.DeploymentMode != "" {
 			query = query.Where("deployment_mode = ?", filter.DeploymentMode)
 		}
+		switch filter.Scope {
+		case "", "managed":
+			query = query.Where("auto_registered = ?", false)
+		case "app_instances":
+			query = query.Where("auto_registered = ?", true)
+		case "all":
+		}
 	}
 
 	// Get total count

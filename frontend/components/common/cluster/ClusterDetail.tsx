@@ -45,6 +45,7 @@ import {
   TabsTrigger as ArcTabsTrigger,
 } from '@/components/arc/tabs/tabs';
 import {toast} from '@/lib/toast';
+import {isBareMetalInfra, isK8sInfra} from '@/lib/infra';
 import {
   ArrowLeft,
   Play,
@@ -65,7 +66,7 @@ import {
   SlidersHorizontal,
   HelpCircle,
 } from 'lucide-react';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {Tooltip} from '@/components/arc/tooltip/tooltip';
 import {
   ConfirmDialog,
   DirtyCloseDialog,
@@ -81,6 +82,7 @@ import {
   CLUSTER_DETAIL_TABS,
   getLegacyClusterRouteRewrite,
   resolveClusterDetailRoute,
+  type OpsSubView,
   type ClusterDetailTab,
   type RuntimeSubView,
 } from './detail/cluster-detail-tabs';
@@ -88,12 +90,13 @@ import {ClusterOverviewTab} from './detail/ClusterOverviewTab';
 import {ClusterNodesTab} from './detail/ClusterNodesTab';
 import {ClusterOpsTab} from './detail/ClusterOpsTab';
 import {CheckpointInspectDialog} from '@/components/common/sync/CheckpointPanels';
-import {Skeleton} from '@/components/ui/skeleton';
+import {Skeleton} from '@/components/arc/skeleton/skeleton';
 import services from '@/lib/services';
 import {
   ClusterInfo,
   ClusterStatus,
   ClusterStatusInfo,
+  K8sPodInfo,
   NodeInfo,
   OperationType,
   RuntimeStorageDetails,
@@ -118,12 +121,15 @@ import type {ScaleOperationInfo} from '@/lib/services/cluster/scale.types';
 import {EditNodeDialog} from './EditNodeDialog';
 import {ClusterPlugins} from './ClusterPlugins';
 import {ClusterConfigs} from './ClusterConfigs';
+import {deriveProxyContainerMemory} from '@/lib/k8s-proxy-memory';
 import {EngineEventChannelCard} from './EngineEventChannelCard';
 import {SeaTunnelObserveMenu} from './SeaTunnelObserveMenu';
 import {RuntimeStorageEditor} from './RuntimeStorageEditor';
 import {RuntimeStorageFileExplorer} from './RuntimeStorageFileExplorer';
 import {ClusterActions} from './ClusterActions';
 import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
+import {K8sNodesPanel} from './K8sNodesPanel';
+import {K8sUpgradeImageDialog} from './K8sUpgradeImageDialog';
 import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
 import {
   baselinePidsFromNodes,
@@ -310,6 +316,18 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [stxJavaProxyRestartOnSave, setStxJavaProxyRestartOnSave] =
     useState(true);
   const [stxJavaProxySaving, setStxJavaProxySaving] = useState(false);
+  // 代理状态轮询定时器：串行链式调度 + 卸载/恢复健康/重复提交立即清理，
+  // 不再一次甩 12 个无人回收的 setTimeout。
+  // Proxy status polling timer: serial chained scheduling with immediate cleanup on
+  // unmount, recovery, or resubmission — no more 12 fire-and-forget setTimeouts.
+  const proxyPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearProxyPollTimer = useCallback(() => {
+    if (proxyPollTimerRef.current !== null) {
+      clearTimeout(proxyPollTimerRef.current);
+      proxyPollTimerRef.current = null;
+    }
+  }, []);
+  useEffect(() => clearProxyPollTimer, [clearProxyPollTimer]);
   const [runtimeStorageLoading, setRuntimeStorageLoading] = useState(false);
   const [runtimeStorageValidationLoading, setRuntimeStorageValidationLoading] =
     useState<'checkpoint' | 'imap' | null>(null);
@@ -400,6 +418,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     () => pickWebUINode(nodes, cluster?.version, runtimeConfig.enableHTTP),
     [cluster?.version, nodes, runtimeConfig.enableHTTP],
   );
+  // 提前计算基础设施类型：opsView 归一化与 Pod 拉取都依赖它，且需在 early return 前就绪。
+  // Infra type is computed early: both opsView normalization and pod loading depend on
+  // it and it must be ready before the early returns.
+  const clusterIsK8s = isK8sInfra(cluster?.infra_type);
   const resolvedRoute = useMemo(
     () =>
       resolveClusterDetailRoute(rawTabParam, rawViewParam, Boolean(webUINode)),
@@ -407,7 +429,13 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   );
   const activeTab = resolvedRoute.tab;
   const runtimeView = resolvedRoute.runtimeView;
-  const opsView = resolvedRoute.opsView;
+  // K8s 无 guard 子视图：深链或默认值落到 guard 时无感归一化到 diagnostics。
+  // Kubernetes has no guard sub-view: deep links or defaults landing on guard
+  // transparently normalize to diagnostics.
+  const opsView: OpsSubView =
+    clusterIsK8s && resolvedRoute.opsView === 'guard'
+      ? 'diagnostics'
+      : resolvedRoute.opsView;
 
   // 旧 ?tab=storage|proxy|webui|monitoring|diagnostics|upgrades 深链无感归一化。
   // ?tab=webui 须等集群/节点首次加载完成，避免未知可用性被写成 checkpoint。
@@ -635,6 +663,8 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   // 启停/重启后递增，驱动节点页 ProcessEventList 有界静默轮询（与主状态轮询同窗口）。
   // Bumped after lifecycle ops so Nodes-tab ProcessEventList starts a bounded silent poll (same window as status).
   const [lifecyclePollEpoch, setLifecyclePollEpoch] = useState(0);
+  const [k8sUpgradeOpen, setK8sUpgradeOpen] = useState(false);
+  const [k8sPods, setK8sPods] = useState<K8sPodInfo[]>([]);
 
   const refreshMainStatusAfterLifecycle = useCallback(
     async (
@@ -937,9 +967,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         await services.cluster.getStxJavaProxyStatusSafe(clusterId);
       if (!result.success || !result.data) {
         setStxJavaProxy(null);
-        return;
+        return null;
       }
       setStxJavaProxy(result.data);
+      return result.data;
     } finally {
       setStxJavaProxyLoading(false);
     }
@@ -1069,6 +1100,37 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       );
       setStxJavaProxyConfigOpen(false);
       void loadStxJavaProxyStatus();
+      // 触发滚动重启时新 Pod 需数十秒就绪，期间状态接口打到旧 Pod 会展示过期堆内存；
+      // 间隔轮询直到新实例上报，避免详情页长期停留在旧值。
+      // During a rolling restart the new pod takes tens of seconds to become ready and
+      // the status endpoint keeps hitting the old pod, so poll until the fresh instance
+      // reports instead of leaving the detail page pinned to stale heap values.
+      if (stxJavaProxyRestartOnSave) {
+        clearProxyPollTimer();
+        let attempt = 0;
+        const chain = async () => {
+          attempt += 1;
+          const status = await loadStxJavaProxyStatus();
+          // 恢复健康（实例-ready 且堆内存已刷新）或超过 12 次即停止链式轮询。
+          // The chained poll stops once health recovers (instance ready with refreshed
+          // heap) or after 12 attempts.
+          const healthy = Boolean(
+            status &&
+            typeof status === 'object' &&
+            ((status as {healthy?: boolean}).healthy || (status as {status?: string}).status === 'running'),
+          );
+          if (!healthy && attempt < 12) {
+            proxyPollTimerRef.current = setTimeout(() => {
+              void chain();
+            }, 5000);
+          } else {
+            proxyPollTimerRef.current = null;
+          }
+        };
+        proxyPollTimerRef.current = setTimeout(() => {
+          void chain();
+        }, 5000);
+      }
     } finally {
       setStxJavaProxySaving(false);
     }
@@ -1078,6 +1140,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     stxJavaProxyRestartOnSave,
     t,
     loadStxJavaProxyStatus,
+    clearProxyPollTimer,
   ]);
 
   const handleStartInspection = useCallback(async () => {
@@ -1624,6 +1687,34 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     }
   };
 
+  // hooks 必须全部位于 early return 之前，故 Pod 拉取放在这里而不是渲染区。
+  // All hooks must precede the early returns, so pod loading lives here rather than
+  // in the render section.
+  // Pod 拉取失败必须显式可重试（概览页展示错误+重试），禁止静默置空伪装成无节点。
+  // Pod load failures surface an error with retry in the overview; never silently
+  // empty the list, which would masquerade as "no nodes".
+  const [k8sPodsError, setK8sPodsError] = useState<string | null>(null);
+  const loadK8sPods = useCallback(() => {
+    if (!clusterIsK8s) {
+      setK8sPods([]);
+      setK8sPodsError(null);
+      return;
+    }
+    setK8sPodsError(null);
+    services.cluster
+      .getK8sPods(clusterId)
+      .then((pods) => {
+        setK8sPods(pods);
+      })
+      .catch((err) => {
+        setK8sPodsError(err instanceof Error ? err.message : String(err));
+      });
+  }, [clusterId, clusterIsK8s]);
+
+  useEffect(() => {
+    loadK8sPods();
+  }, [loadK8sPods, lifecyclePollEpoch]);
+
   if (loading && !cluster) {
     return <ClusterDetailSkeleton />;
   }
@@ -1645,13 +1736,33 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     );
   }
 
-  const canDelete =
-    cluster.status !== ClusterStatus.RUNNING &&
-    cluster.status !== ClusterStatus.DEPLOYING;
-  const webUIProxyURL = webUINode ? `/api/v1/clusters/${clusterId}/webui/` : '';
-  const webUIMasterAddress = webUINode
-    ? `${webUINode.host_ip || webUINode.host_name || '-'}:${webUINode.api_port}`
-    : '';
+  const isK8sCluster = isK8sInfra(cluster?.infra_type);
+  // 配置查找极廉价，不用 useMemo：本组件存在 early return，hooks 位置受限。
+  // The config lookup is trivially cheap, so no useMemo: this component has early
+  // returns that constrain hook placement.
+  const k8sCfg = ((cluster?.config as Record<string, unknown> | undefined)?.['kubernetes'] || {}) as Record<string, unknown>;
+
+  // K8s 集群删除即资源生命周期（解绑/卸载），后端允许运行态删除，前端对齐。
+  // For K8s clusters deletion IS the resource lifecycle; the backend permits deleting
+  // running clusters and the frontend matches it.
+  const canDelete = isK8sCluster
+    ? cluster.status !== ClusterStatus.DEPLOYING
+    : cluster.status !== ClusterStatus.RUNNING &&
+      cluster.status !== ClusterStatus.DEPLOYING;
+  // WebUI 可用性门控：物理机依赖引擎节点 API 端口；K8s 由 master_http_port 决定，
+  // iframe 统一走 /webui/ 反代（后端 proxyK8sWebUI 已实现 K8s 转发）。
+  // WebUI availability: bare metal relies on the engine node API port; K8s depends on
+  // master_http_port. The iframe always proxies through /webui/ (backend proxyK8sWebUI
+  // already forwards K8s traffic).
+  const hasWebUI = isK8sCluster
+    ? Number(k8sCfg?.master_http_port) > 0
+    : Boolean(webUINode);
+  const webUIProxyURL = hasWebUI ? `/api/v1/clusters/${clusterId}/webui/` : '';
+  const webUIMasterAddress = isK8sCluster
+    ? `${(k8sCfg?.namespace as string | undefined) ?? '-'}/${((k8sCfg?.master_service_name || k8sCfg?.cluster_service_name) as string | undefined) ?? 'master'}:${(k8sCfg?.master_http_port as number | undefined) ?? 0}`
+    : webUINode
+      ? `${webUINode.host_ip || webUINode.host_name || '-'}:${webUINode.api_port}`
+      : '';
 
   const renderRuntimeStorageSpec = (
     spec: RuntimeStorageSpec | undefined,
@@ -1838,8 +1949,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           </div>
         ) : null}
 
-        {/* 类似电脑资源管理器的文件与目录浏览器 */}
-        {/* Desktop-like file explorer for runtime storage inspection & navigation */}
+        {/* 类似电脑资源管理器的文件与目录浏览器；K8s 容器内 LOCAL_FILE 控制面不可达，隐藏 */}
+        {/* Desktop-like file explorer; hidden for Kubernetes LOCAL_FILE which lives inside pods */}
+        {!(clusterIsK8s && !spec.external) ? (
         <div className='border-t-[0.5px] border-border/80 pt-4'>
           <RuntimeStorageFileExplorer
             flat
@@ -1874,16 +1986,19 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             }
             inspectIMAPWALLoadingPath={imapInspectLoading}
           />
-        </div>
+        </div> ) : null}
       </div>
     );
   };
+
+  // K8s 集群判定与节点面板一致：任何非 bare_metal infra_type 都走 K8s 视图。
+  // K8s detection mirrors the nodes panel: any non-bare_metal infra_type uses K8s views.
 
   const runtimeViewOptions: Array<{value: RuntimeSubView; label: string}> = [
     {value: 'checkpoint', label: t('cluster.list.runtimeViews.checkpoint')},
     {value: 'imap', label: t('cluster.list.runtimeViews.imap')},
     {value: 'proxy', label: t('cluster.list.runtimeViews.proxy')},
-    ...(webUINode
+    ...(hasWebUI
       ? [{value: 'webui' as const, label: t('cluster.list.runtimeViews.webui')}]
       : []),
   ];
@@ -1900,7 +2015,16 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     {
       label: t('stUpgrade.entry'),
       icon: <Activity className='size-3.5' aria-hidden />,
-      onSelect: () => router.push(`/clusters/${clusterId}/upgrade/prepare`),
+      onSelect: () => {
+        // K8s 集群升级即换镜像 Tag（不可变镜像），无二进制分发升级向导。
+        // K8s upgrades mean swapping the image tag (immutable image); there is no
+        // binary-distribution upgrade wizard.
+        if (isK8sCluster) {
+          setK8sUpgradeOpen(true);
+        } else {
+          router.push(`/clusters/${clusterId}/upgrade/prepare`);
+        }
+      },
     },
     {
       label: t('common.edit'),
@@ -2060,6 +2184,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             <ClusterOverviewTab
               cluster={cluster}
               clusterStatus={clusterStatus}
+              k8sPods={k8sPods}
+              k8sPodsError={k8sPodsError}
+              onRetryK8sPods={loadK8sPods}
               nodes={nodes}
               nodeJavaRuntimes={nodeJavaRuntimes}
               webUINode={webUINode}
@@ -2089,7 +2216,17 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         </ArcTabsContent>
 
         <ArcTabsContent value='nodes'>
-          {activeTab === 'nodes' ? (
+          {activeTab === 'nodes' && isK8sInfra(cluster?.infra_type) ? (
+            <div className='px-1 py-2'>
+              <K8sNodesPanel
+                clusterId={clusterId}
+                cluster={cluster}
+                refreshTrigger={lifecyclePollEpoch}
+                onAfterMutate={() => void loadClusterData({silent: true})}
+              />
+            </div>
+          ) : null}
+          {activeTab === 'nodes' && isBareMetalInfra(cluster?.infra_type) ? (
             <ClusterNodesTab
               clusterId={clusterId}
               nodes={nodes}
@@ -2122,6 +2259,8 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 clusterId={clusterId}
                 deploymentMode={cluster.deployment_mode}
                 onConfigChanged={handleConfigChanged}
+                isKubernetes={isK8sCluster}
+                k8sConfigMapName={(k8sCfg?.configmap_name as string | undefined) ?? undefined}
               />
               <EngineEventChannelCard
                 clusterId={clusterId}
@@ -2254,22 +2393,14 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                         <h3 className='text-sm font-semibold text-foreground'>
                           {t('cluster.stxJavaProxy.title')}
                         </h3>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
+                        <Tooltip content={t('cluster.stxJavaProxy.description')} side='top'>
+                          <button
                               type='button'
                               className='text-muted-foreground/70 hover:text-foreground'
                               aria-label={t('cluster.stxJavaProxy.description')}
                             >
                               <HelpCircle className='size-3.5' />
                             </button>
-                          </TooltipTrigger>
-                          <TooltipContent
-                            side='top'
-                            className='max-w-xs text-xs font-normal leading-relaxed'
-                          >
-                            {t('cluster.stxJavaProxy.description')}
-                          </TooltipContent>
                         </Tooltip>
                       </div>
                       <SoftChip
@@ -2460,7 +2591,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               ) : null}
 
               {/* 内嵌 SeaTunnel Web UI（仅 webUINode 存在时可用） */}
-              {runtimeView === 'webui' && webUINode ? (
+              {runtimeView === 'webui' && hasWebUI ? (
                 <div className='overflow-hidden rounded-(--radius-panel) border border-(--border) bg-card'>
                   <div className='flex flex-wrap items-center justify-between gap-3 border-b-[0.5px] border-border/80 px-5 py-3.5'>
                     <div className='flex min-w-0 items-center gap-2'>
@@ -2471,8 +2602,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                       <span className='text-sm font-semibold whitespace-nowrap'>
                         {t('cluster.webUiTitle')}
                       </span>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
+                      <Tooltip content={<>{t('cluster.webUiMasterAddressTip', {
+                            address: webUIMasterAddress,
+                          })}</>} side='top'>
                           <button
                             type='button'
                             className='min-w-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
@@ -2488,16 +2620,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                               {webUIMasterAddress}
                             </span>
                           </button>
-                        </TooltipTrigger>
-                        <TooltipContent
-                          side='top'
-                          className='max-w-sm text-xs'
-                        >
-                          {t('cluster.webUiMasterAddressTip', {
-                            address: webUIMasterAddress,
-                          })}
-                        </TooltipContent>
-                      </Tooltip>
+                        </Tooltip>
                     </div>
                     <SeaTunnelObserveMenu
                       clusterId={clusterId}
@@ -2540,10 +2663,25 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               upgradeTasksTotal={upgradeTasksTotal}
               onUpgradeTasksPageChange={setUpgradeTasksPage}
               onOpenUpgradeTask={openUpgradeTaskDetail}
+              isKubernetes={isK8sCluster}
+              onOpenK8sUpgrade={() => setK8sUpgradeOpen(true)}
             />
           ) : null}
         </ArcTabsContent>
       </ArcTabs>
+
+      {isK8sCluster ? (
+        <K8sUpgradeImageDialog
+          open={k8sUpgradeOpen}
+          onOpenChange={setK8sUpgradeOpen}
+          clusterId={clusterId}
+          currentImage={(k8sCfg?.image as string | undefined) ?? ''}
+          onUpgraded={() => {
+            void loadClusterData({silent: true});
+            setLifecyclePollEpoch((n) => n + 1);
+          }}
+        />
+      ) : null}
 
       <DirtyCloseDialog
         open={pendingRoute !== null}
@@ -3004,6 +3142,14 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 data-testid='stx-java-proxy-jvm-opts-input'
               />
             </div>
+
+            {clusterIsK8s ? (
+              <p className='text-xs text-muted-foreground' data-testid='k8s-proxy-memory-hint'>
+                {t('cluster.stxJavaProxy.k8sMemorySyncHint', {
+                  memory: deriveProxyContainerMemory(stxJavaProxyJvmOptsInput).limitDisplay,
+                })}
+              </p>
+            ) : null}
 
             <div className='border-t-[0.5px] border-border/80 pt-4'>
               <ArcCheckbox

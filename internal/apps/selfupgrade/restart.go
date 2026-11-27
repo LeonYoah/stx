@@ -98,24 +98,24 @@ type frontendPlan struct {
 
 // restartPlan 是旧进程交给 watchdog 的完整重启计划。/ restartPlan is the full plan the old process hands to the watchdog.
 type restartPlan struct {
-	TaskID         string          `json:"task_id"`
-	TargetVersion  string          `json:"target_version"`
-	FromVersion    string          `json:"from_version"`
-	Strategy       restartStrategy `json:"strategy"`
-	Executable     string          `json:"executable"`
-	Backup         string          `json:"backup"`
-	Argv           []string        `json:"argv"`
-	Env            []string        `json:"env"`
-	Dir            string          `json:"dir"`
-	StdoutPath     string          `json:"stdout_path,omitempty"`
-	StderrPath     string          `json:"stderr_path,omitempty"`
-	OldPID         int             `json:"old_pid"`
-	BackendPIDFile string          `json:"backend_pid_file,omitempty"`
-	HealthURL      string          `json:"health_url"`
-	ReadyPath      string          `json:"ready_path"`
-	ResultPath     string          `json:"result_path"`
-	TimeoutSeconds int             `json:"timeout_seconds"`
-	Frontend       *frontendPlan   `json:"frontend,omitempty"`
+	TaskID         string           `json:"task_id"`
+	TargetVersion  string           `json:"target_version"`
+	FromVersion    string           `json:"from_version"`
+	Strategy       restartStrategy  `json:"strategy"`
+	Executable     string           `json:"executable"`
+	Backup         string           `json:"backup"`
+	Argv           []string         `json:"argv"`
+	Env            []string         `json:"env"`
+	Dir            string           `json:"dir"`
+	StdoutPath     string           `json:"stdout_path,omitempty"`
+	StderrPath     string           `json:"stderr_path,omitempty"`
+	OldPID         int              `json:"old_pid"`
+	BackendPIDFile string           `json:"backend_pid_file,omitempty"`
+	HealthURL      string           `json:"health_url"`
+	ReadyPath      string           `json:"ready_path"`
+	ResultPath     string           `json:"result_path"`
+	TimeoutSeconds int              `json:"timeout_seconds"`
+	Frontend       *frontendPlan    `json:"frontend,omitempty"`
 	FrontendSwap   *frontendDirSwap `json:"frontend_swap,omitempty"`
 }
 

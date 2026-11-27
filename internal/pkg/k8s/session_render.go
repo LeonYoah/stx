@@ -1,0 +1,501 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package k8s
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/LeonYoah/stx/internal/seatunnel"
+	"k8s.io/apimachinery/pkg/api/resource"
+)
+
+// 本文件集中维护 stx_deployed 一键部署渲染进 ConfigMap 的全部配置文件模板，
+// 严格对齐上游生产推荐（rest-api v1 关闭、seatunnel.yaml 负责 HTTP 监听、hazelcast k8s service-dns 发现）。
+// This file holds all config file templates rendered into the ConfigMap for stx_deployed
+// one-click clusters, strictly aligned with upstream production guidance (REST v1 disabled,
+// seatunnel.yaml owns the HTTP listener, hazelcast kubernetes service-dns discovery).
+
+// renderSeatunnelYAML 渲染 seatunnel.yaml：HTTP 监听端口来自 master_http_port，指标开启；
+// Runtime/Checkpoint 草稿存在时按部署向导输入动态渲染。
+// renderSeatunnelYAML renders seatunnel.yaml: the HTTP listener port comes from
+// master_http_port and telemetry metrics stay enabled; Runtime/Checkpoint drafts
+// render dynamically when the deploy wizard supplied them.
+func renderSeatunnelYAML(cfg *SessionConfig) string {
+	// enable-http 恒为 true：控制面一切运行时能力（/overview、作业提交、事件、监控）
+	// 都依赖引擎 REST，关闭等于创建即残废，因此不暴露关闭路径。
+	// enable-http is always true: every control-plane runtime capability (/overview,
+	// job submission, events, metrics) depends on the engine REST API, so turning it
+	// off yields a dead-on-arrival cluster and the disable path is not exposed.
+	enableHTTP := "true"
+	checkpointPlugin := `          namespace: /tmp/seatunnel/checkpoint_snapshot/
+          storage.type: hdfs
+          fs.defaultFS: file:///tmp/`
+	if cp := cfg.Checkpoint; cp != nil && cp.Enabled {
+		checkpointPlugin = renderStoragePluginConfig(cp, "/tmp/seatunnel/checkpoint_snapshot/")
+	}
+	// 高级运行参数按版本能力动态渲染：键位语义与裸金属 agent 渲染完全一致
+	//（slot-allocate-strategy 而非误拼的 allocation），未配置时保持上游推荐默认。
+	// Advanced runtime toggles render dynamically per version capabilities: key
+	// semantics mirror the bare-metal agent renderer exactly (slot-allocate-strategy,
+	// not the misspelled allocation), and unset fields keep upstream-recommended defaults.
+	// 版本口径优先级：集群/镜像显式确认的 Version 先于镜像 tag 猜测——非语义化
+	// 私有镜像 tag（prod-202604 之类）猜不出版本，显式值是唯一可靠来源。
+	// Version priority: the explicitly confirmed cluster/image Version wins over the
+	// image-tag guess — non-semver private tags (prod-202604 etc.) yield nothing, so
+	// the explicit value is the only reliable source.
+	version := strings.TrimSpace(cfg.Version)
+	if version == "" {
+		version = imageTagVersionString(cfg.Image)
+	}
+	caps := seatunnel.CapabilitiesForVersion(version)
+	rt := cfg.Runtime
+	if rt == nil {
+		rt = &SessionRuntimeConfig{}
+	}
+	historyExpire := 1440
+	if caps.SupportsHistoryJobExpireMinutes && rt.HistoryJobExpireMinutes != nil && *rt.HistoryJobExpireMinutes > 0 {
+		historyExpire = *rt.HistoryJobExpireMinutes
+	}
+	dynamicSlot := true
+	if rt.DynamicSlot != nil {
+		dynamicSlot = *rt.DynamicSlot
+	}
+	slotLines := fmt.Sprintf("      dynamic-slot: %t", dynamicSlot)
+	if caps.SupportsDynamicSlot {
+		if caps.SupportsSlotAllocationStrategy {
+			strategy := caps.DefaultSlotAllocationStrategy
+			if strings.TrimSpace(rt.SlotAllocationStrategy) != "" {
+				strategy = strings.ToUpper(strings.TrimSpace(rt.SlotAllocationStrategy))
+			}
+			if strategy != "" {
+				slotLines += fmt.Sprintf("\n      slot-allocate-strategy: %s", strategy)
+			}
+		}
+		if !dynamicSlot && caps.SupportsSlotNum {
+			slotNum := caps.DefaultStaticSlotNum
+			if rt.SlotNum != nil && *rt.SlotNum > 0 {
+				slotNum = *rt.SlotNum
+			}
+			slotLines += fmt.Sprintf("\n      slot-num: %d", slotNum)
+		}
+	}
+	scheduleLine := ""
+	if !dynamicSlot && caps.SupportsJobScheduleStrategy {
+		strategy := caps.DefaultJobScheduleStrategy
+		if strings.TrimSpace(rt.JobScheduleStrategy) != "" {
+			strategy = strings.ToUpper(strings.TrimSpace(rt.JobScheduleStrategy))
+		}
+		if strategy != "" {
+			scheduleLine = fmt.Sprintf("    job-schedule-strategy: %s\n", strategy)
+		}
+	}
+	deletionLine := ""
+	if caps.SupportsScheduledDeletionEnable {
+		deletion := caps.DefaultScheduledDeletionEnable
+		if rt.ScheduledDeletionEnable != nil {
+			deletion = *rt.ScheduledDeletionEnable
+		}
+		deletionLine = fmt.Sprintf("        logs:\n          scheduled-deletion-enable: %t\n", deletion)
+	}
+	return fmt.Sprintf(`seatunnel:
+  engine:
+    history-job-expire-minutes: %d
+    backup-count: 1
+    queue-type: blockingqueue
+    print-execution-info-interval: 60
+    print-job-metrics-info-interval: 60
+    classloader-cache-mode: true
+%s    slot-service:
+%s
+    http:
+      enable-http: %s
+      port: %d
+      enable-dynamic-port: false
+      port-range: 100
+    checkpoint:
+      interval: 300000
+      timeout: 10000
+      storage:
+        type: hdfs
+        max-retained: 3
+        plugin-config:
+%s
+    telemetry:
+      metric:
+        enabled: true
+%s`, historyExpire, scheduleLine, slotLines, enableHTTP, cfg.MasterHTTPPort, checkpointPlugin, deletionLine)
+}
+
+// imageTagVersionString 提取镜像 tag 供版本能力门控；非语义化 tag 返回空（能力取最新默认）。
+// imageTagVersionString extracts the image tag for version capability gating;
+// non-semver tags yield empty (capabilities fall back to the newest defaults).
+func imageTagVersionString(image string) string {
+	if strings.Contains(image, "@sha256:") {
+		return ""
+	}
+	idx := strings.LastIndex(image, ":")
+	if idx < 0 || strings.Contains(image[idx+1:], "/") {
+		return ""
+	}
+	return strings.TrimPrefix(strings.TrimSpace(image[idx+1:]), "v")
+}
+
+// renderStoragePluginConfig 把存储草稿渲染为 plugin-config 行；LOCAL_FILE 走 file:// 本地路径。
+// renderStoragePluginConfig renders a storage draft into plugin-config lines; LOCAL_FILE
+// maps to file:// local paths.
+func renderStoragePluginConfig(spec *SessionStorageSpec, defaultNamespace string) string {
+	namespace := strings.TrimSpace(spec.Namespace)
+	if namespace == "" {
+		namespace = defaultNamespace
+	}
+	storageType := strings.ToUpper(strings.TrimSpace(spec.StorageType))
+	lines := []string{"          namespace: " + namespace}
+	switch storageType {
+	case "", "LOCAL_FILE":
+		lines = append(lines,
+			"          storage.type: hdfs",
+			"          fs.defaultFS: file:///tmp/")
+	case "S3":
+		lines = append(lines,
+			"          storage.type: s3",
+			"          fs.s3a.endpoint: "+strings.TrimSpace(spec.Endpoint))
+		if spec.Bucket != "" {
+			lines = append(lines, "          s3.bucket: "+strings.TrimSpace(spec.Bucket))
+		}
+		if spec.AccessKey != "" {
+			lines = append(lines, "          fs.s3a.access.key: "+strings.TrimSpace(spec.AccessKey))
+		}
+		if spec.SecretKey != "" {
+			lines = append(lines, "          fs.s3a.secret.key: "+strings.TrimSpace(spec.SecretKey))
+		}
+	case "OSS":
+		lines = append(lines,
+			"          storage.type: oss",
+			"          fs.oss.endpoint: "+strings.TrimSpace(spec.Endpoint))
+		if spec.Bucket != "" {
+			lines = append(lines, "          oss.bucket: "+strings.TrimSpace(spec.Bucket))
+		}
+		if spec.AccessKey != "" {
+			lines = append(lines, "          fs.oss.accessKeyId: "+strings.TrimSpace(spec.AccessKey))
+		}
+		if spec.SecretKey != "" {
+			lines = append(lines, "          fs.oss.accessKeySecret: "+strings.TrimSpace(spec.SecretKey))
+		}
+	case "HDFS":
+		lines = append(lines,
+			"          storage.type: hdfs",
+			"          fs.defaultFS: "+strings.TrimSpace(spec.Endpoint))
+	default:
+		lines = append(lines,
+			"          storage.type: hdfs",
+			"          fs.defaultFS: file:///tmp/")
+	}
+	// 透传向导额外键值（HA/Kerberos 等高级项）。
+	// Pass through wizard extras (HA/Kerberos advanced keys).
+	for key, value := range spec.Extra {
+		lines = append(lines, "          "+key+": "+value)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// renderHazelcastMemberYAML 渲染 master/worker 共用的 Hazelcast 成员配置（worker 追加 member-attributes）。
+// renderHazelcastMemberYAML renders the shared hazelcast member config for master/worker
+// (worker appends member-attributes).
+func renderHazelcastMemberYAML(cfg *SessionConfig, clusterCode, role string) string {
+	extra := ""
+	if role == "worker" {
+		extra = `  member-attributes:
+    rule:
+      type: string
+      value: worker
+`
+	}
+	return fmt.Sprintf(`hazelcast:
+  cluster-name: %s
+  network:
+    rest-api:
+      enabled: false
+      endpoint-groups:
+        CLUSTER_WRITE:
+          enabled: true
+        DATA:
+          enabled: true
+    join:
+      kubernetes:
+        enabled: true
+        service-dns: %s.%s.svc.cluster.local
+        service-port: %d
+    port:
+      auto-increment: false
+      port: %d
+  properties:
+    hazelcast.invocation.max.retry.count: 20
+    hazelcast.tcp.join.port.try.count: 30
+    hazelcast.logging.type: log4j2
+    hazelcast.operation.generic.thread.count: 50
+    hazelcast.heartbeat.failuredetector.type: phi-accrual
+    hazelcast.heartbeat.interval.seconds: 2
+    hazelcast.max.no.heartbeat.seconds: 180
+    hazelcast.heartbeat.phiaccrual.failuredetector.threshold: 10
+    hazelcast.heartbeat.phiaccrual.failuredetector.sample.size: 200
+    hazelcast.heartbeat.phiaccrual.failuredetector.min.std.dev.millis: 100
+%s`, clusterCode, clusterCode, cfg.Namespace, cfg.HazelcastPort, cfg.HazelcastPort, extra) + renderIMAPMapStoreYAML(cfg)
+}
+
+// renderIMAPMapStoreYAML 渲染 IMAP map-store 段（追加到 hazelcast yaml 末尾）；禁用或空草稿返回空。
+// renderIMAPMapStoreYAML renders the IMAP map-store section appended to the hazelcast
+// yaml; disabled or empty drafts yield nothing.
+func renderIMAPMapStoreYAML(cfg *SessionConfig) string {
+	imap := cfg.IMAP
+	if imap == nil {
+		return ""
+	}
+	if !imap.Enabled || strings.EqualFold(strings.TrimSpace(imap.StorageType), "DISABLED") {
+		return `  map:
+    engine*:
+      map-store:
+        enabled: false
+`
+	}
+	pluginLines := renderStoragePluginConfig(imap, "imap-data")
+	// 缩进对齐 map-store.properties 层级（8 空格 → 10 空格）。
+	// Re-indent plugin lines to the map-store properties level.
+	indented := strings.ReplaceAll(pluginLines, "\n          ", "\n            ")
+	indented = strings.TrimPrefix(indented, "          ")
+	return `  map:
+    engine*:
+      map-store:
+        enabled: true
+        initial-mode: EAGER
+        factory-class-name: org.apache.seatunnel.engine.server.persistence.FileMapStoreFactory
+        properties:
+            ` + indented + `
+`
+}
+
+// renderHazelcastClientYAML 渲染客户端配置，master 的 REST 提交与成员发现都走集群 Service。
+// renderHazelcastClientYAML renders the client config; REST submissions and member discovery
+// both go through the cluster service.
+func renderHazelcastClientYAML(cfg *SessionConfig, clusterCode string) string {
+	return fmt.Sprintf(`hazelcast-client:
+  cluster-name: %s
+  properties:
+    hazelcast.logging.type: log4j2
+  connection-strategy:
+    connection-retry:
+      cluster-connect-timeout-millis: 3000
+  network:
+    cluster-members:
+      - %s.%s.svc.cluster.local:%d
+`, clusterCode, clusterCode, cfg.Namespace, cfg.HazelcastPort)
+}
+
+// renderJVMOptions 渲染 JVM 选项文件（master/worker 同一份保守默认）。
+// renderJVMOptions renders the JVM options file (one conservative default shared by
+// master and worker).
+func renderJVMOptions() string {
+	return renderJVMOptionsWithConfig(nil)
+}
+
+// renderJVMOptionsWithConfig 按 JVM 草稿渲染堆内存与附加参数；空草稿保持保守默认。
+// renderJVMOptionsWithConfig renders heap and extra options from the JVM draft; an
+// empty draft keeps the conservative default.
+// renderJVMOptionsForRole 按角色渲染 JVM 选项：分角色堆上限（MB）优先于统一 Xmx。
+// renderJVMOptionsForRole renders JVM options per role: per-role heap ceilings (MB)
+// win over the shared Xmx.
+func renderJVMOptionsForRole(jvm *SessionJVMConfig, role string, containerMemory string) string {
+	heapMB := 0
+	if jvm != nil {
+		switch role {
+		case "master":
+			heapMB = jvm.MasterHeapMB
+		case "worker":
+			heapMB = jvm.WorkerHeapMB
+		case "hybrid":
+			heapMB = jvm.HybridHeapMB
+		}
+	}
+	if heapMB <= 0 && (jvm == nil || strings.TrimSpace(jvm.Xmx) == "") {
+		// 堆跟随容器内存自动推导（1/2）：用户只需调整容器内存，无需理解 JVM 堆；
+		// 显式 heap_mb 或 Xmx 仍是给进阶用户的覆盖通道。推导失败回落保守默认。
+		// Heap derives from container memory automatically (1/2) so users only size
+		// the container; explicit heap_mb or Xmx remains the power-user override.
+		// Unparseable memory falls back to the conservative default.
+		heapMB = deriveHeapFromContainerMemory(containerMemory)
+	}
+	if heapMB <= 0 {
+		return renderJVMOptionsWithConfig(jvm)
+	}
+	clone := SessionJVMConfig{}
+	if jvm != nil {
+		clone = *jvm
+	}
+	clone.Xmx = fmt.Sprintf("%dm", heapMB)
+	if strings.TrimSpace(clone.Xms) == "" {
+		// Xms 缺省取堆上限的一半，避免起步即全额堆造成的虚占。
+		// Xms defaults to half the heap ceiling to avoid idle full-heap reservation.
+		clone.Xms = fmt.Sprintf("%dm", heapMB/2)
+	}
+	return renderJVMOptionsWithConfig(&clone)
+}
+
+// deriveHeapFromContainerMemory 按容器内存量的 1/2 推导堆上限（Mi）；
+// 解析失败或过小（<256Mi）返回 0，由调用方回落默认值。
+// deriveHeapFromContainerMemory derives the heap ceiling (Mi) as half the container
+// memory quantity; unparseable or tiny (<256Mi) values yield 0 so callers fall back.
+func deriveHeapFromContainerMemory(memory string) int {
+	quantity, err := resource.ParseQuantity(strings.TrimSpace(memory))
+	if err != nil {
+		return 0
+	}
+	mi := int(quantity.Value() / (1024 * 1024))
+	heap := mi / 2
+	if heap < 256 {
+		return 0
+	}
+	return heap
+}
+
+func renderJVMOptionsWithConfig(jvm *SessionJVMConfig) string {
+	heap := "-Xms2g -Xmx2g"
+	extra := ""
+	if jvm != nil {
+		xms := strings.TrimSpace(jvm.Xms)
+		xmx := strings.TrimSpace(jvm.Xmx)
+		if xms != "" || xmx != "" {
+			if xms == "" {
+				xms = "2g"
+			}
+			if xmx == "" {
+				xmx = "2g"
+			}
+			heap = "-Xms" + xms + " -Xmx" + xmx
+		}
+		for _, opt := range jvm.ExtraOptions {
+			if trimmed := strings.TrimSpace(opt); trimmed != "" {
+				extra += trimmed + "\n"
+			}
+		}
+	}
+	return heap + "\n" + extra + `# JVM Dump
+-XX:+HeapDumpOnOutOfMemoryError
+-XX:HeapDumpPath=/tmp/seatunnel/dump/zeta-server
+
+# Metaspace
+-XX:MaxMetaspaceSize=2g
+
+# G1GC
+-XX:+UseG1GC
+`
+}
+
+// renderLog4j2 渲染 log4j2.properties，日志写容器内 /tmp/seatunnel/logs（控制台也可读 stdout）。
+// renderLog4j2 renders log4j2.properties writing to the in-container /tmp/seatunnel/logs
+// (stdout remains readable as well).
+func renderLog4j2() string {
+	return `monitorInterval = 60
+
+property.file_path = ${sys:seatunnel.logs.path:-/tmp/seatunnel/logs}
+property.file_name = ${sys:seatunnel.logs.file_name:-seatunnel}
+property.file_split_size = 100MB
+property.file_count = 100
+property.file_ttl = 7d
+
+rootLogger.level = INFO
+
+logger.zeta.name=org.apache.seatunnel.engine
+logger.zeta.level=INFO
+
+logger.jetty.name=org.eclipse.jetty
+logger.jetty.level=WARN
+
+logger.hazelcast.name=com.hazelcast
+logger.hazelcast.level=INFO
+
+appender.console.type = Console
+appender.console.name = LogToConsole
+appender.console.layout.type = PatternLayout
+appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p [%-30c{1}] [%t] - %m%n
+
+rootLogger.appenderRef.stdout.ref = LogToConsole
+`
+}
+
+
+// hybridContainerMemory 安全取 hybrid 资源内存（指针可空）。
+// hybridContainerMemory safely reads the hybrid resource memory (pointer nullable).
+func hybridContainerMemory(cfg *SessionConfig) string {
+	if cfg.Resources.Hybrid == nil {
+		return ""
+	}
+	return cfg.Resources.Hybrid.Memory
+}
+
+// sessionConfigFiles 返回 ConfigMap 应包含的文件名到内容的映射。
+// sessionConfigFiles returns the file name to content mapping for the ConfigMap.
+func sessionConfigFiles(cfg *SessionConfig, clusterCode string) map[string]string {
+	// hybrid 模式成员/客户端合一：单一 hazelcast.yaml 与 jvm_options。
+	// Hybrid mode unifies member and client config into a single hazelcast.yaml and
+	// jvm_options file.
+	if cfg.IsHybrid() {
+		return map[string]string{
+			"seatunnel.yaml":        renderSeatunnelYAML(cfg),
+			"hazelcast.yaml":        renderHazelcastMemberYAML(cfg, clusterCode, "hybrid"),
+			"hazelcast-client.yaml": renderHazelcastClientYAML(cfg, clusterCode),
+			"jvm_options":           renderJVMOptionsForRole(cfg.JVM, "hybrid", hybridContainerMemory(cfg)),
+			"jvm_client_options":    renderJVMOptions(),
+			"log4j2.properties":     renderLog4j2(),
+		}
+	}
+	return map[string]string{
+		"seatunnel.yaml":        renderSeatunnelYAML(cfg),
+		"hazelcast-master.yaml": renderHazelcastMemberYAML(cfg, clusterCode, "master"),
+		"hazelcast-worker.yaml": renderHazelcastMemberYAML(cfg, clusterCode, "worker"),
+		"hazelcast-client.yaml": renderHazelcastClientYAML(cfg, clusterCode),
+		"jvm_master_options":    renderJVMOptionsForRole(cfg.JVM, "master", cfg.Resources.Master.Memory),
+		"jvm_worker_options":    renderJVMOptionsForRole(cfg.JVM, "worker", cfg.Resources.Worker.Memory),
+		"jvm_client_options":    renderJVMOptions(),
+		"log4j2.properties":     renderLog4j2(),
+	}
+}
+
+// sessionConfigMountKeys 是容器内 /opt/seatunnel/config 下按 subPath 挂载的文件清单。
+// sessionConfigMountKeys lists files mounted into /opt/seatunnel/config via subPath.
+func sessionConfigMountKeys(cfg ...*SessionConfig) []string {
+	if len(cfg) > 0 && cfg[0] != nil && cfg[0].IsHybrid() {
+		return []string{
+			"hazelcast-client.yaml",
+			"hazelcast.yaml",
+			"jvm_client_options",
+			"jvm_options",
+			"log4j2.properties",
+			"seatunnel.yaml",
+		}
+	}
+	return []string{
+		"hazelcast-client.yaml",
+		"hazelcast-master.yaml",
+		"hazelcast-worker.yaml",
+		"jvm_client_options",
+		"jvm_master_options",
+		"jvm_worker_options",
+		"log4j2.properties",
+		"seatunnel.yaml",
+	}
+}

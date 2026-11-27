@@ -19,6 +19,7 @@ package host
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,6 +27,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/utils/secretbox"
 	"github.com/glebarez/sqlite"
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
@@ -1145,5 +1147,291 @@ func TestDeleteRejectsHostWithRunningNode(t *testing.T) {
 	}
 	if err := svc.Delete(ctx, host.ID); err != ErrHostHasRunningNode {
 		t.Fatalf("expected ErrHostHasRunningNode, got %v", err)
+	}
+}
+
+// TestUpdateK8sHostPreservesCACertWhenEmpty 验证 K8s 主机更新时传入空 CA 证书不会清空原值，
+// 仅在显式提供非空证书时覆盖。
+// TestUpdateK8sHostPreservesCACertWhenEmpty verifies updating a K8s host with an empty CA cert
+// preserves the existing value and only overwrites when non-empty.
+func TestUpdateK8sHostPreservesCACertWhenEmpty(t *testing.T) {
+	secretbox.SetSecret("test-secret-k8s-ca-preserve")
+	t.Cleanup(func() { secretbox.SetSecret("") })
+
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	svc := NewService(NewRepository(db), cluster.NewRepository(db), nil)
+	ctx := context.Background()
+
+	origCA := "-----BEGIN CERTIFICATE-----\nORIG\n-----END CERTIFICATE-----"
+	created, err := svc.Create(ctx, &CreateHostRequest{
+		Name:        "k8s-ca-preserve",
+		HostType:    HostTypeKubernetes,
+		K8sAPIURL:   "https://10.0.0.10:6443",
+		K8sAuthMode: "token",
+		K8sToken:    "secret-token",
+		K8sCACert:   origCA,
+	})
+	if err != nil {
+		t.Fatalf("create k8s host: %v", err)
+	}
+
+	empty := "   "
+	updated, err := svc.Update(ctx, created.ID, &UpdateHostRequest{K8sCACert: &empty})
+	if err != nil {
+		t.Fatalf("update with empty ca cert: %v", err)
+	}
+	if updated.K8sCACert != origCA {
+		t.Fatalf("empty ca cert must preserve original, got %q", updated.K8sCACert)
+	}
+
+	newCA := "-----BEGIN CERTIFICATE-----\nNEW\n-----END CERTIFICATE-----"
+	updated, err = svc.Update(ctx, created.ID, &UpdateHostRequest{K8sCACert: &newCA})
+	if err != nil {
+		t.Fatalf("update with new ca cert: %v", err)
+	}
+	if updated.K8sCACert != newCA {
+		t.Fatalf("expected new ca cert %q, got %q", newCA, updated.K8sCACert)
+	}
+}
+
+func sampleTestKubeconfig(server string) string {
+	return `apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: ` + server + `
+    insecure-skip-tls-verify: true
+  name: test
+contexts:
+- context:
+    cluster: test
+    user: test
+  name: test
+current-context: test
+users:
+- name: test
+  user:
+    token: test-token
+`
+}
+
+// TestValidateK8sHostAuthModes 覆盖 kubeconfig/token 两种互斥认证模式的正反例：
+// kubeconfig 自动解析 API URL、拒收损坏 YAML，token 要求 URL+token，in_cluster 与未知模式均报错。
+// TestValidateK8sHostAuthModes covers positive and negative cases of the two exclusive auth modes:
+// kubeconfig auto-extracts the API URL and rejects broken YAML, token requires URL+token,
+// and in_cluster as well as unknown modes are rejected.
+func TestValidateK8sHostAuthModes(t *testing.T) {
+	secretbox.SetSecret("test-secret-k8s-auth-modes")
+	t.Cleanup(func() { secretbox.SetSecret("") })
+
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	svc := NewService(NewRepository(db), cluster.NewRepository(db), nil)
+	ctx := context.Background()
+
+	seq := 0
+	create := func(req *CreateHostRequest) (*Host, error) {
+		seq++
+		req.Name = fmt.Sprintf("k8s-auth-%d", seq)
+		return svc.Create(ctx, req)
+	}
+
+	// in_cluster 已下线：必须拒绝并归类为 ErrK8sAuthModeInvalid（HTTP 400）。
+	// in_cluster is removed: must fail with ErrK8sAuthModeInvalid (HTTP 400).
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "in_cluster"}); !errors.Is(err, ErrK8sAuthModeInvalid) {
+		t.Fatalf("in_cluster must be rejected with ErrK8sAuthModeInvalid, got: %v", err)
+	}
+
+	// kubeconfig：无需单独填 API URL，自动从 kubeconfig 解析 server 地址。
+	// kubeconfig: no separate API URL required; server URL is extracted from kubeconfig.
+	createdKC, err := create(&CreateHostRequest{
+		HostType:      HostTypeKubernetes,
+		K8sAuthMode:   "kubeconfig",
+		K8sKubeconfig: sampleTestKubeconfig("https://10.0.0.12:6443/"),
+	})
+	if err != nil {
+		t.Fatalf("kubeconfig mode without explicit api url should pass: %v", err)
+	}
+	if createdKC.K8sAPIURL != "https://10.0.0.12:6443" {
+		t.Fatalf("expected auto-extracted k8s_api_url %q, got %q", "https://10.0.0.12:6443", createdKC.K8sAPIURL)
+	}
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "kubeconfig", K8sKubeconfig: "not: [valid"}); !errors.Is(err, ErrK8sKubeconfigInvalid) {
+		t.Fatalf("broken kubeconfig must fail with ErrK8sKubeconfigInvalid, got: %v", err)
+	}
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "kubeconfig", K8sAPIURL: "https://10.0.0.13:6443", K8sToken: "bare-token"}); !errors.Is(err, ErrK8sCredentialsRequired) {
+		t.Fatalf("kubeconfig mode with only token must fail with ErrK8sCredentialsRequired, got: %v", err)
+	}
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "kubeconfig"}); !errors.Is(err, ErrK8sCredentialsRequired) {
+		t.Fatalf("kubeconfig mode without kubeconfig must fail with ErrK8sCredentialsRequired, got: %v", err)
+	}
+
+	// token：URL+token 缺一不可。
+	// token: both the URL and the token are mandatory.
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "token", K8sAPIURL: "https://10.0.0.15:6443", K8sToken: "tok"}); err != nil {
+		t.Fatalf("token mode with url+token should pass: %v", err)
+	}
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "token", K8sAPIURL: "https://10.0.0.16:6443"}); !errors.Is(err, ErrK8sCredentialsRequired) {
+		t.Fatalf("token mode without token must fail with ErrK8sCredentialsRequired, got: %v", err)
+	}
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "token", K8sToken: "tok"}); !errors.Is(err, ErrK8sAPIURLInvalid) {
+		t.Fatalf("token mode without url must fail with ErrK8sAPIURLInvalid, got: %v", err)
+	}
+
+	// 未知模式必须明确报错。
+	// Unknown modes must raise ErrK8sAuthModeInvalid.
+	if _, err := create(&CreateHostRequest{HostType: HostTypeKubernetes, K8sAuthMode: "bogus", K8sAPIURL: "https://10.0.0.17:6443", K8sToken: "tok"}); !errors.Is(err, ErrK8sAuthModeInvalid) {
+		t.Fatalf("unknown auth mode must fail with ErrK8sAuthModeInvalid, got: %v", err)
+	}
+}
+
+// TestUpdateK8sHostAuthModeSwitchValidation 验证切换 auth_mode 时若新模式所需凭据缺失则拒绝保存，
+// 更新 kubeconfig 时同步刷新解析出的 API URL，且拒绝切到已下线的 in_cluster。
+// TestUpdateK8sHostAuthModeSwitchValidation verifies mode switching requires the new mode's
+// credentials, updating kubeconfig refreshes the extracted API URL, and in_cluster is rejected.
+func TestUpdateK8sHostAuthModeSwitchValidation(t *testing.T) {
+	secretbox.SetSecret("test-secret-k8s-auth-switch")
+	t.Cleanup(func() { secretbox.SetSecret("") })
+
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	svc := NewService(NewRepository(db), cluster.NewRepository(db), nil)
+	ctx := context.Background()
+
+	created, err := svc.Create(ctx, &CreateHostRequest{
+		Name:          "k8s-auth-switch",
+		HostType:      HostTypeKubernetes,
+		K8sAuthMode:   "kubeconfig",
+		K8sKubeconfig: sampleTestKubeconfig("https://10.0.0.20:6443"),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// 更新新的 kubeconfig 时自动刷新提取出的 K8sAPIURL。
+	// Updating kubeconfig automatically refreshes the extracted K8sAPIURL.
+	updatedKC := sampleTestKubeconfig("https://10.0.0.21:6443")
+	refreshed, err := svc.Update(ctx, created.ID, &UpdateHostRequest{K8sKubeconfig: &updatedKC})
+	if err != nil {
+		t.Fatalf("update kubeconfig: %v", err)
+	}
+	if refreshed.K8sAPIURL != "https://10.0.0.21:6443" {
+		t.Fatalf("expected refreshed api url https://10.0.0.21:6443, got %q", refreshed.K8sAPIURL)
+	}
+
+	// 切到 token 模式但不给 token：库中无 token，必须报错。
+	// Switching to token mode without providing a token must fail since none is stored.
+	tokenMode := "token"
+	if _, err := svc.Update(ctx, created.ID, &UpdateHostRequest{K8sAuthMode: &tokenMode}); !errors.Is(err, ErrK8sCredentialsRequired) {
+		t.Fatalf("switching to token mode without a token must fail, got: %v", err)
+	}
+
+	// 同时传入 token 则可以切换。
+	// Providing the token alongside the switch succeeds.
+	tok := "new-token"
+	if _, err := svc.Update(ctx, created.ID, &UpdateHostRequest{K8sAuthMode: &tokenMode, K8sToken: &tok}); err != nil {
+		t.Fatalf("switching to token mode with token should pass: %v", err)
+	}
+
+	// 切到已下线的 in_cluster 必须拒绝。
+	// Switching to removed in_cluster must be rejected.
+	inCluster := "in_cluster"
+	if _, err := svc.Update(ctx, created.ID, &UpdateHostRequest{K8sAuthMode: &inCluster}); !errors.Is(err, ErrK8sAuthModeInvalid) {
+		t.Fatalf("switching to in_cluster must fail with ErrK8sAuthModeInvalid, got: %v", err)
+	}
+}
+
+// TestK8sHostAccessModeContextOverrideAndExpiry 验证：
+// 1) k8s_access_mode 默认为 in_cluster、支持 external 并拒绝 apiserver_proxy 及非法枚举；
+// 2) kubeconfig 模式支持按 k8s_context 切换上下文与 k8s_api_url 地址覆写并写入规范化 YAML；
+// 3) Token/Kubeconfig 到期时间自动提取到 k8s_credential_expires_at 并在 HostInfo 中返回。
+// TestK8sHostAccessModeContextOverrideAndExpiry verifies access mode defaults/validation,
+// kubeconfig context selection + API server URL override, and credential expiry extraction in HostInfo.
+func TestK8sHostAccessModeContextOverrideAndExpiry(t *testing.T) {
+	secretbox.SetSecret("test-secret-k8s-access-mode")
+	t.Cleanup(func() { secretbox.SetSecret("") })
+
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	svc := NewService(NewRepository(db), cluster.NewRepository(db), nil)
+	ctx := context.Background()
+
+	for _, badMode := range []string{"tunnel", "apiserver_proxy"} {
+		if _, err := svc.Create(ctx, &CreateHostRequest{
+			Name:          "k8s-bad-" + badMode,
+			HostType:      HostTypeKubernetes,
+			K8sAuthMode:   "token",
+			K8sAccessMode: badMode,
+			K8sAPIURL:     "https://10.0.0.10:6443",
+			K8sToken:      "tok",
+		}); !errors.Is(err, ErrK8sAccessModeInvalid) {
+			t.Fatalf("mode %q: expected ErrK8sAccessModeInvalid, got %v", badMode, err)
+		}
+	}
+
+	multiKC := `apiVersion: v1
+kind: Config
+clusters:
+- name: c-dev
+  cluster:
+    server: https://127.0.0.1:6443
+    insecure-skip-tls-verify: true
+- name: c-prod
+  cluster:
+    server: https://10.0.0.30:6443
+    insecure-skip-tls-verify: true
+contexts:
+- name: dev
+  context:
+    cluster: c-dev
+    user: u-dev
+- name: prod
+  context:
+    cluster: c-prod
+    user: u-prod
+current-context: dev
+users:
+- name: u-dev
+  user:
+    token: dev-tok
+- name: u-prod
+  user:
+    token: eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6c2VhdHVubmVsOnN0eC1tYW5hZ2VyIiwiZXhwIjoxODkzNDU2MDAwfQ.sig
+`
+	created, err := svc.Create(ctx, &CreateHostRequest{
+		Name:          "k8s-ctx-override",
+		HostType:      HostTypeKubernetes,
+		K8sAuthMode:   "kubeconfig",
+		K8sAccessMode: "external",
+		K8sContext:    "prod",
+		K8sAPIURL:     "https://192.168.10.20:6443/",
+		K8sKubeconfig: multiKC,
+	})
+	if err != nil {
+		t.Fatalf("create k8s host with context + server override: %v", err)
+	}
+	if created.K8sAccessMode != "external" || created.K8sAPIURL != "https://192.168.10.20:6443" {
+		t.Fatalf("unexpected access/api fields: access=%q url=%q", created.K8sAccessMode, created.K8sAPIURL)
+	}
+	if created.K8sCredentialExpiresAt == nil || created.K8sCredentialExpiresAt.Unix() != 1893456000 {
+		t.Fatalf("expected credential expiry unix 1893456000, got %v", created.K8sCredentialExpiresAt)
+	}
+	created.K8sPermissionMode = "minimal"
+	info := created.ToHostInfo(DefaultHeartbeatTimeout, svc.GetProcessStartedAt())
+	if info.K8sAccessMode != "external" || info.K8sPermissionMode != "minimal" || info.K8sCredentialExpiresAt == nil {
+		t.Fatalf("HostInfo missing K8s metadata: %+v", info)
+	}
+
+	inClusterMode := "in_cluster"
+	updated, err := svc.Update(ctx, created.ID, &UpdateHostRequest{K8sAccessMode: &inClusterMode})
+	if err != nil {
+		t.Fatalf("update access mode: %v", err)
+	}
+	if updated.K8sAccessMode != "in_cluster" {
+		t.Fatalf("updated K8sAccessMode=%q, want in_cluster", updated.K8sAccessMode)
 	}
 }

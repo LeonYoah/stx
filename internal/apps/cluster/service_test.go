@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,6 +44,9 @@ type mockAgentCommand struct {
 }
 
 type mockOperationAgentSender struct {
+	// Create 异步拉起伴生 Proxy 会并发写 commands，必须加锁保护。
+	// Create spawns the companion proxy startup asynchronously, so commands needs a lock.
+	mu       sync.Mutex
 	commands []mockAgentCommand
 }
 
@@ -51,17 +55,27 @@ func (m *mockOperationAgentSender) SendCommand(ctx context.Context, agentID stri
 	for key, value := range params {
 		copied[key] = value
 	}
+	m.mu.Lock()
 	m.commands = append(m.commands, mockAgentCommand{
 		agentID:     agentID,
 		commandType: commandType,
 		params:      copied,
 	})
+	m.mu.Unlock()
 
 	if commandType == "check_process" {
 		return true, "SeaTunnel process found: PID=4321, role=hybrid", nil
 	}
 
 	return true, "ok", nil
+}
+
+func (m *mockOperationAgentSender) snapshot() []mockAgentCommand {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]mockAgentCommand, len(m.commands))
+	copy(out, m.commands)
+	return out
 }
 
 type scriptedAgentSender struct {
@@ -282,7 +296,7 @@ func TestUpdateNodeSyncsSeatunnelHTTPPortAndRestartsNode(t *testing.T) {
 		t.Fatalf("expected pushed config to contain new port, got: %s", configClient.pushed)
 	}
 	foundRestart := false
-	for _, command := range agentSender.commands {
+	for _, command := range agentSender.snapshot() {
 		if command.commandType == string(OperationRestart) {
 			foundRestart = true
 			break
@@ -1153,7 +1167,7 @@ func TestClusterServiceStartUsesNodeInstallDirAndRefreshesProcess(t *testing.T) 
 
 	foundStartCommand := false
 	foundProcessCheck := false
-	for _, command := range agentSender.commands {
+	for _, command := range agentSender.snapshot() {
 		switch command.commandType {
 		case string(OperationStart):
 			foundStartCommand = true
@@ -1172,10 +1186,10 @@ func TestClusterServiceStartUsesNodeInstallDirAndRefreshesProcess(t *testing.T) 
 		}
 	}
 	if !foundStartCommand {
-		t.Fatalf("expected start command to be sent, got %+v", agentSender.commands)
+		t.Fatalf("expected start command to be sent, got %+v", agentSender.snapshot())
 	}
 	if !foundProcessCheck {
-		t.Fatalf("expected process check command to be sent, got %+v", agentSender.commands)
+		t.Fatalf("expected process check command to be sent, got %+v", agentSender.snapshot())
 	}
 
 	updatedNode, err := repo.GetNodeByID(ctx, node.ID)
@@ -1950,7 +1964,7 @@ func TestService_CreateFromDiscovery_SynchronizesAndAutoStartsSTXJavaProxy(t *te
 	// 验证是否向 Agent 发送了 start stx_java_proxy 命令
 	// Verify that the start stx_java_proxy command was dispatched to the Agent
 	foundProxyStart := false
-	for _, cmd := range agentSender.commands {
+	for _, cmd := range agentSender.snapshot() {
 		if cmd.commandType == "start" && cmd.params["service"] == "stx_java_proxy" {
 			foundProxyStart = true
 			if cmd.params["port"] != "18090" {
@@ -1963,7 +1977,7 @@ func TestService_CreateFromDiscovery_SynchronizesAndAutoStartsSTXJavaProxy(t *te
 		}
 	}
 	if !foundProxyStart {
-		t.Errorf("expected start stx_java_proxy command to be sent, recorded commands: %+v", agentSender.commands)
+		t.Errorf("expected start stx_java_proxy command to be sent, recorded commands: %+v", agentSender.snapshot())
 	}
 }
 

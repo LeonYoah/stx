@@ -749,6 +749,11 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "name": "scope",
+                        "in": "query"
+                    },
+                    {
                         "maximum": 100,
                         "minimum": 1,
                         "type": "integer",
@@ -810,6 +815,70 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/cluster.CreateClusterResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/k8s/precheck": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "K8s 创建预检 / Kubernetes creation precheck",
+                "parameters": [
+                    {
+                        "description": "预检请求 / Precheck request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/kubernetes": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "创建 K8s 集群（纳管或部署） / Create a kubernetes cluster (adopt or deploy)",
+                "parameters": [
+                    {
+                        "description": "创建请求 / Create request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -1156,6 +1225,328 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/k8s/configmap": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "读取集群 ConfigMap / Read the cluster ConfigMap",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID / Cluster ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/k8s/configmap/{file}": {
+            "put": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "回写 ConfigMap 文件 / Write back a ConfigMap file",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID / Cluster ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件名 / File name",
+                        "name": "file",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "content+restart",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/k8s/java-proxy/retry": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "重试伴生 Proxy 拉起 / Retry companion proxy bootstrap",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID / Cluster ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/k8s/pods": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "列出集群 Pod / List cluster pods",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID / Cluster ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/k8s/pods/{pod}": {
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "删除 Pod（重建自愈） / Delete a pod for recreation",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID / Cluster ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Pod 名 / Pod name",
+                        "name": "pod",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/k8s/pods/{pod}/logs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "读取 Pod 日志 / Read pod logs",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID / Cluster ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Pod 名 / Pod name",
+                        "name": "pod",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/k8s/rollout-restart": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "滚动重启 K8s 组件 / Rolling-restart a kubernetes component",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID / Cluster ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "component",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/k8s/scale": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "扩缩容 K8s 组件 / Scale a kubernetes component",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID / Cluster ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "component+replicas",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/k8s/upgrade-image": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "不可变镜像升级 / Immutable-image upgrade",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID / Cluster ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "image+target_version",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -4041,6 +4432,142 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/hosts/{id}/k8s/discover": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "hosts"
+                ],
+                "summary": "扫描可纳管 SeaTunnel 集群 / Discover adoptable SeaTunnel clusters",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "主机 ID / Host ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Namespace",
+                        "name": "namespace",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/hosts/{id}/k8s/namespaces": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "hosts"
+                ],
+                "summary": "列出可见 namespace / List visible kubernetes namespaces",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "主机 ID / Host ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/hosts/{id}/k8s/namespaces/{namespace}/objects": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "hosts"
+                ],
+                "summary": "列出 namespace 内已有对象 / List existing namespace objects by kind",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "主机 ID / Host ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Namespace",
+                        "name": "namespace",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "secrets|serviceaccounts|pvcs",
+                        "name": "kind",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/hosts/{id}/test-connection": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "hosts"
+                ],
+                "summary": "测试 K8s 主机连通性与 RBAC / Test kubernetes host connectivity and RBAC",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "主机 ID / Host ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/oauth/callback": {
             "post": {
                 "produces": [
@@ -4232,6 +4759,221 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/installer.DownloadListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/registries": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "summary": "列出镜像仓库 / List container registries",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "summary": "登记镜像仓库（管理员） / Register a container registry (admin)",
+                "parameters": [
+                    {
+                        "description": "仓库定义 / Registry definition",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/registries/probe": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "summary": "注册前测试仓库连通性 / Probe a registry before registration",
+                "parameters": [
+                    {
+                        "description": "仓库信息 / Registry payload",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/installer.ContainerRegistryRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/registries/{id}": {
+            "put": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "summary": "更新镜像仓库（管理员） / Update a container registry (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "仓库 ID / Registry ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "仓库定义 / Registry definition",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "summary": "删除镜像仓库（管理员） / Delete a container registry (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "仓库 ID / Registry ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/registries/{id}/tags": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "summary": "探测镜像 tag 列表 / Probe tags of a repository",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "仓库 ID / Registry ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "镜像名 / Repository",
+                        "name": "repo",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/registries/{id}/test": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "summary": "测试镜像仓库连通性 / Test registry connectivity and refresh catalog",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "仓库 ID / Registry ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -7150,6 +7892,9 @@ const docTemplate = `{
         "cluster.ClusterInfo": {
             "type": "object",
             "properties": {
+                "auto_registered": {
+                    "type": "boolean"
+                },
                 "cluster_code": {
                     "type": "string"
                 },
@@ -7176,8 +7921,14 @@ const docTemplate = `{
                 "id": {
                     "type": "integer"
                 },
+                "infra_type": {
+                    "type": "string"
+                },
                 "install_dir": {
                     "type": "string"
+                },
+                "k8s_host_id": {
+                    "type": "integer"
                 },
                 "name": {
                     "type": "string"
@@ -7187,6 +7938,9 @@ const docTemplate = `{
                 },
                 "online_nodes": {
                     "description": "number of nodes whose host is online / 主机在线的节点数",
+                    "type": "integer"
+                },
+                "parent_cluster_id": {
                     "type": "integer"
                 },
                 "status": {
@@ -10524,6 +11278,15 @@ const docTemplate = `{
                     "description": "kubernetes fields / Kubernetes 字段",
                     "type": "string"
                 },
+                "k8s_auth_mode": {
+                    "type": "string"
+                },
+                "k8s_ca_cert": {
+                    "type": "string"
+                },
+                "k8s_insecure_skip_tls": {
+                    "type": "boolean"
+                },
                 "k8s_kubeconfig": {
                     "type": "string"
                 },
@@ -10630,6 +11393,13 @@ const docTemplate = `{
                 "docker_version": {
                     "type": "string"
                 },
+                "has_k8s_kubeconfig": {
+                    "description": "HasK8sKubeconfig / HasK8sToken 仅表达「已配置凭据」，明文永不出库。\nHasK8sKubeconfig / HasK8sToken only indicate credentials exist; plaintext never leaves the server.",
+                    "type": "boolean"
+                },
+                "has_k8s_token": {
+                    "type": "boolean"
+                },
                 "host_type": {
                     "$ref": "#/definitions/host.HostType"
                 },
@@ -10646,6 +11416,12 @@ const docTemplate = `{
                 "k8s_api_url": {
                     "description": "kubernetes fields / Kubernetes 字段",
                     "type": "string"
+                },
+                "k8s_auth_mode": {
+                    "type": "string"
+                },
+                "k8s_insecure_skip_tls": {
+                    "type": "boolean"
                 },
                 "k8s_namespace": {
                     "type": "string"
@@ -10762,6 +11538,15 @@ const docTemplate = `{
                     "description": "kubernetes fields / Kubernetes 字段",
                     "type": "string"
                 },
+                "k8s_auth_mode": {
+                    "type": "string"
+                },
+                "k8s_ca_cert": {
+                    "type": "string"
+                },
+                "k8s_insecure_skip_tls": {
+                    "type": "boolean"
+                },
                 "k8s_kubeconfig": {
                     "type": "string"
                 },
@@ -10786,6 +11571,20 @@ const docTemplate = `{
                     "$ref": "#/definitions/host.HostInfo"
                 },
                 "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "installer.ContainerRegistryRequest": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }
@@ -12836,6 +13635,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/sync.EngineEventReportNodeResult"
                     }
                 },
+                "default_url": {
+                    "description": "DefaultURL 不应用集群覆写时的默认接收地址（前端展示\"继承值\"参考）。\nDefaultURL is the receiver URL without the cluster override (frontend reference display).",
+                    "type": "string"
+                },
                 "dropped_count": {
                     "type": "integer"
                 },
@@ -12850,6 +13653,10 @@ const docTemplate = `{
                 },
                 "expect_satisfied_at": {
                     "type": "string"
+                },
+                "is_kubernetes": {
+                    "description": "IsKubernetes 标识 K8s 集群（前端据此展示回调地址覆写输入）。\nIsKubernetes marks Kubernetes clusters (the frontend shows the callback override input).",
+                    "type": "boolean"
                 },
                 "last_batch_at": {
                     "type": "string"
@@ -12870,6 +13677,10 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "state": {
+                    "type": "string"
+                },
+                "stx_callback_url": {
+                    "description": "STXCallbackURL 当前集群级回调覆写；空串表示继承全局 app.external_url。\nSTXCallbackURL is the cluster-level callback override; empty inherits global app.external_url.",
                     "type": "string"
                 },
                 "supported": {
@@ -13777,6 +14588,19 @@ const docTemplate = `{
                 }
             }
         },
+        "sync.TaskAccessLevel": {
+            "type": "string",
+            "enum": [
+                "private",
+                "public_readonly",
+                "public_editable"
+            ],
+            "x-enum-varnames": [
+                "TaskAccessLevelPrivate",
+                "TaskAccessLevelPublicReadOnly",
+                "TaskAccessLevelPublicEditable"
+            ]
+        },
         "sync.TaskAlertRequest": {
             "type": "object",
             "properties": {
@@ -13834,6 +14658,9 @@ const docTemplate = `{
         "sync.TaskPermissions": {
             "type": "object",
             "properties": {
+                "access_level": {
+                    "$ref": "#/definitions/sync.TaskAccessLevel"
+                },
                 "can_edit": {
                     "type": "boolean"
                 },
@@ -13927,12 +14754,20 @@ const docTemplate = `{
                 },
                 "rotate_token": {
                     "type": "boolean"
+                },
+                "stx_callback_url": {
+                    "description": "STXCallbackURL 仅对 K8s 集群有效：非 nil 时持久化集群级回调地址覆写，\n显式传空串表示清除覆写回归全局 app.external_url。\nSTXCallbackURL only applies to Kubernetes clusters: a non-nil value persists a\ncluster-level callback override, while an explicit empty string clears it back\nto the global app.external_url.",
+                    "type": "string"
                 }
             }
         },
         "sync.UpdateTaskPermissionsRequest": {
             "type": "object",
             "properties": {
+                "access_level": {
+                    "description": "AccessLevel 是新式三态共享级别；与 is_public 同传时必须保持一致。\nAccessLevel is the new three-state sharing level; when sent together with is_public they must agree.",
+                    "type": "string"
+                },
                 "collaborator_ids": {
                     "type": "array",
                     "items": {

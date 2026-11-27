@@ -365,9 +365,9 @@ func (s *Service) ListPluginEnumCatalog(
 	return result, nil
 }
 
-func (s *Service) resolvePluginProxyEndpoint(ctx context.Context, clusterID uint) (string, error) {
+func (s *Service) resolvePluginProxyEndpoint(ctx context.Context, clusterID uint) (*ConfigToolEndpoint, error) {
 	if s == nil || s.configToolResolver == nil {
-		return "", fmt.Errorf("sync: config tool resolver is not configured")
+		return nil, fmt.Errorf("sync: config tool resolver is not configured")
 	}
 	return s.configToolResolver.ResolveConfigToolEndpoint(ctx, clusterID, nil)
 }

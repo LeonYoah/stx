@@ -48,16 +48,17 @@ var safeTaskNamePattern = regexp.MustCompile(`^[\p{L}\p{N}._-]+$`)
 
 // Service provides sync studio control-plane behavior.
 type Service struct {
-	repo                    *Repository
-	engineClient            EngineClient
-	runtimeResolver         ClusterRuntimeResolver
-	configToolClient        ConfigToolClient
-	configToolResolver      ConfigToolResolver
-	jobIDGenerator          *JobIDGenerator
-	agentSender             AgentCommandSender
-	executionTargetResolver ExecutionTargetResolver
-	clusterLogProvider      ClusterLogProvider
-	clusterVersionProvider  ClusterVersionProvider
+	repo                       *Repository
+	engineClient               EngineClient
+	runtimeResolver            ClusterRuntimeResolver
+	configToolClient           ConfigToolClient
+	configToolResolver         ConfigToolResolver
+	jobIDGenerator             *JobIDGenerator
+	agentSender                AgentCommandSender
+	executionTargetResolver    ExecutionTargetResolver
+	clusterLogProvider         ClusterLogProvider
+	clusterVersionProvider     ClusterVersionProvider
+	clusterK8sCallbackProvider ClusterK8sCallbackProvider
 	// installedPluginProvider 提供集群已安装插件名（installed_plugins），
 	// 用于区分引擎裸 API-06 措辞是真缺连接器还是已安装但初始化失败。
 	// installedPluginProvider lists a cluster's installed plugin names (installed_plugins),
@@ -98,6 +99,15 @@ type Service struct {
 // ClusterVersionProvider provides SeaTunnel cluster version lookup.
 type ClusterVersionProvider interface {
 	GetClusterVersion(ctx context.Context, clusterID uint) (string, error)
+}
+
+// ClusterK8sCallbackProvider 解耦提供 K8s 集群识别与 stx_callback_url 覆写读写（router 接线，避免循环依赖）。
+// ClusterK8sCallbackProvider decouples Kubernetes cluster detection and stx_callback_url
+// override access (wired in the router to avoid a circular dependency).
+type ClusterK8sCallbackProvider interface {
+	IsKubernetesCluster(ctx context.Context, clusterID uint) bool
+	GetK8sSTXCallbackURL(ctx context.Context, clusterID uint) (string, error)
+	SetK8sSTXCallbackURL(ctx context.Context, clusterID uint, callbackURL string) error
 }
 
 // InstalledPluginProvider lists the platform's installed plugin names for a cluster.
@@ -1049,6 +1059,9 @@ func (s *Service) ValidateTask(ctx context.Context, id uint, draft *TaskDraftPay
 	if task.ClusterID == 0 && taskExecutionMode(task) != "local" {
 		warnings = append(warnings, "cluster_id is empty, runtime submission will fail until a target cluster is selected")
 	}
+	if taskExecutionMode(task) == "local" && s.clusterIsKubernetes(ctx, task.ClusterID) {
+		errorsList = append(errorsList, "local execution mode is not supported for kubernetes clusters")
+	}
 	if s.configToolClient != nil && s.configToolResolver != nil && len(errorsList) == 0 {
 		endpoint, endpointErr := s.configToolResolver.ResolveConfigToolEndpoint(ctx, task.ClusterID, task.Definition)
 		if endpointErr == nil {
@@ -1680,6 +1693,12 @@ func (s *Service) submitNewTask(ctx context.Context, id uint, createdBy uint, op
 	}
 	runtime := buildTaskVariableRuntimeWithOptions(task, jobID, opts, binding)
 	if taskExecutionMode(task) == "local" {
+		// K8s 集群无本地进程语义，local 模式必须在这里硬拦截（校验层之外的双保险）。
+		// K8s clusters have no local process semantics, so local mode is hard-blocked here as
+		// a second line of defense beyond the validation layer.
+		if s.clusterIsKubernetes(ctx, task.ClusterID) {
+			return nil, fmt.Errorf("sync: local execution mode is not supported for kubernetes clusters")
+		}
 		body, format, jobName, buildErr := s.buildSubmitPayload(ctx, task, runtime)
 		if buildErr != nil {
 			return nil, buildErr
@@ -3178,4 +3197,21 @@ func (s *Service) ensureSiblingTaskNameAvailable(ctx context.Context, parentID *
 		return ErrTaskNameDuplicate
 	}
 	return nil
+}
+
+// clusterIsKubernetes 经可选接口断言判断集群基础设施类型；查询失败按非 K8s 处理，
+// 避免误伤裸金属集群的 local 调试路径。
+// clusterIsKubernetes reports cluster infra type through an optional interface assertion;
+// lookup failures are treated as non-K8s so bare-metal local debug paths are never blocked by mistake.
+func (s *Service) clusterIsKubernetes(ctx context.Context, clusterID uint) bool {
+	if clusterID == 0 {
+		return false
+	}
+	checker, ok := s.clusterVersionProvider.(interface {
+		IsKubernetesCluster(ctx context.Context, clusterID uint) bool
+	})
+	if !ok || checker == nil {
+		return false
+	}
+	return checker.IsKubernetesCluster(ctx, clusterID)
 }

@@ -81,6 +81,19 @@
     height: 100%;
     max-height: 100%;
   }
+  /* 嵌入父卡片/页签的分栏：不写死视口高度，仍让列表与常驻栏等高贴齐，
+     避免长列表选中靠下行时右侧栏高度不足导致凹圆角悬空。
+     Embedded split inside a parent card/tab: avoids fixing viewport height
+     while stretching the persistent rail to match list height so lower
+     active rows never overhang a shorter rail. */
+  .splitStretch {
+    align-items: stretch;
+  }
+  .splitStretch > .rail {
+    position: static;
+    align-self: stretch;
+    max-height: none;
+  }
 }
 
 /* 列表 + 常驻详情栏的分栏。List column beside the persistent detail rail. */
@@ -258,6 +271,11 @@
   --cols: 24px minmax(0, 1.8fr) 108px 92px 136px 36px;
 }
 
+/* K8s 只读插件行无多选列。K8s read-only plugin rows have no checkbox column. */
+.listCol[data-mcols='cluster-plugins-k8s'] :is(.row, .rowHead) {
+  --cols: minmax(0, 1.8fr) 108px 92px 136px 36px;
+}
+
 /* 审计日志：操作人 / 令牌 / 来源 / 动作 / 资源类型 / 资源名 / 命令 / IP / 时间。
    Audit logs: actor / token / source / action / resource type / name / commands / IP / time. */
 
@@ -284,6 +302,20 @@
 
 .listCol[data-mcols='hosts'] :is(.row, .rowHead) {
   --cols: 24px minmax(0, 1.2fr) 88px minmax(0, 1.1fr) 88px 120px 132px 48px;
+}
+
+/* 镜像仓库：勾选 / 仓库地址 / 认证 / 连通性 / 操作（单测试图标 + 三点菜单）。
+   Container registries: check / host / auth / connectivity / actions (test icon + more menu). */
+
+.listCol[data-mcols='registries'] :is(.row, .rowHead) {
+  --cols: 24px minmax(0, 1.6fr) minmax(0, 0.85fr) minmax(0, 1.55fr) 80px;
+}
+
+/* 镜像仓库只读视图（非管理员）无勾选列与操作列。
+   Read-only container registry view (non-admin) omits checkbox and actions. */
+
+.listCol[data-mcols='registries-readonly'] :is(.row, .rowHead) {
+  --cols: minmax(0, 1.6fr) minmax(0, 0.85fr) minmax(0, 1.5fr);
 }
 
 /* 悬浮批量条：锚定在 listCol 内、分页脚上方，详情栏打开时也不遮分页。
@@ -1227,6 +1259,13 @@
   .listCol[data-mcols='cluster-plugins'] :is(.row, .rowHead) > :nth-child(5) {
     display: none;
   }
+  .listCol[data-mcols='cluster-plugins-k8s'] :is(.row, .rowHead) {
+    --cols: minmax(0, 1fr) 72px 36px;
+  }
+  .listCol[data-mcols='cluster-plugins-k8s'] :is(.row, .rowHead) > :nth-child(2),
+  .listCol[data-mcols='cluster-plugins-k8s'] :is(.row, .rowHead) > :nth-child(4) {
+    display: none;
+  }
   /* 窄屏审计行只留操作人 + 动作。Narrow audit rows keep actor + action. */
   .listCol[data-mcols='audit'] :is(.row, .rowHead) {
     --cols: minmax(0, 1fr) 88px;
@@ -1271,6 +1310,21 @@
   .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(5),
   .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(6),
   .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(7) {
+    display: none;
+  }
+  /* 窄屏镜像仓库行只留勾选 + 仓库地址 + 操作。Narrow registry rows keep check + host + actions. */
+  .listCol[data-mcols='registries'] :is(.row, .rowHead) {
+    --cols: 24px minmax(0, 1fr) 80px;
+  }
+  .listCol[data-mcols='registries'] :is(.row, .rowHead) > :nth-child(3),
+  .listCol[data-mcols='registries'] :is(.row, .rowHead) > :nth-child(4) {
+    display: none;
+  }
+  /* 窄屏镜像仓库只读行只留仓库地址 + 连通性。Narrow read-only registry rows keep host + connectivity. */
+  .listCol[data-mcols='registries-readonly'] :is(.row, .rowHead) {
+    --cols: minmax(0, 1fr) 120px;
+  }
+  .listCol[data-mcols='registries-readonly'] :is(.row, .rowHead) > :nth-child(2) {
     display: none;
   }
 }

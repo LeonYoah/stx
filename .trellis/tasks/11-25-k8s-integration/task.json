@@ -1,0 +1,30 @@
+{
+  "id": "k8s-integration",
+  "name": "k8s-integration",
+  "title": "STX Kubernetes 模式集成（常驻容器与 App 模式）",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex-agent",
+  "assignee": "codex-agent",
+  "createdAt": "2026-11-25",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "11-25-k8s-p1-session-foundation",
+    "11-25-k8s-p2-app-mode",
+    "11-25-k8s-p3-diagnostics-obs"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

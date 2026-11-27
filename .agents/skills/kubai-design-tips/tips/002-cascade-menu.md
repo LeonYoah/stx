@@ -65,6 +65,25 @@ Geometry and motion:
   their structure; otherwise cross-fade them with a slight lift of the
   front panel.
 
+On the web, unless the existing component already handles this:
+- Show each level with popover="manual" (showPopover() / hidePopover()),
+  so it sits in the top layer: a submenu is never cut off by its parent's
+  own scroll or hidden under a sticky header, and needs no z-index. The
+  component still owns opening and closing. Reset the popover's default
+  inset and margin.
+- Anchor each submenu to its folder row with CSS anchor positioning: the
+  open folder row gets anchor-name: --cascade-<level>; the submenu uses
+  that name as position-anchor, left: calc(anchor(right) - 8px), a top
+  from anchor(top) moved up by its padding and title so its first row
+  lines up with the folder row, and position-try-fallbacks: flip-inline
+  for the left side. Once it is open, read its rect to learn which side
+  it took and build the safe zone from that edge. Where anchor
+  positioning is not supported (@supports not (anchor-name: --a)), place
+  it in JS from the row's getBoundingClientRect().
+- Animate open and close with @starting-style for the entry values above,
+  and transition-behavior: allow-discrete on display and overlay so the
+  close plays before the level leaves the top layer.
+
 Light and dark themes come from tokens, not separate components:
 - Light: surface rgba(255,255,255,.96), border rgba(0,0,0,.14), row ink
   #263140, row hover rgba(15,23,42,.07), quiet ink #7A8491, chevron

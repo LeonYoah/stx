@@ -73,6 +73,7 @@ import {
 } from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 import {ViewToggle} from '@/components/common/ViewToggle';
+import {getClusterDeployModeLabel} from '@/lib/infra';
 import {useViewMorph} from '@/lib/animations/view-morph';
 import services from '@/lib/services';
 import {
@@ -789,6 +790,7 @@ function ClusterListTable({
           const modeLabel = t.has(modeKey)
             ? t(modeKey)
             : cluster.deployment_mode;
+          const deployModeLabel = getClusterDeployModeLabel(cluster.infra_type);
           const totalNodes = cluster.node_count ?? 0;
           const onlineNodes = cluster.online_nodes ?? 0;
           const hasOffline = totalNodes > 0 && onlineNodes < totalNodes;
@@ -874,6 +876,7 @@ function ClusterListTable({
                   {isSoleDefaultCluster ? (
                     <NeutralChip>{t('cluster.defaultBadge')}</NeutralChip>
                   ) : null}
+                  <NeutralChip>{deployModeLabel}</NeutralChip>
                   {cluster.config_error ? (
                     <span data-testid={`cluster-config-error-${cluster.id}`}>
                       <SoftChip tone='amber'>

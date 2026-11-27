@@ -34,6 +34,12 @@ Fill in only what is missing, with the design system's existing parts.
 - Dialog: the system's modal or a native dialog opened with showModal(). Keeps focus inside and Escape cancels. It says who or what is affected and what cannot be undone. Buttons name the action ("Remove member", not "OK").
 - Drawer: comes in from the edge it is attached to and leaves the page in view. Changes show up in the page behind it as they are made. Closes with Escape and a close button; focus moves into it and back out to what opened it.
 - Drawers, dialogs and pages with a form: closing with unsaved changes asks first.
+- On the web, when you fill in missing behaviour or build a part I approve, use the platform before hand-written positioning and z-index:
+  - Popovers and popconfirms: popover="auto", opened with popovertarget or showPopover(); Escape and a click outside close it. Tooltips: popover="manual", shown and hidden by your own hover and focus timers. Both sit in the top layer, so overflow: hidden and stacking contexts cannot cut them off.
+  - Place them with CSS anchor positioning: anchor-name on the trigger, position-anchor and position-area on the overlay, and position-try-fallbacks: flip-block, flip-inline to keep them inside the viewport. Check with @supports (anchor-name: --a) and keep the existing JS positioning, or the library already in the project, as the fallback.
+  - Dialogs and modal drawers: a <dialog> opened with showModal(), so the page behind is inert. A drawer that leaves the page usable is a non-modal dialog opened with show(), or popover="manual".
+  - Animate open and close with @starting-style and transition-behavior: allow-discrete on display and overlay, and the ::backdrop with it.
+  - While a modal dialog is open, the rest of the page is inert, so a popover or tooltip used inside the dialog must be inside the dialog's element.
 
 4. Keep the design as it is
 - Change only the kind where the current one is wrong, plus the missing behaviour from step 3.

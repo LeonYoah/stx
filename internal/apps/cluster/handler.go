@@ -143,6 +143,7 @@ type ListClustersRequest struct {
 	Name           string         `json:"name" form:"name"`
 	Status         ClusterStatus  `json:"status" form:"status"`
 	DeploymentMode DeploymentMode `json:"deployment_mode" form:"deployment_mode"`
+	Scope          string         `json:"scope" form:"scope"`
 }
 
 // ListClustersResponse represents the response for listing clusters.
@@ -443,6 +444,7 @@ func (h *Handler) ListClusters(c *gin.Context) {
 		Name:           req.Name,
 		Status:         req.Status,
 		DeploymentMode: req.DeploymentMode,
+		Scope:          req.Scope,
 		Page:           req.Current,
 		PageSize:       req.Size,
 	}
@@ -1146,6 +1148,11 @@ func (h *Handler) ProxyWebUI(c *gin.Context) {
 		return
 	}
 
+	if clusterObj, getErr := h.service.Get(c.Request.Context(), uint(clusterID)); getErr == nil && clusterObj != nil && clusterObj.IsKubernetes() {
+		h.proxyK8sWebUI(c, clusterObj, uint(clusterID))
+		return
+	}
+
 	nodes, err := h.service.GetNodes(c.Request.Context(), uint(clusterID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error_msg": err.Error()})
@@ -1327,6 +1334,8 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, ErrNodeAlreadyExists):
 		return http.StatusConflict
+	case errors.Is(err, ErrRegistrySecretForbidden):
+		return http.StatusForbidden
 	case errors.Is(err, ErrNodeAgentNotInstalled),
 		errors.Is(err, ErrInvalidHazelcastPort),
 		errors.Is(err, ErrInvalidAPIPort),

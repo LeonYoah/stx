@@ -475,7 +475,12 @@ func (s *Service) evaluateClusterAvailability(
 		}
 	}
 
-	s.evaluateAgentOfflineSubjects(ctx, item, evalNodes, rules[clusterRuleKeyAgentOffline], seen, now, &evalErrs)
+	// K8s 集群没有 Agent 心跳语义，agent_offline 规则不适用（Pod 健康由集群健康检查与引擎指标承担）。
+	// K8s clusters have no agent heartbeat semantics, so agent_offline does not apply
+	// (pod health is covered by cluster health checks and engine metrics).
+	if !item.IsKubernetes() {
+		s.evaluateAgentOfflineSubjects(ctx, item, evalNodes, rules[clusterRuleKeyAgentOffline], seen, now, &evalErrs)
+	}
 	s.evaluateMasterUnavailableSubject(ctx, item, evalNodes, reasonsByNode, rules[clusterRuleKeyMasterUnavailable], seen, now, &evalErrs)
 	s.evaluateWorkerInsufficientSubject(ctx, item, evalNodes, reasonsByNode, rules[clusterRuleKeyWorkerInsufficient], seen, now, &evalErrs)
 	return errors.Join(evalErrs...)

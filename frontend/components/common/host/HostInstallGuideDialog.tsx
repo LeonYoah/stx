@@ -28,8 +28,9 @@
 
 import {useTranslations} from 'next-intl';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
-import {HostInfo} from '@/lib/services/host/types';
+import {HostInfo, HostType} from '@/lib/services/host/types';
 import {HostInstallGuideContent} from './HostInstallGuideContent';
+import {K8sConnectGuideContent} from './K8sConnectGuideContent';
 
 interface HostInstallGuideDialogProps {
   open: boolean;
@@ -52,23 +53,39 @@ export function HostInstallGuideDialog({
     return null;
   }
 
+  const isK8s = host.host_type === HostType.KUBERNETES;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        title={t('host.installGuide.title')}
-        description={t('host.installGuide.subtitle')}
-        className='w-[min(calc(100vw-2rem),680px)]!'
+        title={isK8s ? t('host.k8sGuide.title') : t('host.installGuide.title')}
+        description={
+          isK8s ? t('host.k8sGuide.subtitle') : t('host.installGuide.subtitle')
+        }
+        className='arc-compact w-[min(calc(100vw-2rem),680px)]!'
         bodyClassName='max-h-[min(85dvh,720px)] overflow-y-auto'
       >
-        <HostInstallGuideContent
-          host={host}
-          onConnected={onConnected}
-          onViewDetail={(targetHost) => {
-            onOpenChange(false);
-            onViewDetail?.(targetHost);
-          }}
-          onClose={() => onOpenChange(false)}
-        />
+        {isK8s ? (
+          <K8sConnectGuideContent
+            host={host}
+            onConnected={onConnected}
+            onViewDetail={(targetHost) => {
+              onOpenChange(false);
+              onViewDetail?.(targetHost);
+            }}
+            onClose={() => onOpenChange(false)}
+          />
+        ) : (
+          <HostInstallGuideContent
+            host={host}
+            onConnected={onConnected}
+            onViewDetail={(targetHost) => {
+              onOpenChange(false);
+              onViewDetail?.(targetHost);
+            }}
+            onClose={() => onOpenChange(false)}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

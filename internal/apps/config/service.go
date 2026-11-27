@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/LeonYoah/stx/internal/pkg/locale"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -83,6 +84,10 @@ type Service struct {
 	nodeInfoProvider NodeInfoProvider
 	agentClient      AgentClient
 	portUpdater      PortMetadataUpdater
+	// k8sConfigMapSource 可选注入：K8s 集群的 ConfigMap 直读通道（避免 config 域反向依赖 cluster 域的实现细节）。
+	// k8sConfigMapSource is an optional injection: the direct ConfigMap read channel for K8s
+	// clusters, keeping the config domain free of cluster-domain implementation details.
+	k8sConfigMapSource K8sConfigMapSource
 }
 
 // NewService 创建配置服务实例
@@ -117,7 +122,55 @@ func (s *Service) NormalizeContent(_ context.Context, req *NormalizeConfigReques
 }
 
 // GetByCluster 获取集群所有配置
+// K8sConfigMapSource 解耦接口：判断集群是否 K8s 并读取其 ConfigMap 文件。
+// K8sConfigMapSource is the decoupling interface: tells whether a cluster is K8s and reads
+// its ConfigMap files.
+type K8sConfigMapSource interface {
+	IsKubernetesCluster(ctx context.Context, clusterID uint) bool
+	ReadK8sConfigMapByID(ctx context.Context, clusterID uint) (map[string]string, error)
+	WriteK8sConfigMapFileByID(ctx context.Context, clusterID uint, fileName, content string) error
+}
+
+// SetK8sConfigMapSource 注入 K8s ConfigMap 读取通道。
+// SetK8sConfigMapSource injects the K8s ConfigMap read channel.
+func (s *Service) SetK8sConfigMapSource(src K8sConfigMapSource) {
+	s.k8sConfigMapSource = src
+}
+
 func (s *Service) GetByCluster(ctx context.Context, clusterID uint) ([]*ConfigInfo, error) {
+	// K8s 集群配置唯一真相是集群内 ConfigMap，不落库不推送；合成为只读视图对齐既有 UI 契约。
+	// For K8s clusters the single source of truth is the in-cluster ConfigMap — nothing is
+	// persisted or pushed; entries are synthesized into a read-only view matching the UI contract.
+	if s.k8sConfigMapSource != nil && s.k8sConfigMapSource.IsKubernetesCluster(ctx, clusterID) {
+		files, err := s.k8sConfigMapSource.ReadK8sConfigMapByID(ctx, clusterID)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]*ConfigInfo, 0, len(files))
+		names := make([]string, 0, len(files))
+		for name := range files {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			// IsTemplate=true 是前端主预览/编辑对象的识别契约；ConfigMap 条目本身就是唯一真相，
+			// 天然"与模板一致"且已同步。
+			// IsTemplate=true is the frontend's contract for the primary preview/edit target;
+			// ConfigMap entries are the single source of truth, so they are inherently
+			// template-matched and synced.
+			out = append(out, &ConfigInfo{
+				ClusterID:     clusterID,
+				ConfigType:    ConfigType(name),
+				FilePath:      name,
+				Content:       files[name],
+				IsTemplate:    true,
+				Version:       1,
+				MatchTemplate: true,
+				SyncStatus:    ConfigSyncStatusSynced,
+			})
+		}
+		return out, nil
+	}
 	configs, err := s.repo.ListByCluster(ctx, clusterID)
 	if err != nil {
 		return nil, err

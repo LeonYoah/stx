@@ -61,6 +61,83 @@ func TestHostCreateSendsBodyAndSafetyHeaders(t *testing.T) {
 	}
 }
 
+func TestHostCreateForwardsK8sDefaultServiceAccountFlag(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeHostCapabilities(t, writer, "host.create")
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["k8s_default_service_account"] != "seatunnel-runner" {
+			t.Fatalf("expected k8s_default_service_account=seatunnel-runner, got %#v", body)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"id": 12, "name": "k8s-cli"}})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runHostWriteCommand(
+		t, store,
+		"host", "create",
+		"--name", "k8s-cli",
+		"--host-type", "kubernetes",
+		"--k8s-auth-mode", "token",
+		"--k8s-access-mode", "external",
+		"--k8s-context", "prod-ctx",
+		"--k8s-api-url", "https://127.0.0.1:6443",
+		"--k8s-token", "tok",
+		"--k8s-namespace", "seatunnel",
+		"--k8s-default-service-account", "seatunnel-runner",
+		"--confirm",
+	)
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("k8s create failed: code=%d stderr=%s", exitCode, stderr)
+	}
+}
+
+func TestHostTestK8sAndInspectKubeconfigCommands(t *testing.T) {
+	kcFile := filepath.Join(t.TempDir(), "kubeconfig.yaml")
+	if err := os.WriteFile(kcFile, []byte("apiVersion: v1\nkind: Config\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var sawTest, sawInspect bool
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		switch request.URL.Path {
+		case "/api/v1/hosts/k8s/test-connection":
+			sawTest = true
+			if body["k8s_auth_mode"] != "kubeconfig" || body["k8s_context"] != "prod" {
+				t.Fatalf("unexpected test-k8s body: %#v", body)
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"connected": true}})
+		case "/api/v1/hosts/k8s/inspect-kubeconfig":
+			sawInspect = true
+			if body["context"] != "prod" {
+				t.Fatalf("unexpected inspect-kubeconfig body: %#v", body)
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"valid": true}})
+		default:
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	if _, stderr, code := runHostWriteCommand(t, store, "host", "test-k8s", "--k8s-auth-mode", "kubeconfig", "--k8s-kubeconfig", "@"+kcFile, "--k8s-context", "prod"); code != int(clioutput.ExitSuccess) {
+		t.Fatalf("test-k8s failed: code=%d stderr=%s", code, stderr)
+	}
+	if _, stderr, code := runHostWriteCommand(t, store, "host", "inspect-kubeconfig", "--kubeconfig", "@"+kcFile, "--context", "prod"); code != int(clioutput.ExitSuccess) {
+		t.Fatalf("inspect-kubeconfig failed: code=%d stderr=%s", code, stderr)
+	}
+	if !sawTest || !sawInspect {
+		t.Fatalf("expected both handlers called, sawTest=%v sawInspect=%v", sawTest, sawInspect)
+	}
+}
+
 func TestHostUpdateAcceptsCompleteRequestFile(t *testing.T) {
 	requestFile := filepath.Join(t.TempDir(), "host-update.json")
 	if err := os.WriteFile(requestFile, []byte(`{"description":"from-file","ssh_port":2200}`), 0o600); err != nil {

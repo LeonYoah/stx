@@ -27,6 +27,7 @@
 import {useState, useEffect, useCallback, useMemo, useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {useRouter} from 'next/navigation';
+import {isK8sInfra} from '@/lib/infra';
 import {
   Eye,
   Layers3,
@@ -82,6 +83,9 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
   const narrow = useDetailNarrow();
 
   const [plugins, setPlugins] = useState<InstalledPlugin[]>([]);
+  // K8s 集群插件遵循不可变镜像原则：只读展示，不提供安装/卸载写操作入口。
+  // K8s cluster plugins follow the immutable-image principle: read-only view, no install/uninstall entry points.
+  const [isK8sCluster, setIsK8sCluster] = useState(false);
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [operating, setOperating] = useState(false);
@@ -107,6 +111,14 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
     setLoading(true);
     try {
       const data = await services.plugin.listInstalledPlugins(clusterId);
+      try {
+        const info = await services.cluster.getCluster(clusterId);
+        // 统一走 @/lib/infra 判定 K8s 集群形态（兼容历史字面值 kubernetes 与新契约值）。
+        // Use shared @/lib/infra predicate for K8s detection (covers legacy kubernetes & contractual shapes).
+        setIsK8sCluster(isK8sInfra(info.infra_type));
+      } catch {
+        setIsK8sCluster(false);
+      }
       if (seq !== reqSeqRef.current) {
         return;
       }
@@ -351,17 +363,27 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
               aria-hidden
             />
           </Button>
-          <Button type='button' size='sm' onClick={goToPluginsPage}>
-            <Plus className='size-3.5' aria-hidden />
-            {t('plugin.addPlugin')}
-          </Button>
+          {!isK8sCluster ? (
+            <Button type='button' size='sm' onClick={goToPluginsPage}>
+              <Plus className='size-3.5' aria-hidden />
+              {t('plugin.addPlugin')}
+            </Button>
+          ) : null}
         </div>
       </div>
 
       {/* 列表 + DetailHost 右侧常驻详情栏（#178 联动压缩 + 名称飞入 + J/K 切换） */}
       {/* List + persistent DetailHost rail (#178 linked motion + name fly-in + J/K nav) */}
       <div className={layout.split}>
-        <div className={layout.listCol} data-mcols='cluster-plugins'>
+        <div
+            className={layout.listCol}
+            data-mcols={isK8sCluster ? 'cluster-plugins-k8s' : 'cluster-plugins'}
+          >
+          {isK8sCluster ? (
+            <p className='mb-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground'>
+              {t('cluster.k8s.immutablePluginHint')}
+            </p>
+          ) : null}
           <TableCard
             loading={loading}
             hasData={filteredPlugins.length > 0}
@@ -403,14 +425,16 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
             }
           >
             <div className={layout.rowHead}>
-              <div className='flex items-center'>
-                <Checkbox
-                  checked={headerCheckState}
-                  disabled={selectablePlugins.length === 0 || operating}
-                  onCheckedChange={toggleSelectAll}
-                  aria-label={t('config.filterAll')}
-                />
-              </div>
+              {!isK8sCluster ? (
+                <div className='flex items-center'>
+                  <Checkbox
+                    checked={headerCheckState}
+                    disabled={selectablePlugins.length === 0 || operating}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label={t('config.filterAll')}
+                  />
+                </div>
+              ) : null}
               <span>{t('plugin.name')}</span>
               <span>{t('plugin.category.label')}</span>
               <span>{t('plugin.version')}</span>
@@ -429,7 +453,7 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
                     icon: <Eye className='size-3.5' aria-hidden />,
                     onSelect: () => openPluginDetail(plugin),
                   },
-                  ...(!plugin.bundled
+                  ...(!plugin.bundled && !isK8sCluster
                     ? [
                         {
                           label: t('plugin.uninstall'),
@@ -468,22 +492,24 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
                     }}
                   >
                     {/* 多选框 / Multi-select checkbox */}
-                    <div
-                      className='flex items-center'
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <Checkbox
-                        checked={isSelected}
-                        disabled={Boolean(plugin.bundled) || operating}
-                        onCheckedChange={() =>
-                          toggleSelectOne(plugin.plugin_name)
-                        }
-                        aria-label={plugin.plugin_name}
-                        title={
-                          plugin.bundled ? t('plugin.bundled') : undefined
-                        }
-                      />
-                    </div>
+                    {!isK8sCluster ? (
+                      <div
+                        className='flex items-center'
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <Checkbox
+                          checked={isSelected}
+                          disabled={Boolean(plugin.bundled) || operating}
+                          onCheckedChange={() =>
+                            toggleSelectOne(plugin.plugin_name)
+                          }
+                          aria-label={plugin.plugin_name}
+                          title={
+                            plugin.bundled ? t('plugin.bundled') : undefined
+                          }
+                        />
+                      </div>
+                    ) : null}
 
                     {/* 插件名与状态标签（同时保留 E2E view 锚点）/ Name & chips (preserves E2E view anchor) */}
                     <div className='flex min-w-0 items-center gap-1.5'>
@@ -533,7 +559,7 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
 
                     {/* 版本 / Version */}
                     <span className='truncate font-mono text-xs tabular-nums text-foreground'>
-                      {plugin.version}
+                      {plugin.version || '—'}
                     </span>
 
                     {/* 安装时间 / Installed at */}
@@ -572,7 +598,7 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
 
           {/* 悬浮多选批量条：位于列表卡内部底端，详情栏打开时也居中不遮挡 */}
           {/* Floating multi-select batch bar anchored inside listCol */}
-          {selectedNames.size > 0 ? (
+          {selectedNames.size > 0 && !isK8sCluster ? (
             <div
               className={layout.batchBarWrap}
               data-testid='cluster-plugins-batch-bar'

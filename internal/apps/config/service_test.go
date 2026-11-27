@@ -19,6 +19,7 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"gorm.io/driver/sqlite"
@@ -332,4 +333,59 @@ func TestUpdateNodeConfigSyncsJobLogModeMetadata(t *testing.T) {
 	if updater.calls[0].clusterID != 15 || updater.calls[0].mode != "per_job" {
 		t.Fatalf("unexpected job log mode sync: %+v", updater.calls[0])
 	}
+}
+
+// TestGetByClusterK8sEntriesAreTemplate 验证 K8s ConfigMap 合成条目带模板契约标志。
+// TestGetByClusterK8sEntriesAreTemplate verifies synthesized K8s ConfigMap entries carry
+// the template contract flags.
+func TestGetByClusterK8sEntriesAreTemplate(t *testing.T) {
+	svc := &Service{
+		k8sConfigMapSource: fakeK8sConfigMapSource{
+			files: map[string]string{
+				"hazelcast-client.yaml":    "hazelcast-client:\n  cluster-name: demo\n",
+				"log4j2_client.properties": "rootLogger.level = INFO\n",
+			},
+		},
+	}
+	out, err := svc.GetByCluster(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("GetByCluster: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("entries = %d, want 2", len(out))
+	}
+	for _, entry := range out {
+		if !entry.IsTemplate {
+			t.Fatalf("%s IsTemplate = false, want true", entry.ConfigType)
+		}
+		if entry.Version != 1 {
+			t.Fatalf("%s Version = %d, want 1", entry.ConfigType, entry.Version)
+		}
+		if !entry.MatchTemplate {
+			t.Fatalf("%s MatchTemplate = false, want true", entry.ConfigType)
+		}
+		if entry.SyncStatus != ConfigSyncStatusSynced {
+			t.Fatalf("%s SyncStatus = %q, want synced", entry.ConfigType, entry.SyncStatus)
+		}
+	}
+}
+
+type fakeK8sConfigMapSource struct {
+	files map[string]string
+}
+
+func (f fakeK8sConfigMapSource) IsKubernetesCluster(_ context.Context, _ uint) bool {
+	return true
+}
+
+func (f fakeK8sConfigMapSource) ReadK8sConfigMapByID(_ context.Context, _ uint) (map[string]string, error) {
+	return f.files, nil
+}
+
+func (f fakeK8sConfigMapSource) WriteK8sConfigMapFileByID(_ context.Context, _ uint, fileName, content string) error {
+	if f.files == nil {
+		return fmt.Errorf("no configmap")
+	}
+	f.files[fileName] = content
+	return nil
 }

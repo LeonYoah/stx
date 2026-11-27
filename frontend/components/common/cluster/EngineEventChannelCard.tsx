@@ -21,9 +21,9 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {toast} from '@/lib/toast';
 import {HelpCircle, Radio, RefreshCw} from 'lucide-react';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {Tooltip} from '@/components/arc/tooltip/tooltip';
 import {Button} from '@/components/arc/button/button';
-import {Skeleton} from '@/components/ui/skeleton';
+import {Skeleton} from '@/components/arc/skeleton/skeleton';
 import {
   ConfirmDialog,
   SoftChip,
@@ -88,6 +88,9 @@ export function EngineEventChannelCard({
   const [refreshing, setRefreshing] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [callbackInput, setCallbackInput] = useState('');
+  const [callbackSaving, setCallbackSaving] = useState(false);
+  const callbackDirtyRef = useRef(false);
   const loadedRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -95,7 +98,11 @@ export function EngineEventChannelCard({
       setRefreshing(true);
     }
     try {
-      setStatus(await services.sync.getEventChannel(clusterId));
+      const next = await services.sync.getEventChannel(clusterId);
+      setStatus(next);
+      if (!callbackDirtyRef.current) {
+        setCallbackInput(next.stx_callback_url || '');
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     } finally {
@@ -137,6 +144,23 @@ export function EngineEventChannelCard({
     }
   };
 
+  const saveCallbackOverride = async () => {
+    setCallbackSaving(true);
+    try {
+      const next = await services.sync.updateEventChannel(clusterId, {
+        stx_callback_url: callbackInput.trim(),
+      });
+      setStatus(next);
+      callbackDirtyRef.current = false;
+      setCallbackInput(next.stx_callback_url || '');
+      toast.success(t('callbackSaved'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCallbackSaving(false);
+    }
+  };
+
   const formatTime = (value?: string) => (value ? formatDateTimeTz(value) : t('never'));
 
   return (
@@ -148,20 +172,15 @@ export function EngineEventChannelCard({
       <div className='flex flex-wrap items-center gap-2 border-b-[0.5px] border-border/80 px-5 py-3.5'>
         <Radio className='size-4 text-primary' aria-hidden />
         <h3 className='text-sm font-semibold text-foreground'>{t('title')}</h3>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type='button'
-              className='text-muted-foreground/70 hover:text-foreground'
-              aria-label={t('description')}
-              data-testid='cluster-event-channel-help'
-            >
-              <HelpCircle className='size-3.5' />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side='top' className='max-w-xs text-xs leading-relaxed'>
-            {t('description')}
-          </TooltipContent>
+        <Tooltip content={t('description')} side='top'>
+          <button
+            type='button'
+            className='text-muted-foreground/70 hover:text-foreground'
+            aria-label={t('description')}
+            data-testid='cluster-event-channel-help'
+          >
+            <HelpCircle className='size-3.5' />
+          </button>
         </Tooltip>
         {status ? (
           <SoftChip tone={eventChannelTone(status.state)}>
@@ -254,6 +273,51 @@ export function EngineEventChannelCard({
             {status.url ? (
               <div className='overflow-x-auto whitespace-nowrap font-mono text-[11px] text-muted-foreground'>
                 {t('url', {url: status.url})}
+              </div>
+            ) : null}
+            {status.is_kubernetes ? (
+              <div className='space-y-1.5 rounded-(--radius-panel) border border-border/60 bg-muted/20 px-3 py-2.5' data-testid='k8s-callback-override'>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <input
+                    type='text'
+                    value={callbackInput}
+                    onChange={(e) => {
+                      callbackDirtyRef.current = true;
+                      setCallbackInput(e.target.value);
+                    }}
+                    placeholder='http://stx.stx-system.svc.cluster.local:17800'
+                    aria-label={t('callbackOverrideLabel')}
+                    className='h-7 min-w-0 flex-1 rounded-md border border-border bg-transparent px-2 font-mono text-[11px] outline-none focus:border-primary'
+                  />
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='secondary'
+                    disabled={callbackSaving || callbackInput.trim() === (status.stx_callback_url || '')}
+                    onClick={() => void saveCallbackOverride()}
+                    data-testid='k8s-callback-save'
+                  >
+                    {t('callbackSave')}
+                  </Button>
+                </div>
+                <p className='text-[11px] leading-relaxed text-muted-foreground'>
+                  {callbackInput.trim() === ''
+                    ? t('callbackInheritHint', {url: status.default_url || '-'})
+                    : t('callbackOverrideHint')}
+                </p>
+                {/^(localhost|127\.|\[?::1\]?|0\.0\.0\.0)/i.test(
+                  (() => {
+                    try {
+                      return new URL(callbackInput.trim() || status.url || '').hostname;
+                    } catch {
+                      return '';
+                    }
+                  })(),
+                ) ? (
+                  <p className='text-[11px] text-amber-700 dark:text-amber-300' data-testid='k8s-callback-loopback-warning'>
+                    {t('callbackLoopbackHint')}
+                  </p>
+                ) : null}
               </div>
             ) : null}
             {status.state === 'pending_restart' ? (

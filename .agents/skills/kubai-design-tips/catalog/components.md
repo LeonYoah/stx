@@ -7,7 +7,7 @@
 - Signals: SubMenu, DropdownMenu.Sub or other submenu components; children opened on mouseenter with no delay; submenus that close on a diagonal move toward them.
 - Skip: No nested menus; touch-only products.
 - Demo: https://vibedesign.tips/002-cascade-menu/
-- Text: tips/002-cascade-menu.md (5.1k characters)
+- Text: tips/002-cascade-menu.md (6.3k characters)
 
 ## 004 Continuous corners (rule)
 
@@ -26,6 +26,15 @@
 - Skip: None: nearly every product has choice controls.
 - Demo: https://vibedesign.tips/020-choice-controls/
 - Text: tips/020-choice-controls.md (8.7k characters)
+
+## 023 Mobile web pages (rule)
+
+- Also called: 让网页在手机上更好用, 移动端适配, 手机适配, PWA, 底部 Tab, 点击高亮, Safari 状态栏
+- Applies: Any website or web app that people open on phones or tablets, above all in Safari on iOS and iPadOS: home screens installed as apps, feeds and lists with tabs, articles and lessons read in order.
+- Signals: No web app manifest or a blurry, small app icon; :hover rules outside @media (hover: hover); no -webkit-tap-highlight-color; main tabs across the top of a phone layout; previous and next links only at the end of an article; bottom bars that never make way while scrolling; transparent full-screen fixed layers; scrims or overlays fixed to the window down to its foot; translucent fixed bars at the foot; full-screen fixed sheets that scroll inside themselves; reliance on meta theme-color for Safari.
+- Skip: Native apps, and web pages never opened on touch screens. Bars that must stay whole (a checkout total, a composer, a player) keep their place.
+- Demo: https://vibedesign.tips/023-mobile-web/
+- Text: tips/023-mobile-web.md (17.2k characters)
 
 ## Note: Design system pass (rule)
 

@@ -67,9 +67,40 @@ vi.mock('@/lib/toast', () => ({
 }));
 
 vi.mock('../HostDetail', () => ({
-  HostDetail: ({host}: {host: HostInfo | null}) => (
+  HostDetail: ({
+    host,
+    editing,
+    onStartEdit,
+    onCancelEdit,
+    onDirtyChange,
+  }: {
+    host: HostInfo | null;
+    editing: boolean;
+    onStartEdit: () => void;
+    onCancelEdit: () => void;
+    onDirtyChange?: (dirty: boolean) => void;
+  }) => (
     <div data-testid='host-detail-body'>
-      {host ? `${host.name}:${host.description || ''}` : 'empty'}
+      <span>{host ? `${host.name}:${host.description || ''}` : 'empty'}</span>
+      <span data-testid='host-detail-mode'>{editing ? 'editing' : 'view'}</span>
+      {editing ? (
+        <>
+          <button
+            type='button'
+            data-testid='mock-mark-dirty'
+            onClick={() => onDirtyChange?.(true)}
+          >
+            mark-dirty
+          </button>
+          <button type='button' onClick={onCancelEdit}>
+            取消编辑
+          </button>
+        </>
+      ) : (
+        <button type='button' onClick={onStartEdit}>
+          进入编辑
+        </button>
+      )}
     </div>
   ),
 }));
@@ -172,8 +203,7 @@ describe('HostMain', () => {
     );
   });
 
-  it('编辑另一台主机后不会覆写当前打开的详情栏', async () => {
-    updateHostSafe.mockResolvedValue({success: true});
+  it('行菜单编辑直接在右侧 DetailHost 原地进入编辑态，未保存切行弹出 DirtyCloseDialog 拦截', async () => {
     renderHostMain();
 
     fireEvent.click(await screen.findByTestId('host-row-1'));
@@ -182,21 +212,37 @@ describe('HostMain', () => {
         'node-alpha:alpha',
       ),
     );
+    expect(screen.getByTestId('host-detail-mode')).toHaveTextContent('view');
 
+    // 从行菜单点击另一台主机的编辑，右侧栏直接打开该主机编辑态，不再叠弹窗
+    // Row menu Edit switches DetailHost directly into edit mode for that host (no stacked modal)
     const rowB = screen.getByTestId('host-row-2');
     const moreBtn = within(rowB).getByRole('button', {name: '更多操作'});
     fireEvent.pointerDown(moreBtn, {button: 0, ctrlKey: false});
     fireEvent.click(moreBtn);
     const editItem = await screen.findByRole('menuitem', {name: '编辑'});
     fireEvent.click(editItem);
-    const saveBtn = await screen.findByRole('button', {name: '保存'});
-    fireEvent.click(saveBtn);
 
-    await waitFor(() => expect(updateHostSafe).toHaveBeenCalledWith(2, expect.any(Object)));
-    expect(getHostSafe).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('host-detail-body')).toHaveTextContent(
-      'node-alpha:alpha',
+    await waitFor(() =>
+      expect(screen.getByTestId('host-detail-body')).toHaveTextContent(
+        'node-beta:beta',
+      ),
     );
+    expect(screen.getByTestId('host-detail-mode')).toHaveTextContent('editing');
+
+    // 标脏后切回行 1，应弹出未保存确认弹窗；放弃修改后才切换
+    // Switching rows while dirty opens DirtyCloseDialog; discarding completes the switch
+    fireEvent.click(screen.getByTestId('mock-mark-dirty'));
+    fireEvent.click(screen.getByTestId('host-row-1'));
+    const dirtyDialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dirtyDialog).getByRole('button', {name: zh.common.dirtyClose.discard}));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('host-detail-body')).toHaveTextContent(
+        'node-alpha:alpha',
+      ),
+    );
+    expect(screen.getByTestId('host-detail-mode')).toHaveTextContent('view');
   });
 
   it('刷新失败时保留已有列表行，只显示错误提示', async () => {
@@ -237,5 +283,33 @@ describe('HostMain', () => {
     expect(toastSuccess).not.toHaveBeenCalled();
     expect(checkA).not.toBeChecked();
     expect(checkB).toBeChecked();
+  });
+
+  it('待连接的 Kubernetes 主机展示待连接与版本/命名空间，不显示未安装与 CPU 0.0%', async () => {
+    const k8sPending = makeHost({
+      id: 13,
+      name: 'orbstack-k8s',
+      host_type: HostType.KUBERNETES,
+      status: HostStatus.PENDING,
+      agent_status: AgentStatus.NOT_INSTALLED,
+      k8s_api_url: 'https://127.0.0.1:26443',
+      k8s_namespace: 'seatunnel-min',
+      k8s_version: '',
+      cpu_usage: 0,
+      memory_usage: 0,
+      disk_usage: 0,
+      is_online: false,
+    });
+    getHostsSafe.mockResolvedValueOnce({
+      success: true,
+      data: {hosts: [k8sPending], total: 1},
+    });
+
+    renderHostMain();
+    const row = await screen.findByTestId('host-row-13');
+    expect(within(row).getByText(zh.host.statuses.pendingConnection)).toBeInTheDocument();
+    expect(within(row).queryByText(zh.host.statuses.pending)).not.toBeInTheDocument();
+    expect(within(row).getByText('ns: seatunnel-min')).toBeInTheDocument();
+    expect(within(row).queryByText(/CPU/)).not.toBeInTheDocument();
   });
 });

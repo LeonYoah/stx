@@ -18,6 +18,8 @@
 package config
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -190,4 +192,79 @@ func TestApplyEventReportConfig_missingConfigs(t *testing.T) {
 	if _, err := svc.ApplyEventReportConfig(t.Context(), 99, &EventReportSettings{URL: "http://x"}, 1); err != ErrSeatunnelConfigMissing {
 		t.Fatalf("expected ErrSeatunnelConfigMissing, got %v", err)
 	}
+}
+
+// TestApplyEventReportConfig_k8sConfigMapWriteBack 验证 K8s 集群走 ConfigMap 直写：
+// 开启写入 event-report-http、关闭移除干净、缺失 seatunnel.yaml 报错、不触碰库表配置。
+// TestApplyEventReportConfig_k8sConfigMapWriteBack verifies Kubernetes clusters write
+// directly into the ConfigMap: enabling writes event-report-http, disabling removes it
+// cleanly, a missing seatunnel.yaml errors out and the database tables stay untouched.
+func TestApplyEventReportConfig_k8sConfigMapWriteBack(t *testing.T) {
+	svc, _, _ := newNodeSyncTestService(t)
+	source := &fakeK8sEventConfigSource{files: map[string]string{
+		"seatunnel.yaml": "seatunnel:\n  engine:\n    history-job-expire-minutes: 1440\n",
+	}}
+	svc.SetK8sConfigMapSource(source)
+
+	settings := &EventReportSettings{
+		URL:               "http://10.0.2.2:17800/api/v1/sync/engine-events/5",
+		Headers:           map[string]string{"Authorization": "Bearer token"},
+		ReportNonTerminal: true,
+	}
+	result, err := svc.ApplyEventReportConfig(context.Background(), 5, settings, 1)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(result.Configs) != 1 || !result.Configs[0].Changed || !result.Configs[0].Pushed {
+		t.Fatalf("unexpected result: %+v", result.Configs)
+	}
+	written := source.files["seatunnel.yaml"]
+	if !strings.Contains(written, "event-report-http") || !strings.Contains(written, settings.URL) {
+		t.Fatalf("configmap not patched:\n%s", written)
+	}
+	if !strings.Contains(written, "history-job-expire-minutes") {
+		t.Fatalf("unrelated content must be preserved:\n%s", written)
+	}
+
+	// 关闭移除干净 / disabling removes the block cleanly
+	result, err = svc.ApplyEventReportConfig(context.Background(), 5, nil, 1)
+	if err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	written = source.files["seatunnel.yaml"]
+	if strings.Contains(written, "event-report-http") {
+		t.Fatalf("block must be removed:\n%s", written)
+	}
+
+	// 无变化时 Changed=false 且不产生写入 / no-op writes report unchanged
+	result, err = svc.ApplyEventReportConfig(context.Background(), 5, nil, 1)
+	if err != nil {
+		t.Fatalf("noop: %v", err)
+	}
+	if result.Configs[0].Changed {
+		t.Fatalf("no-op must report unchanged")
+	}
+
+	// 缺 seatunnel.yaml 报错 / missing file errors out
+	source.files = map[string]string{"log4j2.properties": "x"}
+	if _, err := svc.ApplyEventReportConfig(context.Background(), 5, settings, 1); !errors.Is(err, ErrSeatunnelConfigMissing) {
+		t.Fatalf("expected ErrSeatunnelConfigMissing, got %v", err)
+	}
+}
+
+// fakeK8sEventConfigSource 实现 K8sConfigMapSource 的内存版（写回直接改 map）。
+// fakeK8sEventConfigSource is an in-memory K8sConfigMapSource (writes mutate the map).
+type fakeK8sEventConfigSource struct {
+	files map[string]string
+}
+
+func (f *fakeK8sEventConfigSource) IsKubernetesCluster(_ context.Context, _ uint) bool { return true }
+
+func (f *fakeK8sEventConfigSource) ReadK8sConfigMapByID(_ context.Context, _ uint) (map[string]string, error) {
+	return f.files, nil
+}
+
+func (f *fakeK8sEventConfigSource) WriteK8sConfigMapFileByID(_ context.Context, _ uint, fileName, content string) error {
+	f.files[fileName] = content
+	return nil
 }

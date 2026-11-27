@@ -100,6 +100,41 @@ type ClusterGetter interface {
 	GetClusterVersion(ctx context.Context, clusterID uint) (string, error)
 }
 
+// ImageConnector 是 K8s 镜像只读连接器条目（来自伴生 Proxy 清单，无安装记录语义）。
+// ImageConnector is one read-only image connector entry from the companion proxy inventory.
+type ImageConnector struct {
+	Name     string `json:"name"`
+	Category string `json:"category"`
+}
+
+// k8sImageConnectorLister 可选能力：列出 K8s 集群镜像内置连接器（由 cluster 域实现，
+// 避免 plugin→cluster 反向依赖成环）。
+// k8sImageConnectorLister is an optional capability listing image-bundled connectors of K8s
+// clusters (implemented by the cluster domain, avoiding a plugin→cluster import cycle).
+type k8sImageConnectorLister interface {
+	ListK8sImageConnectors(ctx context.Context, clusterID uint) ([]*ImageConnector, error)
+}
+
+// clusterInfraChecker 可选能力：判断集群是否 K8s 基础设施。
+// clusterInfraChecker is an optional capability reporting whether a cluster is K8s infra.
+type clusterInfraChecker interface {
+	IsKubernetesCluster(ctx context.Context, clusterID uint) bool
+}
+
+// ErrK8sPluginWriteForbidden 不可变镜像原则：K8s 集群禁止动态装/卸插件，须走镜像升级。
+// ErrK8sPluginWriteForbidden enforces immutable images: K8s clusters forbid dynamic plugin
+// install/uninstall; image upgrades are the only path.
+var ErrK8sPluginWriteForbidden = errors.New("plugin: kubernetes clusters use immutable images; plugin install/uninstall is forbidden, upgrade the image tag instead")
+
+// guardK8sPluginWrite 写操作入口统一拦截 K8s 集群。
+// guardK8sPluginWrite blocks write operations for K8s clusters at every write entrypoint.
+func (s *Service) guardK8sPluginWrite(ctx context.Context, clusterID uint) error {
+	if checker, ok := s.clusterGetter.(clusterInfraChecker); ok && checker.IsKubernetesCluster(ctx, clusterID) {
+		return ErrK8sPluginWriteForbidden
+	}
+	return nil
+}
+
 // ClusterNodeInfo represents node information needed for plugin installation.
 // ClusterNodeInfo 表示插件安装所需的节点信息。
 type ClusterNodeInfo struct {
@@ -857,6 +892,30 @@ func (s *Service) cachedBundledConnectors(ctx context.Context, clusterID uint) [
 }
 
 func (s *Service) fetchBundledConnectors(ctx context.Context, clusterID uint) []InstalledPlugin {
+	// K8s 集群无 Agent 节点，镜像连接器清单改经伴生 Proxy 只读获取。
+	// K8s clusters have no Agent nodes; the image connector inventory is read-only via the companion proxy.
+	if lister, ok := s.clusterGetter.(k8sImageConnectorLister); ok {
+		if checker, is := s.clusterGetter.(clusterInfraChecker); is && checker.IsKubernetesCluster(ctx, clusterID) {
+			items, err := lister.ListK8sImageConnectors(ctx, clusterID)
+			if err != nil {
+				logger.WarnF(ctx, "list k8s image connectors for cluster %d failed: %v", clusterID, err)
+				return nil
+			}
+			now := time.Now()
+			out := make([]InstalledPlugin, 0, len(items))
+			for _, item := range items {
+				out = append(out, InstalledPlugin{
+					PluginName:  item.Name,
+					ArtifactID:  getArtifactIDForPath(item.Name),
+					Category:    PluginCategoryConnector,
+					Status:      PluginStatusInstalled,
+					InstalledAt: now,
+					Bundled:     true,
+				})
+			}
+			return out
+		}
+	}
 	if s.agentCommandSender == nil || s.clusterNodeGetter == nil || s.hostInfoGetter == nil {
 		return nil
 	}
@@ -1003,6 +1062,9 @@ func (s *Service) GetInstalledPlugin(ctx context.Context, clusterID uint, plugin
 // Requirements: Validates that plugin version matches cluster version.
 // 需求：校验插件版本与集群版本是否匹配。
 func (s *Service) InstallPlugin(ctx context.Context, clusterID uint, req *InstallPluginRequest) (*InstalledPlugin, error) {
+	if err := s.guardK8sPluginWrite(ctx, clusterID); err != nil {
+		return nil, err
+	}
 	// Delegate to InstallPluginToCluster which handles the full installation flow
 	// 委托给 InstallPluginToCluster 处理完整的安装流程
 	return s.InstallPluginToCluster(ctx, clusterID, req)
@@ -1013,6 +1075,9 @@ func (s *Service) InstallPlugin(ctx context.Context, clusterID uint, req *Instal
 // Sends uninstall_plugin command to each cluster node's agent to remove plugin files from install dir, then deletes the DB record.
 // 向集群各节点 Agent 发送 uninstall_plugin 命令以从安装目录删除插件文件，再删除数据库记录。
 func (s *Service) UninstallPlugin(ctx context.Context, clusterID uint, pluginName string) error {
+	if err := s.guardK8sPluginWrite(ctx, clusterID); err != nil {
+		return err
+	}
 	plugin, err := s.repo.GetByClusterAndName(ctx, clusterID, pluginName)
 	if err != nil {
 		return err
@@ -1062,6 +1127,9 @@ func (s *Service) UninstallPlugin(ctx context.Context, clusterID uint, pluginNam
 // EnablePlugin enables an installed plugin.
 // EnablePlugin 启用已安装的插件。
 func (s *Service) EnablePlugin(ctx context.Context, clusterID uint, pluginName string) (*InstalledPlugin, error) {
+	if err := s.guardK8sPluginWrite(ctx, clusterID); err != nil {
+		return nil, err
+	}
 	plugin, err := s.repo.GetByClusterAndName(ctx, clusterID, pluginName)
 	if err != nil {
 		return nil, err
@@ -1080,6 +1148,9 @@ func (s *Service) EnablePlugin(ctx context.Context, clusterID uint, pluginName s
 // DisablePlugin disables an installed plugin.
 // DisablePlugin 禁用已安装的插件。
 func (s *Service) DisablePlugin(ctx context.Context, clusterID uint, pluginName string) (*InstalledPlugin, error) {
+	if err := s.guardK8sPluginWrite(ctx, clusterID); err != nil {
+		return nil, err
+	}
 	plugin, err := s.repo.GetByClusterAndName(ctx, clusterID, pluginName)
 	if err != nil {
 		return nil, err
@@ -1482,6 +1553,9 @@ func (s *Service) SetHostInfoGetter(getter HostInfoGetter) {
 // HTTP 请求立即返回任务进度；即使客户端断开（例如 Next.js 默认 proxyTimeout ~30s）传输仍继续。
 // Worker 使用与请求分离的 context，避免客户端取消导致安装中断。
 func (s *Service) StartInstallPluginAsync(ctx context.Context, clusterID uint, req *InstallPluginRequest) (*PluginInstallStatus, error) {
+	if err := s.guardK8sPluginWrite(ctx, clusterID); err != nil {
+		return nil, err
+	}
 	if req == nil {
 		return nil, fmt.Errorf("install request is required")
 	}
@@ -1786,6 +1860,9 @@ func (s *Service) recordAttachedConnectorPlugins(ctx context.Context, clusterID 
 // UninstallPluginFromCluster uninstalls a plugin from all nodes in a cluster.
 // UninstallPluginFromCluster 从集群中的所有节点卸载插件。
 func (s *Service) UninstallPluginFromCluster(ctx context.Context, clusterID uint, pluginName string) error {
+	if err := s.guardK8sPluginWrite(ctx, clusterID); err != nil {
+		return err
+	}
 	// Check if plugin exists / 检查插件是否存在
 	plugin, err := s.repo.GetByClusterAndName(ctx, clusterID, pluginName)
 	if err != nil {

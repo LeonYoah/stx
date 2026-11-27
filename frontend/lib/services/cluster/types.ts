@@ -171,6 +171,14 @@ export interface ClusterInfo {
   description: string;
   /** Deployment mode / 部署模式 */
   deployment_mode: DeploymentMode;
+  /** Infrastructure type / 基础设施类型 */
+  infra_type?: 'bare_metal' | 'kubernetes' | 'kubernetes_session' | 'kubernetes_application_template' | 'kubernetes_application_instance';
+  /** K8s host ID / K8s 主机 ID */
+  k8s_host_id?: number;
+  /** Management source for k8s clusters / K8s 纳管来源 */
+  management_source?: string;
+  /** K8s namespace / K8s 命名空间 */
+  k8s_namespace?: string;
   /** SeaTunnel version / SeaTunnel 版本 */
   version: string;
   /** Cluster status / 集群状态 */
@@ -1076,3 +1084,31 @@ export type PrecheckNodeResponse = BackendResponse<PrecheckResult>;
 
 /** Update node response type / 更新节点响应类型 */
 export type UpdateNodeResponse = BackendResponse<NodeInfo>;
+
+/**
+ * K8s pod projection item / K8s Pod 投影项
+ */
+export interface K8sPodInfo {
+  name: string;
+  role: string;
+  ready: boolean;
+  phase: string;
+  pod_ip: string;
+  node_name: string;
+  started_at?: string;
+  restarts: number;
+  workload_kind: string;
+  workload_name: string;
+}
+
+/**
+ * Companion java-proxy status returned by create/retry endpoints
+ * 创建或重试接口返回的伴生 Proxy 状态
+ */
+export interface K8sProxyStatus {
+  healthy: boolean;
+  message?: string;
+  pod_phase?: string;
+  pod_events?: string[];
+  service_url?: string;
+}

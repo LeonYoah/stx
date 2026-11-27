@@ -34,6 +34,7 @@ func newSyncEventChannelUpdateCommand(storeProvider authStoreProvider) *cobra.Co
 	var options secureWriteOptions
 	var enabled string
 	var rotateToken bool
+	var stxCallbackURL string
 
 	command := &cobra.Command{
 		Use:     "update <cluster_id>",
@@ -55,8 +56,14 @@ func newSyncEventChannelUpdateCommand(storeProvider authStoreProvider) *cobra.Co
 			default:
 				return clioutput.NewError(clioutput.CodeUsage, "--enabled must be true or false", clioutput.ExitUsage, false)
 			}
-			if _, ok := body["enabled"]; !ok && !rotateToken {
-				return clioutput.NewError(clioutput.CodeUsage, "specify --enabled or --rotate-token", clioutput.ExitUsage, false)
+			// 显式传空串表示清除集群级覆写，故用 Changed 而非值非空判定是否携带该字段。
+			// An explicit empty string clears the cluster-level override, so Changed rather
+			// than non-empty decides whether the field is sent.
+			if command.Flags().Changed("stx-callback-url") {
+				body["stx_callback_url"] = strings.TrimSpace(stxCallbackURL)
+			}
+			if _, ok := body["enabled"]; !ok && !rotateToken && !command.Flags().Changed("stx-callback-url") {
+				return clioutput.NewError(clioutput.CodeUsage, "specify --enabled, --rotate-token or --stx-callback-url", clioutput.ExitUsage, false)
 			}
 			operationID := "sync.event-channel.update"
 			client, headers, err := prepareSecureWrite(command, storeProvider, operationID, &options, "会修改该集群全部节点的 seatunnel.yaml（event-report-http），需滚动重启集群后生效。")
@@ -74,5 +81,6 @@ func newSyncEventChannelUpdateCommand(storeProvider authStoreProvider) *cobra.Co
 	addSecureWriteFlags(command, &options)
 	command.Flags().StringVar(&enabled, "enabled", "", "Enable (true) or disable (false) event reporting")
 	command.Flags().BoolVar(&rotateToken, "rotate-token", false, "Rotate the per-cluster event token (requires a cluster restart)")
+	command.Flags().StringVar(&stxCallbackURL, "stx-callback-url", "", "Override the STX callback base URL for Kubernetes clusters (empty string clears the override)")
 	return command
 }

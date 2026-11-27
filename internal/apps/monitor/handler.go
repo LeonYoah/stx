@@ -94,6 +94,12 @@ func (h *Handler) UpdateMonitorConfig(c *gin.Context) {
 
 	config, err := h.service.UpdateConfig(c.Request.Context(), uint(clusterID), &req)
 	if err != nil {
+		if err == ErrKubernetesMonitorConfigUnsupported {
+			c.JSON(http.StatusBadRequest, gin.H{"error": locale.Pick(c.Request.Context(),
+				"K8s 集群的进程自愈由 kubelet RestartPolicy 与 Liveness/Readiness Probe 原生托管，无需配置主机 Agent 自愈参数",
+				"Process self-healing for Kubernetes clusters is natively managed by the kubelet RestartPolicy and Liveness/Readiness probes; host agent self-healing parameters are not applicable")})
+			return
+		}
 		if err == ErrInvalidMonitorInterval || err == ErrInvalidRestartDelay ||
 			err == ErrInvalidMaxRestarts || err == ErrInvalidTimeWindow ||
 			err == ErrInvalidCooldownPeriod {

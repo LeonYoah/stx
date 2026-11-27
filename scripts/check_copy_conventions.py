@@ -22,17 +22,22 @@ Copy conventions hard gate: any violation fails the build; no baseline.
    Raw navigator.clipboard / execCommand copy is forbidden outside use-copy-feedback.ts.
 2. 禁止 JSX 传 copiedLabel= / failedLabel=：反馈文案由 CopyButton 内部 i18n 统一。
    JSX copiedLabel=/failedLabel= props are forbidden; CopyButton owns feedback labels via i18n.
+3. 禁止在国际化文案中出现生造语法（*/proxy）或底层连接方式枚举名（in_cluster / apiserver_proxy）。
+   Forbidden UI copy red-lines: fabricated */proxy syntax or raw access-mode enums in locale JSONs.
 """
+import json
 import re
 import sys
 from pathlib import Path
 
 FRONTEND = Path("frontend")
+LOCALES_DIR = FRONTEND / "lib" / "i18n" / "locales"
 CLIPBOARD_LIB = "components/arc/lib/use-copy-feedback.ts"
 IGNORE_MARK = "copy-lint:ignore"
 
 RAW_CLIPBOARD_RE = re.compile(r"navigator\.clipboard|execCommand\(\s*['\"]copy['\"]")
 JSX_LABEL_RE = re.compile(r"\b(?:copiedLabel|failedLabel)=\{")
+FORBIDDEN_LOCALE_COPY_RE = re.compile(r"\*/proxy|\bin_cluster\b|\bapiserver_proxy\b")
 
 EXCLUDE_DIRS = {"node_modules", ".next", "prototype", "e2e"}
 
@@ -43,6 +48,30 @@ def iter_frontend_files():
             if any(part in EXCLUDE_DIRS for part in path.parts):
                 continue
             yield path
+
+
+def iter_locale_strings(node, prefix=""):
+    if isinstance(node, str):
+        yield prefix, node
+    elif isinstance(node, dict):
+        for k, v in node.items():
+            key = f"{prefix}.{k}" if prefix else str(k)
+            yield from iter_locale_strings(v, key)
+
+
+def scan_locales():
+    violations = []
+    for path in sorted(LOCALES_DIR.glob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        rel = path.relative_to(FRONTEND).as_posix()
+        for key, value in iter_locale_strings(data):
+            m = FORBIDDEN_LOCALE_COPY_RE.search(value)
+            if m:
+                violations.append((rel, 0, "FORBIDDEN_LOCALE_COPY", f"{key}: matched {m.group(0)!r}"))
+    return violations
 
 
 def scan_file(path):
@@ -67,13 +96,14 @@ def main():
     all_violations = []
     for path in iter_frontend_files():
         all_violations.extend(scan_file(path))
+    all_violations.extend(scan_locales())
     if not all_violations:
         print("copy conventions: OK, 0 violations")
         return 0
     print(f"copy conventions: {len(all_violations)} violation(s):")
     for rel, lineno, rule, snippet in all_violations:
         print(f"  {rel}:{lineno} [{rule}] {snippet[:100]}")
-    print("修复方式：复制统一走 writeClipboard / Arc CopyButton；反馈文案由组件内部 i18n 控制，不要传 copiedLabel/failedLabel。")
+    print("修复方式：复制统一走 writeClipboard / Arc CopyButton；反馈文案由组件内部 i18n 控制；locale 文案禁止出现 */proxy 或 in_cluster/apiserver_proxy 等底层枚举。")
     return 1
 
 

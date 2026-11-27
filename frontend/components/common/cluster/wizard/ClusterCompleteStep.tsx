@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import {DeploymentMode, NodeRole} from '@/lib/services/cluster/types';
 import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
-import {ClusterDeployConfig, HostWithRole} from './types';
+import {ClusterDeployConfig, HostWithRole, K8sWizardFormState} from './types';
 
 interface ClusterCompleteStepProps {
   /** Cluster deploy config / 集群部署配置 */
@@ -46,6 +46,10 @@ interface ClusterCompleteStepProps {
   selectedHosts: HostWithRole[];
   /** Warning messages / 警告信息 */
   deployWarnings: string[] | string | null;
+  /** K8s 向导表单：存在时按 K8s 语义渲染摘要（命名空间/形态/副本），不走物理主机计数。
+      K8s wizard form state: when present the summary renders Kubernetes semantics
+      (namespace/topology/replicas) instead of physical host counts. */
+  k8sForm?: K8sWizardFormState;
   /** Close dialog callback / 关闭向导回调 */
   onClose: () => void;
   /** View cluster callback / 查看集群回调 */
@@ -56,6 +60,7 @@ export function ClusterCompleteStep({
   config,
   selectedHosts,
   deployWarnings,
+  k8sForm,
   onClose,
   onComplete,
 }: ClusterCompleteStepProps) {
@@ -132,11 +137,20 @@ export function ClusterCompleteStep({
                 {t('cluster.wizard.summaryScale')}
               </span>
               <span className='font-medium text-foreground mt-0.5 block tabular-nums'>
-                {t('cluster.wizard.summaryHosts', {
-                  count: selectedHosts.length,
-                  master: masterCount,
-                  worker: workerCount,
-                })}
+                {k8sForm
+                  ? t('cluster.wizard.summaryK8sScale', {
+                      namespace: k8sForm.namespace,
+                      mode: k8sForm.deployment_mode,
+                      replicas:
+                        k8sForm.deployment_mode === 'hybrid'
+                          ? k8sForm.hybrid_replicas
+                          : `${k8sForm.master_replicas}+${k8sForm.worker_replicas}`,
+                    })
+                  : t('cluster.wizard.summaryHosts', {
+                      count: selectedHosts.length,
+                      master: masterCount,
+                      worker: workerCount,
+                    })}
               </span>
             </div>
 
@@ -169,7 +183,7 @@ export function ClusterCompleteStep({
                   {t('cluster.wizard.summaryEventChannel')}
                 </span>
                 <span className='font-medium text-foreground mt-0.5 block'>
-                  {config.runtime.enable_event_channel
+                  {(k8sForm ? k8sForm.event_report_enabled : config.runtime.enable_event_channel)
                     ? t('cluster.wizard.eventChannelEnabled')
                     : t('cluster.wizard.eventChannelDisabled')}
                 </span>

@@ -24,7 +24,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/pkg/locale"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,6 +77,10 @@ type HostInfo struct {
 	// Timezone 是 Agent 心跳上报的主机 IANA 时区，用于解析该节点 SeaTunnel 引擎/日志中的无偏移时间。
 	// Timezone is the host IANA zone from Agent heartbeats, used to parse naive SeaTunnel engine/log times on this node.
 	Timezone string
+	// K8sNamespace 与 K8sDefaultServiceAccount 供 K8s 集群创建时在最小权限模式下安全推导运行身份。
+	// K8sNamespace and K8sDefaultServiceAccount let K8s cluster deploys infer defaults safely under minimal RBAC.
+	K8sNamespace             string
+	K8sDefaultServiceAccount string
 }
 
 // IsOnline checks if the host is online based on heartbeat timeout.
@@ -247,6 +253,17 @@ type Service struct {
 	// memberGraceUntil 记录每个集群最近一次启动/重启受理后的成员一致性宽限截止（clusterID -> time.Time）。
 	// memberGraceUntil stores each cluster's member-agreement grace deadline after an accepted start/restart (clusterID -> time.Time).
 	memberGraceUntil sync.Map
+	// k8s 依赖三件套：仅 K8s 集群路径消费，裸金属路径零开销。
+	// The k8s dependency trio is only consumed by K8s cluster paths; bare-metal paths carry zero cost.
+	k8sManager *k8s.ClientManager
+	// k8sEventChannelEnabler 在 K8s 一键部署后开启引擎事件通道（router 注入 sync 实现，
+	// 避免 cluster→sync 循环依赖；nil 时跳过注入，集群可后续手工开启）。
+	// k8sEventChannelEnabler turns the engine event channel on after a Kubernetes one-click
+	// deploy (the router injects the sync implementation to avoid a cluster→sync import
+	// cycle); nil skips injection and the channel can be enabled manually later.
+	k8sEventChannelEnabler K8sEventChannelEnabler
+	k8sJarLoader           k8s.ProxyJarLoader
+	k8sHostTypeChecker     K8sHostTypeChecker
 }
 
 // ServiceConfig holds configuration for the Cluster Service.
@@ -262,6 +279,19 @@ type ServiceConfig struct {
 
 // NewService creates a new Service instance.
 // NewService 创建一个新的 Service 实例。
+
+// K8sEventChannelEnabler 由 sync.Service 实现：部署后注入事件通道。
+// K8sEventChannelEnabler is implemented by sync.Service: injects the event channel post-deploy.
+type K8sEventChannelEnabler interface {
+	EnableEventChannelForK8sDeploy(ctx context.Context, clusterID uint, version string, callbackURL string) error
+}
+
+// SetK8sEventChannelEnabler 注入事件通道开启器（router 接线）。
+// SetK8sEventChannelEnabler injects the event channel enabler (router wiring).
+func (s *Service) SetK8sEventChannelEnabler(enabler K8sEventChannelEnabler) {
+	s.k8sEventChannelEnabler = enabler
+}
+
 func NewService(repo *Repository, hostProvider HostProvider, cfg *ServiceConfig) *Service {
 	timeout := 30 * time.Second
 	assetBase := ""
@@ -754,7 +784,10 @@ func (s *Service) Delete(ctx context.Context, id uint, forceRemoveInstallDir boo
 
 	// Check if cluster has running tasks (deploying or running status)
 	// 检查集群是否有运行中的任务（部署中或运行中状态）
-	if cluster.Status == ClusterStatusDeploying || cluster.Status == ClusterStatusRunning {
+	// K8s 集群不适用该防护：其删除路径即 unbind/uninstall 资源治理，不存在 Agent 进程孤儿问题。
+	// K8s clusters skip this guard: their delete path IS the unbind/uninstall resource
+	// lifecycle, and there are no orphaned agent processes to protect.
+	if !cluster.IsKubernetes() && (cluster.Status == ClusterStatusDeploying || cluster.Status == ClusterStatusRunning) {
 		return ErrClusterHasRunningTask
 	}
 
@@ -782,6 +815,26 @@ func (s *Service) Delete(ctx context.Context, id uint, forceRemoveInstallDir boo
 	// 可选钩子（如删除该集群的监控配置与事件）
 	if s.onBeforeClusterDelete != nil {
 		s.onBeforeClusterDelete(ctx, id)
+	}
+
+	// K8s 删除边界：adopted 只清理伴生 Proxy，绝不触碰用户原有 SeaTunnel 资源；
+	// stx_deployed 仅在显式勾选（复用 forceRemoveInstallDir 语义）时卸载 STX 创建的资源，
+	// 外部 PVC 永不删除。清理失败不阻断记录删除但写入日志，避免残留不可见资源。
+	// K8s deletion boundary: adopted clusters only clean up the companion proxy and never
+	// touch user-owned SeaTunnel resources; stx_deployed clusters uninstall STX-created
+	// resources only when explicitly confirmed (reusing forceRemoveInstallDir semantics);
+	// external PVCs are never deleted. Cleanup failures do not block record deletion but
+	// are logged, avoiding invisible leftovers.
+	if cluster.IsKubernetes() {
+		if err := s.DeleteK8sJavaProxy(ctx, cluster); err != nil {
+			log.Printf("[cluster] delete k8s java proxy for cluster %d failed: %v\n", id, err)
+		}
+		cfg := cluster.K8sSessionConfig()
+		if cfg != nil && cfg.ManagementSource == k8s.ManagementSourceSTXDeployed && forceRemoveInstallDir {
+			if err := s.UninstallK8sSession(ctx, cluster); err != nil {
+				log.Printf("[cluster] uninstall k8s session for cluster %d failed: %v\n", id, err)
+			}
+		}
 	}
 
 	if err := s.repo.Delete(ctx, id); err != nil {
@@ -2180,6 +2233,13 @@ func (s *Service) executeOperation(ctx context.Context, clusterID uint, operatio
 		return nil, err
 	}
 
+	// K8s 集群生命周期统一走工作负载缩容/滚动重启，无节点 Agent 语义。
+	// K8s cluster lifecycle is uniformly implemented via workload scaling and rollout
+	// restarts; there is no node-agent semantics.
+	if cluster.IsKubernetes() {
+		return s.executeK8sLifecycleOperation(ctx, cluster, operation)
+	}
+
 	result := &OperationResult{
 		ClusterID:   clusterID,
 		Operation:   operation,
@@ -3272,4 +3332,84 @@ func (s *Service) ListExternalDiscoveryClusterIDs(ctx context.Context) ([]uint, 
 		ids = append(ids, item.ID)
 	}
 	return ids, nil
+}
+
+// IsKubernetesCluster 报告集群是否 K8s 基础设施（plugin/config 等域的可选能力断言用）。
+// IsKubernetesCluster reports whether the cluster is K8s infra (used by optional-capability
+// assertions in the plugin/config domains).
+func (s *Service) IsKubernetesCluster(ctx context.Context, clusterID uint) bool {
+	c, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil || c == nil {
+		return false
+	}
+	return c.IsKubernetes()
+}
+
+// WriteK8sConfigMapFileByID 按集群 ID 写 ConfigMap 单文件（config 域事件上报/运行时存储直写用，不触发滚动重启）。
+// WriteK8sConfigMapFileByID writes one ConfigMap file by cluster ID without triggering a
+// rolling restart (used by the config domain for event-report and runtime-storage writes).
+func (s *Service) WriteK8sConfigMapFileByID(ctx context.Context, clusterID uint, fileName, content string) error {
+	c, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return ErrClusterNotFound
+	}
+	return s.WriteK8sConfigMapFile(ctx, c, fileName, content, false)
+}
+
+// GetK8sSTXCallbackURL 读取集群级 STX 回调地址覆写；非 K8s 集群或无覆写返回空串。
+// GetK8sSTXCallbackURL reads the cluster-level STX callback override; non-Kubernetes
+// clusters or missing overrides yield an empty string.
+func (s *Service) GetK8sSTXCallbackURL(ctx context.Context, clusterID uint) (string, error) {
+	c, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return "", err
+	}
+	if c == nil {
+		return "", ErrClusterNotFound
+	}
+	cfg := c.K8sSessionConfig()
+	if cfg == nil {
+		return "", nil
+	}
+	return strings.TrimSpace(cfg.STXCallbackURL), nil
+}
+
+// SetK8sSTXCallbackURL 持久化集群级回调地址覆写（空串清除覆写）；仅 K8s 集群合法。
+// SetK8sSTXCallbackURL persists the cluster-level callback override (empty clears it);
+// only valid for Kubernetes clusters.
+func (s *Service) SetK8sSTXCallbackURL(ctx context.Context, clusterID uint, callbackURL string) error {
+	c, err := s.repo.GetByID(ctx, clusterID, true)
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return ErrClusterNotFound
+	}
+	if !c.IsKubernetes() {
+		return fmt.Errorf("cluster: stx_callback_url override only applies to kubernetes clusters")
+	}
+	raw, ok := c.Config["kubernetes"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("cluster: kubernetes session config missing")
+	}
+	raw["stx_callback_url"] = strings.TrimSpace(callbackURL)
+	c.Config["kubernetes"] = raw
+	return s.repo.Update(ctx, c)
+}
+
+// ReadK8sConfigMapByID 按集群 ID 读取 ConfigMap（config 域可选能力断言用）。
+// ReadK8sConfigMapByID reads the ConfigMap by cluster ID (used by the config domain's
+// optional capability assertion).
+func (s *Service) ReadK8sConfigMapByID(ctx context.Context, clusterID uint) (map[string]string, error) {
+	c, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, ErrClusterNotFound
+	}
+	return s.ReadK8sConfigMap(ctx, c)
 }

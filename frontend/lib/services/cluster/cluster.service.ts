@@ -73,6 +73,8 @@ import {
   StxJavaProxyStatus,
   ClusterWebUIEndpoints,
   UpdateStxJavaProxyConfigRequest,
+  K8sPodInfo,
+  K8sProxyStatus,
 } from './types';
 
 /**
@@ -1608,4 +1610,137 @@ export class ClusterService extends BaseService {
       return {success: false, error: errorMessage};
     }
   }
+
+  /**
+   * Create a Kubernetes cluster record (adopt or deploy) / 创建 K8s 集群（纳管或一键部署）
+   */
+  static async createKubernetesCluster(data: Record<string, unknown>): Promise<unknown> {
+    const response = await apiClient.post<{error_msg: string; data: unknown}>(
+      `${this.basePath}/kubernetes`,
+      data,
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data;
+  }
+
+  /**
+   * Scale a K8s workload component / 扩缩容 K8s 工作负载
+   */
+  static async scaleK8s(clusterId: number, component: string, replicas: number): Promise<void> {
+    const response = await apiClient.post<{error_msg: string}>(
+      `${this.basePath}/${clusterId}/k8s/scale`,
+      {component, replicas},
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+  }
+
+  /**
+   * Rollout restart a K8s workload component / 滚动重启 K8s 工作负载
+   */
+  static async rolloutRestartK8s(clusterId: number, component: string): Promise<void> {
+    const response = await apiClient.post<{error_msg: string}>(
+      `${this.basePath}/${clusterId}/k8s/rollout-restart`,
+      {component},
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+  }
+
+  /**
+   * Upgrade K8s cluster image tag (immutable image principle) / 升级镜像 Tag（不可变镜像原则）
+   */
+  static async upgradeK8sImage(clusterId: number, image: string, targetVersion?: string): Promise<void> {
+    const response = await apiClient.post<{error_msg: string}>(
+      `${this.basePath}/${clusterId}/k8s/upgrade-image`,
+      {image, target_version: targetVersion || ''},
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+  }
+
+  /**
+   * List K8s pods projection / 获取 Pod 投影列表
+   */
+  static async getK8sPods(clusterId: number): Promise<K8sPodInfo[]> {
+    const response = await apiClient.get<{error_msg: string; data: K8sPodInfo[]}>(
+      `${this.basePath}/${clusterId}/k8s/pods`,
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data || [];
+  }
+
+  /**
+   * Delete one engine pod; the workload controller recreates it / 删除单个引擎 Pod（控制器自动重建）
+   */
+  static async deleteK8sPod(clusterId: number, podName: string): Promise<void> {
+    const response = await apiClient.delete<{error_msg: string}>(
+      `${this.basePath}/${clusterId}/k8s/pods/${encodeURIComponent(podName)}`,
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+  }
+
+  /**
+   * Read K8s pod logs / 读取 K8s Pod 日志
+   */
+  static async getK8sPodLogs(clusterId: number, podName: string, tailLines = 500): Promise<string> {
+    const response = await apiClient.get<{error_msg: string; data: {logs?: string}}>(
+      `${this.basePath}/${clusterId}/k8s/pods/${encodeURIComponent(podName)}/logs`,
+      {params: {tail_lines: tailLines}},
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data?.logs || '';
+  }
+
+  /**
+   * Read K8s ConfigMap files / 读取 ConfigMap 配置文件
+   */
+  static async getK8sConfigMap(clusterId: number): Promise<Record<string, string>> {
+    const response = await apiClient.get<{error_msg: string; data: Record<string, string>}>(
+      `${this.basePath}/${clusterId}/k8s/configmap`,
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data || {};
+  }
+
+  /**
+   * Update one ConfigMap file with optional rolling restart / 更新 ConfigMap 单文件并可选滚动重启
+   */
+  static async updateK8sConfigMapFile(clusterId: number, fileName: string, content: string, restart: boolean): Promise<void> {
+    const response = await apiClient.put<{error_msg: string}>(
+      `${this.basePath}/${clusterId}/k8s/configmap/${encodeURIComponent(fileName)}`,
+      {content, restart},
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+  }
+
+  /**
+   * Retry companion java proxy start / 重试拉起伴生 Proxy
+   */
+  static async retryK8sJavaProxy(clusterId: number): Promise<K8sProxyStatus> {
+    const response = await apiClient.post<{error_msg: string; data: K8sProxyStatus}>(
+      `${this.basePath}/${clusterId}/k8s/java-proxy/retry`,
+      {},
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data;
+  }
+
 }

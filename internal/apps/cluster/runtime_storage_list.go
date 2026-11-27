@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	pathpkg "path"
@@ -106,12 +107,32 @@ func (s *Service) ListRuntimeStorage(
 	recursive bool,
 	limit int,
 ) (*RuntimeStorageListResult, error) {
-	if s.agentSender == nil || s.hostProvider == nil {
-		return nil, fmt.Errorf("agent sender or host provider is not configured")
-	}
 	clusterObj, err := s.Get(ctx, clusterID)
 	if err != nil {
 		return nil, err
+	}
+	// K8s 集群不走 Agent/Proxy 节点：LOCAL_FILE 明确拒绝，S3 直连，其他外部类型提示未开放。
+	// Kubernetes clusters bypass the agent/proxy node path: LOCAL_FILE is explicitly
+	// rejected, S3 is direct, and other external types report as not yet exposed.
+	if clusterObj.IsKubernetes() {
+		resolved, resolveErr := s.resolveK8sRuntimeStorageResolved(ctx, clusterObj, string(kind))
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		if resolved == nil {
+			return nil, errors.New(k8sLocalFileUnsupported(ctx))
+		}
+		if boundaryErr := k8sRuntimeStorageBoundaryError(ctx, resolved.StorageType); boundaryErr != nil {
+			return nil, boundaryErr
+		}
+		items, resolvedPath, listErr := listS3RuntimeStorage(ctx, resolved, path, recursive, limit)
+		if listErr != nil {
+			return nil, listErr
+		}
+		return &RuntimeStorageListResult{Kind: string(kind), Path: resolvedPath, Items: items}, nil
+	}
+	if s.agentSender == nil || s.hostProvider == nil {
+		return nil, fmt.Errorf("agent sender or host provider is not configured")
 	}
 	node, hostInfo, err := s.pickSTXJavaProxyNode(ctx, clusterID)
 	if err != nil {

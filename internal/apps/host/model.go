@@ -158,6 +158,27 @@ type Host struct {
 	K8sKubeconfig string `json:"k8s_kubeconfig" gorm:"type:text"`
 	K8sToken      string `json:"k8s_token" gorm:"type:text"`
 	K8sVersion    string `json:"k8s_version" gorm:"size:20"`
+	// K8sAuthMode 认证模式：kubeconfig / token。
+	// K8sAuthMode is the auth mode: kubeconfig / token.
+	K8sAuthMode string `json:"k8s_auth_mode" gorm:"size:20;default:kubeconfig"`
+	// K8sAccessMode 连接方式：in_cluster / external（主机级默认连接路径）。
+	// K8sAccessMode selects the default Kubernetes access channel for this host: in_cluster / external.
+	K8sAccessMode string `json:"k8s_access_mode" gorm:"size:32;default:in_cluster"`
+	// K8sCACert 是 token 模式下可选的 CA 证书（PEM 原文，非密级信息）。
+	// K8sCACert is the optional CA certificate for token mode (PEM, not secret-grade).
+	K8sCACert string `json:"k8s_ca_cert" gorm:"type:text"`
+	// K8sInsecureSkipTLS 跳过 TLS 校验（仅测试环境）。
+	// K8sInsecureSkipTLS skips TLS verification (test environments only).
+	K8sInsecureSkipTLS bool `json:"k8s_insecure_skip_tls" gorm:"default:false"`
+	// K8sDefaultServiceAccount 最小权限模式下引擎 Pod 默认使用的预建 ServiceAccount（可选）。
+	// K8sDefaultServiceAccount is the optional pre-created ServiceAccount for engine pods in minimal RBAC mode.
+	K8sDefaultServiceAccount string `json:"k8s_default_service_account" gorm:"size:128"`
+	// K8sPermissionMode 最近一次连通体检识别出的授权模式（full / minimal / insufficient）。
+	// K8sPermissionMode records the latest probed RBAC tier (full / minimal / insufficient).
+	K8sPermissionMode string `json:"k8s_permission_mode" gorm:"size:20"`
+	// K8sCredentialExpiresAt 控制面凭据（JWT 或客户端证书）解析出的到期时间（可选）。
+	// K8sCredentialExpiresAt records the parsed expiration timestamp of the stored Kubernetes credential (optional).
+	K8sCredentialExpiresAt *time.Time `json:"k8s_credential_expires_at"`
 
 	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt time.Time `json:"updated_at" gorm:"autoUpdateTime"`
@@ -247,9 +268,19 @@ type HostInfo struct {
 	DockerVersion    string `json:"docker_version,omitempty"`
 
 	// kubernetes fields / Kubernetes 字段
-	K8sAPIURL    string `json:"k8s_api_url,omitempty"`
-	K8sNamespace string `json:"k8s_namespace,omitempty"`
-	K8sVersion   string `json:"k8s_version,omitempty"`
+	K8sAPIURL                string     `json:"k8s_api_url,omitempty"`
+	K8sNamespace             string     `json:"k8s_namespace,omitempty"`
+	K8sVersion               string     `json:"k8s_version,omitempty"`
+	K8sAuthMode              string     `json:"k8s_auth_mode,omitempty"`
+	K8sAccessMode            string     `json:"k8s_access_mode,omitempty"`
+	K8sInsecureSkipTLS       bool       `json:"k8s_insecure_skip_tls,omitempty"`
+	K8sDefaultServiceAccount string     `json:"k8s_default_service_account,omitempty"`
+	K8sPermissionMode        string     `json:"k8s_permission_mode,omitempty"`
+	K8sCredentialExpiresAt   *time.Time `json:"k8s_credential_expires_at,omitempty"`
+	// HasK8sKubeconfig / HasK8sToken 仅表达「已配置凭据」，明文永不出库。
+	// HasK8sKubeconfig / HasK8sToken only indicate credentials exist; plaintext never leaves the server.
+	HasK8sKubeconfig bool `json:"has_k8s_kubeconfig,omitempty"`
+	HasK8sToken      bool `json:"has_k8s_token,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -306,6 +337,18 @@ func (h *Host) ToHostInfo(heartbeatTimeout time.Duration, since time.Time) *Host
 		info.K8sAPIURL = h.K8sAPIURL
 		info.K8sNamespace = h.K8sNamespace
 		info.K8sVersion = h.K8sVersion
+		info.K8sAuthMode = h.K8sAuthMode
+		if strings.TrimSpace(h.K8sAccessMode) == "external" {
+			info.K8sAccessMode = "external"
+		} else {
+			info.K8sAccessMode = "in_cluster"
+		}
+		info.K8sInsecureSkipTLS = h.K8sInsecureSkipTLS
+		info.K8sDefaultServiceAccount = h.K8sDefaultServiceAccount
+		info.K8sPermissionMode = h.K8sPermissionMode
+		info.K8sCredentialExpiresAt = h.K8sCredentialExpiresAt
+		info.HasK8sKubeconfig = strings.TrimSpace(h.K8sKubeconfig) != ""
+		info.HasK8sToken = strings.TrimSpace(h.K8sToken) != ""
 	default:
 		info.IsOnline = h.IsOnlineWithSince(heartbeatTimeout, since)
 		info.IPAddress = h.IPAddress
@@ -355,10 +398,16 @@ type CreateHostRequest struct {
 	DockerCertPath   string `json:"docker_cert_path"`
 
 	// kubernetes fields / Kubernetes 字段
-	K8sAPIURL     string `json:"k8s_api_url"`
-	K8sNamespace  string `json:"k8s_namespace"`
-	K8sKubeconfig string `json:"k8s_kubeconfig"`
-	K8sToken      string `json:"k8s_token"`
+	K8sAPIURL                string `json:"k8s_api_url"`
+	K8sNamespace             string `json:"k8s_namespace"`
+	K8sKubeconfig            string `json:"k8s_kubeconfig"`
+	K8sContext               string `json:"k8s_context"`
+	K8sToken                 string `json:"k8s_token"`
+	K8sAuthMode              string `json:"k8s_auth_mode"`
+	K8sAccessMode            string `json:"k8s_access_mode"`
+	K8sCACert                string `json:"k8s_ca_cert"`
+	K8sInsecureSkipTLS       bool   `json:"k8s_insecure_skip_tls"`
+	K8sDefaultServiceAccount string `json:"k8s_default_service_account"`
 }
 
 // UpdateHostRequest represents a request to update an existing host.
@@ -377,10 +426,27 @@ type UpdateHostRequest struct {
 	DockerCertPath   *string `json:"docker_cert_path"`
 
 	// kubernetes fields / Kubernetes 字段
-	K8sAPIURL     *string `json:"k8s_api_url"`
-	K8sNamespace  *string `json:"k8s_namespace"`
-	K8sKubeconfig *string `json:"k8s_kubeconfig"`
-	K8sToken      *string `json:"k8s_token"`
+	K8sAPIURL                *string `json:"k8s_api_url"`
+	K8sNamespace             *string `json:"k8s_namespace"`
+	K8sKubeconfig            *string `json:"k8s_kubeconfig"`
+	K8sContext               *string `json:"k8s_context"`
+	K8sToken                 *string `json:"k8s_token"`
+	K8sAuthMode              *string `json:"k8s_auth_mode"`
+	K8sAccessMode            *string `json:"k8s_access_mode"`
+	K8sCACert                *string `json:"k8s_ca_cert"`
+	K8sInsecureSkipTLS       *bool   `json:"k8s_insecure_skip_tls"`
+	K8sDefaultServiceAccount *string `json:"k8s_default_service_account"`
+}
+
+// ValidateK8sAccessMode 校验 K8s 主机连接方式枚举（空值允许并由服务端默认回落为 in_cluster）。
+// ValidateK8sAccessMode validates the Kubernetes host access channel enum.
+func ValidateK8sAccessMode(mode string) bool {
+	switch strings.TrimSpace(mode) {
+	case "", "in_cluster", "external":
+		return true
+	default:
+		return false
+	}
 }
 
 // ValidateDockerAPIURL validates the Docker API URL format.

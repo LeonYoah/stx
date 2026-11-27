@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"io"
 	"net"
 	"net/http"
@@ -56,6 +57,11 @@ type EngineEndpoint struct {
 	ContextPath string
 	LegacyURL   string
 	APIMode     string
+	// Transport 可选的按端点定制 RoundTripper（K8s apiserver_proxy 需要注入 API Server
+	// 的 TLS 与认证）；为空走共享默认 Transport。
+	// Transport optionally customizes the RoundTripper per endpoint (K8s apiserver_proxy
+	// requires the API server's TLS and auth material); empty means the shared default transport.
+	Transport http.RoundTripper
 }
 
 // EngineSubmitRequest describes one submit request.
@@ -219,6 +225,18 @@ func engineRequestTimeout() time.Duration {
 	return time.Duration(config.Config.Sync.EngineRequestTimeoutSeconds) * time.Second
 }
 
+// clientForEndpoint 选择请求客户端：端点带定制 Transport 时包装同超时独立 client，
+// 否则走共享 client（裸金属路径零变化）。
+// clientForEndpoint picks the request client: endpoints with a custom Transport get a
+// standalone client with the same timeout, otherwise the shared client is used
+// (bare-metal paths unchanged).
+func (c *SeaTunnelEngineClient) clientForEndpoint(endpoint *EngineEndpoint) *http.Client {
+	if endpoint == nil || endpoint.Transport == nil {
+		return c.httpClient
+	}
+	return &http.Client{Transport: endpoint.Transport, Timeout: c.httpClient.Timeout}
+}
+
 // Submit submits one SeaTunnel job.
 func (c *SeaTunnelEngineClient) Submit(ctx context.Context, req *EngineSubmitRequest) (*EngineSubmitResponse, error) {
 	if req == nil || req.Endpoint == nil {
@@ -246,7 +264,7 @@ func (c *SeaTunnelEngineClient) Submit(ctx context.Context, req *EngineSubmitReq
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "text/plain; charset=utf-8")
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForEndpoint(req.Endpoint).Do(httpReq)
 	if err != nil {
 		// 请求可能已送达（超时、连接中断）时不能再走 v1 重提，否则同一 jobId 会被提交两次。
 		// When the request may have arrived (timeout, dropped connection), never resubmit through v1.
@@ -378,7 +396,7 @@ func (c *SeaTunnelEngineClient) getEngineJobListOnce(ctx context.Context, endpoi
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForEndpoint(endpoint).Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +428,7 @@ func (c *SeaTunnelEngineClient) GetJobInfo(ctx context.Context, endpoint *Engine
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForEndpoint(endpoint).Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +462,7 @@ func (c *SeaTunnelEngineClient) GetJobCheckpointOverview(ctx context.Context, en
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForEndpoint(endpoint).Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
@@ -486,7 +504,7 @@ func (c *SeaTunnelEngineClient) GetJobCheckpointHistory(ctx context.Context, end
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForEndpoint(endpoint).Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
@@ -526,7 +544,7 @@ func (c *SeaTunnelEngineClient) StopJob(ctx context.Context, endpoint *EngineEnd
 		return err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForEndpoint(endpoint).Do(httpReq)
 	if err != nil {
 		if engineTransportErrorIsAmbiguous(err) {
 			return newEngineCallUnknownError(err, "v2", endpointBaseURL(endpoint), targetURL)
@@ -565,7 +583,7 @@ func (c *SeaTunnelEngineClient) GetJobLogs(ctx context.Context, endpoint *Engine
 	if err != nil {
 		return "", err
 	}
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForEndpoint(endpoint).Do(httpReq)
 	if err != nil {
 		return "", err
 	}
@@ -584,11 +602,47 @@ func (c *SeaTunnelEngineClient) GetJobLogs(ctx context.Context, endpoint *Engine
 type DefaultClusterRuntimeResolver struct {
 	clusterRepo *clusterapp.Repository
 	hostRepo    *hostapp.Repository
+	k8sManager  *k8s.ClientManager
 }
 
 // NewDefaultClusterRuntimeResolver creates a runtime resolver.
 func NewDefaultClusterRuntimeResolver(clusterRepo *clusterapp.Repository, hostRepo *hostapp.Repository) *DefaultClusterRuntimeResolver {
 	return &DefaultClusterRuntimeResolver{clusterRepo: clusterRepo, hostRepo: hostRepo}
+}
+
+// SetK8sClientManager 注入 K8sClientManager；K8s 集群的引擎端点经 K8sTransport 解析。
+// SetK8sClientManager injects the K8sClientManager; K8s cluster engine endpoints resolve
+// through K8sTransport.
+func (r *DefaultClusterRuntimeResolver) SetK8sClientManager(mgr *k8s.ClientManager) {
+	r.k8sManager = mgr
+}
+
+// resolveK8sEndpoints 为 K8s 集群构造端点：BaseURL 按连接方式指向集群内 Service 或外部入口，
+// URL 拼接逻辑与裸金属完全一致。
+// resolveK8sEndpoints builds endpoints for K8s clusters using in-cluster Service DNS or
+// external base URL; URL joining logic stays identical to bare metal.
+func (r *DefaultClusterRuntimeResolver) resolveK8sEndpoints(ctx context.Context, clusterObj *clusterapp.Cluster) ([]*EngineEndpoint, error) {
+	if r.k8sManager == nil {
+		return nil, fmt.Errorf("sync: k8s client manager not configured")
+	}
+	cfg := clusterObj.K8sSessionConfig()
+	if cfg == nil {
+		return nil, fmt.Errorf("sync: cluster %d has invalid kubernetes session config", clusterObj.ID)
+	}
+	transport := k8s.NewTransport(r.k8sManager, cfg.HostID, cfg.Namespace, cfg.AccessMode, cfg.ExternalBaseURL)
+	serviceName := cfg.MasterServiceName
+	if serviceName == "" {
+		serviceName = cfg.ClusterServiceName
+	}
+	baseURL, err := transport.ServiceBaseURL(ctx, serviceName, cfg.MasterHTTPPort)
+	if err != nil {
+		return nil, err
+	}
+	rt, err := transport.RoundTripper(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return []*EngineEndpoint{{BaseURL: baseURL, Transport: rt}}, nil
 }
 
 // ClusterEngineEndpointLister 是可选能力：列出集群全部在线节点的引擎地址，供只能访问 active master 的接口（/metrics/realtime）逐个探测。
@@ -620,6 +674,9 @@ func (r *DefaultClusterRuntimeResolver) ListEngineEndpoints(ctx context.Context,
 	clusterObj, err := r.clusterRepo.GetByID(ctx, clusterID, true)
 	if err != nil {
 		return nil, err
+	}
+	if clusterObj.IsKubernetes() {
+		return r.resolveK8sEndpoints(ctx, clusterObj)
 	}
 	endpoints := make([]*EngineEndpoint, 0, len(clusterObj.Nodes))
 	for _, node := range clusterObj.Nodes {
@@ -704,7 +761,7 @@ func (c *SeaTunnelEngineClient) submitV1(ctx context.Context, req *EngineSubmitR
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForEndpoint(req.Endpoint).Do(httpReq)
 	if err != nil {
 		if engineTransportErrorIsAmbiguous(err) {
 			return nil, newEngineCallUnknownError(err, "v1", req.Endpoint.LegacyURL, targetURL)
@@ -746,7 +803,7 @@ func (c *SeaTunnelEngineClient) getJobInfoV1(ctx context.Context, endpoint *Engi
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForEndpoint(endpoint).Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
@@ -778,7 +835,7 @@ func (c *SeaTunnelEngineClient) stopJobV1(ctx context.Context, endpoint *EngineE
 	if err != nil {
 		return err
 	}
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForEndpoint(endpoint).Do(httpReq)
 	if err != nil {
 		if engineTransportErrorIsAmbiguous(err) {
 			return newEngineCallUnknownError(err, "v1", endpointLegacyURL(endpoint), targetURL)
@@ -806,7 +863,7 @@ func (c *SeaTunnelEngineClient) getJobLogsV1(ctx context.Context, endpoint *Engi
 	if err != nil {
 		return "", err
 	}
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForEndpoint(endpoint).Do(httpReq)
 	if err != nil {
 		return "", err
 	}
@@ -835,7 +892,7 @@ func (c *SeaTunnelEngineClient) resolveJobLogPayload(ctx context.Context, endpoi
 	if !ok {
 		return formatLogPayload(body), nil
 	}
-	content, err := c.fetchPlainLog(ctx, logURL)
+	content, err := c.fetchPlainLog(ctx, endpoint, logURL)
 	if err != nil {
 		return "", err
 	}
@@ -845,12 +902,12 @@ func (c *SeaTunnelEngineClient) resolveJobLogPayload(ctx context.Context, endpoi
 	return content, nil
 }
 
-func (c *SeaTunnelEngineClient) fetchPlainLog(ctx context.Context, targetURL string) (string, error) {
+func (c *SeaTunnelEngineClient) fetchPlainLog(ctx context.Context, endpoint *EngineEndpoint, targetURL string) (string, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return "", err
 	}
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.clientForEndpoint(endpoint).Do(httpReq)
 	if err != nil {
 		return "", err
 	}

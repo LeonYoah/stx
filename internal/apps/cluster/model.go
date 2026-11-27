@@ -22,6 +22,8 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/infra"
+	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"strings"
 	"time"
 
@@ -191,11 +193,23 @@ type Cluster struct {
 	Config         ClusterConfig  `json:"config" gorm:"type:json"`
 	// ConfigScanError 仅内存字段：列表软加载 config 失败时保留原因，不落库。
 	// ConfigScanError is in-memory only: set when list soft-load of config fails; not persisted.
-	ConfigScanError string        `json:"-" gorm:"-"`
-	CreatedAt       time.Time     `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt       time.Time     `json:"updated_at" gorm:"autoUpdateTime"`
-	CreatedBy       uint          `json:"created_by"`
-	Nodes           []ClusterNode `json:"nodes" gorm:"foreignKey:ClusterID"`
+	ConfigScanError string `json:"-" gorm:"-"`
+	// P2 兼容底座：infra_type 区分基础设施形态，K8s 集群通过 K8sHostID 关联宿主机；
+	// auto_registered/parent_cluster_id/source_job_instance_id 为 P2 App 提交器预留，
+	// P1 仅落库不消费，scope 查询用 auto_registered 过滤派生实例。
+	// P2 compatibility foundation: infra_type distinguishes infrastructure shape, K8s clusters
+	// link to their host via K8sHostID; auto_registered/parent_cluster_id/source_job_instance_id
+	// are reserved for the P2 App submitter — P1 only persists them, while scope queries use
+	// auto_registered to filter derived instances.
+	InfraType           string        `json:"infra_type" gorm:"size:64;default:bare_metal;index"`
+	K8sHostID           *uint         `json:"k8s_host_id" gorm:"index"`
+	AutoRegistered      bool          `json:"auto_registered" gorm:"default:false;index"`
+	ParentClusterID     *uint         `json:"parent_cluster_id" gorm:"index"`
+	SourceJobInstanceID *uint         `json:"source_job_instance_id"`
+	CreatedAt           time.Time     `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt           time.Time     `json:"updated_at" gorm:"autoUpdateTime"`
+	CreatedBy           uint          `json:"created_by"`
+	Nodes               []ClusterNode `json:"nodes" gorm:"foreignKey:ClusterID"`
 }
 
 // EffectiveClusterCode 返回当前集群的有效底层标识；若为空则返回兜底默认值 "seatunnel"。
@@ -245,8 +259,13 @@ type ClusterFilter struct {
 	Name           string         `json:"name"`
 	Status         ClusterStatus  `json:"status"`
 	DeploymentMode DeploymentMode `json:"deployment_mode"`
-	Page           int            `json:"page"`
-	PageSize       int            `json:"page_size"`
+	// Scope managed(默认)/app_instances/all：P2 App 实例自动注册集群默认隐藏，
+	// 避免派生行淹没用户真正管理的集群。
+	// Scope managed(default)/app_instances/all: auto-registered P2 App instances are hidden
+	// by default so derived rows don't bury user-managed clusters.
+	Scope    string `json:"scope"`
+	Page     int    `json:"page"`
+	PageSize int    `json:"page_size"`
 }
 
 // ClusterInfo represents cluster information for API responses.
@@ -262,31 +281,68 @@ type ClusterInfo struct {
 	Config         ClusterConfig  `json:"config"`
 	// ConfigError 非空表示该行 config 列读取/解析失败，集群其余字段仍可用。
 	// ConfigError is set when the config column failed to load/parse; other fields remain usable.
-	ConfigError  string    `json:"config_error,omitempty"`
-	NodeCount    int       `json:"node_count"`
-	OnlineNodes  int       `json:"online_nodes"`  // number of nodes whose host is online / 主机在线的节点数
-	HealthStatus string    `json:"health_status"` // healthy, unhealthy, unknown / 健康状态
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ConfigError     string    `json:"config_error,omitempty"`
+	InfraType       string    `json:"infra_type"`
+	K8sHostID       *uint     `json:"k8s_host_id,omitempty"`
+	AutoRegistered  bool      `json:"auto_registered,omitempty"`
+	ParentClusterID *uint     `json:"parent_cluster_id,omitempty"`
+	NodeCount       int       `json:"node_count"`
+	OnlineNodes     int       `json:"online_nodes"`  // number of nodes whose host is online / 主机在线的节点数
+	HealthStatus    string    `json:"health_status"` // healthy, unhealthy, unknown / 健康状态
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // ToClusterInfo converts a Cluster to ClusterInfo (OnlineNodes and HealthStatus are set by caller).
 func (c *Cluster) ToClusterInfo() *ClusterInfo {
 	return &ClusterInfo{
-		ID:             c.ID,
-		Name:           c.Name,
-		ClusterCode:    c.EffectiveClusterCode(),
-		Description:    c.Description,
-		DeploymentMode: c.DeploymentMode,
-		Version:        c.Version,
-		Status:         c.Status,
-		InstallDir:     c.InstallDir,
-		Config:         c.Config,
-		ConfigError:    c.ConfigScanError,
-		NodeCount:      len(c.Nodes),
-		CreatedAt:      c.CreatedAt,
-		UpdatedAt:      c.UpdatedAt,
+		ID:              c.ID,
+		Name:            c.Name,
+		ClusterCode:     c.EffectiveClusterCode(),
+		Description:     c.Description,
+		DeploymentMode:  c.DeploymentMode,
+		Version:         c.Version,
+		Status:          c.Status,
+		InstallDir:      c.InstallDir,
+		Config:          c.Config,
+		ConfigError:     c.ConfigScanError,
+		InfraType:       effectiveInfraType(c.InfraType),
+		K8sHostID:       c.K8sHostID,
+		AutoRegistered:  c.AutoRegistered,
+		ParentClusterID: c.ParentClusterID,
+		NodeCount:       len(c.Nodes),
+		CreatedAt:       c.CreatedAt,
+		UpdatedAt:       c.UpdatedAt,
 	}
+}
+
+// effectiveInfraType 兼容旧行：空值按 bare_metal 处理，避免前端分支判断空串。
+// effectiveInfraType treats empty legacy rows as bare_metal so frontends never branch on empty strings.
+func effectiveInfraType(v string) string {
+	return infra.Effective(v)
+}
+
+// IsKubernetes 判断集群是否为 K8s 基础设施。
+// IsKubernetes reports whether the cluster runs on Kubernetes infrastructure.
+func (c *Cluster) IsKubernetes() bool {
+	return infra.IsK8s(c.InfraType)
+}
+
+// K8sSessionConfig 解析 Config["kubernetes"] 为 SessionConfig；非 K8s 集群或解析失败返回 nil。
+// K8sSessionConfig parses Config["kubernetes"] into a SessionConfig; nil for non-K8s clusters or parse failures.
+func (c *Cluster) K8sSessionConfig() *k8s.SessionConfig {
+	if !c.IsKubernetes() {
+		return nil
+	}
+	raw, ok := c.Config["kubernetes"]
+	if !ok {
+		return nil
+	}
+	cfg, err := k8s.ParseSessionConfig(raw)
+	if err != nil {
+		return nil
+	}
+	return cfg
 }
 
 // CreateClusterRequest represents a request to create a new cluster.

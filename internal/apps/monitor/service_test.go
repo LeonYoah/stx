@@ -116,3 +116,32 @@ func TestUpdateConfig_keepsAutoMonitorEnabled(t *testing.T) {
 func boolPtr(value bool) *bool {
 	return &value
 }
+
+// TestUpdateConfig_rejectsKubernetesCluster 验证 K8s 集群的 Agent 自愈配置被明确拒绝：
+// 进程自愈由 kubelet 原生托管，保存只能空转误导。
+// TestUpdateConfig_rejectsKubernetesCluster verifies agent self-healing config is rejected
+// for Kubernetes clusters because self-healing is natively managed by the kubelet.
+func TestUpdateConfig_rejectsKubernetesCluster(t *testing.T) {
+	database, cleanup := setupMonitorServiceTestDB(t)
+	t.Cleanup(cleanup)
+
+	ctx := context.Background()
+	repo := NewRepository(database)
+	service := NewService(repo)
+	service.SetKubernetesChecker(func(_ context.Context, clusterID uint) bool {
+		return clusterID == 42
+	})
+
+	if _, err := service.UpdateConfig(ctx, 42, &UpdateMonitorConfigRequest{
+		AutoRestart: boolPtr(true),
+	}); err != ErrKubernetesMonitorConfigUnsupported {
+		t.Fatalf("expected ErrKubernetesMonitorConfigUnsupported, got %v", err)
+	}
+
+	// 非 K8s 集群不受影响 / bare-metal clusters are unaffected
+	if _, err := service.UpdateConfig(ctx, 8, &UpdateMonitorConfigRequest{
+		AutoRestart: boolPtr(true),
+	}); err != nil {
+		t.Fatalf("bare-metal update must not be rejected: %v", err)
+	}
+}

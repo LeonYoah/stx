@@ -2235,22 +2235,6 @@ export function PluginMain() {
         </Card>
       )}
 
-      {shouldShowSeedCatalogNotice(catalogSource) &&
-        activeTab === 'available' &&
-        !error && (
-        <Card className='border-amber-500/40 bg-amber-500/5'>
-          <CardContent className='flex gap-2.5 p-3 text-sm text-amber-900 dark:text-amber-200'>
-            <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0' />
-            <div className='space-y-0.5'>
-              <div className='font-medium'>{t('plugin.catalogFromSeedTitle')}</div>
-              <p className='text-xs leading-relaxed text-amber-800/90 dark:text-amber-200/80'>
-                {t('plugin.catalogFromSeedDesc')}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* 一体化紧凑卡片容器 / Unified Compact Table & Grid Container */}
       <Card className='overflow-hidden rounded-xl border-border/60 shadow-xs'>
         {/* 工具栏第一行：胶囊导航与快捷操作 / Toolbar Row 1: Stat pills bar & Quick actions */}

@@ -84,9 +84,7 @@ func shouldTryNextMirror(err error) bool {
 	}
 	var hs httpStatusError
 	if errors.As(err, &hs) {
-		// 限流与服务端错误属临时性，换源可能成功；其余 4xx 视为永久错误。
-		// Rate limiting and server errors are transient; other 4xx are permanent.
-		return hs.code == http.StatusTooManyRequests || hs.code >= http.StatusInternalServerError
+		return hs.code == http.StatusForbidden || hs.code == http.StatusTooManyRequests || hs.code >= http.StatusInternalServerError
 	}
 	return errors.Is(err, errTransportFailed)
 }

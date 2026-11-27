@@ -55,8 +55,8 @@ func TestBuildArtifactURLs_allMirrorsFallback(t *testing.T) {
 	}
 }
 
-// 429/5xx/404/传输失败换下一个镜像重试，全部可重试错误耗尽后才失败。
-// Retry the next mirror on 429/5xx/404/transport errors; fail only after retryable sources are exhausted.
+// 403/429/5xx/404/传输失败换下一个镜像重试，全部可重试错误耗尽后才失败。
+// Retry the next mirror on 403/429/5xx/404/transport errors; fail only after retryable sources are exhausted.
 func TestDownloadArtifactWithFallback_retriesNextMirrorOnRetryableError(t *testing.T) {
 	rateLimited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -85,9 +85,9 @@ func TestDownloadArtifactWithFallback_retriesNextMirrorOnRetryableError(t *testi
 	}
 }
 
-// 永久错误（如 403）不换源，直接失败。
-// Permanent errors (e.g. 403) must not trigger a mirror switch.
-func TestDownloadArtifactWithFallback_permanentErrorStops(t *testing.T) {
+// 镜像侧 403 也可能是限流或区域拦截，应继续尝试下一个镜像。
+// A mirror-side 403 can be rate limiting or regional blocking, so try the next mirror.
+func TestDownloadArtifactWithFallback_forbiddenFallsBack(t *testing.T) {
 	forbidden := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
@@ -103,12 +103,15 @@ func TestDownloadArtifactWithFallback_permanentErrorStops(t *testing.T) {
 	d := &Downloader{httpClient: http.DefaultClient}
 	target := filepath.Join(t.TempDir(), "x.jar")
 
-	_, _, err := d.downloadArtifactWithFallback(context.Background(), []string{forbidden.URL + "/a.jar", second.URL + "/b.jar"}, target, &DownloadProgress{}, nil)
-	if err == nil || !errors.Is(err, ErrDownloadFailed) {
-		t.Fatalf("expected download failure, got %v", err)
+	jarURL, _, err := d.downloadArtifactWithFallback(context.Background(), []string{forbidden.URL + "/a.jar", second.URL + "/b.jar"}, target, &DownloadProgress{}, nil)
+	if err != nil {
+		t.Fatalf("expected fallback to succeed, got %v", err)
 	}
-	if hits != 0 {
-		t.Fatalf("403 must not fall back to the next mirror, got %d hits", hits)
+	if jarURL != second.URL+"/b.jar" {
+		t.Fatalf("expected the fallback mirror URL, got %s", jarURL)
+	}
+	if hits != 1 {
+		t.Fatalf("403 should fall back to the next mirror exactly once, got %d hits", hits)
 	}
 }
 
@@ -120,7 +123,7 @@ func TestShouldTryNextMirror(t *testing.T) {
 		{ErrFileNotFound, true},
 		{httpStatusError{code: http.StatusTooManyRequests}, true},
 		{httpStatusError{code: http.StatusBadGateway}, true},
-		{httpStatusError{code: http.StatusForbidden}, false},
+		{httpStatusError{code: http.StatusForbidden}, true},
 		{transportError{err: errors.New("connection reset")}, true},
 		{ErrDownloadCancelled, false},
 		{fmt.Errorf("wrap: %w", httpStatusError{code: http.StatusServiceUnavailable}), true},

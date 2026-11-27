@@ -629,7 +629,7 @@ jobs:
 
       - name: Validate live engine metrics contract
         env:
-          STX_SEATUNNEL_METRICS_FIXTURE: scripts/e2e/seatunnel-metrics-real/out/job-info.json
+          STX_SEATUNNEL_METRICS_FIXTURE: ${{ github.workspace }}/scripts/e2e/seatunnel-metrics-real/out/job-info.json
         run: |
           cd frontend
           pnpm vitest run components/common/sync/job-detail/__tests__/dag-model.live.test.ts

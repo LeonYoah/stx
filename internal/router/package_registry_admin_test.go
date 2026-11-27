@@ -34,9 +34,9 @@ import (
 )
 
 // TestPackageRegistryWriteRoutesRequireAdmin 用内存 sqlite 与真实用户行验证管理员中间件：
-// 非管理员 403、管理员放行。仓库写接口的供应链闸门行为即此中间件。
+// 非管理员 403、管理员放行（覆盖 create 与 probe 防 SSRF）。
 // TestPackageRegistryWriteRoutesRequireAdmin verifies the admin middleware against in-memory
-// sqlite with real user rows: non-admin yields 403, admin passes.
+// sqlite with real user rows: non-admin yields 403, admin passes (create and probe SSRF guard).
 func TestPackageRegistryWriteRoutesRequireAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -50,21 +50,23 @@ func TestPackageRegistryWriteRoutesRequireAdmin(t *testing.T) {
 	db.SetGlobalDB(database)
 	defer db.SetGlobalDB(previous)
 
-	build := func(user *auth.User) *httptest.ResponseRecorder {
+	build := func(user *auth.User, path string) *httptest.ResponseRecorder {
 		r := gin.New()
 		r.Use(func(c *gin.Context) {
 			c.Set(auth.ContextKeyUser, user)
 			c.Request = c.Request.WithContext(context.Background())
 			c.Next()
 		})
-		r.POST("/api/v1/packages/registries", admin.LoginAdminRequired(), func(c *gin.Context) {
+		r.POST(path, admin.LoginAdminRequired(), func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"ok": true})
 		})
 		recorder := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/packages/registries", nil)
+		req, _ := http.NewRequest(http.MethodPost, path, nil)
 		r.ServeHTTP(recorder, req)
 		return recorder
 	}
-	assert.Equal(t, http.StatusForbidden, build(normalUser).Code, "non-admin must be 403")
-	assert.Equal(t, http.StatusOK, build(adminUser).Code, "admin must pass")
+	for _, path := range []string{"/api/v1/packages/registries", "/api/v1/packages/registries/probe"} {
+		assert.Equal(t, http.StatusForbidden, build(normalUser, path).Code, "non-admin must be 403 on %s", path)
+		assert.Equal(t, http.StatusOK, build(adminUser, path).Code, "admin must pass on %s", path)
+	}
 }

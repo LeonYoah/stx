@@ -20,16 +20,16 @@ package infra
 import "testing"
 
 func TestIsK8s(t *testing.T) {
-	if IsK8s(string(TypeBareMetal)) {
-		t.Fatal("bare_metal must not be k8s")
+	if IsK8s(string(TypeBareMetal)) || IsK8s("") {
+		t.Fatal("bare_metal and empty must not be k8s")
 	}
 	for _, v := range []string{string(TypeK8sSession), string(TypeK8sAppTemplate), string(TypeK8sAppInstance), "kubernetes"} {
 		if !IsK8s(v) {
 			t.Fatalf("%s must be k8s", v)
 		}
 	}
-	if IsK8s("yarn_session") {
-		t.Fatal("yarn_session must not be k8s")
+	if IsK8s(string(TypeYarnSession)) || IsK8s(string(TypeYarnAppInstance)) {
+		t.Fatal("yarn shapes must not be k8s")
 	}
 }
 
@@ -37,8 +37,38 @@ func TestIsK8sSession(t *testing.T) {
 	if !IsK8sSession(string(TypeK8sSession)) || !IsK8sSession("kubernetes") {
 		t.Fatal("session and legacy literal must match")
 	}
-	if IsK8sSession(string(TypeK8sAppInstance)) {
-		t.Fatal("app instance is not a session cluster")
+	if IsK8sSession(string(TypeK8sAppInstance)) || IsK8sSession(string(TypeYarnSession)) {
+		t.Fatal("app instance and yarn session must not match k8s session")
+	}
+}
+
+func TestPlatformExecutionAndDeployMode(t *testing.T) {
+	cases := []struct {
+		raw      string
+		platform RuntimePlatform
+		execMode ExecutionMode
+		deploy   DeployMode
+	}{
+		{"", PlatformStandalone, ExecutionModeSession, DeployModeStandalone},
+		{string(TypeBareMetal), PlatformStandalone, ExecutionModeSession, DeployModeStandalone},
+		{"kubernetes", PlatformKubernetes, ExecutionModeSession, DeployModeK8sSession},
+		{string(TypeK8sSession), PlatformKubernetes, ExecutionModeSession, DeployModeK8sSession},
+		{string(TypeK8sAppTemplate), PlatformKubernetes, ExecutionModeApplication, DeployModeK8sApplication},
+		{string(TypeK8sAppInstance), PlatformKubernetes, ExecutionModeApplication, DeployModeK8sApplication},
+		{string(TypeYarnSession), PlatformYarn, ExecutionModeSession, DeployModeYarnSession},
+		{string(TypeYarnAppTemplate), PlatformYarn, ExecutionModeApplication, DeployModeYarnApplication},
+		{string(TypeYarnAppInstance), PlatformYarn, ExecutionModeApplication, DeployModeYarnApplication},
+	}
+	for _, tc := range cases {
+		if got := PlatformOf(tc.raw); got != tc.platform {
+			t.Fatalf("PlatformOf(%q)=%q want %q", tc.raw, got, tc.platform)
+		}
+		if got := ExecutionModeOf(tc.raw); got != tc.execMode {
+			t.Fatalf("ExecutionModeOf(%q)=%q want %q", tc.raw, got, tc.execMode)
+		}
+		if got := DeployModeOf(tc.raw); got != tc.deploy {
+			t.Fatalf("DeployModeOf(%q)=%q want %q", tc.raw, got, tc.deploy)
+		}
 	}
 }
 

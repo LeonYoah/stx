@@ -370,7 +370,7 @@ export function PackageMain() {
       },
       {
         key: 'images',
-        label: t('k8s.images.tabLabel'),
+        label: t('packages.registry.title'),
         icon: <Package className='h-3.5 w-3.5' />,
       },
     ],

@@ -17,10 +17,12 @@
 
 'use client';
 
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Input} from '@/components/arc/input/input';
 import {Select} from '@/components/arc/select/select';
+import {Combobox} from '@/components/arc/combobox/combobox';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Skeleton} from '@/components/arc/skeleton/skeleton';
 import {Button} from '@/components/arc/button/button';
 import {
@@ -28,56 +30,156 @@ import {
   extractVersionFromTag,
   listContainerRegistries,
   listRegistryTags,
+  parseImageRef,
   type ContainerRegistry,
 } from '@/lib/services/installer/registry.service';
 
 export interface K8sImagePickerValue {
   image: string;
   seatunnelVersion: string;
-  pullPolicy: string;
-  pullSecrets: string;
 }
 
 interface K8sImagePickerProps {
   value: string;
+  version?: string;
+  initialImage?: string;
   onChange: (value: K8sImagePickerValue) => void;
   id?: string;
+  versionTestId?: string;
 }
+
+type PickerMode = 'registry' | 'custom';
 
 const DOCKER_HUB_HOST = 'docker.io';
 const DOCKER_HUB_DEFAULT_REPO = 'apache/seatunnel';
+const TAG_DEBOUNCE_MS = 350;
 
-// K8sImagePicker 三层镜像选择器：仓库 → 镜像名（catalog 探测 + 输入过滤）→ tag，
-// 版本为显式字段（从 tag 预填可编辑，提取失败黄字告警），派生镜像地址只读展示。
-// K8sImagePicker is the three-tier image picker: registry → repo (catalog probe
-// with input filtering) → tag, an explicit version field (prefilled from the tag,
-// editable, yellow warning when extraction fails) and a read-only derived reference.
-export function K8sImagePicker({value, onChange, id}: K8sImagePickerProps) {
+// 解析仓库的默认镜像路径：优先使用仓库登记的 default_repo，docker.io 缺省回落 apache/seatunnel。
+// Resolve a registry's default repository path: prefer configured default_repo, falling back to apache/seatunnel for docker.io.
+function defaultRepoForRegistry(reg: ContainerRegistry | null | undefined): string {
+  if (!reg) {
+    return '';
+  }
+  const configured = reg.default_repo?.trim();
+  if (configured) {
+    return configured;
+  }
+  return reg.host === DOCKER_HUB_HOST ? DOCKER_HUB_DEFAULT_REPO : '';
+}
+
+// K8sImagePicker 统一镜像选择器：支持快速粘贴自动吸附、已登记仓库三层选择
+// （仓库 → 自动预填默认镜像名 / 手填 → 350ms 防抖实时 tag 探测）与未登记自定义镜像（Route A），
+// 并唯一托管引擎版本字段，不再覆写上层 pullPolicy/pullSecrets。
+// K8sImagePicker unifies registry-guided selection (registry -> prefilled default_repo ->
+// 350ms debounced live tag probing), quick-paste auto-snapping, custom unregistered image
+// input (Route A), and the single engine-version field without overwriting pullPolicy or pullSecrets.
+export function K8sImagePicker({
+  value,
+  version: versionProp,
+  initialImage,
+  onChange,
+  id,
+  versionTestId = 'k8s-version-input',
+}: K8sImagePickerProps) {
   const t = useTranslations('k8s.imagePicker');
   const [registries, setRegistries] = useState<ContainerRegistry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [mode, setMode] = useState<PickerMode>('registry');
+  const [pasteInput, setPasteInput] = useState('');
+  const [pasteNotice, setPasteNotice] = useState<string | null>(null);
+
   const [registryId, setRegistryId] = useState('');
   const [repo, setRepo] = useState('');
-  const [repoFilter, setRepoFilter] = useState('');
   const [tag, setTag] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
-  const [tagsVerified, setTagsVerified] = useState(true);
-  const [version, setVersion] = useState('');
+  const [manualTag, setManualTag] = useState(false);
+  const [customImage, setCustomImage] = useState('');
 
-  // 镜像清单加载失败必须显式可重试，禁止静默吞错留下永久空清单。
-  // Registry list load failures surface a retry action; never swallow errors silently.
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [tagsVerified, setTagsVerified] = useState(true);
+
+  const [localVersion, setLocalVersion] = useState(versionProp ?? '');
+  const versionTouchedRef = useRef(false);
+  const hydratedRef = useRef(false);
+  const skipNextDefaultResetRef = useRef(false);
+
+  const currentVersion = versionProp !== undefined ? versionProp : localVersion;
+
+  const updateVersionState = useCallback(
+    (nextVersion: string) => {
+      if (versionProp === undefined) {
+        setLocalVersion(nextVersion);
+      }
+      return nextVersion;
+    },
+    [versionProp],
+  );
+
+  // 加载仓库清单；完成后按 value -> initialImage -> 默认 docker.io 顺序回填一次。
+  // Load registry list; on completion hydrate once from value, initialImage, or docker.io.
   const load = useCallback(() => {
     setLoading(true);
     setLoadError(null);
     listContainerRegistries()
       .then((items) => {
         setRegistries(items);
-        // 默认选中 docker.io 系统行，用户开箱即可用。
-        // Preselect the docker.io system row so the picker works out of the box.
+        if (hydratedRef.current) {
+          return;
+        }
+        hydratedRef.current = true;
+
+        const trimmedValue = (value || '').trim();
+        const trimmedInitial = (initialImage || '').trim();
+        const findByHost = (host: string) =>
+          items.find((item) => item.host.toLowerCase() === host.toLowerCase());
+
+        if (trimmedValue) {
+          const parsed = parseImageRef(trimmedValue);
+          const matched = parsed ? findByHost(parsed.host) : undefined;
+          if (parsed && matched) {
+            skipNextDefaultResetRef.current = true;
+            setMode('registry');
+            setRegistryId(String(matched.id));
+            setRepo(parsed.repo);
+            setTag(parsed.tag);
+            if (!versionTouchedRef.current && !versionProp) {
+              updateVersionState(extractVersionFromTag(parsed.tag));
+            }
+          } else {
+            setMode('custom');
+            setCustomImage(trimmedValue);
+            if (!versionTouchedRef.current && !versionProp && parsed) {
+              updateVersionState(extractVersionFromTag(parsed.tag));
+            }
+          }
+          return;
+        }
+
+        if (trimmedInitial) {
+          const parsed = parseImageRef(trimmedInitial);
+          const matched = parsed ? findByHost(parsed.host) : undefined;
+          if (parsed && matched) {
+            skipNextDefaultResetRef.current = true;
+            setMode('registry');
+            setRegistryId(String(matched.id));
+            setRepo(parsed.repo);
+            // 升级场景沿用原仓库与镜像名，清空 tag 让用户选择目标版本。
+            // Upgrade mode keeps registry + repo and clears tag so user picks target version.
+            setTag('');
+          } else {
+            setMode('custom');
+            setCustomImage(trimmedInitial);
+          }
+          return;
+        }
+
         if (items.length > 0) {
           const sys = items.find((item) => item.is_system) || items[0];
+          setMode('registry');
           setRegistryId(String(sys.id));
+          setRepo(defaultRepoForRegistry(sys));
         }
       })
       .catch((err) => {
@@ -86,7 +188,7 @@ export function K8sImagePicker({value, onChange, id}: K8sImagePickerProps) {
       .finally(() => {
         setLoading(false);
       });
-  }, []);
+  }, [initialImage, updateVersionState, value, versionProp]);
 
   useEffect(() => {
     load();
@@ -97,79 +199,188 @@ export function K8sImagePicker({value, onChange, id}: K8sImagePickerProps) {
     [registries, registryId],
   );
 
-  // docker.io 预填 apache/seatunnel 但保留可编辑口子；私仓从 catalog 探测缓存过滤。
-  // docker.io prefills apache/seatunnel yet stays editable; private registries
-  // filter the probed catalog cache.
-  useEffect(() => {
-    if (!registry) {return;}
-    setRepo(registry.host === DOCKER_HUB_HOST ? DOCKER_HUB_DEFAULT_REPO : '');
-    setRepoFilter('');
+  // 切换仓库时按该仓库配置的默认镜像名预填（若无则置空），并清空 tag 重新探测。
+  // Switching registry prefills its configured default_repo (or empties it) and resets tags for probing.
+  const handleSelectRegistry = (nextId: string) => {
+    const nextReg = registries.find((item) => String(item.id) === nextId) || null;
+    const nextRepo = defaultRepoForRegistry(nextReg);
+    setRegistryId(nextId);
+    setRepo(nextRepo);
     setTag('');
+    setManualTag(false);
     setTags([]);
     setTagsVerified(true);
-  }, [registry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    setPasteNotice(null);
+    if (!versionTouchedRef.current) {
+      updateVersionState('');
+    }
+    onChange({
+      image: '',
+      seatunnelVersion: versionTouchedRef.current ? currentVersion : '',
+    });
+  };
 
+  // 防抖探测 tag（350ms），避免输入镜像名时每敲一字请求一次远端仓库。
+  // Debounce tag probing (350ms) so typing a repo name does not spam upstream registries.
   useEffect(() => {
-    if (!registry || !repo.trim()) {
+    if (skipNextDefaultResetRef.current) {
+      skipNextDefaultResetRef.current = false;
+    }
+    if (mode !== 'registry' || !registry || !repo.trim()) {
       setTags([]);
+      setTagsLoading(false);
       return;
     }
     let cancelled = false;
-    listRegistryTags(registry.id, repo.trim())
-      .then((items) => {
-        if (!cancelled) {
-          setTags(items);
-          setTagsVerified(true);
-        }
-      })
-      .catch(() => {
-        // 探测失败退化为手动输入并标「未验证」，不死锁用户。
-        // Probe failure degrades to manual input flagged unverified; never deadlocks.
-        if (!cancelled) {
-          setTags([]);
-          setTagsVerified(false);
-        }
-      });
+    setTagsLoading(true);
+    const timer = setTimeout(() => {
+      listRegistryTags(registry.id, repo.trim())
+        .then((items) => {
+          if (!cancelled) {
+            setTags(items);
+            setTagsVerified(true);
+          }
+        })
+        .catch(() => {
+          // 探测失败退化为手动输入并标「未验证」，不死锁用户。
+          // Probe failure degrades to manual input flagged unverified; never deadlocks.
+          if (!cancelled) {
+            setTags([]);
+            setTagsVerified(false);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setTagsLoading(false);
+          }
+        });
+    }, TAG_DEBOUNCE_MS);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [registry, repo]);
+  }, [mode, registry, repo]);
 
-  const emit = useCallback(
-    (nextRepo: string, nextTag: string, nextVersion: string) => {
-      if (!registry) {return;}
+  const emitRegistry = useCallback(
+    (nextHost: string, nextRepo: string, nextTag: string, nextVersion: string) => {
       onChange({
-        image: composeImageRef(registry.host, nextRepo, nextTag),
+        image: composeImageRef(nextHost, nextRepo, nextTag),
         seatunnelVersion: nextVersion,
-        pullPolicy: 'IfNotPresent',
-        pullSecrets: '',
       });
     },
-    [registry, onChange],
+    [onChange],
   );
 
   const pickTag = (nextTag: string) => {
     setTag(nextTag);
+    setPasteNotice(null);
     const extracted = extractVersionFromTag(nextTag);
-    const nextVersion = extracted || version;
-    setVersion(nextVersion);
-    emit(repo, nextTag, nextVersion);
+    const nextVersion = versionTouchedRef.current ? currentVersion : (extracted || '');
+    if (!versionTouchedRef.current) {
+      updateVersionState(nextVersion);
+    }
+    if (registry) {
+      emitRegistry(registry.host, repo, nextTag, nextVersion);
+    }
   };
 
-  const catalogOptions = useMemo(() => {
-    const repos = registry?.catalog_repos || [];
-    const needle = repoFilter.trim().toLowerCase();
-    const filtered = needle ? repos.filter((item) => item.toLowerCase().includes(needle)) : repos;
-    return filtered.slice(0, 100);
-  }, [registry, repoFilter]);
+  // 智能粘贴识别：命中已登记仓库自动切回三层模式并填值；未命中自动切到自定义模式（Route A）。
+  // Smart paste snapping: matches a registered host into registry mode, or snaps to custom mode (Route A).
+  const handleQuickPaste = (raw: string) => {
+    setPasteInput(raw);
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      setPasteNotice(null);
+      return;
+    }
+    const parsed = parseImageRef(trimmed);
+    if (!parsed) {
+      setPasteNotice(null);
+      return;
+    }
+    const matched = registries.find((item) => item.host.toLowerCase() === parsed.host.toLowerCase());
+    const extracted = extractVersionFromTag(parsed.tag);
+    const nextVersion = versionTouchedRef.current ? currentVersion : (extracted || '');
+    if (!versionTouchedRef.current) {
+      updateVersionState(nextVersion);
+    }
 
-  const tagOptions = useMemo(() => tags.slice(0, 200), [tags]);
-  const extracted = extractVersionFromTag(tag);
-  const versionWarning = tag.trim() !== '' && extracted === '';
+    if (matched) {
+      setMode('registry');
+      setRegistryId(String(matched.id));
+      setRepo(parsed.repo);
+      setTag(parsed.tag);
+      setManualTag(false);
+      setPasteNotice(t('pasteSnappedRegistry', {host: matched.host}));
+      onChange({
+        image: composeImageRef(matched.host, parsed.repo, parsed.tag),
+        seatunnelVersion: nextVersion,
+      });
+    } else {
+      setMode('custom');
+      setCustomImage(trimmed);
+      setPasteNotice(t('pasteSnappedCustom', {host: parsed.host}));
+      onChange({
+        image: trimmed,
+        seatunnelVersion: nextVersion,
+      });
+    }
+  };
 
-  // 已有镜像地址回填：仅在反向可解析时展示，避免双数据源冲突。
-  // Existing references surface read-only; the tiers remain the source of truth.
-  void value;
+  const handleModeChange = (nextModeValue: string) => {
+    const nextMode = nextModeValue as PickerMode;
+    if (nextMode === mode) {
+      return;
+    }
+    setPasteNotice(null);
+    if (nextMode === 'custom') {
+      const derived = registry ? composeImageRef(registry.host, repo, tag) : '';
+      const nextCustom = customImage || derived;
+      setCustomImage(nextCustom);
+      setMode('custom');
+      onChange({
+        image: nextCustom.trim(),
+        seatunnelVersion: currentVersion,
+      });
+      return;
+    }
+
+    // 切回仓库模式时尝试从 customImage 吸附匹配到的已登记仓库。
+    // Switching back to registry mode attempts to snap customImage onto a registered host.
+    const parsed = parseImageRef(customImage);
+    const matched = parsed
+      ? registries.find((item) => item.host.toLowerCase() === parsed.host.toLowerCase())
+      : undefined;
+    if (parsed && matched) {
+      setRegistryId(String(matched.id));
+      setRepo(parsed.repo);
+      setTag(parsed.tag);
+      setMode('registry');
+      emitRegistry(matched.host, parsed.repo, parsed.tag, currentVersion);
+      return;
+    }
+
+    setMode('registry');
+    emitRegistry(registry?.host || '', repo, tag, currentVersion);
+  };
+
+  const tagOptions = useMemo(
+    () => tags.slice(0, 200).map((item) => ({value: item, label: item})),
+    [tags],
+  );
+  const useTagCombobox = tagOptions.length > 0 && !manualTag;
+
+  const derived =
+    mode === 'custom'
+      ? customImage.trim()
+      : registry
+        ? composeImageRef(registry.host, repo, tag)
+        : '';
+
+  const activeParsed = mode === 'custom' ? parseImageRef(customImage) : null;
+  const activeTag = mode === 'custom' ? (activeParsed?.tag ?? '') : tag.trim();
+  const extractedVersion = extractVersionFromTag(activeTag);
+  const versionWarning = Boolean(activeTag) && extractedVersion === '' && currentVersion.trim() === '';
 
   if (loading) {
     return <Skeleton lines={3} className='h-9' label={t('registryLabel')} />;
@@ -185,98 +396,158 @@ export function K8sImagePicker({value, onChange, id}: K8sImagePickerProps) {
     );
   }
 
-  const derived = registry ? composeImageRef(registry.host, repo, tag) : '';
-
   return (
-    <div className='space-y-2' data-testid='k8s-image-picker'>
-      <Select
-        aria-label={t('registryLabel')}
-        value={registryId}
-        placeholder={t('registryPlaceholder')}
-        options={registries.map((item) => ({
-          value: String(item.id),
-          label: item.is_system ? `${item.host} · ${t('officialBadge')}` : item.host,
-        }))}
-        onValueChange={(next) => {
-          setRegistryId(next);
-          setVersion('');
-        }}
-        data-testid='k8s-image-picker-registry'
-      />
-      {registry && registry.host !== DOCKER_HUB_HOST && catalogOptions.length > 0 ? (
-        <div className='space-y-1'>
-          <Input
-            id={id ? `${id}-filter` : undefined}
-            label={t('repoFilterLabel')}
-            value={repoFilter}
-            placeholder={t('repoFilterPlaceholder')}
-            onChange={(event) => setRepoFilter(event.target.value)}
-          />
-          <Select
-            aria-label={t('repoLabel')}
-            value={repo}
-            placeholder={t('repoPlaceholder')}
-            options={catalogOptions.map((item) => ({value: item, label: item}))}
-            onValueChange={(next) => {
-              setRepo(next);
-              setTag('');
-              emit(next, '', version);
-            }}
-            data-testid='k8s-image-picker-repo'
-          />
-        </div>
-      ) : (
+    <div className='space-y-3' data-testid='k8s-image-picker'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
+        <SegmentedControl
+          value={mode}
+          onValueChange={handleModeChange}
+          label={t('registryLabel')}
+          options={[
+            {value: 'registry', label: t('modeRegistry'), testId: 'k8s-image-picker-mode-registry'},
+            {value: 'custom', label: t('modeCustom'), testId: 'k8s-image-picker-mode-custom'},
+          ]}
+        />
+      </div>
+
+      <div className='space-y-1'>
         <Input
-          id={id}
-          label={t('repoLabel')}
-          value={repo}
-          placeholder={registry?.host === DOCKER_HUB_HOST ? DOCKER_HUB_DEFAULT_REPO : 'seatunnel'}
-          onChange={(event) => {
-            setRepo(event.target.value);
-            setTag('');
-            emit(event.target.value, '', version);
-          }}
-          data-testid='k8s-image-picker-repo-input'
+          label={t('pasteLabel')}
+          value={pasteInput}
+          placeholder={t('pastePlaceholder')}
+          onChange={(event) => handleQuickPaste(event.target.value)}
+          data-testid='k8s-image-picker-paste'
         />
-      )}
-      {tagOptions.length > 0 ? (
-        <Select
-          aria-label={t('tagLabel')}
-          value={tag}
-          placeholder={t('tagPlaceholder')}
-          options={tagOptions.map((item) => ({value: item, label: item}))}
-          onValueChange={pickTag}
-          data-testid='k8s-image-picker-tag'
-        />
-      ) : (
-        <div className='space-y-1'>
-          <Input
-            label={t('tagLabel')}
-            value={tag}
-            placeholder='3.1.1'
-            onChange={(event) => pickTag(event.target.value)}
-            data-testid='k8s-image-picker-tag-input'
+        {pasteNotice ? (
+          <p className='text-xs text-muted-foreground' data-testid='k8s-image-picker-paste-notice'>
+            {pasteNotice}
+          </p>
+        ) : null}
+      </div>
+
+      {mode === 'registry' ? (
+        <div className='space-y-2.5'>
+          <Select
+            aria-label={t('registryLabel')}
+            value={registryId}
+            placeholder={t('registryPlaceholder')}
+            options={registries.map((item) => ({
+              value: String(item.id),
+              label: item.is_system ? `${item.host} · ${t('officialBadge')}` : item.host,
+            }))}
+            onValueChange={handleSelectRegistry}
+            data-testid='k8s-image-picker-registry'
           />
-          {repo.trim() && !tagsVerified ? (
-            <p className='text-xs text-amber-600 dark:text-amber-400'>{t('tagUnverified')}</p>
-          ) : null}
+
+          <div className='space-y-1'>
+            <Input
+              id={id}
+              label={t('repoLabel')}
+              value={repo}
+              placeholder={defaultRepoForRegistry(registry) || DOCKER_HUB_DEFAULT_REPO}
+              onChange={(event) => {
+                const nextRepo = event.target.value;
+                setRepo(nextRepo);
+                setTag('');
+                setPasteNotice(null);
+                if (registry) {
+                  emitRegistry(registry.host, nextRepo, '', currentVersion);
+                }
+              }}
+              data-testid='k8s-image-picker-repo-input'
+            />
+          </div>
+
+          <div className='space-y-1'>
+            {useTagCombobox ? (
+              <Combobox
+                label={t('tagLabel')}
+                value={tag}
+                placeholder={t('tagPlaceholder')}
+                emptyMessage={t('tagEmpty')}
+                options={tagOptions}
+                onValueChange={pickTag}
+                data-testid='k8s-image-picker-tag'
+              />
+            ) : (
+              <Input
+                label={t('tagLabel')}
+                value={tag}
+                placeholder='3.1.1'
+                onChange={(event) => pickTag(event.target.value)}
+                data-testid='k8s-image-picker-tag-input'
+              />
+            )}
+            {tagsLoading ? (
+              <p className='text-xs text-muted-foreground' data-testid='k8s-image-picker-tags-loading'>
+                {t('tagsLoading')}
+              </p>
+            ) : null}
+            {!tagsLoading && tagOptions.length > 0 ? (
+              <button
+                type='button'
+                className='text-xs text-primary underline-offset-2 hover:underline'
+                onClick={() => setManualTag((prev) => !prev)}
+                data-testid='k8s-image-picker-tag-toggle'
+              >
+                {manualTag ? t('tagUseList') : t('tagManualFallback')}
+              </button>
+            ) : null}
+            {!tagsLoading && repo.trim() && !tagsVerified ? (
+              <p className='text-xs text-amber-600 dark:text-amber-400'>{t('tagUnverified')}</p>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <div className='space-y-1.5'>
+          <Input
+            id={id}
+            label={t('customImageLabel')}
+            value={customImage}
+            placeholder={t('customImagePlaceholder')}
+            onChange={(event) => {
+              const nextRaw = event.target.value;
+              setCustomImage(nextRaw);
+              setPasteNotice(null);
+              const parsed = parseImageRef(nextRaw);
+              const extracted = parsed ? extractVersionFromTag(parsed.tag) : '';
+              const nextVersion = versionTouchedRef.current ? currentVersion : (extracted || '');
+              if (!versionTouchedRef.current) {
+                updateVersionState(nextVersion);
+              }
+              onChange({
+                image: nextRaw.trim(),
+                seatunnelVersion: nextVersion,
+              });
+            }}
+            data-testid='k8s-image-picker-custom-input'
+          />
+          <p className='text-xs text-muted-foreground'>{t('customImageHint')}</p>
         </div>
       )}
-      <Input
-        label={t('versionLabel')}
-        value={version}
-        placeholder='3.1.1'
-        onChange={(event) => {
-          setVersion(event.target.value);
-          emit(repo, tag, event.target.value);
-        }}
-        data-testid='k8s-image-picker-version-input'
-      />
-      {versionWarning ? (
-        <p className='text-xs text-amber-600 dark:text-amber-400' data-testid='k8s-image-picker-version-warning'>
-          {t('versionUndetermined')}
-        </p>
-      ) : null}
+
+      <div className='space-y-1'>
+        <Input
+          label={t('versionLabel')}
+          value={currentVersion}
+          placeholder='3.1.1'
+          onChange={(event) => {
+            versionTouchedRef.current = true;
+            const nextVersion = updateVersionState(event.target.value);
+            onChange({
+              image: derived,
+              seatunnelVersion: nextVersion,
+            });
+          }}
+          data-testid={versionTestId}
+        />
+        {versionWarning ? (
+          <p className='text-xs text-amber-600 dark:text-amber-400' data-testid='k8s-image-picker-version-warning'>
+            {t('versionUndetermined')}
+          </p>
+        ) : null}
+      </div>
+
       {derived ? (
         <p className='font-mono text-xs text-muted-foreground' data-testid='k8s-image-picker-derived'>
           {derived}

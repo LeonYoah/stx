@@ -19,6 +19,7 @@
 
 import {useState, useEffect, useCallback, useMemo, useRef} from 'react';
 import {useTranslations} from 'next-intl';
+import {isBareMetalInfra} from '@/lib/infra';
 import {
   Dialog,
   DialogContent,
@@ -388,7 +389,7 @@ export function InstallPluginDialog({
         (c: ClusterInfo) =>
           (c.status === ClusterStatus.RUNNING ||
           c.status === ClusterStatus.STOPPED) &&
-          !(c.infra_type && c.infra_type !== 'bare_metal'),
+          isBareMetalInfra(c.infra_type),
       );
 
       const statuses: ClusterPluginStatus[] = availableClusters.map(

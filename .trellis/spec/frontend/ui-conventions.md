@@ -77,7 +77,7 @@
 - **列表 + 常驻详情分栏（`DetailHost` + #178 克制联动）**：
   - 统一复用 `components/common/layout/DetailHost` + `common/layout/list-detail.module.css`（`.page` / `.pageViewport` / `.split` / `.listCol[data-mcols]` / `.row`）。
   - **联动外观（克制版）**：≥1080px 下 `.split` 存在 `> .rail[data-state='open']` 且本页有 `.rowActive` 时，列表自动退为底层色面板（卡片无框、行线消失、间距收 0）、选中行浮起并与详情栏 10px 凹圆角相接、其余行按距离逐级变淡（不模糊）、工具栏降透明；关闭时播完退出动画再卸载（600ms 兜底）。翻页后本页无选中行时不进入联动。
-  - **接入约束**：行必须是 `.tableScroll` 的**直接子元素**，选中行挂 `.rowActive`；`rowHead`、`[data-slot='table-card-footer']` 与 `.tableScroll` 须同卡片。
+  - **接入约束**：行必须是 `.tableScroll` 的**直接子元素**，选中行挂 `.rowActive`；`rowHead`、`[data-slot='table-card-footer']` 与 `.tableScroll` 须同卡片。**禁止**在使用 `DetailHost` 的页面中混用 Arc `SortableDataTable`（独立 `<table>` 无法匹配 `.tableScroll > .rowActive` 联动规则，已由 `frontend/eslint.config.mjs` 的 `no-restricted-syntax` 硬门禁拦截）。
   - **名称飞入**：行内名称节点挂 `data-detail-name`，仅在**行点击 / 行内 Enter 打开或切换**时写入 `flyOriginRef`（J/K、头部 `↑↓`、深链恢复不写）；`DetailHost` 配 `nameSlot='title' | 'meta'`；窄屏、`prefers-reduced-motion`、来源与落点文字不一致时自动降级不飞。
 
 ---

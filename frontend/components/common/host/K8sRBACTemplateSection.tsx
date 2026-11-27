@@ -17,103 +17,166 @@
 
 'use client';
 
-import {useState} from 'react';
+/**
+ * STX 控制面单命名空间 RBAC 授权模板生成区（v2 结构化版）：
+ * 以 3 格结构化规格条替代三段说明文字，仅生成单命名空间控制面 Role + RoleBinding（不含 ClusterRole 与引擎运行账号），
+ * 支持按需勾选删除/Secret 扩展权限并随认证方式与命名空间实时联动更新 YAML 与签发命令。
+ * STX control-plane single-namespace RBAC template section (v2 structured layout):
+ * replaces multi-paragraph prose with a 3-cell spec strip and renders control-plane Role + RoleBinding only
+ * (no ClusterRole or engine runner SA), updating YAML and credential commands live with namespace & auth mode.
+ */
+
+import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Input} from '@/components/arc/input/input';
-import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import {type K8sAuthMode} from '@/lib/services/host/types';
 import {
   DEFAULT_STX_MANAGER_SA,
-  renderFullK8sRbacYaml,
-  renderK8sExportKubeconfigCommand,
+  renderControlPlaneK8sRbacYaml,
   renderK8sGenerateKubeconfigCommand,
   renderK8sTokenCommand,
-  renderMinimalK8sRbacYaml,
 } from '@/lib/k8s-rbac-templates';
-
-type TemplateTier = 'minimal' | 'full';
 
 interface K8sRBACTemplateSectionProps {
   namespace: string;
-  runnerServiceAccount?: string;
   authMode?: K8sAuthMode;
   defaultOpen?: boolean;
+  collapsible?: boolean;
 }
 
-// K8sRBACTemplateSection 渐进式披露 Kubernetes RBAC 授权模板（单命名空间最小权限 / 跨命名空间全面权限），
-// 支持自定义控制面 ServiceAccount 并按当前认证模式（Kubeconfig / Token）自适应展示凭据获取命令。
-// K8sRBACTemplateSection progressively discloses parameterized Kubernetes RBAC YAML templates
-// (minimal single-namespace vs. full multi-namespace) with editable control-plane SA name and
-// auth-mode-aware Kubeconfig/Token acquisition commands.
+const CONTEXT_CHECK_CMD = 'kubectl config current-context';
+
 export function K8sRBACTemplateSection({
   namespace,
-  runnerServiceAccount,
-  authMode = 'token',
+  authMode = 'kubeconfig',
   defaultOpen = false,
+  collapsible = true,
 }: K8sRBACTemplateSectionProps) {
   const t = useTranslations();
   const [open, setOpen] = useState(defaultOpen);
-  const [tier, setTier] = useState<TemplateTier>('minimal');
   const [managerSA, setManagerSA] = useState(DEFAULT_STX_MANAGER_SA);
+  const [includeDeleteRules, setIncludeDeleteRules] = useState(false);
+  const [includeSecretRules, setIncludeSecretRules] = useState(false);
 
+  useEffect(() => {
+    setOpen(defaultOpen);
+  }, [defaultOpen]);
+
+  const effectiveNs = namespace.trim() || 'seatunnel';
   const effectiveManagerSA = managerSA.trim() || DEFAULT_STX_MANAGER_SA;
-  const yaml =
-    tier === 'minimal'
-      ? renderMinimalK8sRbacYaml(namespace, runnerServiceAccount, effectiveManagerSA)
-      : renderFullK8sRbacYaml(namespace, effectiveManagerSA);
-  const tokenCommand = renderK8sTokenCommand(namespace, effectiveManagerSA);
+  const yaml = renderControlPlaneK8sRbacYaml(effectiveNs, effectiveManagerSA, {
+    includeDeleteRules,
+    includeSecretRules,
+  });
+  const tokenCommand = renderK8sTokenCommand(effectiveNs, effectiveManagerSA);
   const kubeconfigCommand = renderK8sGenerateKubeconfigCommand(
-    namespace,
+    effectiveNs,
     effectiveManagerSA,
   );
-  const exportKubeconfigCommand = renderK8sExportKubeconfigCommand();
+  const isExpanded = !collapsible || open;
 
   return (
-    <div className='border-t-[0.5px] border-border/80 pt-3'>
-      <button
-        type='button'
-        className='text-xs font-medium text-muted-foreground hover:text-foreground'
-        onClick={() => setOpen((prev) => !prev)}
-        aria-expanded={open}
-        data-testid='k8s-rbac-template-toggle'
-      >
-        {open ? '▾' : '▸'} {t('host.k8sRbacTemplateTitle')}
-      </button>
+    <div className={collapsible ? 'border-t-[0.5px] border-border/80 pt-3.5' : ''}>
+      {collapsible ? (
+        <button
+          type='button'
+          className='text-xs font-medium text-muted-foreground hover:text-foreground'
+          onClick={() => setOpen((prev) => !prev)}
+          aria-expanded={open}
+          data-testid='k8s-rbac-template-toggle'
+        >
+          {open ? '▾' : '▸'} {t('host.k8sRbacTemplateTitle')}
+        </button>
+      ) : null}
 
-      {open ? (
-        <div className='mt-3 space-y-3' data-testid='k8s-rbac-template-panel'>
-          <div className='flex flex-wrap items-end justify-between gap-3'>
-            <SegmentedControl
-              label={t('host.k8sRbacTemplateTitle')}
-              value={tier}
-              onValueChange={(value) => setTier(value as TemplateTier)}
-              options={[
-                {value: 'minimal', label: t('host.k8sRbacTemplateMinimal')},
-                {value: 'full', label: t('host.k8sRbacTemplateFull')},
-              ]}
+      {isExpanded ? (
+        <div
+          className={collapsible ? 'mt-3 space-y-3' : 'space-y-3'}
+          data-testid='k8s-rbac-template-panel'
+        >
+          {/* 3 项结构化规格条：去长段解释，一眼看清范围、身份边界与执行前提 / 3-cell structured spec strip */}
+          <div className='grid grid-cols-1 gap-2.5 rounded-[var(--radius-control)] bg-muted/40 px-3 py-2 text-xs sm:grid-cols-3 dark:bg-muted/25'>
+            <div className='min-w-0'>
+              <div className='text-[11px] text-muted-foreground'>
+                {t('host.k8sRbacSpecScope')}
+              </div>
+              <div className='truncate font-medium text-foreground'>
+                {t('host.k8sRbacSpecScopeValue')} (
+                <span className='font-mono'>{effectiveNs}</span>)
+              </div>
+            </div>
+            <div className='min-w-0'>
+              <div className='text-[11px] text-muted-foreground'>
+                {t('host.k8sRbacSpecIdentity')}
+              </div>
+              <div className='truncate font-medium text-foreground'>
+                {t('host.k8sRbacSpecIdentityValue')}
+              </div>
+            </div>
+            <div className='min-w-0'>
+              <div className='text-[11px] text-muted-foreground'>
+                {t('host.k8sRbacSpecPrereq')}
+              </div>
+              <div className='truncate font-medium text-foreground'>
+                {t('host.k8sRbacSpecPrereqValue')}
+              </div>
+            </div>
+          </div>
+
+          <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-end'>
+            <Input
+              label={t('host.k8sRbacTemplateManagerSa')}
+              value={managerSA}
+              onChange={(e) => setManagerSA(e.target.value)}
+              placeholder={DEFAULT_STX_MANAGER_SA}
+              className='font-mono text-xs'
+              data-testid='k8s-rbac-template-manager-sa'
             />
-            <div className='min-w-[180px] flex-1'>
-              <Input
-                label={t('host.k8sRbacTemplateManagerSa')}
-                value={managerSA}
-                onChange={(e) => setManagerSA(e.target.value)}
-                placeholder={DEFAULT_STX_MANAGER_SA}
-                className='font-mono text-xs'
-                data-testid='k8s-rbac-template-manager-sa'
+            <div className='flex items-center justify-between gap-2 rounded-[var(--radius-control)] bg-muted/40 px-3 py-1.5 text-[11px] dark:bg-muted/25'>
+              <div className='min-w-0'>
+                <div className='text-muted-foreground'>
+                  {t('host.k8sRbacContextConfirmLabel')}
+                </div>
+                <code className='block truncate font-mono text-foreground'>
+                  {CONTEXT_CHECK_CMD}
+                </code>
+              </div>
+              <CopyButton
+                value={CONTEXT_CHECK_CMD}
+                label={t('common.copy')}
+                variant='plain'
+                className='h-7 shrink-0 px-2 text-xs'
               />
             </div>
           </div>
 
-          <p className='text-xs text-muted-foreground'>
-            {tier === 'minimal'
-              ? t('host.k8sRbacTemplateMinimalDesc')
-              : t('host.k8sRbacTemplateFullDesc')}
-          </p>
+          <div className='grid grid-cols-1 gap-2.5 rounded-[var(--radius-control)] bg-muted/40 p-2.5 sm:grid-cols-2 dark:bg-muted/25'>
+            <Checkbox
+              checked={includeDeleteRules}
+              onCheckedChange={(checked) => setIncludeDeleteRules(checked === true)}
+              label={t('host.k8sRbacOptDelete')}
+              description={t('host.k8sRbacOptDeleteDesc')}
+              data-testid='k8s-rbac-opt-delete'
+            />
+            <Checkbox
+              checked={includeSecretRules}
+              onCheckedChange={(checked) => setIncludeSecretRules(checked === true)}
+              label={t('host.k8sRbacOptSecret')}
+              description={t('host.k8sRbacOptSecretDesc')}
+              data-testid='k8s-rbac-opt-secret'
+            />
+          </div>
 
           <div className='space-y-1.5'>
-            <div className='flex items-center justify-between text-xs text-muted-foreground'>
-              <span>{t('host.k8sRbacTemplateYamlLabel')}</span>
+            <div className='flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground'>
+              <span className='flex flex-wrap items-center gap-1.5'>
+                <span>{t('host.k8sRbacTemplateYamlLabel')}</span>
+                <code className='rounded bg-muted/70 px-1.5 py-0.5 font-mono text-[11px] text-foreground dark:bg-muted/40'>
+                  kubectl apply -f stx-rbac.yaml
+                </code>
+              </span>
               <CopyButton
                 value={yaml}
                 label={t('common.copy')}
@@ -123,63 +186,40 @@ export function K8sRBACTemplateSection({
             </div>
             <pre
               data-testid='k8s-rbac-template-yaml'
-              className='m-0 max-h-56 overflow-auto rounded-[var(--radius-control)] bg-muted/50 px-3 py-2.5 font-mono text-[11px] leading-relaxed text-foreground dark:bg-muted/30'
+              className='m-0 max-h-48 overflow-auto rounded-[var(--radius-control)] bg-muted/50 px-3 py-2.5 font-mono text-[11px] leading-relaxed text-foreground dark:bg-muted/30'
             >
               {yaml}
             </pre>
           </div>
 
           {authMode === 'kubeconfig' ? (
-            <div className='space-y-3'>
-              <div className='space-y-1.5'>
-                <div className='flex items-center justify-between text-xs text-muted-foreground'>
-                  <span>
-                    {t('host.k8sRbacTemplateKubeconfigLabel', {
-                      sa: effectiveManagerSA,
-                    })}
-                  </span>
-                  <CopyButton
-                    value={kubeconfigCommand}
-                    label={t('common.copy')}
-                    variant='plain'
-                    className='h-7 px-2 text-xs'
-                  />
-                </div>
-                <pre
-                  data-testid='k8s-rbac-template-kubeconfig-cmd'
-                  className='m-0 max-h-44 overflow-auto rounded-[var(--radius-control)] bg-muted/50 px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground dark:bg-muted/30'
-                >
-                  {kubeconfigCommand}
-                </pre>
-                <p className='text-[11px] text-muted-foreground'>
-                  {t('host.k8sRbacTemplateKubeconfigHint')}
-                </p>
+            <div className='space-y-1.5'>
+              <div className='flex items-center justify-between gap-2 text-xs text-muted-foreground'>
+                <span>
+                  {t('host.k8sRbacTemplateKubeconfigLabel', {
+                    sa: effectiveManagerSA,
+                  })}
+                </span>
+                <CopyButton
+                  value={kubeconfigCommand}
+                  label={t('common.copy')}
+                  variant='plain'
+                  className='h-7 px-2 text-xs'
+                />
               </div>
-
-              <div className='space-y-1.5 border-t-[0.5px] border-border/70 pt-2.5'>
-                <div className='flex items-center justify-between text-xs text-muted-foreground'>
-                  <span>{t('host.k8sRbacTemplateExportLabel')}</span>
-                  <CopyButton
-                    value={exportKubeconfigCommand}
-                    label={t('common.copy')}
-                    variant='plain'
-                    className='h-7 px-2 text-xs'
-                  />
-                </div>
-                <pre
-                  data-testid='k8s-rbac-template-export-cmd'
-                  className='m-0 overflow-x-auto rounded-[var(--radius-control)] bg-muted/50 px-3 py-2 font-mono text-[11px] text-foreground dark:bg-muted/30'
-                >
-                  {exportKubeconfigCommand}
-                </pre>
-                <p className='text-[11px] text-muted-foreground'>
-                  {t('host.k8sRbacTemplateExportHint')}
-                </p>
-              </div>
+              <pre
+                data-testid='k8s-rbac-template-kubeconfig-cmd'
+                className='m-0 max-h-40 overflow-auto rounded-[var(--radius-control)] bg-muted/50 px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground dark:bg-muted/30'
+              >
+                {kubeconfigCommand}
+              </pre>
+              <p className='text-[11px] text-muted-foreground'>
+                {t('host.k8sRbacTemplateKubeconfigHint')}
+              </p>
             </div>
           ) : (
             <div className='space-y-1.5'>
-              <div className='flex items-center justify-between text-xs text-muted-foreground'>
+              <div className='flex items-center justify-between gap-2 text-xs text-muted-foreground'>
                 <span>
                   {t('host.k8sRbacTemplateTokenLabel', {
                     sa: effectiveManagerSA,

@@ -58,6 +58,8 @@ import {
   DropdownMenu,
   type DropdownItem,
 } from '@/components/arc/dropdown-menu/dropdown-menu';
+import {DEFAULT_STX_MANAGER_SA, renderK8sCleanupCommand} from '@/lib/k8s-rbac-templates';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import {HostInfo, HostStatus, HostType} from '@/lib/services/host/types';
 import {formatDateTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
@@ -152,6 +154,16 @@ export function HostTable({
 }: HostTableProps) {
   const t = useTranslations();
   const [deleteTarget, setDeleteTarget] = useState<HostInfo | null>(null);
+  const [includeRunnerCleanup, setIncludeRunnerCleanup] = useState(false);
+
+  const k8sCleanupCmd =
+    deleteTarget?.host_type === HostType.KUBERNETES
+      ? renderK8sCleanupCommand(deleteTarget.k8s_namespace, DEFAULT_STX_MANAGER_SA, {
+          includeClusterRole: deleteTarget.k8s_permission_mode === 'full',
+          runnerServiceAccount: deleteTarget.k8s_default_service_account,
+          includeRunner: includeRunnerCleanup,
+        })
+      : '';
 
   const onRowKeyDown = (
     e: React.KeyboardEvent<HTMLElement>,
@@ -358,7 +370,10 @@ export function HostTable({
                     icon: <Trash2 className='size-4' aria-hidden />,
                     destructive: true,
                     separatorBefore: true,
-                    onSelect: () => setDeleteTarget(host),
+                    onSelect: () => {
+                      setIncludeRunnerCleanup(false);
+                      setDeleteTarget(host);
+                    },
                   },
                 );
                 return (
@@ -388,6 +403,7 @@ export function HostTable({
         onOpenChange={(open) => {
           if (!open) {
             setDeleteTarget(null);
+            setIncludeRunnerCleanup(false);
           }
         }}
       >
@@ -398,6 +414,38 @@ export function HostTable({
               {t('host.deleteConfirm', {name: deleteTarget?.name || ''})}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {deleteTarget?.host_type === HostType.KUBERNETES ? (
+            <div
+              className='space-y-2 rounded-[var(--radius-control)] border-[0.5px] border-border/80 bg-muted/20 p-3 text-xs'
+              data-testid='k8s-delete-cleanup-panel'
+            >
+              <div className='flex items-center justify-between gap-2'>
+                <span className='font-medium text-foreground'>
+                  {t('host.k8sDeleteCleanupTitle')}
+                </span>
+                <CopyButton
+                  value={k8sCleanupCmd}
+                  label={t('common.copy')}
+                  variant='plain'
+                  className='h-7 px-2 text-xs'
+                />
+              </div>
+              <p className='text-[11px] text-muted-foreground'>
+                {t('host.k8sDeleteCleanupHint')}
+              </p>
+              <pre className='m-0 max-h-36 overflow-auto rounded-md bg-muted/50 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-foreground dark:bg-muted/30'>
+                {k8sCleanupCmd}
+              </pre>
+              <Checkbox
+                checked={includeRunnerCleanup}
+                onCheckedChange={(checked) =>
+                  setIncludeRunnerCleanup(checked === true)
+                }
+                label={t('host.k8sDeleteIncludeRunner')}
+                data-testid='k8s-delete-include-runner'
+              />
+            </div>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction

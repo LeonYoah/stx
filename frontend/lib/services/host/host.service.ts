@@ -36,6 +36,8 @@ import {
   CreateHostResponse,
   GetHostResponse,
   UpdateHostResponse,
+  K8sDraftTestRequest,
+  K8sKubeconfigInspectResult,
   K8sTestConnectionResult,
   GetInstallCommandResponse,
   InstallCommandData,
@@ -386,6 +388,46 @@ export class HostService extends BaseService {
         signal: options?.signal,
         timeout: options?.timeoutMs ?? 20000,
       },
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data;
+  }
+
+  /**
+   * Probe draft/rotation K8s credentials without writing DB state / 预检未保存或轮换的 K8s 凭据（不写库）
+   */
+  static async testK8sDraftConnection(
+    payload: K8sDraftTestRequest,
+    options?: {signal?: AbortSignal; timeoutMs?: number},
+  ): Promise<K8sTestConnectionResult> {
+    const response = await apiClient.post<{error_msg: string; data: K8sTestConnectionResult}>(
+      `${this.basePath}/k8s/test-connection`,
+      payload,
+      {
+        signal: options?.signal,
+        timeout: options?.timeoutMs ?? 20000,
+      },
+    );
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data;
+  }
+
+  /**
+   * Parse kubeconfig contexts, endpoints, expirations, and warnings / 解析 kubeconfig 上下文与警告
+   */
+  static async inspectK8sKubeconfig(
+    kubeconfig: string,
+    context?: string,
+    signal?: AbortSignal,
+  ): Promise<K8sKubeconfigInspectResult> {
+    const response = await apiClient.post<{error_msg: string; data: K8sKubeconfigInspectResult}>(
+      `${this.basePath}/k8s/inspect-kubeconfig`,
+      {kubeconfig, context},
+      {signal},
     );
     if (response.data.error_msg) {
       throw new Error(response.data.error_msg);

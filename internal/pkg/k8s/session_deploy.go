@@ -20,6 +20,7 @@ package k8s
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -29,9 +30,21 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 )
+
+// ManualCleanupCommand 生成按 STX 归属标签精确清理单集群资源的 kubectl 命令（供零 delete 权限环境使用）。
+// ManualCleanupCommand builds the label-scoped kubectl cleanup command for zero-delete RBAC environments.
+func ManualCleanupCommand(namespace, clusterCode string) string {
+	ns := strings.TrimSpace(namespace)
+	if ns == "" {
+		ns = "default"
+	}
+	return fmt.Sprintf("kubectl delete statefulset,deployment,service,configmap -n %s -l %s=%s,%s=%s",
+		ns, LabelManagedByKey, LabelManagedByValue, LabelClusterCodeKey, strings.TrimSpace(clusterCode))
+}
 
 // 标签键统一管理：stx_deployed 创建的全部资源带统一标签，卸载按标签+名字精确删除，绝不误伤用户资源。
 // Label keys are centralized: every stx_deployed resource carries unified labels so teardown
@@ -681,10 +694,21 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 	ns := cfg.Namespace
 	names := ResourceNamesFor(clusterCode)
 	var errs []string
-	deleteOne := func(kind string, del func() error) {
-		if err := del(); err != nil && !apierrors.IsNotFound(err) {
-			errs = append(errs, fmt.Sprintf("%s: %v", kind, err))
+	var forbidden []string
+	scaleZeroPayload := []byte(`{"spec":{"replicas":0}}`)
+	deleteOne := func(kind string, del func() error, onForbidden func()) {
+		err := del()
+		if err == nil || apierrors.IsNotFound(err) {
+			return
 		}
+		if apierrors.IsForbidden(err) {
+			if onForbidden != nil {
+				onForbidden()
+			}
+			forbidden = append(forbidden, kind)
+			return
+		}
+		errs = append(errs, fmt.Sprintf("%s: %v", kind, err))
 	}
 	policy := metav1.DeletePropagationBackground
 	// 删除前一律先 Get 校验归属标签：同名但非本集群创建的用户资源绝不删除。
@@ -697,6 +721,12 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 			errs = append(errs, fmt.Sprintf("%s: %v", kind, err))
 		}
 	}
+	scaleSTSZero := func(name string) {
+		_, _ = clientset.AppsV1().StatefulSets(ns).Patch(ctx, name, types.MergePatchType, scaleZeroPayload, metav1.PatchOptions{})
+	}
+	scaleDeployZero := func(name string) {
+		_, _ = clientset.AppsV1().Deployments(ns).Patch(ctx, name, types.MergePatchType, scaleZeroPayload, metav1.PatchOptions{})
+	}
 	deleteOne("statefulset/"+names.MasterSTS, func() error {
 		obj, err := clientset.AppsV1().StatefulSets(ns).Get(ctx, names.MasterSTS, metav1.GetOptions{})
 		if err != nil {
@@ -706,7 +736,7 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 			return nil
 		}
 		return clientset.AppsV1().StatefulSets(ns).Delete(ctx, names.MasterSTS, metav1.DeleteOptions{PropagationPolicy: &policy})
-	})
+	}, func() { scaleSTSZero(names.MasterSTS) })
 	deleteOne("statefulset/"+names.WorkerSTS, func() error {
 		obj, err := clientset.AppsV1().StatefulSets(ns).Get(ctx, names.WorkerSTS, metav1.GetOptions{})
 		if err != nil {
@@ -716,7 +746,7 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 			return nil
 		}
 		return clientset.AppsV1().StatefulSets(ns).Delete(ctx, names.WorkerSTS, metav1.DeleteOptions{PropagationPolicy: &policy})
-	})
+	}, func() { scaleSTSZero(names.WorkerSTS) })
 	deleteOne("statefulset/"+names.MasterSTS+"-hybrid", func() error {
 		obj, err := clientset.AppsV1().StatefulSets(ns).Get(ctx, names.MasterSTS+"-hybrid", metav1.GetOptions{})
 		if err != nil {
@@ -726,7 +756,7 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 			return nil
 		}
 		return clientset.AppsV1().StatefulSets(ns).Delete(ctx, names.MasterSTS+"-hybrid", metav1.DeleteOptions{PropagationPolicy: &policy})
-	})
+	}, func() { scaleSTSZero(names.MasterSTS + "-hybrid") })
 	deleteOne("service/"+names.ClusterSvc, func() error {
 		obj, err := clientset.CoreV1().Services(ns).Get(ctx, names.ClusterSvc, metav1.GetOptions{})
 		if err != nil {
@@ -736,7 +766,7 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 			return nil
 		}
 		return clientset.CoreV1().Services(ns).Delete(ctx, names.ClusterSvc, metav1.DeleteOptions{})
-	})
+	}, nil)
 	deleteOne("service/"+names.MasterSvc, func() error {
 		obj, err := clientset.CoreV1().Services(ns).Get(ctx, names.MasterSvc, metav1.GetOptions{})
 		if err != nil {
@@ -746,7 +776,7 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 			return nil
 		}
 		return clientset.CoreV1().Services(ns).Delete(ctx, names.MasterSvc, metav1.DeleteOptions{})
-	})
+	}, nil)
 	deleteOne("configmap/"+names.ConfigMap, func() error {
 		obj, err := clientset.CoreV1().ConfigMaps(ns).Get(ctx, names.ConfigMap, metav1.GetOptions{})
 		if err != nil {
@@ -756,7 +786,7 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 			return nil
 		}
 		return clientset.CoreV1().ConfigMaps(ns).Delete(ctx, names.ConfigMap, metav1.DeleteOptions{})
-	})
+	}, nil)
 	deleteOneRBAC("serviceaccount/"+names.ServiceAccount, func() error {
 		obj, err := clientset.CoreV1().ServiceAccounts(ns).Get(ctx, names.ServiceAccount, metav1.GetOptions{})
 		if err != nil {
@@ -767,7 +797,7 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 		}
 		return clientset.CoreV1().ServiceAccounts(ns).Delete(ctx, names.ServiceAccount, metav1.DeleteOptions{})
 	})
-	deleteOne("secret/"+names.RegistryCredentialSecret, func() error {
+	deleteOneRBAC("secret/"+names.RegistryCredentialSecret, func() error {
 		obj, err := clientset.CoreV1().Secrets(ns).Get(ctx, names.RegistryCredentialSecret, metav1.GetOptions{})
 		if err != nil {
 			return err
@@ -809,7 +839,7 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 			return nil
 		}
 		return clientset.AppsV1().Deployments(ns).Delete(ctx, proxyDeployment, metav1.DeleteOptions{PropagationPolicy: &policy})
-	})
+	}, func() { scaleDeployZero(proxyDeployment) })
 	deleteOne("service/"+proxyService, func() error {
 		obj, err := clientset.CoreV1().Services(ns).Get(ctx, proxyService, metav1.GetOptions{})
 		if err != nil {
@@ -819,7 +849,7 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 			return nil
 		}
 		return clientset.CoreV1().Services(ns).Delete(ctx, proxyService, metav1.DeleteOptions{})
-	})
+	}, nil)
 	deleteOne("configmap/"+proxyJarCM, func() error {
 		obj, err := clientset.CoreV1().ConfigMaps(ns).Get(ctx, proxyJarCM, metav1.GetOptions{})
 		if err != nil {
@@ -829,7 +859,15 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 			return nil
 		}
 		return clientset.CoreV1().ConfigMaps(ns).Delete(ctx, proxyJarCM, metav1.DeleteOptions{})
-	})
+	}, nil)
+	if len(forbidden) > 0 {
+		msg := fmt.Sprintf("k8s: workload delete forbidden (%s); scaled workloads to 0 where permitted — run manually: %s",
+			strings.Join(forbidden, ", "), ManualCleanupCommand(ns, clusterCode))
+		if len(errs) > 0 {
+			return fmt.Errorf("%s; additional errors: %s", msg, strings.Join(errs, "; "))
+		}
+		return fmt.Errorf("%s", msg)
+	}
 	if len(errs) > 0 {
 		return fmt.Errorf("k8s: uninstall partially failed: %s", strings.Join(errs, "; "))
 	}
@@ -838,32 +876,52 @@ func (s *SessionManager) Uninstall(ctx context.Context, cfg *SessionConfig, clus
 
 func int32ptr(v int32) *int32 { return &v }
 
+type dockerConfigAuthEntry struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Auth     string `json:"auth"`
+}
+
+type dockerConfigPayload struct {
+	Auths map[string]dockerConfigAuthEntry `json:"auths"`
+}
+
 // EnsureRegistryCredentialSecret 为私有仓库镜像代建 dockerconfigjson 拉取凭据 Secret：
 // 命名按集群确定性生成并打归属标签，随 Uninstall 级联回收；已存在且归属本集群时
-// 原地更新凭据内容（镜像注册信息可能被重新编辑）。
+// 保留既有 auths 条目并合并更新当前仓库凭据，避免跨仓库滚动升级期间旧 Pod 失联。
 // EnsureRegistryCredentialSecret materializes a dockerconfigjson pull secret for private
 // registry images: the name is deterministic per cluster and carries ownership labels so
-// Uninstall cascades it; an existing cluster-owned secret is updated in place because the
-// registered credentials may have been edited.
+// Uninstall cascades it; an existing cluster-owned secret merges new host entries while
+// keeping existing ones so cross-registry rolling upgrades do not break old pods.
 func EnsureRegistryCredentialSecret(ctx context.Context, clientset kubernetes.Interface, namespace, clusterCode, host, username, password string) (string, error) {
 	names := ResourceNamesFor(clusterCode)
 	secretName := names.RegistryCredentialSecret
-	host = SanitizeRegistryHost(host)
-	if host == "" || username == "" || password == "" {
+	authKey := DockerConfigAuthKey(host)
+	if authKey == "" || username == "" || password == "" {
 		return "", fmt.Errorf("k8s: registry credential requires host/username/password")
 	}
 	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
-	dockerConfig := fmt.Sprintf(`{"auths":{%q:{"username":%q,"password":%q,"auth":%q}}}`, host, username, password, auth)
+	entry := dockerConfigAuthEntry{
+		Username: username,
+		Password: password,
+		Auth:     auth,
+	}
 	labels := map[string]string{
 		"app.kubernetes.io/managed-by": "stx",
 		LabelClusterCodeKey:            clusterCode,
 	}
 	existing, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
+		payload, marshalErr := json.Marshal(dockerConfigPayload{
+			Auths: map[string]dockerConfigAuthEntry{authKey: entry},
+		})
+		if marshalErr != nil {
+			return "", fmt.Errorf("k8s: marshal dockerconfigjson: %w", marshalErr)
+		}
 		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace, Labels: labels},
 			Type:       corev1.SecretTypeDockerConfigJson,
-			Data:       map[string][]byte{corev1.DockerConfigJsonKey: []byte(dockerConfig)},
+			Data:       map[string][]byte{corev1.DockerConfigJsonKey: payload},
 		}
 		if _, err := clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
 			return "", fmt.Errorf("k8s: create registry credential secret: %w", err)
@@ -876,15 +934,37 @@ func EnsureRegistryCredentialSecret(ctx context.Context, clientset kubernetes.In
 	if !isOwnedByCluster(existing.Labels, clusterCode) {
 		return "", errResourceConflict("secret", secretName)
 	}
+	merged := dockerConfigPayload{Auths: map[string]dockerConfigAuthEntry{}}
+	if raw := existing.Data[corev1.DockerConfigJsonKey]; len(raw) > 0 {
+		_ = json.Unmarshal(raw, &merged)
+		if merged.Auths == nil {
+			merged.Auths = map[string]dockerConfigAuthEntry{}
+		}
+	}
+	merged.Auths[authKey] = entry
+	payload, marshalErr := json.Marshal(merged)
+	if marshalErr != nil {
+		return "", fmt.Errorf("k8s: marshal merged dockerconfigjson: %w", marshalErr)
+	}
 	existing.Type = corev1.SecretTypeDockerConfigJson
 	if existing.Data == nil {
 		existing.Data = map[string][]byte{}
 	}
-	existing.Data[corev1.DockerConfigJsonKey] = []byte(dockerConfig)
+	existing.Data[corev1.DockerConfigJsonKey] = payload
 	if _, err := clientset.CoreV1().Secrets(namespace).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
 		return "", fmt.Errorf("k8s: update registry credential secret: %w", err)
 	}
 	return secretName, nil
+}
+
+// DockerConfigAuthKey 返回写入 .dockerconfigjson auths 的规范键名（docker.io 映射为官方 index 地址）。
+// DockerConfigAuthKey maps docker.io aliases to https://index.docker.io/v1/ and keeps private hosts bare.
+func DockerConfigAuthKey(host string) string {
+	trimmed := SanitizeRegistryHost(host)
+	if strings.EqualFold(trimmed, "docker.io") || strings.EqualFold(trimmed, "index.docker.io") || strings.EqualFold(trimmed, "registry-1.docker.io") {
+		return "https://index.docker.io/v1/"
+	}
+	return strings.ToLower(trimmed)
 }
 
 // SanitizeRegistryHost 清洗 registry host：剥离误带的 http://、https:// 与尾部斜杠，

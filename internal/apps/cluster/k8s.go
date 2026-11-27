@@ -36,6 +36,7 @@ import (
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
 	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/LeonYoah/stx/internal/seatunnel"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -268,9 +269,6 @@ func (s *Service) CreateKubernetes(ctx context.Context, req *K8sClusterCreateReq
 	// K8s resource creation, leaving neither half-baked rows nor orphans to clean.
 	cfg, err := sessionConfigFromRequest(req)
 	if err != nil {
-		return nil, err
-	}
-	if err := s.validateK8sImageRegistry(ctx, cfg.Image); err != nil {
 		return nil, err
 	}
 	if req.EnableEventChannel && strings.TrimSpace(req.STXCallbackURL) != "" {
@@ -1417,11 +1415,15 @@ func (s *Service) executeK8sLifecycleOperation(ctx context.Context, cluster *Clu
 	return nil, fmt.Errorf("cluster: unsupported operation %q for kubernetes cluster", operation)
 }
 
-// ensureK8sRegistryCredential 解析注册镜像的私有仓库凭据并代建拉取 Secret。
-// 镜像未注册或无凭据时静默跳过；已存在同名 Secret 且归属本集群时原地更新。
-// ensureK8sRegistryCredential resolves the registered image's private-registry
-// credentials and materializes the pull secret. Unregistered images or missing
-// credentials are a no-op; an existing cluster-owned secret is updated in place.
+// ensureK8sRegistryCredential 解析镜像所在仓库凭据并按优先级决定是否代建拉取 Secret：
+// 1) 用户已显式指定任意非 STX 代建的 Secret 时尊重用户配置，不代建、不覆盖；
+// 2) 未手动指定时，按镜像 host 精确匹配仓库（含配置了凭据的 docker.io），命中则代建；
+// 3) 遇 K8s secrets 403 权限不足时返回 ErrRegistrySecretForbidden 并给出二选一指引；
+// 4) 匿名或未登记仓库静默跳过（走路线 A 放行）。
+// ensureK8sRegistryCredential resolves registry credentials with clear precedence:
+// user-supplied imagePullSecrets take precedence (no auto-creation); otherwise matching
+// credentialed registries (including authenticated docker.io) materialize a secret, and
+// 403 Forbidden errors map to ErrRegistrySecretForbidden with actionable guidance.
 func (s *Service) ensureK8sRegistryCredential(ctx context.Context, cfg *k8s.SessionConfig, cluster *Cluster) error {
 	if s.k8sManager == nil {
 		return nil
@@ -1430,19 +1432,20 @@ func (s *Service) ensureK8sRegistryCredential(ctx context.Context, cfg *k8s.Sess
 	if imageRef == "" {
 		return nil
 	}
+	names := k8s.ResourceNamesFor(cluster.EffectiveClusterCode())
+	for _, secretName := range cfg.ImagePullSecrets {
+		trimmed := strings.TrimSpace(secretName)
+		if trimmed != "" && trimmed != names.RegistryCredentialSecret {
+			// 用户已显式指定集群既有拉取 Secret，优先尊重，不再多此一举代建。
+			// User-supplied imagePullSecret wins; skip auto-provisioning.
+			return nil
+		}
+	}
 	if s.repo == nil || s.repo.db == nil {
-		// 无数据库句柄时无法查注册表，凭据缺失按未注册处理，不阻断部署。
-		// Without a database handle the registry lookup is impossible; treat credentials
-		// as absent rather than blocking the deploy.
 		return nil
 	}
-	// 凭据解析按镜像 host 精确命中仓库登记行，与 tag/路径无关——
-	// 任何版本任何镜像名都自动生效；docker.io 或未登记 host 走匿名/公共路径跳过。
-	// Credential resolution matches the registered registry by exact image host,
-	// independent of tag and path—every version of every repo benefits automatically;
-	// docker.io and unregistered hosts fall through to the anonymous/public path.
 	host := installerapp.RegistryImageHost(imageRef)
-	if host == installerapp.DockerHubRegistryHost {
+	if host == "" {
 		return nil
 	}
 	row, err := s.findContainerRegistryByHost(ctx, host)
@@ -1457,16 +1460,14 @@ func (s *Service) ensureK8sRegistryCredential(ctx context.Context, cfg *k8s.Sess
 	if err != nil {
 		return err
 	}
-	// 凭据 Secret 可能先于 Deploy 的 ensureNamespace 执行（全新 namespace 场景），
-	// 必须自建命名空间否则 Secret 创建必炸 namespaces "<ns>" not found。
-	// The credential secret can run before Deploy's ensureNamespace (brand-new namespace
-	// scenario), so the namespace must be ensured here or secret creation fails hard with
-	// namespaces "<ns>" not found.
 	if err := k8s.EnsureNamespace(ctx, clientset, cfg.Namespace); err != nil {
 		return err
 	}
 	secretName, err := k8s.EnsureRegistryCredentialSecret(ctx, clientset, cfg.Namespace, cluster.EffectiveClusterCode(), row.Host, row.Username, password)
 	if err != nil {
+		if apierrors.IsForbidden(err) {
+			return fmt.Errorf("%w: %s", ErrRegistrySecretForbidden, fmt.Sprintf(locale.Pick(ctx, "缺少命名空间 secrets 写权限，无法为仓库 %s 自动代建拉取 Secret；请授予 secrets 权限或在高级选项指定已有 imagePullSecrets", "missing namespace secrets write permission to auto-create pull secret for registry %s; grant secrets permissions or specify an existing imagePullSecret in advanced options"), row.Host))
+		}
 		return err
 	}
 	for _, existing := range cfg.ImagePullSecrets {
@@ -1490,24 +1491,4 @@ func (s *Service) findContainerRegistryByHost(ctx context.Context, host string) 
 		return nil, nil
 	}
 	return &row, nil
-}
-
-// validateK8sImageRegistry 强制镜像 host 已登记：私有镜像必须来自登记的仓库，
-// 否则部署必然 ImagePullBackOff，在创建任何资源前 400。
-// validateK8sImageRegistry enforces that the image host is registered: private
-// images must come from a registered registry, otherwise the deploy is guaranteed
-// to ImagePullBackOff, so reject with 400 before creating any resource.
-func (s *Service) validateK8sImageRegistry(ctx context.Context, image string) error {
-	host := installerapp.RegistryImageHost(image)
-	if host == "" || host == installerapp.DockerHubRegistryHost {
-		return nil
-	}
-	row, err := s.findContainerRegistryByHost(ctx, host)
-	if err != nil {
-		return err
-	}
-	if row == nil {
-		return fmt.Errorf("cluster: %s", fmt.Sprintf(locale.Pick(ctx, "镜像仓库 %s 未登记，请先在软件包页登记该仓库", "registry %s is not registered; register it on the packages page first"), host, host))
-	}
-	return nil
 }

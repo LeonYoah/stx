@@ -33,6 +33,7 @@ import {
   Clock,
   Cpu,
   HardDrive,
+  KeyRound,
   MemoryStick,
   Pencil,
 } from 'lucide-react';
@@ -49,23 +50,30 @@ import {
   HostInfo,
   HostStatus,
   HostType,
+  K8sAccessMode,
   K8sAuthMode,
   K8sTestConnectionResult,
   UpdateHostRequest,
 } from '@/lib/services/host/types';
 import {
   looksTruncatedK8sToken,
-  renderK8sExportKubeconfigCommand,
   sanitizeK8sToken,
 } from '@/lib/k8s-rbac-templates';
 import {formatDateTimeTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import layout from '@/components/common/layout/list-detail.module.css';
+import {K8sEngineSATemplateSection} from './K8sEngineSATemplateSection';
+import {K8sKubeconfigField} from './K8sKubeconfigField';
 import {K8sRBACTemplateSection} from './K8sRBACTemplateSection';
+import {RotateK8sCredentialDialog} from './RotateK8sCredentialDialog';
 import {
   getHostStatusLabel,
+  getK8sAccessModeLabel,
   getK8sConnectErrorHint,
+  getK8sCredentialExpiryState,
   getK8sPermissionModeLabel,
+  getK8sRbacScopeLabel,
+  isK8sRbacRequired,
 } from './host-status';
 
 interface HostDetailProps {
@@ -155,7 +163,9 @@ function buildEditForm(host: HostInfo | null): UpdateHostRequest {
     k8s_namespace: host.k8s_namespace || 'default',
     k8s_default_service_account: host.k8s_default_service_account || '',
     k8s_auth_mode: host.k8s_auth_mode === 'token' ? 'token' : 'kubeconfig',
+    k8s_access_mode: host.k8s_access_mode || 'in_cluster',
     k8s_kubeconfig: '',
+    k8s_context: '',
     k8s_token: '',
     k8s_ca_cert: '',
     k8s_insecure_skip_tls: Boolean(host.k8s_insecure_skip_tls),
@@ -179,6 +189,7 @@ export function HostDetail({
   const [loadingCommand, setLoadingCommand] = useState(false);
 
   const [saving, setSaving] = useState(false);
+  const [rotateOpen, setRotateOpen] = useState(false);
   const [formData, setFormData] = useState<UpdateHostRequest>(() =>
     buildEditForm(host),
   );
@@ -195,7 +206,8 @@ export function HostDetail({
 
   const k8sAuthMode: K8sAuthMode =
     formData.k8s_auth_mode === 'token' ? 'token' : 'kubeconfig';
-  const exportKubeconfigCmd = renderK8sExportKubeconfigCommand();
+  const k8sAccessMode: K8sAccessMode =
+    formData.k8s_access_mode || 'in_cluster';
 
   const isDirty = useMemo(() => {
     if (!editing || !host) {
@@ -410,14 +422,23 @@ export function HostDetail({
             ? {k8s_default_service_account: nextDefaultSA}
             : {};
         if (k8sAuthMode === 'kubeconfig') {
+          const overrideUrl = formData.k8s_api_url?.trim() || '';
+          const origUrl = (host.k8s_api_url || '').trim();
           payload = {
             name: formData.name?.trim(),
             description: formData.description,
             k8s_auth_mode: 'kubeconfig',
+            k8s_access_mode: k8sAccessMode,
             k8s_namespace: formData.k8s_namespace?.trim() || 'default',
             ...defaultSAPatch,
             ...(formData.k8s_kubeconfig?.trim()
               ? {k8s_kubeconfig: formData.k8s_kubeconfig.trim()}
+              : {}),
+            ...(formData.k8s_context?.trim()
+              ? {k8s_context: formData.k8s_context.trim()}
+              : {}),
+            ...(overrideUrl && (overrideUrl !== origUrl || Boolean(formData.k8s_kubeconfig?.trim()))
+              ? {k8s_api_url: overrideUrl}
               : {}),
           };
         } else {
@@ -427,6 +448,7 @@ export function HostDetail({
             name: formData.name?.trim(),
             description: formData.description,
             k8s_auth_mode: 'token',
+            k8s_access_mode: k8sAccessMode,
             k8s_api_url: formData.k8s_api_url?.trim(),
             k8s_namespace: formData.k8s_namespace?.trim() || 'default',
             ...defaultSAPatch,
@@ -584,6 +606,35 @@ export function HostDetail({
 
                   {host.host_type === HostType.KUBERNETES ? (
                     <>
+                      <div className='space-y-1.5'>
+                        <Label>{t('host.k8sAccessMode')}</Label>
+                        <SegmentedControl
+                          label={t('host.k8sAccessMode')}
+                          value={k8sAccessMode}
+                          onValueChange={(v) =>
+                            setFormData({
+                              ...formData,
+                              k8s_access_mode: v as K8sAccessMode,
+                            })
+                          }
+                          options={[
+                            {
+                              value: 'in_cluster',
+                              label: t('host.k8sAccessModeInCluster'),
+                            },
+                            {
+                              value: 'external',
+                              label: t('host.k8sAccessModeExternal'),
+                            },
+                          ]}
+                        />
+                        <p className='text-xs text-muted-foreground'>
+                          {k8sAccessMode === 'external'
+                            ? t('host.k8sAccessModeExternalDesc')
+                            : t('host.k8sAccessModeInClusterDesc')}
+                        </p>
+                      </div>
+
                       <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
                         <div className='space-y-1.5'>
                           <Label>{t('host.k8sAuthMode')}</Label>
@@ -613,28 +664,9 @@ export function HostDetail({
                               k8s_namespace: e.target.value,
                             })
                           }
-                          placeholder='default'
+                          placeholder='seatunnel'
                           className='font-mono text-xs'
                         />
-                      </div>
-
-                      <div className='space-y-1'>
-                        <Input
-                          id='edit-k8s_default_service_account'
-                          label={t('host.k8sDefaultServiceAccount')}
-                          value={formData.k8s_default_service_account || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              k8s_default_service_account: e.target.value,
-                            })
-                          }
-                          placeholder='seatunnel-runner'
-                          className='font-mono text-xs'
-                        />
-                        <p className='text-[11px] text-muted-foreground'>
-                          {t('host.k8sDefaultServiceAccountHint')}
-                        </p>
                       </div>
 
                       {k8sAuthMode === 'kubeconfig' ? (
@@ -649,55 +681,38 @@ export function HostDetail({
                               </span>
                             </div>
                           ) : null}
-                          <div className='space-y-2'>
-                            <Label htmlFor='edit-k8s_kubeconfig'>
-                              {host.has_k8s_kubeconfig
+                          <K8sKubeconfigField
+                            id='edit-k8s_kubeconfig'
+                            label={
+                              host.has_k8s_kubeconfig
                                 ? t('host.kubeconfig')
-                                : `${t('host.kubeconfig')} *`}
-                            </Label>
-                            <Textarea
-                              id='edit-k8s_kubeconfig'
-                              value={formData.k8s_kubeconfig || ''}
-                              aria-invalid={Boolean(fieldErrors.k8s_kubeconfig)}
-                              onChange={(e) => {
-                                setFormData({
-                                  ...formData,
-                                  k8s_kubeconfig: e.target.value,
-                                });
-                                clearFieldError('k8s_kubeconfig');
-                              }}
-                              placeholder={t('host.kubeconfigPlaceholder')}
-                              className='font-mono text-xs'
-                              rows={6}
-                            />
-                            {fieldErrors.k8s_kubeconfig ? (
-                              <p className='text-xs text-destructive'>
-                                {fieldErrors.k8s_kubeconfig}
-                              </p>
-                            ) : (
-                              <p className='text-xs text-muted-foreground'>
-                                {host.has_k8s_kubeconfig
-                                  ? t('host.k8sKubeconfigEditHint')
-                                  : t('host.k8sKubeconfigAutoHint')}
-                              </p>
-                            )}
-                            <div className='flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-[11px] dark:bg-muted/30'>
-                              <div className='min-w-0 space-y-0.5'>
-                                <div className='text-muted-foreground'>
-                                  {t('host.k8sKubeconfigQuickCmdLabel')}
-                                </div>
-                                <code className='block truncate font-mono text-foreground'>
-                                  {exportKubeconfigCmd}
-                                </code>
-                              </div>
-                              <CopyButton
-                                value={exportKubeconfigCmd}
-                                label={t('common.copy')}
-                                variant='plain'
-                                className='h-7 shrink-0 px-2 text-xs'
-                              />
-                            </div>
-                          </div>
+                                : `${t('host.kubeconfig')} *`
+                            }
+                            value={formData.k8s_kubeconfig || ''}
+                            onChange={(nextValue) => {
+                              setFormData({
+                                ...formData,
+                                k8s_kubeconfig: nextValue,
+                              });
+                              clearFieldError('k8s_kubeconfig');
+                            }}
+                            contextName={formData.k8s_context || ''}
+                            onContextChange={(ctx) =>
+                              setFormData((prev) => ({...prev, k8s_context: ctx}))
+                            }
+                            serverOverride={formData.k8s_api_url || ''}
+                            onServerOverrideChange={(url) =>
+                              setFormData((prev) => ({...prev, k8s_api_url: url}))
+                            }
+                            accessMode={k8sAccessMode}
+                            error={fieldErrors.k8s_kubeconfig}
+                            hint={
+                              host.has_k8s_kubeconfig
+                                ? t('host.k8sKubeconfigEditHint')
+                                : t('host.k8sKubeconfigAutoHint')
+                            }
+                            testIdPrefix='edit-kubeconfig'
+                          />
                         </>
                       ) : (
                         <>
@@ -789,13 +804,31 @@ export function HostDetail({
                       )}
 
                       <K8sRBACTemplateSection
-                        namespace={formData.k8s_namespace?.trim() || 'default'}
-                        runnerServiceAccount={
-                          formData.k8s_default_service_account?.trim() ||
-                          'seatunnel-runner'
-                        }
+                        namespace={formData.k8s_namespace?.trim() || 'seatunnel'}
                         authMode={k8sAuthMode}
                       />
+
+                      <div className='space-y-2 border-t-[0.5px] border-border/80 pt-4'>
+                        <div className='text-xs font-medium text-foreground'>
+                          {t('host.k8sEngineSaSectionTitle')}
+                        </div>
+                        <Input
+                          id='edit-k8s_default_service_account'
+                          label={t('host.k8sDefaultServiceAccount')}
+                          value={formData.k8s_default_service_account || ''}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              k8s_default_service_account: e.target.value,
+                            })
+                          }
+                          placeholder='seatunnel-runner'
+                          className='font-mono text-xs'
+                        />
+                        <p className='text-[11px] text-muted-foreground'>
+                          {t('host.k8sDefaultServiceAccountHint')}
+                        </p>
+                      </div>
                     </>
                   ) : null}
                 </div>
@@ -1021,6 +1054,12 @@ export function HostDetail({
                       </dd>
                     </div>
                     <div className={layout.detailKvItem}>
+                      <dt className={layout.detailKvKey}>{t('host.k8sAccessMode')}</dt>
+                      <dd className={layout.detailKvVal}>
+                        {getK8sAccessModeLabel(host.k8s_access_mode, t)}
+                      </dd>
+                    </div>
+                    <div className={layout.detailKvItem}>
                       <dt className={layout.detailKvKey}>{t('host.k8sAuthMode')}</dt>
                       <dd className={layout.detailKvVal}>
                         {host.k8s_auth_mode === 'token' ? 'Token' : 'Kubeconfig'}
@@ -1040,12 +1079,33 @@ export function HostDetail({
                         {host.k8s_version || '-'}
                       </dd>
                     </div>
-                    <div className={cn(layout.detailKvItem, layout.detailKvSpan)}>
+                    <div className={layout.detailKvItem} data-testid='host-detail-k8s-expiry'>
                       <dt className={layout.detailKvKey}>
-                        {t('host.k8sDefaultServiceAccount')}
+                        {t('host.k8sCredentialExpiry')}
                       </dt>
-                      <dd className={cn(layout.detailKvVal, 'font-mono')}>
-                        {host.k8s_default_service_account || '-'}
+                      <dd className='flex flex-wrap items-center gap-1.5 text-xs'>
+                        {host.k8s_credential_expires_at ? (
+                          <>
+                            <span className='font-mono tabular-nums'>
+                              {formatDateTime(host.k8s_credential_expires_at)}
+                            </span>
+                            {getK8sCredentialExpiryState(host.k8s_credential_expires_at) ===
+                            'expired' ? (
+                              <Badge variant='destructive' className='text-[11px]'>
+                                {t('host.k8sCredentialExpired')}
+                              </Badge>
+                            ) : getK8sCredentialExpiryState(host.k8s_credential_expires_at) ===
+                              'expiring_soon' ? (
+                              <Badge variant='secondary' className='text-[11px]'>
+                                {t('host.k8sCredentialExpiringSoon')}
+                              </Badge>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span className='text-muted-foreground'>
+                            {t('host.k8sCredentialExpiryUnknown')}
+                          </span>
+                        )}
                       </dd>
                     </div>
                   </dl>
@@ -1066,6 +1126,16 @@ export function HostDetail({
                         onClick={() => void runK8sTest()}
                       >
                         {t('host.testK8sConnection')}
+                      </Button>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='secondary'
+                        onClick={() => setRotateOpen(true)}
+                        data-testid='k8s-rotate-credential-btn'
+                      >
+                        <KeyRound className='size-3.5' aria-hidden />
+                        {t('host.k8sRotateCredential')}
                       </Button>
                       {k8sTestResult?.connected && k8sTestResult.permission_mode ? (
                         <Badge
@@ -1120,10 +1190,10 @@ export function HostDetail({
                               </thead>
                               <tbody>
                                 {k8sTestResult.rbac.map((item, i) => {
-                                  const isExtended = item.scope === 'extended';
+                                  const isOptionalOrExtended = !isK8sRbacRequired(item);
                                   const statusClass = item.allowed
                                     ? 'text-emerald-600'
-                                    : isExtended
+                                    : isOptionalOrExtended
                                       ? 'text-muted-foreground'
                                       : 'text-rose-600';
                                   return (
@@ -1133,14 +1203,12 @@ export function HostDetail({
                                       </td>
                                       <td className='px-2 py-1'>{item.verb}</td>
                                       <td className='px-2 py-1 text-muted-foreground'>
-                                        {isExtended
-                                          ? t('host.k8sRbacScopeExtended')
-                                          : t('host.k8sRbacScopeRequired')}
+                                        {getK8sRbacScopeLabel(item.scope, t)}
                                       </td>
                                       <td className={`px-2 py-1 ${statusClass}`}>
                                         {item.allowed
                                           ? t('host.k8sRbacAllowed')
-                                          : isExtended
+                                          : isOptionalOrExtended
                                             ? t('host.k8sRbacOptionalDenied')
                                             : t('host.k8sRbacDenied')}
                                       </td>
@@ -1154,11 +1222,49 @@ export function HostDetail({
                       </div>
                     ) : null}
                     <K8sRBACTemplateSection
-                      namespace={host.k8s_namespace || 'default'}
-                      runnerServiceAccount={
-                        host.k8s_default_service_account || 'seatunnel-runner'
-                      }
+                      namespace={host.k8s_namespace || 'seatunnel'}
                       authMode={host.k8s_auth_mode}
+                    />
+                  </div>
+                  <RotateK8sCredentialDialog
+                    open={rotateOpen}
+                    onOpenChange={setRotateOpen}
+                    host={host}
+                    onRotated={(updated) => onUpdated?.(updated)}
+                  />
+                </section>
+              ) : null}
+
+              {host.host_type === HostType.KUBERNETES ? (
+                <section
+                  className={layout.detailSection}
+                  data-testid='host-detail-engine-sa-section'
+                >
+                  <div className={layout.detailSectionHead}>
+                    <h3 className={layout.sectionTitle}>
+                      {t('host.k8sEngineSaSectionTitle')}
+                    </h3>
+                  </div>
+                  <div className='space-y-2.5 text-xs'>
+                    <div className='flex items-baseline justify-between gap-3'>
+                      <span className='text-muted-foreground'>
+                        {t('host.k8sDefaultServiceAccount')}
+                      </span>
+                      <span className='font-mono font-medium text-foreground'>
+                        {host.k8s_default_service_account ||
+                          t('host.k8sEngineSaAutoLabel')}
+                      </span>
+                    </div>
+                    <p className='text-[11px] text-muted-foreground'>
+                      {t('host.k8sEngineSaSectionDesc')}
+                    </p>
+                    <K8sEngineSATemplateSection
+                      namespace={host.k8s_namespace || 'seatunnel'}
+                      initialRunnerSA={
+                        host.k8s_default_service_account || undefined
+                      }
+                      hostId={host.id}
+                      onBoundDefaultSA={(updated) => onUpdated?.(updated)}
                     />
                   </div>
                 </section>

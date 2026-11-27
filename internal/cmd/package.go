@@ -74,6 +74,7 @@ func addPackageWriteCommands(root *cobra.Command, storeProvider authStoreProvide
 		newPackageRegistryCreateCommand(storeProvider),
 		newPackageRegistryUpdateCommand(storeProvider),
 		newPackageRegistryTestCommand(storeProvider),
+		newPackageRegistryProbeCommand(storeProvider),
 	)
 
 	// 离线资产包：list 由 GeneratedCLI 生成；create/download/import/delete 在此挂载。

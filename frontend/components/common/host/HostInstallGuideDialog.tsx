@@ -62,7 +62,7 @@ export function HostInstallGuideDialog({
         description={
           isK8s ? t('host.k8sGuide.subtitle') : t('host.installGuide.subtitle')
         }
-        className='w-[min(calc(100vw-2rem),680px)]!'
+        className='arc-compact w-[min(calc(100vw-2rem),680px)]!'
         bodyClassName='max-h-[min(85dvh,720px)] overflow-y-auto'
       >
         {isK8s ? (

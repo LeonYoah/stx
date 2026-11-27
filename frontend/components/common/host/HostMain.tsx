@@ -702,6 +702,7 @@ export function HostMain({initialHostId = null}: HostMainProps) {
         onOpenChange={setIsCreateDialogOpen}
         onSuccess={handleHostCreated}
         onViewDetail={openHostDetail}
+        onDeployCluster={() => router.push('/clusters')}
       />
 
       <HostInstallGuideDialog

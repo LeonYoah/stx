@@ -261,7 +261,7 @@ func TestDefaultConfigToolResolverK8sProxyModes(t *testing.T) {
 			"kubernetes": map[string]interface{}{
 				"host_id":     1,
 				"namespace":   "shared-ns",
-				"access_mode": "apiserver_proxy",
+				"access_mode": "in_cluster",
 				"java_proxy": map[string]interface{}{
 					"mode": "managed",
 					"port": 19090,
@@ -278,7 +278,7 @@ func TestDefaultConfigToolResolverK8sProxyModes(t *testing.T) {
 			"kubernetes": map[string]interface{}{
 				"host_id":     1,
 				"namespace":   "app-ns",
-				"access_mode": "apiserver_proxy",
+				"access_mode": "in_cluster",
 				"java_proxy": map[string]interface{}{
 					"mode":             "reuse_cluster",
 					"reuse_cluster_id": sharedCluster.ID,
@@ -318,7 +318,7 @@ func TestDefaultConfigToolResolverK8sProxyModes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("managed mode failed: %v", err)
 	}
-	wantManaged := "http://127.0.0.1:6443/api/v1/namespaces/shared-ns/services/http:stx-java-proxy-shared:19090/proxy"
+	wantManaged := "http://stx-java-proxy-shared.shared-ns.svc.cluster.local:19090"
 	if managedEP.BaseURL != wantManaged || managedEP.Transport == nil {
 		t.Fatalf("unexpected managed endpoint: base=%q transport=%v", managedEP.BaseURL, managedEP.Transport)
 	}

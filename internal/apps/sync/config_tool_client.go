@@ -45,11 +45,10 @@ type ConfigToolClient interface {
 	PreviewSinkSaveMode(ctx context.Context, endpoint *ConfigToolEndpoint, req *ConfigToolSinkSaveModePreviewRequest) (*ConfigToolSinkSaveModePreviewResponse, error)
 }
 
-// ConfigToolEndpoint 携带伴生 Proxy 端点地址与可选 Transport；K8s apiserver_proxy 端点按
-// 集群注入 TLS/认证，避免进程级全局注册表的凭据串用。
-// ConfigToolEndpoint carries the companion proxy endpoint URL plus an optional transport;
-// K8s apiserver_proxy endpoints inject TLS/auth per cluster, avoiding the credential
-// cross-use of a process-wide registry.
+// ConfigToolEndpoint 携带伴生 Proxy 端点地址与可选 Transport；K8s 集群按
+// 集群解析服务地址并保持传输隔离，避免进程级全局注册表的凭据串用。
+// ConfigToolEndpoint carries the companion proxy endpoint URL plus an optional transport,
+// isolating per-cluster resolution from any process-wide global registry.
 type ConfigToolEndpoint struct {
 	BaseURL   string
 	Transport http.RoundTripper
@@ -359,10 +358,10 @@ func NewDefaultConfigToolClient() *DefaultConfigToolClient {
 	}
 }
 
-// clientForEndpoint 按端点选择 HTTP client：K8s apiserver_proxy 端点用其注入的 Transport，
+// clientForEndpoint 按端点选择 HTTP client：携带定制 Transport 时使用注入客户端，
 // 其余回落默认 client。
-// clientForEndpoint picks the HTTP client per endpoint: K8s apiserver_proxy endpoints use
-// their injected transport while everything else falls back to the default client.
+// clientForEndpoint picks the HTTP client per endpoint: endpoints with an injected transport
+// use a dedicated client while everything else falls back to the default client.
 func (c *DefaultConfigToolClient) clientForEndpoint(endpoint *ConfigToolEndpoint) *http.Client {
 	if endpoint != nil && endpoint.Transport != nil {
 		return &http.Client{Timeout: 30 * time.Second, Transport: endpoint.Transport}
@@ -595,8 +594,8 @@ func (r *DefaultConfigToolResolver) ResolveConfigToolEndpoint(ctx context.Contex
 	if r == nil || r.clusterService == nil {
 		return nil, fmt.Errorf("sync: config tool resolver is not configured")
 	}
-	// K8s 集群的伴生 Proxy 经 apiserver_proxy 寻址，Transport 随端点返回。
-	// For K8s clusters the companion proxy is addressed through apiserver_proxy, with the
+	// K8s 集群的伴生 Proxy 经 K8sTransport 寻址，Transport 随端点返回。
+	// For K8s clusters the companion proxy is addressed via K8sTransport, with the
 	// transport traveling alongside the endpoint.
 	if clusterObj, err := r.clusterService.Get(ctx, clusterID); err == nil && clusterObj != nil && clusterObj.IsKubernetes() {
 		return r.resolveK8sConfigToolEndpoint(ctx, clusterObj)

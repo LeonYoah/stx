@@ -32,6 +32,7 @@ import {
   rememberPreferredClusterId,
   isSoleDefaultCluster,
 } from '@/lib/cluster-preference';
+import {isBareMetalInfra} from '@/lib/infra';
 import {
   Dialog,
   DialogContent,
@@ -108,7 +109,7 @@ export function BatchInstallDialog({
         // K8s 集群遵循不可变镜像原则，不提供动态安装入口。
         // K8s clusters follow the immutable-image principle and are excluded.
         const matchingClusters = (result.data.clusters || []).filter(
-          (c: Cluster) => c.version === version && !(c.infra_type && c.infra_type !== 'bare_metal'),
+          (c: Cluster) => c.version === version && isBareMetalInfra(c.infra_type),
         );
         setClusters(matchingClusters);
         // 唯一匹配或已记住偏好时自动选中，免再手选。

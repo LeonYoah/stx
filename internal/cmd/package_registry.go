@@ -29,14 +29,17 @@ import (
 // containerRegistryFlags 仓库写命令的共用输入字段。
 // containerRegistryFlags carries the shared input fields of registry write commands.
 type containerRegistryFlags struct {
-	host              string
-	username          string
-	password          string
-	passwordStdin     bool
+	id            uint
+	host          string
+	defaultRepo   string
+	username      string
+	password      string
+	passwordStdin bool
 }
 
 func addContainerRegistryFlags(command *cobra.Command, fields *containerRegistryFlags) {
 	command.Flags().StringVar(&fields.host, "host", "", "Bare registry host[:port] without scheme")
+	command.Flags().StringVar(&fields.defaultRepo, "default-repo", "", "Optional default image repository path, e.g. apache/seatunnel")
 	command.Flags().StringVar(&fields.username, "username", "", "Registry username; empty means anonymous")
 	// --password 仅为兼容保留：明文密码会进入 shell 历史与进程列表，
 	// 推荐 --password-stdin 或 TTY 隐藏输入。
@@ -47,11 +50,16 @@ func addContainerRegistryFlags(command *cobra.Command, fields *containerRegistry
 }
 
 func containerRegistryBody(fields *containerRegistryFlags) map[string]any {
-	return map[string]any{
-		"host":     fields.host,
-		"username": fields.username,
-		"password": fields.password,
+	body := map[string]any{
+		"host":         fields.host,
+		"default_repo": fields.defaultRepo,
+		"username":     fields.username,
+		"password":     fields.password,
 	}
+	if fields.id > 0 {
+		body["id"] = fields.id
+	}
+	return body
 }
 
 // newPackageRegistryCreateCommand stx package registry create。
@@ -70,7 +78,7 @@ func newPackageRegistryCreateCommand(storeProvider authStoreProvider) *cobra.Com
 			if err != nil {
 				return err
 			}
-			if err := resolveRegistryPassword(command, &fields, command.InOrStdin()); err != nil {
+			if err := resolveRegistryPassword(command, &fields, command.InOrStdin(), false); err != nil {
 				return err
 			}
 			var data any
@@ -94,8 +102,8 @@ func newPackageRegistryUpdateCommand(storeProvider authStoreProvider) *cobra.Com
 	var fields containerRegistryFlags
 	command := &cobra.Command{
 		Use:     "update <id>",
-		Short:   "Update a registered container registry",
-		Example: "stx package registry update 2 --host harbor.example.com --username robot --password-stdin --confirm",
+		Short:   "Update a registered container registry (empty password keeps existing secret)",
+		Example: "stx package registry update 2 --host harbor.example.com --username robot --confirm",
 		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
 			client, headers, err := preparePackageWrite(command, storeProvider, "package.registry.update", &options,
@@ -103,7 +111,7 @@ func newPackageRegistryUpdateCommand(storeProvider authStoreProvider) *cobra.Com
 			if err != nil {
 				return err
 			}
-			if err := resolveRegistryPassword(command, &fields, command.InOrStdin()); err != nil {
+			if err := resolveRegistryPassword(command, &fields, command.InOrStdin(), true); err != nil {
 				return err
 			}
 			var data any
@@ -121,12 +129,12 @@ func newPackageRegistryUpdateCommand(storeProvider authStoreProvider) *cobra.Com
 }
 
 // newPackageRegistryTestCommand stx package registry test。
-// newPackageRegistryTestCommand probes connectivity and refreshes the catalog cache.
+// newPackageRegistryTestCommand probes registry connectivity and credentials.
 func newPackageRegistryTestCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options packageWriteOptions
 	command := &cobra.Command{
 		Use:     "test <id>",
-		Short:   "Test registry connectivity and refresh the catalog cache",
+		Short:   "Test registry connectivity and credentials",
 		Example: "stx package registry test 2",
 		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
@@ -147,12 +155,48 @@ func newPackageRegistryTestCommand(storeProvider authStoreProvider) *cobra.Comma
 	return command
 }
 
-// resolveRegistryPassword 密码输入收口：stdin 优先、显式明文兼容、TTY 隐藏交互，
-// 非 TTY 且无输入时明确报错而不是静默发空密码。
-// resolveRegistryPassword funnels password input: stdin wins, explicit plaintext stays
-// for compatibility, a TTY falls back to the hidden prompt, and non-TTY without input
-// errors out explicitly instead of silently sending an empty password.
-func resolveRegistryPassword(command *cobra.Command, fields *containerRegistryFlags, stdin io.Reader) error {
+// newPackageRegistryProbeCommand stx package registry probe。
+// newPackageRegistryProbeCommand probes a registry before saving without persisting.
+func newPackageRegistryProbeCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options packageWriteOptions
+	var fields containerRegistryFlags
+	command := &cobra.Command{
+		Use:     "probe",
+		Short:   "Probe registry connectivity without persisting",
+		Example: "stx package registry probe --host harbor.example.com --username robot --password-stdin",
+		Args:    usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, args []string) error {
+			client, headers, err := preparePackageWrite(command, storeProvider, "package.registry.probe", &options, "")
+			if err != nil {
+				return err
+			}
+			// 若传入 --id 且未传新密码，则允许走后端回填既有密文测试。
+			// Allow empty password when --id is given so backend reuses stored credentials.
+			if err := resolveRegistryPassword(command, &fields, command.InOrStdin(), fields.id > 0); err != nil {
+				return err
+			}
+			var data any
+			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost,
+				"/api/v1/packages/registries/probe", containerRegistryBody(&fields), headers, &data)
+			if err != nil {
+				return err
+			}
+			return renderPackageResult(command, "package.registry.probe", requestID, data, "")
+		},
+	}
+	addPackageWriteFlags(command, &options)
+	addContainerRegistryFlags(command, &fields)
+	command.Flags().UintVar(&fields.id, "id", 0, "Optional existing registry ID to reuse stored password when testing edits")
+	return command
+}
+
+// resolveRegistryPassword 密码输入收口：
+// - create 模式（allowEmptyKeep=false）：非 TTY 传 --username 时强制 --password-stdin（或兼容 --password）；
+// - update / 带 id 的 probe 模式（allowEmptyKeep=true）：允许不传密码以保留库内既有凭据。
+// resolveRegistryPassword funnels password input: create requires --password-stdin when
+// username is set in non-TTY mode, whereas update/edit-probe (allowEmptyKeep=true) permits
+// omitting the password so the backend keeps the stored secret.
+func resolveRegistryPassword(command *cobra.Command, fields *containerRegistryFlags, stdin io.Reader, allowEmptyKeep bool) error {
 	if fields.password != "" && fields.passwordStdin {
 		return clioutput.NewError(clioutput.CodeUsage, "--password cannot be combined with --password-stdin", clioutput.ExitUsage, false)
 	}
@@ -169,7 +213,7 @@ func resolveRegistryPassword(command *cobra.Command, fields *containerRegistryFl
 		fields.password = password
 		return nil
 	}
-	if fields.password != "" || !needsPassword {
+	if fields.password != "" || !needsPassword || allowEmptyKeep {
 		return nil
 	}
 	if !isTerminalReader(stdin) {

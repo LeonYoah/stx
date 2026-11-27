@@ -483,22 +483,29 @@ func managedModels() []interface{} {
 	}
 }
 
-// seedContainerRegistries 预置 docker.io 系统行（幂等）。
-// seedContainerRegistries seeds the docker.io system row idempotently.
+// seedContainerRegistries 预置 docker.io 系统行（幂等），并为存量缺省值的 docker.io 回填默认镜像路径。
+// seedContainerRegistries seeds the docker.io system row idempotently and backfills its default_repo if empty.
 func seedContainerRegistries(database *gorm.DB) {
 	if database == nil {
 		return
 	}
-	var count int64
-	if err := database.Model(&installer.ContainerRegistry{}).Where("host = ?", installer.DockerHubRegistryHost).Count(&count).Error; err != nil {
-		log.Printf("[Database] failed to check container registry seed: %v\n", err)
+	var existing installer.ContainerRegistry
+	err := database.Where("host = ?", installer.DockerHubRegistryHost).First(&existing).Error
+	if err == nil {
+		if existing.IsSystem && strings.TrimSpace(existing.DefaultRepo) == "" {
+			if upErr := database.Model(&existing).Update("default_repo", installer.DockerHubOfficialRepo).Error; upErr != nil {
+				log.Printf("[Database] failed to backfill docker.io default_repo: %v\n", upErr)
+			}
+		}
 		return
 	}
-	if count > 0 {
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Printf("[Database] failed to check container registry seed: %v\n", err)
 		return
 	}
 	row := &installer.ContainerRegistry{
 		Host:        installer.DockerHubRegistryHost,
+		DefaultRepo: installer.DockerHubOfficialRepo,
 		IsSystem:    true,
 		ProbeStatus: "public",
 		ProbeScheme: "https",

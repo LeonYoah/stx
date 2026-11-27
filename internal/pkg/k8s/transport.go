@@ -22,17 +22,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
-
-	"k8s.io/client-go/rest"
 )
 
-// Transport 按访问模式为集群内 HTTP 端点构造 BaseURL 与认证 RoundTripper，
+// Transport 按访问模式（集群内直连 / 外部入口）为集群内 HTTP 端点构造 BaseURL 与直连 RoundTripper，
 // 供 EngineClient / ConfigToolClient / embedts 抓取器 / WebUI 代理统一复用。
-// Transport builds base URLs and authenticated RoundTrippers for in-cluster HTTP endpoints
-// per access mode, shared by EngineClient / ConfigToolClient / embedts scrapers / WebUI proxy.
+// Transport builds base URLs and direct RoundTrippers for Kubernetes HTTP endpoints
+// (in_cluster or external), shared by EngineClient / ConfigToolClient / embedts / WebUI proxy.
 type Transport struct {
 	manager         *ClientManager
 	hostID          uint
@@ -45,7 +42,7 @@ type Transport struct {
 // NewTransport creates a cluster-scoped transport.
 func NewTransport(manager *ClientManager, hostID uint, namespace string, accessMode AccessMode, externalBaseURL string) *Transport {
 	if accessMode == "" {
-		accessMode = AccessModeAPIServerProxy
+		accessMode = AccessModeInCluster
 	}
 	if namespace == "" {
 		namespace = "default"
@@ -67,15 +64,8 @@ func (t *Transport) AccessMode() AccessMode {
 
 // ServiceBaseURL 返回访问指定 Service 端口的 BaseURL（不含尾部斜杠）。
 // ServiceBaseURL returns the base URL for reaching a service port (no trailing slash).
-func (t *Transport) ServiceBaseURL(ctx context.Context, serviceName string, port int) (string, error) {
+func (t *Transport) ServiceBaseURL(_ context.Context, serviceName string, port int) (string, error) {
 	switch t.accessMode {
-	case AccessModeAPIServerProxy:
-		cfg, err := t.manager.RESTConfig(ctx, t.hostID)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("%s/api/v1/namespaces/%s/services/http:%s:%d/proxy",
-			strings.TrimRight(cfg.Host, "/"), url.PathEscape(t.namespace), url.PathEscape(serviceName), port), nil
 	case AccessModeInCluster:
 		return fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", serviceName, t.namespace, port), nil
 	case AccessModeExternal:
@@ -90,15 +80,8 @@ func (t *Transport) ServiceBaseURL(ctx context.Context, serviceName string, port
 
 // PodBaseURL 返回访问指定 Pod 端口的 BaseURL（不含尾部斜杠）。
 // PodBaseURL returns the base URL for reaching a pod port (no trailing slash).
-func (t *Transport) PodBaseURL(ctx context.Context, podName, podIP string, port int) (string, error) {
+func (t *Transport) PodBaseURL(_ context.Context, _ string, podIP string, port int) (string, error) {
 	switch t.accessMode {
-	case AccessModeAPIServerProxy:
-		cfg, err := t.manager.RESTConfig(ctx, t.hostID)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("%s/api/v1/namespaces/%s/pods/http:%s:%d/proxy",
-			strings.TrimRight(cfg.Host, "/"), url.PathEscape(t.namespace), url.PathEscape(podName), port), nil
 	case AccessModeInCluster:
 		if podIP == "" {
 			return "", fmt.Errorf("k8s: pod ip is required for in_cluster pod access")
@@ -114,22 +97,9 @@ func (t *Transport) PodBaseURL(ctx context.Context, podName, podIP string, port 
 	}
 }
 
-// RoundTripper 返回带认证与 TLS 的 RoundTripper：apiserver_proxy 经 rest.TransportFor
-// 自动附带 kubeconfig/token 认证；in_cluster 与 external 走默认直连传输。
-// RoundTripper returns an authenticated RoundTripper: apiserver_proxy uses rest.TransportFor
-// to attach kubeconfig/token auth and TLS; in_cluster and external use a plain direct transport.
-func (t *Transport) RoundTripper(ctx context.Context) (http.RoundTripper, error) {
-	if t.accessMode == AccessModeAPIServerProxy {
-		cfg, err := t.manager.RESTConfig(ctx, t.hostID)
-		if err != nil {
-			return nil, err
-		}
-		rt, err := rest.TransportFor(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("k8s: build transport failed: %w", err)
-		}
-		return rt, nil
-	}
+// RoundTripper 返回直连 HTTP Transport（带 5s TCP 建连超时与 keep-alive）。
+// RoundTripper returns a direct HTTP transport configured with a 5s dial timeout and keep-alive.
+func (t *Transport) RoundTripper(_ context.Context) (http.RoundTripper, error) {
 	base := http.DefaultTransport.(*http.Transport).Clone()
 	base.DialContext = (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 	return base, nil

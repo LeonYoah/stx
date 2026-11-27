@@ -22,6 +22,8 @@ import {useTranslations} from 'next-intl';
 import {Input} from '@/components/arc/input/input';
 import {Select} from '@/components/arc/select/select';
 import {Button} from '@/components/arc/button/button';
+import {DEFAULT_STX_MANAGER_SA} from '@/lib/k8s-rbac-templates';
+import {K8sEngineSATemplateSection} from '@/components/common/host/K8sEngineSATemplateSection';
 import services from '@/lib/services';
 import type {HostInfo} from '@/lib/services/host/types';
 import type {K8sWizardFormState} from './types';
@@ -137,6 +139,7 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [secrets, setSecrets] = useState<string[]>([]);
   const [serviceAccounts, setServiceAccounts] = useState<string[]>([]);
+  const [refreshingSAs, setRefreshingSAs] = useState(false);
   const [pvcs, setPvcs] = useState<string[]>([]);
 
   // 主机清单加载失败必须显式可重试，禁止静默吞错后留下无法解释的空选项。
@@ -164,14 +167,19 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
   const patch = (partial: Partial<K8sWizardFormState>) =>
     onChange((prev) => ({...prev, ...partial}));
 
-  // 选择主机后自动带入该主机的默认命名空间与预建 ServiceAccount，收敛人工选择负担。
-  // Selecting a host automatically defaults namespace and pre-created ServiceAccount to cut decisions.
+  // 选择主机后自动带入该主机的默认命名空间、连接方式与预建 ServiceAccount，收敛人工选择负担。
+  // Selecting a host automatically defaults namespace, access mode, and pre-created ServiceAccount to cut decisions.
   const applyHostDefaults = (host?: HostInfo) => {
     if (!host) {return;}
+    const nextAccessMode = host.k8s_access_mode || 'in_cluster';
     patch({
       host_id: host.id,
       namespace: host.k8s_namespace?.trim() || 'default',
       service_account: host.k8s_default_service_account?.trim() || '',
+      access_mode: nextAccessMode,
+      ...(nextAccessMode === 'external' && form.java_proxy_mode === 'managed'
+        ? {java_proxy_mode: 'external'}
+        : {}),
     });
   };
 
@@ -209,9 +217,33 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.host_id]);
 
-  // 高级选项对象清单随 host+namespace 联动加载；失败保持空表退化为手填。
-  // Advanced object lists load with host+namespace; failures keep empty lists so
-  // fields degrade to manual input.
+  // 高级选项对象清单随 host+namespace 联动加载；过滤控制面账号防引擎 Pod 误继承，失败保持空表退化为手填。
+  // Advanced object lists load with host+namespace; filter out control-plane SA so engine pods never inherit it.
+  const loadServiceAccounts = useCallback(
+    async (hostId: number, namespace: string, preferredSA?: string) => {
+      setRefreshingSAs(true);
+      try {
+        const list = await services.host.listK8sNamespaceObjects(
+          hostId,
+          namespace,
+          'serviceaccounts',
+        );
+        if (Array.isArray(list)) {
+          const filtered = list.filter((sa) => sa !== DEFAULT_STX_MANAGER_SA);
+          setServiceAccounts(filtered);
+          if (preferredSA && filtered.includes(preferredSA)) {
+            onChange((prev) => ({...prev, service_account: preferredSA}));
+          }
+        }
+      } catch {
+        setServiceAccounts([]);
+      } finally {
+        setRefreshingSAs(false);
+      }
+    },
+    [onChange],
+  );
+
   useEffect(() => {
     if (!form.host_id || !form.namespace.trim()) {
       setSecrets([]);
@@ -230,9 +262,19 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
         .catch(() => setter([]));
     };
     load('secrets', setSecrets);
-    load('serviceaccounts', setServiceAccounts);
+    void loadServiceAccounts(hostId, namespace);
     load('pvcs', setPvcs);
-  }, [form.host_id, form.namespace]);
+  }, [form.host_id, form.namespace, loadServiceAccounts]);
+
+  const refreshServiceAccounts = useCallback(
+    async (preferredSA: string) => {
+      if (!form.host_id || !form.namespace.trim()) {
+        return;
+      }
+      await loadServiceAccounts(form.host_id, form.namespace.trim(), preferredSA);
+    },
+    [form.host_id, form.namespace, loadServiceAccounts],
+  );
 
   const separated = form.deployment_mode !== 'hybrid';
   const heapHintText = (memory: string) => t('cluster.k8s.heapDerivationHint', {hint: deriveHeapHint(memory) || '-'});
@@ -270,7 +312,7 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
         <div className='space-y-1.5'>
           {namespaces.length > 0 && namespaces.includes(form.namespace) ? (
             <Select
-              label='Namespace'
+              label={t('cluster.k8s.namespace')}
               value={form.namespace}
               onValueChange={(value) => patch({namespace: value})}
               options={namespaces.map((ns) => ({value: ns, label: ns}))}
@@ -278,7 +320,7 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
             />
           ) : (
             <Input
-              label='Namespace'
+              label={t('cluster.k8s.namespace')}
               value={form.namespace}
               onChange={(event) => patch({namespace: event.target.value})}
               placeholder='default'
@@ -406,6 +448,11 @@ export function K8sResourcesStep({form, onChange}: K8sResourcesStepProps) {
             <p className='text-[11px] text-muted-foreground'>
               {t('cluster.k8s.serviceAccountHint')}
             </p>
+            <K8sEngineSATemplateSection
+              namespace={form.namespace.trim() || 'seatunnel'}
+              onRefreshAccounts={refreshServiceAccounts}
+              refreshing={refreshingSAs}
+            />
           </div>
         ) : null}
       </div>

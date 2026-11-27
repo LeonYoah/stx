@@ -1334,6 +1334,8 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, ErrNodeAlreadyExists):
 		return http.StatusConflict
+	case errors.Is(err, ErrRegistrySecretForbidden):
+		return http.StatusForbidden
 	case errors.Is(err, ErrNodeAgentNotInstalled),
 		errors.Is(err, ErrInvalidHazelcastPort),
 		errors.Is(err, ErrInvalidAPIPort),

@@ -21,9 +21,13 @@ import (
 	"context"
 	"testing"
 
+	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	"github.com/LeonYoah/stx/internal/pkg/k8s"
+	"github.com/LeonYoah/stx/internal/utils/secretbox"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 	authv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -156,4 +160,122 @@ func TestK8sPrecheck_SingleNamespaceMinimalRBAC(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.False(t, resDeny.Passed)
+}
+
+func TestK8sPrecheck_ZeroSecretsAndZeroProxy_InClusterAndCredentialChecks(t *testing.T) {
+	secretbox.SetSecret("test-precheck-secret")
+	t.Cleanup(func() { secretbox.SetSecret("") })
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&Cluster{}, &ClusterNode{}, &installerapp.ContainerRegistry{}))
+	encPass, err := secretbox.Encrypt("robot-secret")
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&installerapp.ContainerRegistry{
+		Host: "harbor.corp.com", Username: "robot", Password: encPass, ProbeStatus: "ok",
+	}).Error)
+
+	// 构造零 secrets + 零 */proxy 的大厂最小权限环境。
+	// Build a strict enterprise minimal RBAC mock with zero secrets and zero */proxy rules.
+	client := fake.NewSimpleClientset(&corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{Name: k8s.DefaultSeaTunnelRunnerServiceAccount, Namespace: "seatunnel-prod"},
+	})
+	attachMinimalRBACReactors(client, "seatunnel-prod", false)
+	client.PrependReactor("create", "selfsubjectaccessreviews", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		review := action.(k8stesting.CreateAction).GetObject().(*authv1.SelfSubjectAccessReview)
+		attr := review.Spec.ResourceAttributes
+		allowed := true
+		if attr != nil {
+			switch attr.Resource {
+			case "namespaces", "roles", "rolebindings", "endpoints", "secrets":
+				allowed = false
+			case "serviceaccounts":
+				if attr.Verb == "create" || attr.Verb == "delete" {
+					allowed = false
+				}
+			case "pods":
+				if attr.Subresource == "proxy" || attr.Verb == "delete" {
+					allowed = false
+				}
+			case "services":
+				if attr.Subresource == "proxy" {
+					allowed = false
+				}
+			}
+		}
+		out := review.DeepCopy()
+		out.Status.Allowed = allowed
+		return true, out, nil
+	})
+	client.PrependReactor("get", "secrets", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "forbidden", nil)
+	})
+	client.PrependReactor("create", "secrets", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "forbidden", nil)
+	})
+
+	mgr := newLifecycleTestManager(client)
+	hosts := NewMockHostProvider()
+	hosts.AddHost(&HostInfo{ID: 1, Name: "k8s-strict", HostType: "kubernetes", K8sNamespace: "seatunnel-prod"})
+	svc := NewService(NewRepository(db), hosts, nil)
+	svc.SetK8sDependencies(mgr, nil, nil)
+
+	// 1) 已下线的 apiserver_proxy 模式必须明确阻断。
+	resProxyUnsupported, err := svc.K8sPrecheck(context.Background(), &K8sPrecheckRequest{
+		HostID: 1, Namespace: "seatunnel-prod", AccessMode: "apiserver_proxy",
+		ClusterName: "c1", DeploymentMode: "hybrid", HybridMemory: "1Gi",
+		Image: "apache/seatunnel:3.1.1", Version: "3.1.1",
+	})
+	require.NoError(t, err)
+	assert.False(t, resProxyUnsupported.Passed)
+
+	// 2) in_cluster 模式下，公开镜像（零 secrets + 零 proxy）全部通过。
+	resInClusterPublic, err := svc.K8sPrecheck(context.Background(), &K8sPrecheckRequest{
+		HostID: 1, Namespace: "seatunnel-prod", AccessMode: "in_cluster",
+		ClusterName: "c1", DeploymentMode: "hybrid", HybridMemory: "1Gi",
+		Image: "apache/seatunnel:3.1.1", Version: "3.1.1",
+	})
+	require.NoError(t, err)
+	assert.True(t, resInClusterPublic.Passed)
+
+	// 3) 未填 image_pull_secrets 但选中带凭据的 harbor.corp.com 时，因缺 secrets 权限精确阻断并给二选一指引。
+	resNeedSecretPerm, err := svc.K8sPrecheck(context.Background(), &K8sPrecheckRequest{
+		HostID: 1, Namespace: "seatunnel-prod", AccessMode: "in_cluster",
+		ClusterName: "c1", DeploymentMode: "hybrid", HybridMemory: "1Gi",
+		Image: "harbor.corp.com/team/seatunnel:3.1.1", Version: "3.1.1",
+	})
+	require.NoError(t, err)
+	assert.False(t, resNeedSecretPerm.Passed)
+
+	// 4) 手动指定已有 image_pull_secrets 后，不代建 Secret；Secrets.Get 403 降级为 warning，预检通过！
+	resManualSecret, err := svc.K8sPrecheck(context.Background(), &K8sPrecheckRequest{
+		HostID: 1, Namespace: "seatunnel-prod", AccessMode: "in_cluster",
+		ClusterName: "c1", DeploymentMode: "hybrid", HybridMemory: "1Gi",
+		Image: "harbor.corp.com/team/seatunnel:3.1.1", Version: "3.1.1",
+		ImagePullSecrets: "precreated-harbor-secret",
+	})
+	require.NoError(t, err)
+	assert.True(t, resManualSecret.Passed)
+
+	// 5) 未登记私仓（路线 A）不阻断，只给 warning。
+	resUnregistered, err := svc.K8sPrecheck(context.Background(), &K8sPrecheckRequest{
+		HostID: 1, Namespace: "seatunnel-prod", AccessMode: "in_cluster",
+		ClusterName: "c1", DeploymentMode: "hybrid", HybridMemory: "1Gi",
+		Image: "ghcr.io/custom/seatunnel:3.1.1", Version: "3.1.1",
+	})
+	require.NoError(t, err)
+	assert.True(t, resUnregistered.Passed)
+
+	// 6) ensureK8sRegistryCredential：手填 Secret 优先跳过代建；无手填且遇到 403 返回 ErrRegistrySecretForbidden。
+	cfgSkip := &k8s.SessionConfig{
+		HostID: 1, Namespace: "seatunnel-prod", Image: "harbor.corp.com/team/seatunnel:3.1.1",
+		ImagePullSecrets: []string{"precreated-harbor-secret"},
+	}
+	require.NoError(t, svc.ensureK8sRegistryCredential(context.Background(), cfgSkip, &Cluster{ClusterCode: "c1"}))
+	assert.Equal(t, []string{"precreated-harbor-secret"}, cfgSkip.ImagePullSecrets)
+
+	cfgForbidden := &k8s.SessionConfig{
+		HostID: 1, Namespace: "seatunnel-prod", Image: "harbor.corp.com/team/seatunnel:3.1.1",
+	}
+	credErr := svc.ensureK8sRegistryCredential(context.Background(), cfgForbidden, &Cluster{ClusterCode: "c1"})
+	require.ErrorIs(t, credErr, ErrRegistrySecretForbidden)
 }

@@ -28,6 +28,7 @@ import {useTranslations} from 'next-intl';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {ConfirmDialog} from '@/components/common/layout';
 import {toast} from '@/lib/toast';
+import {isK8sInfra} from '@/lib/infra';
 import services from '@/lib/services';
 import {
   ClusterStatus,
@@ -48,7 +49,7 @@ export function getClusterActionFlags(
   // K8s 集群的"删除"即资源生命周期本身（解绑/卸载工作负载），后端允许运行态删除，前端必须对齐。
   // For K8s clusters deletion IS the resource lifecycle (unbind/uninstall workloads);
   // the backend permits deleting running clusters and the frontend must match.
-  const isK8s = Boolean(cluster.infra_type && cluster.infra_type !== 'bare_metal');
+  const isK8s = isK8sInfra(cluster.infra_type);
   return {
     canStart:
       cluster.status === ClusterStatus.CREATED ||
@@ -248,7 +249,7 @@ export function useClusterLifecycle(
   // adopted=unbind plus STX Java Proxy cleanup only; stx_deployed=uninstall the control-plane
   // deployed K8s resources; non-K8s keeps the original copy.
   const deleteDialogK8sKind = (() => {
-    if (!pendingDelete?.infra_type || pendingDelete.infra_type === 'bare_metal') {
+    if (!pendingDelete || !isK8sInfra(pendingDelete.infra_type)) {
       return null;
     }
     const cfg = (pendingDelete.config as Record<string, unknown> | undefined)?.['kubernetes'] as

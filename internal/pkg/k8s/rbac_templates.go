@@ -31,6 +31,13 @@ const (
 	DefaultSeaTunnelRunnerServiceAccount = "seatunnel-runner"
 )
 
+// MinimalRBACOptions 控制单命名空间控制面权限模板的可选模块拼装。
+// MinimalRBACOptions controls optional capability blocks included in the single-namespace control-plane YAML.
+type MinimalRBACOptions struct {
+	IncludeDeleteRules bool
+	IncludeSecretRules bool
+}
+
 func normalizeTemplateNamespace(namespace string) string {
 	ns := strings.TrimSpace(namespace)
 	if ns == "" {
@@ -56,16 +63,32 @@ func normalizeManagerSA(managerSA ...string) string {
 	return DefaultSTXManagerServiceAccount
 }
 
-// RenderMinimalRBACYAML 生成单命名空间最小权限 RBAC YAML（控制面 managerSA 与引擎运行账号 runnerSA 严格隔离）。
-// RenderMinimalRBACYAML renders a single-namespace minimal RBAC YAML separating the STX control-plane
-// identity (managerSA, defaulting to stx-manager) from the read-only SeaTunnel runner ServiceAccount.
-func RenderMinimalRBACYAML(namespace, runnerSA string, managerSA ...string) string {
+// RenderMinimalRBACYAML 生成单命名空间 STX 控制面最小权限 RBAC YAML（仅包含控制面自身所需权限，不包含引擎运行账号）。
+// RenderMinimalRBACYAML renders pure single-namespace STX control-plane RBAC YAML (never bundles engine runner SA).
+func RenderMinimalRBACYAML(namespace string, managerSA ...string) string {
+	return RenderMinimalRBACYAMLWithOptions(
+		namespace,
+		normalizeManagerSA(managerSA...),
+		MinimalRBACOptions{
+			IncludeDeleteRules: false,
+			IncludeSecretRules: false,
+		},
+	)
+}
+
+// RenderMinimalRBACYAMLWithOptions 按按需模块拼装单命名空间 STX 控制面最小权限 RBAC YAML：
+// 1) 严格仅授予 STX 控制面 ServiceAccount 在当前命名空间内的部署、更新与日志读取权限；
+// 2) 仅页面卸载删资源或自动代建 Secret 需要时才附加对应可选权限块；
+// 3) 与 SeaTunnel 引擎运行账号完全解耦。
+// RenderMinimalRBACYAMLWithOptions renders modular single-namespace STX control-plane RBAC YAML
+// with scoped base rules and opt-in capability blocks, strictly decoupled from SeaTunnel engine runner SAs.
+func RenderMinimalRBACYAMLWithOptions(namespace, managerSA string, opts MinimalRBACOptions) string {
 	ns := normalizeTemplateNamespace(namespace)
-	runner := normalizeRunnerSA(runnerSA)
-	manager := normalizeManagerSA(managerSA...)
-	return fmt.Sprintf(`# STX 控制面单命名空间最小权限模板 / STX single-namespace minimal RBAC template
-# 1) %s: STX 控制面管理本命名空间工作负载与代理 / manages workloads and proxy in namespace %q
-# 2) %s: SeaTunnel 引擎 Pod 只读身份（仅 Hazelcast 节点发现）/ read-only identity for engine pods (Hazelcast discovery only)
+	manager := normalizeManagerSA(managerSA)
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`# STX 控制面单命名空间权限模板 / STX single-namespace control-plane RBAC template
+# 仅授权 STX 控制面在当前命名空间内部署、更新与读取日志 / Scoped strictly to control-plane deploy, update, and logs in one namespace
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -78,43 +101,48 @@ metadata:
   name: %s-role
   namespace: %s
 rules:
+  # --- 核心运行时与部署必选权限 / Core runtime & deploy permissions ---
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "watch", "create", "delete"]
+    verbs: ["get", "list"]
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
   - apiGroups: [""]
-    resources: ["pods/proxy"]
-    verbs: ["get", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["get", "list", "create", "update", "delete"]
-  - apiGroups: [""]
-    resources: ["services/proxy"]
-    verbs: ["get", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["get", "list", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "list", "create", "update", "delete"]
+    resources: ["services", "configmaps"]
+    verbs: ["get", "list", "create", "update"]
   - apiGroups: [""]
     resources: ["serviceaccounts", "persistentvolumeclaims"]
     verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["events"]
-    verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["statefulsets", "deployments"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["get", "list", "create", "update", "patch"]
   - apiGroups: ["apps"]
     resources: ["replicasets"]
-    verbs: ["get", "list"]
-  - apiGroups: ["batch"]
-    resources: ["jobs"]
-    verbs: ["get", "list", "create", "delete"]
----
+    verbs: ["list"]
+`, manager, ns, manager, ns))
+
+	if opts.IncludeDeleteRules {
+		b.WriteString(`  # --- 可选块：STX 页面一键卸载、失败自动回收与单 Pod 重建；不勾选时缩容至 0 并提示按标签清理命令 ---
+  # --- Optional: UI uninstall, failed deploy reclamation & single-pod recreate ---
+  - apiGroups: ["apps"]
+    resources: ["statefulsets", "deployments"]
+    verbs: ["delete"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "pods"]
+    verbs: ["delete"]
+`)
+	}
+	if opts.IncludeSecretRules {
+		b.WriteString(`  # --- 可选块：STX 自动代建私仓拉取 Secret；由运维预建 imagePullSecrets 时无需勾选 ---
+  # --- Optional: STX auto pull-secret provisioning; skip when admins pre-create imagePullSecrets ---
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create", "update", "delete"]
+`)
+	}
+
+	b.WriteString(fmt.Sprintf(`---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -128,7 +156,20 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: %s-role
----
+`, manager, ns, manager, ns, manager))
+
+	return b.String()
+}
+
+// RenderSeaTunnelRunnerRBACYAML 生成独立的 SeaTunnel 引擎运行账号 RBAC YAML（仅包含命名空间内只读发现权限）。
+// RenderSeaTunnelRunnerRBACYAML renders standalone read-only RBAC YAML for SeaTunnel engine Pods in a single namespace.
+func RenderSeaTunnelRunnerRBACYAML(namespace, runnerSA string) string {
+	ns := normalizeTemplateNamespace(namespace)
+	runner := normalizeRunnerSA(runnerSA)
+	return fmt.Sprintf(`# SeaTunnel 引擎运行账号权限模板（与 STX 控制面账号完全独立）
+# Standalone SeaTunnel engine runner RBAC template (isolated from STX control-plane SA)
+# 仅在启用 K8s API 节点发现或需要绑定专属 Pod 身份时应用；默认 DNS 服务发现无需任何 K8s API 权限
+# Apply only when using K8s API discovery or dedicated pod identity; default DNS discovery needs zero K8s API permissions
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -158,108 +199,7 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: %s-role
-`,
-		manager, ns,
-		runner,
-		manager, ns,
-		manager, ns,
-		manager, ns, manager, ns, manager,
-		runner, ns,
-		runner, ns,
-		runner, ns, runner, ns, runner,
-	)
-}
-
-// RenderFullRBACYAML 生成跨命名空间全面权限 RBAC YAML（支持多命名空间选择与按集群自动创建专属 RBAC）。
-// RenderFullRBACYAML renders a multi-namespace full RBAC YAML enabling cross-namespace discovery
-// and automatic per-cluster SeaTunnel RBAC provisioning.
-func RenderFullRBACYAML(namespace string, managerSA ...string) string {
-	ns := normalizeTemplateNamespace(namespace)
-	manager := normalizeManagerSA(managerSA...)
-	return fmt.Sprintf(`# STX 控制面跨命名空间全面权限模板 / STX multi-namespace full RBAC template
-# 1) %s: 跨命名空间调度 SeaTunnel 集群，并按集群自动创建隔离的 ServiceAccount/Role/RoleBinding
-# 1) %s: manages SeaTunnel across namespaces and auto-provisions isolated per-cluster RBAC
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: %s
-  namespace: %s
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: %s-cluster-role
-rules:
-  - apiGroups: [""]
-    resources: ["namespaces"]
-    verbs: ["get", "list", "create"]
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch", "create", "delete"]
-  - apiGroups: [""]
-    resources: ["pods/log"]
-    verbs: ["get"]
-  - apiGroups: [""]
-    resources: ["pods/proxy"]
-    verbs: ["get", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["get", "list", "create", "update", "delete"]
-  - apiGroups: [""]
-    resources: ["services/proxy"]
-    verbs: ["get", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["endpoints"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["get", "list", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "list", "create", "update", "delete"]
-  - apiGroups: [""]
-    resources: ["serviceaccounts"]
-    verbs: ["get", "list", "create", "delete"]
-  - apiGroups: [""]
-    resources: ["persistentvolumeclaims"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["events"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["apps"]
-    resources: ["statefulsets", "deployments"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["apps"]
-    resources: ["replicasets"]
-    verbs: ["get", "list"]
-  - apiGroups: ["batch"]
-    resources: ["jobs"]
-    verbs: ["get", "list", "create", "delete"]
-  - apiGroups: ["rbac.authorization.k8s.io"]
-    resources: ["roles", "rolebindings"]
-    verbs: ["get", "list", "create", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: %s-cluster-binding
-subjects:
-  - kind: ServiceAccount
-    name: %s
-    namespace: %s
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: %s-cluster-role
-`,
-		manager,
-		manager,
-		manager, ns,
-		manager,
-		manager,
-		manager, ns,
-		manager,
-	)
+`, runner, ns, runner, ns, runner, ns, runner, ns, runner)
 }
 
 // RenderTokenCommand 生成签发控制面 SA 访问令牌的 kubectl 命令。

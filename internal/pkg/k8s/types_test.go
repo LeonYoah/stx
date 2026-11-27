@@ -36,8 +36,8 @@ func TestParseSessionConfig_defaultsApplied(t *testing.T) {
 	if cfg.HazelcastPort != 5801 {
 		t.Fatalf("expected default hazelcast_port 5801, got %d", cfg.HazelcastPort)
 	}
-	if cfg.AccessMode != AccessModeAPIServerProxy {
-		t.Fatalf("expected default access_mode apiserver_proxy, got %q", cfg.AccessMode)
+	if cfg.AccessMode != AccessModeInCluster {
+		t.Fatalf("expected default access_mode in_cluster, got %q", cfg.AccessMode)
 	}
 	if cfg.ManagementSource != ManagementSourceAdopted {
 		t.Fatalf("expected default management_source adopted, got %q", cfg.ManagementSource)
@@ -131,6 +131,13 @@ func TestSessionConfigValidate_portContract(t *testing.T) {
 		cfg.ExternalBaseURL = "http://127.0.0.1:8080"
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("rejects deprecated apiserver_proxy mode", func(t *testing.T) {
+		cfg := base()
+		cfg.AccessMode = AccessMode("apiserver_proxy")
+		if err := cfg.Validate(); err == nil {
+			t.Fatal("expected error for unsupported apiserver_proxy access_mode")
 		}
 	})
 	t.Run("bad management source", func(t *testing.T) {

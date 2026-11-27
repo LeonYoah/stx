@@ -610,18 +610,17 @@ func NewDefaultClusterRuntimeResolver(clusterRepo *clusterapp.Repository, hostRe
 	return &DefaultClusterRuntimeResolver{clusterRepo: clusterRepo, hostRepo: hostRepo}
 }
 
-// SetK8sClientManager 注入 K8sClientManager；K8s 集群的引擎端点经 apiserver_proxy 解析。
+// SetK8sClientManager 注入 K8sClientManager；K8s 集群的引擎端点经 K8sTransport 解析。
 // SetK8sClientManager injects the K8sClientManager; K8s cluster engine endpoints resolve
-// through apiserver_proxy.
+// through K8sTransport.
 func (r *DefaultClusterRuntimeResolver) SetK8sClientManager(mgr *k8s.ClientManager) {
 	r.k8sManager = mgr
 }
 
-// resolveK8sEndpoints 为 K8s 集群构造端点：BaseURL 指向 apiserver_proxy 的 master Service
-// 代理地址，Transport 注入 API Server TLS/认证，URL 拼接逻辑与裸金属完全一致。
-// resolveK8sEndpoints builds endpoints for K8s clusters: BaseURL points at the apiserver_proxy
-// master Service proxy address while Transport carries the API server's TLS/auth material;
-// URL joining logic stays identical to bare metal.
+// resolveK8sEndpoints 为 K8s 集群构造端点：BaseURL 按连接方式指向集群内 Service 或外部入口，
+// URL 拼接逻辑与裸金属完全一致。
+// resolveK8sEndpoints builds endpoints for K8s clusters using in-cluster Service DNS or
+// external base URL; URL joining logic stays identical to bare metal.
 func (r *DefaultClusterRuntimeResolver) resolveK8sEndpoints(ctx context.Context, clusterObj *clusterapp.Cluster) ([]*EngineEndpoint, error) {
 	if r.k8sManager == nil {
 		return nil, fmt.Errorf("sync: k8s client manager not configured")

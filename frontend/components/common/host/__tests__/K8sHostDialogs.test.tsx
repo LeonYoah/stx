@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-// Kubernetes 主机创建弹窗与详情原地编辑测试：
-// 验证主机类型置顶分段切换、行内校验、kubeconfig/token 双模式获取命令与自定义控制面 SA、
-// Step 2 并发体检/动态排除 control_plane_sa/分类故障提示，以及 HostDetail 原地编辑。
-// Tests for Kubernetes CreateHostDialog and in-place HostDetail editing:
-// top-level host-type SegmentedControl, inline validation, dual-mode kubeconfig/token guides,
-// custom manager SA, Step 2 dynamic control_plane_sa filtering, classified errors, and in-place editing.
+// Kubernetes 主机接入、凭据解析、双身份拆分、轮换与删除清理测试：
+// 覆盖 3 步宽抽屉（Step 1 连接方式与路径 → Step 2 Plan A 控制面 YAML + kubeconfig/token 解析 →
+// Step 3 4 阶段无状态预检 + 保存后引导）、详情页双 SA 独立区块、轮换先测后换与安全清理清单。
+// Tests for redesigned Kubernetes host onboarding, dual-SA isolation, rotation & cleanup:
+// 3-step Drawer (Step 1 access/prep → Step 2 Plan A control-plane YAML + kubeconfig/token →
+// Step 3 4-stage probe + post-save handoff), HostDetail dual-SA blocks, rotation, and safe delete cleanup.
 
 import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
@@ -34,10 +34,15 @@ import {
 } from '@/lib/services/host/types';
 import {CreateHostDialog} from '../CreateHostDialog';
 import {HostDetail} from '../HostDetail';
+import {HostTable} from '../HostTable';
 
 const createHostSafe = vi.hoisted(() => vi.fn());
 const updateHostSafe = vi.hoisted(() => vi.fn());
+const getHostSafe = vi.hoisted(() => vi.fn());
 const testK8sConnection = vi.hoisted(() => vi.fn());
+const testK8sDraftConnection = vi.hoisted(() => vi.fn());
+const inspectK8sKubeconfig = vi.hoisted(() => vi.fn());
+const listK8sNamespaceObjects = vi.hoisted(() => vi.fn());
 const toastSuccess = vi.hoisted(() => vi.fn());
 const toastError = vi.hoisted(() => vi.fn());
 
@@ -46,7 +51,11 @@ vi.mock('@/lib/services', () => ({
     host: {
       createHostSafe,
       updateHostSafe,
+      getHostSafe,
       testK8sConnection,
+      testK8sDraftConnection,
+      inspectK8sKubeconfig,
+      listK8sNamespaceObjects,
     },
   },
 }));
@@ -65,12 +74,21 @@ kind: Config
 clusters:
 - name: dev
   cluster:
+    server: https://127.0.0.1:6443
+- name: prod
+  cluster:
     server: https://10.0.0.10:6443
 contexts:
 - name: dev
   context:
     cluster: dev
     user: admin
+    namespace: seatunnel-dev
+- name: prod
+  context:
+    cluster: prod
+    user: admin
+    namespace: seatunnel-prod
 current-context: dev
 users:
 - name: admin
@@ -91,6 +109,7 @@ function makeK8sHost(overrides: Partial<HostInfo> = {}): HostInfo {
     k8s_api_url: 'https://10.0.0.10:6443',
     k8s_namespace: 'seatunnel',
     k8s_auth_mode: 'kubeconfig',
+    k8s_access_mode: 'in_cluster',
     has_k8s_kubeconfig: true,
     has_k8s_token: false,
     k8s_insecure_skip_tls: false,
@@ -105,18 +124,75 @@ function makeK8sHost(overrides: Partial<HostInfo> = {}): HostInfo {
   };
 }
 
-describe('Kubernetes Host Onboarding & In-Place Edit', () => {
+describe('Kubernetes Host Onboarding, Dual-SA Split, Rotation & Cleanup', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    inspectK8sKubeconfig.mockImplementation(async (_raw: string, preferredCtx?: string) => ({
+      valid: true,
+      current_context: 'dev',
+      selected_context: preferredCtx || 'dev',
+      contexts: [
+        {
+          name: 'dev',
+          cluster: 'dev',
+          user: 'admin',
+          namespace: 'seatunnel-dev',
+          server: 'https://127.0.0.1:6443',
+          has_external_files: false,
+          has_exec_plugin: false,
+          has_loopback_server: true,
+          credential_kind: 'token',
+        },
+        {
+          name: 'prod',
+          cluster: 'prod',
+          user: 'admin',
+          namespace: 'seatunnel-prod',
+          server: 'https://10.0.0.10:6443',
+          has_external_files: false,
+          has_exec_plugin: false,
+          has_loopback_server: false,
+          credential_expires_at: '2030-01-01T00:00:00Z',
+          credential_kind: 'service_account_jwt',
+        },
+      ],
+      warnings: preferredCtx === 'prod' ? [] : ['loopback_server'],
+    }));
+    testK8sDraftConnection.mockResolvedValue({
+      connected: true,
+      server_version: 'v1.33.9',
+      permission_mode: 'minimal',
+      control_plane_sa: 'stx-manager',
+      can_manage_rbac: false,
+      can_list_namespaces: false,
+      credential_expires_at: '2030-01-01T00:00:00Z',
+      rbac: [
+        {group: '', resource: 'pods', verb: 'get', scope: 'required', allowed: true},
+        {group: '', resource: 'secrets', verb: 'create', scope: 'optional', allowed: false},
+        {group: '', resource: 'namespaces', verb: 'list', scope: 'extended', allowed: false},
+      ],
+      elapsed_ms: 14,
+    });
     testK8sConnection.mockResolvedValue({
       connected: true,
       server_version: 'v1.33.9',
-      permission_mode: 'full',
-      can_manage_rbac: true,
-      can_list_namespaces: true,
+      permission_mode: 'minimal',
+      control_plane_sa: 'stx-manager',
+      can_manage_rbac: false,
+      can_list_namespaces: false,
       rbac: [],
       elapsed_ms: 12,
     });
+    getHostSafe.mockResolvedValue({
+      success: true,
+      data: makeK8sHost({
+        id: 101,
+        name: 'k8s-dev',
+        k8s_namespace: 'seatunnel-dev',
+        k8s_access_mode: 'external',
+      }),
+    });
+    listK8sNamespaceObjects.mockResolvedValue(['default']);
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       value: vi.fn().mockImplementation((query: string) => ({
@@ -126,19 +202,18 @@ describe('Kubernetes Host Onboarding & In-Place Edit', () => {
         removeEventListener: vi.fn(),
       })),
     });
-    if (!HTMLElement.prototype.hasPointerCapture) {
-      HTMLElement.prototype.hasPointerCapture = () => false;
-    }
-    if (!HTMLElement.prototype.scrollIntoView) {
-      HTMLElement.prototype.scrollIntoView = () => {};
-    }
   });
 
-  it('CreateHostDialog puts host type first via SegmentedControl, shows inline errors, and keeps kubeconfig vs token exclusive', async () => {
+  it('CreateHostDialog walks 3-step Drawer (Step 1 access/prep → Step 2 kubeconfig inspect → Step 3 4-stage probe & handoff)', async () => {
     const onSuccess = vi.fn();
+    const onDeployCluster = vi.fn();
     createHostSafe.mockResolvedValue({
       success: true,
-      data: makeK8sHost({id: 101, name: 'k8s-dev'}),
+      data: makeK8sHost({
+        id: 101,
+        name: 'k8s-dev',
+        k8s_access_mode: 'external',
+      }),
     });
 
     render(
@@ -147,62 +222,118 @@ describe('Kubernetes Host Onboarding & In-Place Edit', () => {
           open
           onOpenChange={vi.fn()}
           onSuccess={onSuccess}
+          onDeployCluster={onDeployCluster}
         />
       </NextIntlClientProvider>,
     );
 
-    // 顶部直接用分段控件切换到 Kubernetes / Switch host type to Kubernetes via top SegmentedControl
     fireEvent.click(screen.getByTestId('host-type-kubernetes'));
+    expect(screen.getByTestId('k8s-step-1')).toBeInTheDocument();
+    // Step 1 首屏直接可见可编辑命名空间且无 seatunnel-runner 干扰 / Step 1 exposes namespace cleanly with zero engine SA clutter
+    expect(document.getElementById('k8s_namespace')).toHaveValue('seatunnel');
+    expect(document.getElementById('k8s_default_service_account')).not.toBeInTheDocument();
 
-    // 默认 kubeconfig 模式：展示 kubeconfig 导出命令，不展示 token/API URL/CA/SkipTLS
-    // Default kubeconfig mode: shows export command, hides token/API URL/CA/SkipTLS
-    expect(screen.getByRole('button', {name: 'Kubeconfig'})).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    expect(screen.getByText('kubectl config view --raw --flatten --minify')).toBeInTheDocument();
-    expect(document.getElementById('k8s_kubeconfig')).toBeInTheDocument();
-    expect(document.getElementById('k8s_api_url')).not.toBeInTheDocument();
-    expect(document.getElementById('k8s_token')).not.toBeInTheDocument();
+    // 选择集群外入口并验证流向说明切换 / Pick external endpoint via RadioCards
+    fireEvent.click(screen.getByTestId('k8s-access-mode-external'));
+    expect(screen.getByText(zh.host.k8sAccessFlowExternal)).toBeInTheDocument();
 
-    // 空提交走字段行内报错，不再仅靠消失式 toast / Empty submit shows inline field errors instead of toast
-    fireEvent.click(screen.getByRole('button', {name: zh.host.k8sGuide.nextStepTest}));
-    expect(document.getElementById('name-error')).toHaveTextContent(
-      zh.host.errors.nameRequired,
-    );
-    expect(screen.getByText(zh.host.errors.k8sKubeconfigRequired)).toBeInTheDocument();
+    // Step 1 空名称走行内校验 / Empty host name validates inline
+    fireEvent.click(screen.getByTestId('k8s-step1-next'));
+    expect(document.getElementById('name-error')).toHaveTextContent(zh.host.errors.nameRequired);
     expect(toastError).not.toHaveBeenCalled();
 
     fireEvent.change(document.getElementById('name')!, {
       target: {value: 'k8s-dev'},
     });
+    fireEvent.click(screen.getByTestId('k8s-step1-next'));
+
+    // Step 2：Plan A 纯控制面模板默认展开（因为默认选了先生成模板）且无引擎 SA / Step 2 shows Plan A control-plane YAML only
+    expect(screen.getByTestId('k8s-step-2')).toBeInTheDocument();
+    const yamlPre = screen.getByTestId('k8s-rbac-template-yaml');
+    expect(yamlPre.textContent).toContain('name: stx-manager');
+    expect(yamlPre.textContent).not.toContain('ClusterRole');
+    expect(yamlPre.textContent).not.toContain('seatunnel-runner');
+    expect(yamlPre.textContent).not.toContain('services/proxy');
+    expect(yamlPre.textContent).not.toContain('pods/proxy');
+
     fireEvent.change(document.getElementById('k8s_kubeconfig')!, {
       target: {value: SAMPLE_KUBECONFIG},
     });
-    fireEvent.click(screen.getByRole('button', {name: zh.host.k8sGuide.nextStepTest}));
+    expect(await screen.findByTestId('create-kubeconfig-warnings')).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId('create-kubeconfig-server-override'), {
+      target: {value: 'https://192.168.10.25:6443'},
+    });
+    expect(screen.queryByTestId('create-kubeconfig-warnings')).not.toBeInTheDocument();
+
+    // Step 3：无状态 4 阶段预检，通过前不落库 / Step 3 runs stateless 4-stage probe before persisting
+    fireEvent.click(screen.getByTestId('k8s-step2-next'));
+    await waitFor(() => {
+      expect(testK8sDraftConnection).toHaveBeenCalledTimes(1);
+    });
+    expect(createHostSafe).not.toHaveBeenCalled();
+    expect(screen.getByTestId('k8s-guide-draft-notice')).toBeInTheDocument();
+    expect(screen.getByTestId('k8s-guide-stage-list')).toHaveTextContent(zh.host.k8sGuide.stageRbac);
+    expect(await screen.findByText('stx-manager')).toBeInTheDocument();
+    // 校验 optional 权限不误计入核心必选（应显示 核心 1/1 · 扩展 0/2） / Optional rules must not count as required
+    expect(screen.getByTestId('k8s-connect-guide')).toHaveTextContent('核心 1/1 · 扩展 0/2');
+    expect(screen.getByTestId('k8s-guide-rbac-details-toggle')).toBeInTheDocument();
+
+    const saveBtn = await screen.findByTestId('k8s-guide-save-host');
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+    fireEvent.click(saveBtn);
 
     await waitFor(() => {
-      expect(createHostSafe).toHaveBeenCalledTimes(1);
+      expect(createHostSafe).toHaveBeenCalledWith({
+        name: 'k8s-dev',
+        host_type: HostType.KUBERNETES,
+        description: '',
+        k8s_auth_mode: 'kubeconfig',
+        k8s_access_mode: 'external',
+        k8s_namespace: 'seatunnel-dev',
+        k8s_kubeconfig: SAMPLE_KUBECONFIG.trim(),
+        k8s_context: 'dev',
+        k8s_api_url: 'https://192.168.10.25:6443',
+      });
     });
-    expect(createHostSafe).toHaveBeenCalledWith({
-      name: 'k8s-dev',
-      host_type: HostType.KUBERNETES,
-      description: '',
-      k8s_auth_mode: 'kubeconfig',
-      k8s_namespace: 'default',
-      k8s_kubeconfig: SAMPLE_KUBECONFIG.trim(),
+
+    // 保存后出现可选预备引擎 SA 卡片：未建时拦截绑定，建好后一键检测并设为本主机默认
+    // Post-save optional engine SA card: blocks binding when missing, binds default once detected
+    expect(await screen.findByTestId('k8s-guide-engine-sa-card')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('k8s-engine-sa-bind-btn'));
+    expect(await screen.findByTestId('k8s-engine-sa-bind-feedback')).toHaveTextContent(
+      'seatunnel-runner',
+    );
+    expect(updateHostSafe).not.toHaveBeenCalled();
+
+    listK8sNamespaceObjects.mockResolvedValueOnce(['default', 'seatunnel-runner']);
+    updateHostSafe.mockResolvedValueOnce({
+      success: true,
+      data: makeK8sHost({
+        id: 101,
+        name: 'k8s-dev',
+        k8s_namespace: 'seatunnel-dev',
+        k8s_access_mode: 'external',
+        k8s_default_service_account: 'seatunnel-runner',
+      }),
     });
+    fireEvent.click(screen.getByTestId('k8s-engine-sa-bind-btn'));
     await waitFor(() => {
-      expect(testK8sConnection).toHaveBeenCalledWith(101, expect.any(Object));
+      expect(updateHostSafe).toHaveBeenCalledWith(101, {
+        k8s_default_service_account: 'seatunnel-runner',
+      });
     });
+    expect(screen.getByTestId('k8s-guide-saved-engine-sa-chip')).toHaveTextContent(
+      'seatunnel-runner',
+    );
+
+    // 保存后出现前往部署集群出口 / Post-save banner exposes Deploy Cluster CTA
+    const deployBtn = await screen.findByTestId('k8s-guide-deploy-cluster');
+    fireEvent.click(deployBtn);
+    expect(onDeployCluster).toHaveBeenCalledTimes(1);
+    expect(onSuccess).toHaveBeenCalledTimes(2);
   });
 
-  it('CreateHostDialog token mode warns on truncated token, strips line wraps, hides CA when skip-TLS is checked', async () => {
-    createHostSafe.mockResolvedValue({
-      success: true,
-      data: makeK8sHost({id: 102, name: 'k8s-token', k8s_auth_mode: 'token'}),
-    });
-
+  it('CreateHostDialog Step 2 prep=existing collapses RBAC template, strips wrapped JWT, and warns on skip TLS', async () => {
     render(
       <NextIntlClientProvider locale='zh' messages={zh}>
         <CreateHostDialog open onOpenChange={vi.fn()} onSuccess={vi.fn()} />
@@ -210,26 +341,20 @@ describe('Kubernetes Host Onboarding & In-Place Edit', () => {
     );
 
     fireEvent.click(screen.getByTestId('host-type-kubernetes'));
+    fireEvent.change(document.getElementById('name')!, {target: {value: 'k8s-token'}});
+    fireEvent.click(screen.getByTestId('k8s-prep-mode-existing'));
+    fireEvent.click(screen.getByTestId('k8s-step1-next'));
+
+    expect(screen.queryByTestId('k8s-rbac-template-panel')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', {name: 'Token'}));
-    expect(document.getElementById('k8s_kubeconfig')).not.toBeInTheDocument();
-    expect(document.getElementById('k8s_api_url')).toBeInTheDocument();
-    expect(document.getElementById('k8s_token')).toBeInTheDocument();
-    expect(document.getElementById('k8s_ca_cert')).toBeInTheDocument();
-
-    // 勾选跳过 TLS 后自动收起 CA 证书输入框 / Checking skip-TLS hides CA textarea
     fireEvent.click(document.getElementById('k8s_insecure_skip_tls')!);
-    expect(document.getElementById('k8s_ca_cert')).not.toBeInTheDocument();
+    expect(screen.getByTestId('k8s-skip-tls-warning')).toBeInTheDocument();
 
-    // 粘贴截断单段令牌时显示预警 / Truncated token triggers non-blocking amber warning
     fireEvent.change(document.getElementById('k8s_token')!, {
       target: {value: 'only-signature-part'},
     });
     expect(screen.getByTestId('k8s-token-truncated-warning')).toBeInTheDocument();
 
-    // 替换为带换行的完整 JWT：预警消失，提交时自动剥离换行符 / Wrapped full JWT clears warning and strips newlines
-    fireEvent.change(document.getElementById('name')!, {
-      target: {value: 'k8s-token'},
-    });
     fireEvent.change(document.getElementById('k8s_api_url')!, {
       target: {value: 'https://10.0.0.20:6443'},
     });
@@ -238,32 +363,83 @@ describe('Kubernetes Host Onboarding & In-Place Edit', () => {
     });
     expect(screen.queryByTestId('k8s-token-truncated-warning')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', {name: zh.host.k8sGuide.nextStepTest}));
-
+    fireEvent.click(screen.getByTestId('k8s-step2-next'));
     await waitFor(() => {
-      expect(createHostSafe).toHaveBeenCalledWith({
-        name: 'k8s-token',
-        host_type: HostType.KUBERNETES,
-        description: '',
-        k8s_auth_mode: 'token',
-        k8s_api_url: 'https://10.0.0.20:6443',
-        k8s_namespace: 'default',
-        k8s_token: SAMPLE_VALID_JWT,
-        k8s_insecure_skip_tls: true,
-        k8s_ca_cert: '',
-      });
+      expect(testK8sDraftConnection).toHaveBeenCalledWith(
+        expect.objectContaining({
+          k8s_auth_mode: 'token',
+          k8s_api_url: 'https://10.0.0.20:6443',
+          k8s_token: SAMPLE_VALID_JWT,
+          k8s_insecure_skip_tls: true,
+        }),
+        expect.any(Object),
+      );
     });
-    await waitFor(() => {
-      expect(testK8sConnection).toHaveBeenCalledWith(102, expect.any(Object));
-    });
+    expect(createHostSafe).not.toHaveBeenCalled();
   });
 
-  it('HostDetail in-place edit enforces mode-exclusive fields and inline required token error when switching from kubeconfig', async () => {
-    const updatedHost = makeK8sHost({k8s_auth_mode: 'token', has_k8s_token: true});
+  it('HostDetail separates control-plane & engine SA sections, verifies before rotating credential, and keeps edit mode-exclusive', async () => {
+    const updatedHost = makeK8sHost({
+      k8s_auth_mode: 'token',
+      has_k8s_token: true,
+      k8s_access_mode: 'in_cluster',
+      k8s_credential_expires_at: '2030-01-01T00:00:00Z',
+    });
     updateHostSafe.mockResolvedValue({success: true, data: updatedHost});
+    getHostSafe.mockResolvedValue({success: true, data: updatedHost});
     const onUpdated = vi.fn();
 
-    render(
+    const {rerender} = render(
+      <NextIntlClientProvider locale='zh' messages={zh}>
+        <HostDetail
+          host={makeK8sHost({k8s_credential_expires_at: '2020-01-01T00:00:00Z'})}
+          editing={false}
+          onStartEdit={vi.fn()}
+          onCancelEdit={vi.fn()}
+          onUpdated={onUpdated}
+        />
+      </NextIntlClientProvider>,
+    );
+
+    expect(screen.getByTestId('host-detail-k8s-expiry')).toHaveTextContent(
+      zh.host.k8sCredentialExpired,
+    );
+    // 详情页独立渲染引擎默认运行身份区块及独立模板 / Separate engine SA block with standalone YAML template
+    const engineSection = screen.getByTestId('host-detail-engine-sa-section');
+    expect(engineSection).toHaveTextContent(zh.host.k8sEngineSaAutoLabel);
+    fireEvent.click(screen.getByTestId('k8s-engine-sa-template-toggle'));
+    const engineYaml = screen.getByTestId('k8s-engine-sa-template-yaml');
+    expect(engineYaml.textContent).toContain('name: seatunnel-runner');
+    expect(engineYaml.textContent).not.toContain('stx-manager');
+
+    // 轮换凭据弹窗：未通过探测前不能提交 / Rotation dialog disables Apply until probed
+    fireEvent.click(screen.getByTestId('k8s-rotate-credential-btn'));
+    expect(await screen.findByTestId('k8s-rotate-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('k8s-rotate-apply-btn')).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', {name: 'Token'}));
+    fireEvent.change(document.getElementById('rotate_k8s_token')!, {
+      target: {value: 'rotated-token'},
+    });
+    fireEvent.click(screen.getByTestId('k8s-rotate-test-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('k8s-rotate-apply-btn')).not.toBeDisabled();
+    });
+
+    fireEvent.click(screen.getByTestId('k8s-rotate-apply-btn'));
+    await waitFor(() => {
+      expect(updateHostSafe).toHaveBeenCalledWith(42, {
+        k8s_auth_mode: 'token',
+        k8s_api_url: 'https://10.0.0.10:6443',
+        k8s_token: 'rotated-token',
+        k8s_insecure_skip_tls: false,
+      });
+    });
+
+    vi.clearAllMocks();
+    updateHostSafe.mockResolvedValue({success: true, data: updatedHost});
+
+    rerender(
       <NextIntlClientProvider locale='zh' messages={zh}>
         <HostDetail
           host={makeK8sHost()}
@@ -274,238 +450,60 @@ describe('Kubernetes Host Onboarding & In-Place Edit', () => {
         />
       </NextIntlClientProvider>,
     );
-
-    expect(screen.getByTestId('host-detail-edit-form')).toBeInTheDocument();
-    expect(document.getElementById('edit-k8s_kubeconfig')).toBeInTheDocument();
-    expect(document.getElementById('edit-k8s_token')).not.toBeInTheDocument();
-    expect(screen.getByText('https://10.0.0.10:6443')).toBeInTheDocument();
-
-    // 切到 token 模式时，因尚未存过 token，直接保存应行内提示必填
-    // Switching to token when no token is stored must show inline validation error
     fireEvent.click(screen.getByRole('button', {name: 'Token'}));
-    expect(document.getElementById('edit-k8s_kubeconfig')).not.toBeInTheDocument();
-    expect(document.getElementById('edit-k8s_api_url')).toBeInTheDocument();
-    expect(document.getElementById('edit-k8s_token')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', {name: zh.common.save}));
-    expect(screen.getByText(zh.host.errors.k8sTokenRequired)).toBeInTheDocument();
-    expect(updateHostSafe).not.toHaveBeenCalled();
-
     fireEvent.change(document.getElementById('edit-k8s_token')!, {
       target: {value: 'new-sa-token'},
     });
     fireEvent.click(screen.getByRole('button', {name: zh.common.save}));
-
     await waitFor(() => {
       expect(updateHostSafe).toHaveBeenCalledWith(42, {
         name: 'k8s-prod',
         description: 'Production cluster',
         k8s_auth_mode: 'token',
+        k8s_access_mode: 'in_cluster',
         k8s_api_url: 'https://10.0.0.10:6443',
         k8s_namespace: 'seatunnel',
         k8s_insecure_skip_tls: false,
         k8s_token: 'new-sa-token',
       });
     });
-    expect(onUpdated).toHaveBeenCalledWith(updatedHost);
   });
 
-  it('CreateHostDialog RBAC templates adapt to Kubeconfig/Token modes and custom control-plane SA', async () => {
-    createHostSafe.mockResolvedValue({
-      success: true,
-      data: makeK8sHost({
-        id: 103,
-        name: 'k8s-min',
-        k8s_namespace: 'team-ns',
-        k8s_default_service_account: 'seatunnel-runner',
-      }),
+  it('HostTable delete cleanup omits runner SA by default and includes it only when opted in', async () => {
+    const k8sHost = makeK8sHost({
+      k8s_namespace: 'seatunnel-full',
+      k8s_permission_mode: 'full',
+      k8s_default_service_account: 'seatunnel-runner',
     });
 
     render(
       <NextIntlClientProvider locale='zh' messages={zh}>
-        <CreateHostDialog open onOpenChange={vi.fn()} onSuccess={vi.fn()} />
+        <HostTable
+          hosts={[k8sHost]}
+          selectedIds={new Set()}
+          pageAllSelected={false}
+          pageSomeSelected={false}
+          onToggleSelect={vi.fn()}
+          onToggleSelectPage={vi.fn()}
+          onViewDetail={vi.fn()}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+        />
       </NextIntlClientProvider>,
     );
 
-    fireEvent.click(screen.getByTestId('host-type-kubernetes'));
-    fireEvent.change(document.getElementById('name')!, {
-      target: {value: 'k8s-min'},
-    });
-    fireEvent.change(document.getElementById('k8s_namespace')!, {
-      target: {value: 'team-ns'},
-    });
+    const row = screen.getByTestId('host-row-42');
+    const menuTrigger = row.querySelector('button[aria-haspopup="menu"]');
+    expect(menuTrigger).toBeTruthy();
+    fireEvent.keyDown(menuTrigger!, {key: 'ArrowDown'});
+    fireEvent.click(await screen.findByText(zh.common.delete));
 
-    // 展开更多可选设置填写默认 SA / Expand optional settings for default SA
-    fireEvent.click(screen.getByTestId('create-host-optional-toggle'));
-    fireEvent.change(document.getElementById('k8s_default_service_account')!, {
-      target: {value: 'seatunnel-runner'},
-    });
+    const cleanupPanel = await screen.findByTestId('k8s-delete-cleanup-panel');
+    expect(cleanupPanel.textContent).toContain('kubectl -n seatunnel-full delete rolebinding stx-manager-binding');
+    expect(cleanupPanel.textContent).toContain('kubectl delete clusterrolebinding stx-manager-cluster-binding');
+    expect(cleanupPanel.textContent).not.toContain('seatunnel-runner');
 
-    // Kubeconfig 模式下展开 RBAC 模板，验证支持自定义控制面 SA 且输出 Kubeconfig 生成与导出命令
-    // Under Kubeconfig mode, verify custom control-plane SA updates YAML & kubeconfig commands
-    fireEvent.click(screen.getByTestId('k8s-rbac-template-toggle'));
-    fireEvent.change(screen.getByTestId('k8s-rbac-template-manager-sa'), {
-      target: {value: 'ops-stx'},
-    });
-    const yamlPre = screen.getByTestId('k8s-rbac-template-yaml');
-    expect(yamlPre.textContent).toContain('namespace: team-ns');
-    expect(yamlPre.textContent).toContain('name: ops-stx');
-    expect(yamlPre.textContent).toContain('name: ops-stx-role');
-    expect(yamlPre.textContent).toContain('name: seatunnel-runner');
-    expect(screen.getByTestId('k8s-rbac-template-kubeconfig-cmd').textContent).toContain(
-      'create token ops-stx --duration=8760h',
-    );
-    expect(screen.getByTestId('k8s-rbac-template-export-cmd').textContent).toContain(
-      'kubectl config view --raw --flatten --minify',
-    );
-
-    // 切到全面权限确认 ClusterRole 与 roleRef 联动 / Full tier keeps ClusterRole & roleRef synced
-    fireEvent.click(
-      screen.getByRole('button', {name: zh.host.k8sRbacTemplateFull}),
-    );
-    expect(screen.getByTestId('k8s-rbac-template-yaml').textContent).toContain(
-      'name: ops-stx-cluster-role',
-    );
-    expect(screen.getByTestId('k8s-rbac-template-yaml').textContent).not.toContain(
-      'name: stx-manager-cluster-role',
-    );
-
-    // 切到 Token 认证模式时自动切换为 Token 签发命令 / Token auth mode switches to create token command
-    fireEvent.click(screen.getByRole('button', {name: 'Token'}));
-    expect(screen.getByTestId('k8s-rbac-template-token').textContent).toContain(
-      'kubectl -n team-ns create token ops-stx --duration=8760h',
-    );
-
-    fireEvent.click(screen.getByRole('button', {name: 'Kubeconfig'}));
-    fireEvent.change(document.getElementById('k8s_kubeconfig')!, {
-      target: {value: SAMPLE_KUBECONFIG},
-    });
-    fireEvent.click(screen.getByRole('button', {name: zh.host.k8sGuide.nextStepTest}));
-
-    await waitFor(() => {
-      expect(createHostSafe).toHaveBeenCalledWith({
-        name: 'k8s-min',
-        host_type: HostType.KUBERNETES,
-        description: '',
-        k8s_auth_mode: 'kubeconfig',
-        k8s_namespace: 'team-ns',
-        k8s_kubeconfig: SAMPLE_KUBECONFIG.trim(),
-        k8s_default_service_account: 'seatunnel-runner',
-      });
-    });
-  });
-
-  it('CreateHostDialog Step 2 excludes dynamic control_plane_sa, saves default SA, shows classified failure hint, and edits without duplicate create', async () => {
-    const created = makeK8sHost({
-      id: 104,
-      name: 'k8s-restricted',
-      status: HostStatus.PENDING,
-      is_online: false,
-      k8s_namespace: 'seatunnel-min',
-      k8s_default_service_account: '',
-    });
-    createHostSafe.mockResolvedValue({success: true, data: created});
-    updateHostSafe
-      .mockResolvedValueOnce({
-        success: true,
-        data: {...created, k8s_default_service_account: 'seatunnel-runner'},
-      })
-      .mockResolvedValueOnce({
-        success: true,
-        data: {
-          ...created,
-          k8s_namespace: 'seatunnel-min-2',
-          k8s_default_service_account: 'seatunnel-runner',
-        },
-      });
-    testK8sConnection
-      .mockResolvedValueOnce({
-        connected: true,
-        server_version: 'v1.33.9',
-        permission_mode: 'minimal',
-        can_manage_rbac: false,
-        can_list_namespaces: false,
-        control_plane_sa: 'ops-stx-ctrl',
-        service_accounts: ['default', 'ops-stx-ctrl', 'stx-manager', 'seatunnel-runner'],
-        rbac: [],
-        elapsed_ms: 15,
-      })
-      .mockResolvedValueOnce({
-        connected: false,
-        error_code: 'unauthorized',
-        message: 'the server has asked for the client to provide credentials',
-        rbac: [],
-        elapsed_ms: 20,
-      });
-
-    render(
-      <NextIntlClientProvider locale='zh' messages={zh}>
-        <CreateHostDialog open onOpenChange={vi.fn()} onSuccess={vi.fn()} />
-      </NextIntlClientProvider>,
-    );
-
-    fireEvent.click(screen.getByTestId('host-type-kubernetes'));
-    fireEvent.change(document.getElementById('name')!, {
-      target: {value: 'k8s-restricted'},
-    });
-    fireEvent.change(document.getElementById('k8s_namespace')!, {
-      target: {value: 'seatunnel-min'},
-    });
-    fireEvent.change(document.getElementById('k8s_kubeconfig')!, {
-      target: {value: SAMPLE_KUBECONFIG},
-    });
-
-    fireEvent.click(screen.getByRole('button', {name: zh.host.k8sGuide.nextStepTest}));
-
-    await waitFor(() => {
-      expect(testK8sConnection).toHaveBeenCalledTimes(1);
-    });
-    expect(await screen.findByTestId('k8s-guide-permission-mode')).toHaveTextContent(
-      zh.host.k8sPermissionModeMinimal,
-    );
-
-    // 验证同时排除动态识别出的 ops-stx-ctrl 与默认 stx-manager / Exclude both detected control_plane_sa and stx-manager
-    const saTrigger = screen.getByTestId('k8s-guide-sa-select');
-    expect(saTrigger).toHaveTextContent('seatunnel-runner');
-    fireEvent.keyDown(saTrigger, {key: 'ArrowDown'});
-    expect(screen.queryByRole('option', {name: 'ops-stx-ctrl'})).not.toBeInTheDocument();
-    expect(screen.queryByRole('option', {name: 'stx-manager'})).not.toBeInTheDocument();
-    fireEvent.click(await screen.findByRole('option', {name: 'seatunnel-runner'}));
-
-    fireEvent.click(screen.getByTestId('k8s-guide-save-sa'));
-    await waitFor(() => {
-      expect(updateHostSafe).toHaveBeenCalledWith(104, {
-        k8s_default_service_account: 'seatunnel-runner',
-      });
-    });
-    expect(
-      await screen.findByText(
-        zh.host.k8sGuide.minimalSaReady.replace('{sa}', 'seatunnel-runner'),
-      ),
-    ).toBeInTheDocument();
-    expect(testK8sConnection).toHaveBeenCalledTimes(1);
-
-    // 返回修改凭据后保存并重测，验证更新同一主机且失败时展示分类排障文案
-    // Back to edit updates the same host without duplicate create, and 401 failure shows classified hint
-    fireEvent.click(screen.getByTestId('k8s-guide-back-edit'));
-    fireEvent.change(document.getElementById('k8s_namespace')!, {
-      target: {value: 'seatunnel-min-2'},
-    });
-    fireEvent.click(screen.getByRole('button', {name: zh.host.k8sGuide.saveAndRetest}));
-
-    await waitFor(() => {
-      expect(updateHostSafe).toHaveBeenCalledWith(104, {
-        name: 'k8s-restricted',
-        description: '',
-        k8s_auth_mode: 'kubeconfig',
-        k8s_namespace: 'seatunnel-min-2',
-        k8s_kubeconfig: SAMPLE_KUBECONFIG.trim(),
-        k8s_default_service_account: 'seatunnel-runner',
-      });
-    });
-    expect(createHostSafe).toHaveBeenCalledTimes(1);
-    expect(
-      await screen.findByText(zh.host.k8sGuide.errors.unauthorized),
-    ).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('k8s-delete-include-runner'));
+    expect(cleanupPanel.textContent).toContain('kubectl -n seatunnel-full delete serviceaccount seatunnel-runner');
   });
 });

@@ -81,6 +81,8 @@ export function K8sUpgradeImageDialog({
             <span className='text-xs font-medium text-foreground'>{t('cluster.k8s.upgradeTargetImage')}</span>
             <K8sImagePicker
               value={target}
+              version={targetVersion}
+              initialImage={currentImage}
               onChange={(next) => {
                 setTarget(next.image);
                 // 识别出版本时随升级同步 cluster.Version。

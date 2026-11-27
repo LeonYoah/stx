@@ -39,6 +39,7 @@ import (
 type K8sPrecheckRequest struct {
 	HostID             uint   `json:"host_id" binding:"required,min=1"`
 	Namespace          string `json:"namespace"`
+	AccessMode         string `json:"access_mode"`
 	ClusterName        string `json:"cluster_name"`
 	ClusterCode        string `json:"cluster_code"`
 	DeploymentMode     string `json:"deployment_mode"`
@@ -118,15 +119,16 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 		add("api_connectivity", "info", true, fmt.Sprintf(locale.Pick(ctx, "API 可达，namespace %q 存在", "API reachable, namespace %q exists"), namespace))
 	}
 
-	// RBAC SelfSubjectAccessReview：区分核心运行时权限（required）与跨命名空间/自动建 RBAC 扩展权限（extended）。
-	// RBAC via SelfSubjectAccessReview: separate core required rules from extended cluster/RBAC provisioning rules.
+	// RBAC SelfSubjectAccessReview：区分核心运行时权限（required）、按需能力（optional）与全面权限（extended）。
+	// RBAC via SelfSubjectAccessReview: separate core required rules from optional capability-gated
+	// rules and extended multi-namespace/RBAC provisioning rules.
 	rbacItems, err := s.k8sManager.PrecheckRBAC(ctx, req.HostID, namespace)
 	if err != nil {
 		add("rbac", "error", false, fmt.Sprintf(locale.Pick(ctx, "RBAC 预检失败: %v", "RBAC precheck failed: %v"), err))
 	} else {
 		deniedRequired := []string{}
 		for _, item := range rbacItems {
-			if item.Scope == k8s.RBACScopeExtended {
+			if item.Scope != "" && item.Scope != k8s.RBACScopeRequired {
 				continue
 			}
 			if !item.Allowed {
@@ -151,6 +153,16 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 					add("rbac", "warning", true, locale.Pick(ctx, "RBAC 核心权限齐备（最小权限模式，无自动创建 RBAC 权限；建议指定预建的 SeaTunnel ServiceAccount，未指定时将回退命名空间 default）", "Core RBAC permissions complete (minimal mode without RBAC creation; recommend specifying a pre-created SeaTunnel ServiceAccount, otherwise namespace default is used)"))
 				}
 			}
+		}
+
+		// 访问通道校验：仅支持 in_cluster（集群内直连）或 external（外部入口）。
+		// Access-mode validation: only in_cluster and external are supported.
+		accessMode := strings.TrimSpace(req.AccessMode)
+		if accessMode == "" {
+			accessMode = string(k8s.AccessModeInCluster)
+		}
+		if accessMode != string(k8s.AccessModeInCluster) && accessMode != string(k8s.AccessModeExternal) {
+			add("access_mode", "error", false, locale.Pick(ctx, "不支持的连接方式，仅支持集群内直连（in_cluster）或集群外入口（external）", "unsupported access_mode; only in_cluster or external are supported"))
 		}
 	}
 
@@ -188,9 +200,13 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 		add("resource_conflict", "info", true, locale.Pick(ctx, "无同名资源冲突", "no conflicting resources"))
 	}
 
-	// pvc / secrets / serviceaccount 存在性：引用了（含主机默认 ServiceAccount）就必须在。
-	// pvc/secret/serviceaccount existence: referenced objects (including host default ServiceAccount) must exist.
+	// pvc / secrets / serviceaccount 存在性：引用了（含主机默认 ServiceAccount）就必须在；
+	// 最小权限禁掉 secrets get 时遇到 403 不误报「不存在」，转为 warning 提示运维自行确认。
+	// pvc/secret/serviceaccount existence: referenced objects must exist; 403 Forbidden on
+	// Secrets.Get under minimal RBAC becomes a warning instead of false-reporting NotFound.
 	missing := []string{}
+	unverifiedSecrets := []string{}
+	manualSecrets := []string{}
 	if pvc := strings.TrimSpace(req.CheckpointPVC); pvc != "" {
 		if _, err := clientset.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc, metav1.GetOptions{}); err != nil {
 			missing = append(missing, "PersistentVolumeClaim/"+pvc)
@@ -201,8 +217,13 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 		if secret == "" {
 			continue
 		}
+		manualSecrets = append(manualSecrets, secret)
 		if _, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secret, metav1.GetOptions{}); err != nil {
-			missing = append(missing, "Secret/"+secret)
+			if apierrors.IsForbidden(err) {
+				unverifiedSecrets = append(unverifiedSecrets, secret)
+			} else {
+				missing = append(missing, "Secret/"+secret)
+			}
 		}
 	}
 	saToCheck := strings.TrimSpace(req.ServiceAccount)
@@ -218,28 +239,44 @@ func (s *Service) K8sPrecheck(ctx context.Context, req *K8sPrecheckRequest) (*K8
 	}
 	if len(missing) > 0 {
 		add("referenced_objects", "error", false, fmt.Sprintf(locale.Pick(ctx, "引用对象不存在: %s", "referenced objects do not exist: %s"), strings.Join(missing, ", ")))
+	} else if len(unverifiedSecrets) > 0 {
+		add("referenced_objects", "warning", true, fmt.Sprintf(locale.Pick(ctx, "未授予 secrets 读取权限，无法校验 Secret %s 是否存在，请确认运维已在命名空间预建", "secrets read permission absent, cannot verify Secret %s; confirm it is pre-created in the namespace"), strings.Join(unverifiedSecrets, ", ")))
 	} else {
 		add("referenced_objects", "info", true, locale.Pick(ctx, "引用的 PVC/Secret/ServiceAccount 均存在或未引用", "referenced PVC/Secret/ServiceAccount all exist or are unused"))
 	}
 
-	// 镜像仓库登记：私有镜像 host 未登记必然 ImagePullBackOff，error 阻断；
-	// docker.io 与匿名仓库放行。版本必须为确定性语义版本，否则告警（配置渲染依赖它）。
-	// Registry registration: an unregistered private-image host guarantees
-	// ImagePullBackOff and blocks at error level; docker.io and anonymous registries
-	// pass. The version must be a deterministic semver or a warning fires since
-	// config rendering depends on it.
+	// 镜像仓库与拉取凭据校验（路线 A）：
+	// 1) 用户已显式指定 imagePullSecrets → 尊重已有 Secret，不代建；
+	// 2) 命中带凭据的已登记仓库（含认证 docker.io）→ 校验是否具备 secrets 写权限，缺失则精确阻断并给二选一指引；
+	// 3) 匿名仓库 / 未登记仓库 → 放行（未登记私仓无手动 Secret 时仅给 warning 提醒）。
+	// Registry and pull-credential precheck (Route A): user-supplied secrets skip auto-creation;
+	// credentialed registries require namespace secrets write permission or an explicit manual secret;
+	// unregistered private registries warn without hard blocking.
 	imageHost := installerapp.RegistryImageHost(req.Image)
-	if imageHost != "" && imageHost != installerapp.DockerHubRegistryHost {
+	if len(manualSecrets) > 0 {
+		add("registry", "info", true, fmt.Sprintf(locale.Pick(ctx, "将使用用户指定的 imagePullSecrets（%s），不自动代建 Secret", "using user-specified imagePullSecrets (%s); skipping auto pull-secret creation"), strings.Join(manualSecrets, ", ")))
+	} else if imageHost != "" {
 		row, _ := s.findContainerRegistryByHost(ctx, imageHost)
-		if row == nil {
-			add("registry", "error", false, fmt.Sprintf(locale.Pick(ctx, "镜像仓库 %s 未登记，请先在软件包页登记", "registry %s is not registered; register it on the packages page first"), imageHost))
-		} else if row.HasCredentials() {
-			add("registry", "info", true, fmt.Sprintf(locale.Pick(ctx, "仓库 %s 已登记（含凭据），拉取 Secret 将自动代建", "registry %s is registered with credentials; the pull secret will be materialized automatically"), imageHost))
-		} else {
-			add("registry", "info", true, fmt.Sprintf(locale.Pick(ctx, "仓库 %s 已登记（匿名）", "registry %s is registered (anonymous)"), imageHost))
+		switch {
+		case row != nil && row.HasCredentials():
+			if len(rbacItems) > 0 && !k8s.CanManageSecrets(rbacItems) {
+				add("registry", "error", false, fmt.Sprintf(locale.Pick(ctx, "仓库 %s 已登记凭据，但当前 K8s 凭据缺少命名空间 secrets(get/create/update) 权限，无法自动代建拉取 Secret；请授予 secrets 权限，或在高级选项指定运维预建的 imagePullSecrets", "registry %s has credentials, but the K8s token lacks namespace secrets(get/create/update) permission to auto-create the pull secret; grant secrets permissions or specify a pre-created imagePullSecret in advanced options"), imageHost))
+			} else {
+				add("registry", "info", true, fmt.Sprintf(locale.Pick(ctx, "仓库 %s 已登记（含凭据），拉取 Secret 将自动代建", "registry %s is registered with credentials; the pull secret will be materialized automatically"), imageHost))
+			}
+		case row != nil:
+			if row.IsSystem {
+				add("registry", "info", true, locale.Pick(ctx, "docker.io 官方仓库（匿名），无需拉取凭据", "docker.io official registry (anonymous), no pull credentials needed"))
+			} else {
+				add("registry", "info", true, fmt.Sprintf(locale.Pick(ctx, "仓库 %s 已登记（匿名）", "registry %s is registered (anonymous)"), imageHost))
+			}
+		case imageHost == installerapp.DockerHubRegistryHost:
+			add("registry", "info", true, locale.Pick(ctx, "docker.io 公共镜像，无需凭据", "docker.io public image, no credentials needed"))
+		default:
+			add("registry", "warning", true, fmt.Sprintf(locale.Pick(ctx, "镜像仓库 %s 未在 STX 登记且未指定 imagePullSecrets；若集群未配置节点免密或 ServiceAccount 拉取凭据，拉取可能失败", "registry %s is unregistered and no imagePullSecrets were provided; ensure nodes have pull access or ServiceAccount credentials"), imageHost))
 		}
 	} else {
-		add("registry", "info", true, locale.Pick(ctx, "docker.io 公共镜像，无需凭据", "docker.io public image, no credentials needed"))
+		add("registry", "info", true, locale.Pick(ctx, "镜像仓库校验已跳过（镜像尚未填写）", "registry check skipped (image not specified)"))
 	}
 	if !semverLikeTag(strings.TrimSpace(req.Version)) {
 		add("version", "warning", true, fmt.Sprintf(locale.Pick(ctx, "版本 %q 不是确定性语义版本（如 3.1.0），配置渲染将按保守默认生成", "version %q is not a deterministic semver (e.g. 3.1.0); config rendering will fall back to conservative defaults"), req.Version))

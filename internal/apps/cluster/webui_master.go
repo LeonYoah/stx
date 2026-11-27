@@ -252,8 +252,7 @@ func (h *Handler) GetWebUIEndpoints(c *gin.Context) {
 	c.JSON(http.StatusOK, WebUIEndpointsResponse{Data: result})
 }
 
-// proxyK8sWebUI K8s 集群 WebUI 代理：经 K8sTransport 反向代理到 master Service（apiserver_proxy
-// 已指向 active master 由 Service 负载均衡语义承载，单 master session 模式无需选主）。
+// proxyK8sWebUI K8s 集群 WebUI 代理：经 K8sTransport 反向代理到 master Service（单 master session 模式无需选主）。
 // proxyK8sWebUI proxies the WebUI of a K8s cluster to the master service through K8sTransport.
 func (h *Handler) proxyK8sWebUI(c *gin.Context, clusterObj *Cluster, clusterID uint) {
 	cfg := clusterObj.K8sSessionConfig()
@@ -295,9 +294,8 @@ func (h *Handler) proxyK8sWebUI(c *gin.Context, clusterObj *Cluster, clusterID u
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Transport = rt
 	originalDirector := proxy.Director
-	// apiserver_proxy 的 base URL 已含 /proxy 前缀路径，重写时需要保留 base 路径再拼接业务路径。
-	// The apiserver_proxy base URL already carries the /proxy prefix path, so rewriting must
-	// keep the base path before appending the business path.
+	// 外部入口 URL 可能带有前缀路径，重写时需要保留 base 路径再拼接业务路径。
+	// An external base URL may include a path prefix, so rewriting keeps basePath before appending proxyPath.
 	basePath := strings.TrimRight(target.Path, "/")
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)

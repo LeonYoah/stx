@@ -84,6 +84,28 @@ const eslintConfig = [
           selector: "CallExpression[callee.name='t'] BinaryExpression[operator='+'][left.value='host.statuses.']",
           message: '禁止直接拼接 "host.statuses." + status：请统一走 getHostStatusLabel(host, t) 按主机类型映射状态文案（避免 K8s/Docker pending 误显示「未安装」）。',
         },
+        // 禁止对 i18n key 使用 as never 绕过类型检查（须用静态映射或 t.has）。
+        // Forbid casting i18n keys with `as never`; use a static map or `t.has`.
+        {
+          selector: "CallExpression[callee.name='t'][arguments.0.type='TSAsExpression'][arguments.0.typeAnnotation.type='TSNeverKeyword']",
+          message: '禁止对 t() 的第一个 key 参数使用 as never：请使用静态键映射或 t.has() 校验。',
+        },
+        // #178 联动列表硬约束：使用 DetailHost 的页面禁止混用 SortableDataTable，须走 TableCard + list-detail.module.css。
+        // #178 linked list-detail guard: pages using DetailHost must not pair it with SortableDataTable; use TableCard + list-detail.module.css.
+        {
+          selector: "Program:has(ImportSpecifier[imported.name='DetailHost']) ImportDeclaration[source.value=/sortable-data-table/]",
+          message: '禁止在使用 DetailHost 的页面中引入 SortableDataTable：请统一使用 TableCard + list-detail.module.css（.rowHead / .tableScroll > .row / .rowActive）以保证 #178 零间距联动与名称飞入。',
+        },
+        // 全局部署模式硬约束：禁止手写 infra_type !== 'bare_metal' / === 'bare_metal' / === 'kubernetes'，必须走 @/lib/infra helper，避免引入 YARN / Application 时误判。
+        // Global deployment mode guard: forbid raw infra_type comparisons; always use @/lib/infra helpers so future YARN/Application shapes are never misclassified as K8s.
+        {
+          selector: "BinaryExpression[operator=/^(===|!==|==|!=)$/][left.property.name='infra_type'][right.value=/^(bare_metal|kubernetes)$/]",
+          message: '禁止直接用 infra_type 与 bare_metal/kubernetes 比较：请统一调用 @/lib/infra（isK8sInfra / isBareMetalInfra / getClusterDeployMode 等），避免引入 YARN 时误判。',
+        },
+        {
+          selector: "BinaryExpression[operator=/^(===|!==|==|!=)$/][right.property.name='infra_type'][left.value=/^(bare_metal|kubernetes)$/]",
+          message: '禁止直接用 infra_type 与 bare_metal/kubernetes 比较：请统一调用 @/lib/infra（isK8sInfra / isBareMetalInfra / getClusterDeployMode 等），避免引入 YARN 时误判。',
+        },
       ],
     },
   },

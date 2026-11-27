@@ -26,32 +26,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestResolveRegistryPasswordStdin stdin 读取、组合冲突、非 TTY 显式错误三条路径。
+// TestResolveRegistryPasswordStdin 覆盖 stdin 读取、组合冲突、create 非 TTY 报错以及 update 留空保留原密码。
 // TestResolveRegistryPasswordStdin covers stdin reading, flag-combination conflict,
-// and the explicit non-TTY error.
+// non-TTY error on create, and empty-means-keep on update.
 func TestResolveRegistryPasswordStdin(t *testing.T) {
 	command := &cobra.Command{}
 
-	// stdin 路径：密码正确读入字段。
-	// stdin path: the password lands in the field.
 	fields := &containerRegistryFlags{passwordStdin: true}
-	require.NoError(t, resolveRegistryPassword(command, fields, strings.NewReader("s3cr3t\n")))
+	require.NoError(t, resolveRegistryPassword(command, fields, strings.NewReader("s3cr3t\n"), false))
 	assert.Equal(t, "s3cr3t", fields.password)
 
-	// 组合冲突：--registry-password 与 --registry-password-stdin 互斥。
-	// combination conflict: the two flags are mutually exclusive.
 	conflict := &containerRegistryFlags{password: "plain", passwordStdin: true}
-	require.Error(t, resolveRegistryPassword(command, conflict, strings.NewReader("x")))
+	require.Error(t, resolveRegistryPassword(command, conflict, strings.NewReader("x"), false))
 
-	// 非 TTY 无输入：凭据区填写时必须显式报错。
-	// non-TTY without input: credential fields require an explicit error.
-	pipe := &containerRegistryFlags{host: "reg.example.com", username: "u"}
-	err := resolveRegistryPassword(command, pipe, strings.NewReader(""))
+	// create 模式在非 TTY 下填了 username 必须显式给密码。
+	// create mode in non-TTY with username requires --password-stdin.
+	pipeCreate := &containerRegistryFlags{host: "reg.example.com", username: "u"}
+	err := resolveRegistryPassword(command, pipeCreate, strings.NewReader(""), false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "password-stdin")
 
-	// 空 stdin 明确报错。
-	// empty stdin errors explicitly.
+	// update 模式允许不传密码以保留库内既有密码。
+	// update mode permits omitting password so backend keeps stored credentials.
+	pipeUpdate := &containerRegistryFlags{host: "reg.example.com", username: "u"}
+	require.NoError(t, resolveRegistryPassword(command, pipeUpdate, strings.NewReader(""), true))
+	assert.Empty(t, pipeUpdate.password)
+
 	empty := &containerRegistryFlags{passwordStdin: true}
-	require.Error(t, resolveRegistryPassword(command, empty, strings.NewReader("")))
+	require.Error(t, resolveRegistryPassword(command, empty, strings.NewReader(""), false))
+
+	body := containerRegistryBody(&containerRegistryFlags{
+		host:        "harbor.example.com",
+		defaultRepo: "bigdata/seatunnel",
+		username:    "robot",
+		password:    "secret",
+	})
+	assert.Equal(t, "bigdata/seatunnel", body["default_repo"])
 }

@@ -34,11 +34,14 @@ import {
 } from '@/lib/services/host/types';
 import {CreateClusterDialog} from '../CreateClusterDialog';
 import {ClusterDeployWizard} from '../ClusterDeployWizard';
+import {K8sResourcesStep} from '../wizard/K8sResourcesStep';
+import {INITIAL_K8S_WIZARD_FORM, type K8sWizardFormState} from '../wizard/types';
 
 const mockPush = vi.hoisted(() => vi.fn());
 const getHostsSafe = vi.hoisted(() => vi.fn());
 const getAllHostsByTypeSafe = vi.hoisted(() => vi.fn());
 const listK8sNamespaces = vi.hoisted(() => vi.fn());
+const listK8sNamespaceObjects = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const discoverK8sClusters = vi.hoisted(() => vi.fn());
 const createKubernetesCluster = vi.hoisted(() => vi.fn());
 const toastSuccess = vi.hoisted(() => vi.fn());
@@ -61,7 +64,7 @@ vi.mock('@/lib/services', () => ({
       getHostsSafe,
       getAllHostsByTypeSafe,
       listK8sNamespaces,
-      listK8sNamespaceObjects: vi.fn().mockResolvedValue([]),
+      listK8sNamespaceObjects,
       discoverK8sClusters,
     },
     cluster: {
@@ -344,5 +347,52 @@ describe('Unified Kubernetes Cluster Flows', () => {
         enable_event_channel: false,
       }),
     );
+  });
+
+  it('K8sResourcesStep excludes control-plane stx-manager and renders standalone engine SA template with refresh', async () => {
+    listK8sNamespaceObjects.mockImplementation(
+      async (_hostId: number, _ns: string, kind: string) => {
+        if (kind === 'serviceaccounts') {
+          return ['stx-manager', 'default', 'seatunnel-runner'];
+        }
+        return [];
+      },
+    );
+
+    const onChange = vi.fn();
+    const form: K8sWizardFormState = {
+      ...INITIAL_K8S_WIZARD_FORM,
+      name: 'st-k8s',
+      cluster_code: 'stk8s',
+      image: 'apache/seatunnel:3.2.0',
+      version: '3.2.0',
+      host_id: 7,
+      namespace: 'seatunnel',
+    };
+
+    render(
+      <NextIntlClientProvider locale='zh' messages={zh}>
+        <K8sResourcesStep form={form} onChange={onChange} />
+      </NextIntlClientProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('k8s-advanced-toggle'));
+    await waitFor(() => {
+      expect(screen.getByTestId('k8s-service-account')).toHaveAttribute('role', 'combobox');
+    });
+    const saSelect = screen.getByTestId('k8s-service-account');
+    fireEvent.keyDown(saSelect, {key: 'ArrowDown'});
+    expect(await screen.findByRole('option', {name: 'seatunnel-runner'})).toBeInTheDocument();
+    expect(screen.queryByRole('option', {name: 'stx-manager'})).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('k8s-engine-sa-template-toggle'));
+    const yaml = screen.getByTestId('k8s-engine-sa-template-yaml');
+    expect(yaml.textContent).toContain('name: seatunnel-runner');
+    expect(yaml.textContent).not.toContain('stx-manager');
+
+    fireEvent.click(screen.getByTestId('k8s-engine-sa-refresh-btn'));
+    await waitFor(() => {
+      expect(listK8sNamespaceObjects).toHaveBeenCalledWith(7, 'seatunnel', 'serviceaccounts');
+    });
   });
 });

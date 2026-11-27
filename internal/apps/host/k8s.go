@@ -71,17 +71,87 @@ func K8sCredentialsLoaderFromRepository(repo *Repository) k8s.CredentialsLoader 
 // K8sTestConnectionResult 返回给前端的只读连通性体检结果。
 // K8sTestConnectionResult is the read-only connectivity probe result for the UI.
 type K8sTestConnectionResult struct {
-	Connected         bool                `json:"connected"`
-	ServerVersion     string              `json:"server_version,omitempty"`
-	Message           string              `json:"message,omitempty"`
-	ErrorCode         string              `json:"error_code,omitempty"`
-	PermissionMode    k8s.PermissionMode  `json:"permission_mode,omitempty"`
-	CanManageRBAC     bool                `json:"can_manage_rbac"`
-	CanListNamespaces bool                `json:"can_list_namespaces"`
-	ControlPlaneSA    string              `json:"control_plane_sa,omitempty"`
-	ServiceAccounts   []string            `json:"service_accounts,omitempty"`
-	RBAC              []k8s.RBACCheckItem `json:"rbac"`
-	ElapsedMs         int64               `json:"elapsed_ms"`
+	Connected           bool                `json:"connected"`
+	ServerVersion       string              `json:"server_version,omitempty"`
+	Message             string              `json:"message,omitempty"`
+	ErrorCode           string              `json:"error_code,omitempty"`
+	PermissionMode      k8s.PermissionMode  `json:"permission_mode,omitempty"`
+	CanManageRBAC       bool                `json:"can_manage_rbac"`
+	CanListNamespaces   bool                `json:"can_list_namespaces"`
+	ControlPlaneSA      string              `json:"control_plane_sa,omitempty"`
+	ServiceAccounts     []string            `json:"service_accounts,omitempty"`
+	CredentialExpiresAt *time.Time          `json:"credential_expires_at,omitempty"`
+	RBAC                []k8s.RBACCheckItem `json:"rbac"`
+	ElapsedMs           int64               `json:"elapsed_ms"`
+}
+
+// K8sDraftTestRequest 是保存前预检 / 凭据轮换测试的请求体（无持久化副作用）。
+// K8sDraftTestRequest is the stateless payload for pre-save connectivity/RBAC testing or rotation validation.
+type K8sDraftTestRequest struct {
+	HostID             uint   `json:"host_id,omitempty"`
+	K8sAuthMode        string `json:"k8s_auth_mode"`
+	K8sNamespace       string `json:"k8s_namespace"`
+	K8sKubeconfig      string `json:"k8s_kubeconfig"`
+	K8sContext         string `json:"k8s_context"`
+	K8sAPIURL          string `json:"k8s_api_url"`
+	K8sToken           string `json:"k8s_token"`
+	K8sCACert          string `json:"k8s_ca_cert"`
+	K8sInsecureSkipTLS bool   `json:"k8s_insecure_skip_tls"`
+}
+
+// InspectK8sKubeconfigRequest 是前端解析 kubeconfig 上下文与便携性警告的请求体。
+// InspectK8sKubeconfigRequest carries raw kubeconfig YAML and an optional context preference for inspection.
+type InspectK8sKubeconfigRequest struct {
+	Kubeconfig string `json:"kubeconfig"`
+	Context    string `json:"context,omitempty"`
+}
+
+// runK8sProbe 统一执行只读探测流程（15s 截止时间 + 版本探测 + SSAR 权限预检 + 控制面 SA + 候选 runner SA），
+// 供已保存主机测试与保存前草稿探测复用。
+// runK8sProbe executes the shared read-only probe pipeline (15s timeout, ServerVersion, PrecheckRBAC,
+// permission tier evaluation, control-plane SA detection, and runner SA discovery).
+func runK8sProbe(ctx context.Context, mgr *k8s.ClientManager, hostID uint, targetNS string, credForMeta *k8s.Credentials) *K8sTestConnectionResult {
+	start := time.Now()
+	result := &K8sTestConnectionResult{
+		RBAC:                []k8s.RBACCheckItem{},
+		CredentialExpiresAt: k8s.ExtractCredentialsExpiry(credForMeta),
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	version, err := mgr.ServerVersion(probeCtx, hostID)
+	if err != nil {
+		result.Message = err.Error()
+		result.ErrorCode = k8s.ClassifyK8sError(err)
+		result.ElapsedMs = time.Since(start).Milliseconds()
+		return result
+	}
+	result.Connected = true
+	result.ServerVersion = version
+
+	items, err := mgr.PrecheckRBAC(probeCtx, hostID, targetNS)
+	if err != nil {
+		// 并发 SSAR 遇到超时或网络错误时按连接/体检失败回传，不误标为「权限不足」。
+		// Surface SSAR transport/timeout failures as probe errors instead of misreporting insufficient RBAC.
+		result.Connected = false
+		result.Message = err.Error()
+		result.ErrorCode = k8s.ClassifyK8sError(err)
+		result.ElapsedMs = time.Since(start).Milliseconds()
+		return result
+	}
+	result.RBAC = items
+	result.PermissionMode = k8s.EvaluatePermissionMode(items)
+	result.CanManageRBAC = k8s.CanManageRBAC(items)
+	result.CanListNamespaces = k8s.CanListNamespaces(items)
+	result.ControlPlaneSA = mgr.WhoAmIServiceAccount(probeCtx, hostID)
+
+	// 探测目标命名空间内已有 ServiceAccount 供最小权限引导直接回填，失败不阻断连通测试。
+	// Best-effort list existing ServiceAccounts in the target namespace for minimal-mode SA onboarding.
+	if sas, saErr := mgr.ListNamespaceObjects(probeCtx, hostID, targetNS, "serviceaccounts"); saErr == nil && len(sas) > 0 {
+		result.ServiceAccounts = sas
+	}
+	result.ElapsedMs = time.Since(start).Milliseconds()
+	return result
 }
 
 // buildK8sManager 装配共享 ClientManager；loader 解密凭据，manager 做指纹缓存。
@@ -121,55 +191,155 @@ func (h *Handler) TestK8sConnection(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error_msg": err.Error()})
 		return
 	}
-	start := time.Now()
-	result := &K8sTestConnectionResult{RBAC: []k8s.RBACCheckItem{}}
-	// 为单次连通性体检设置 15s 总截止时间，防止不可达或慢集群无限挂起前端请求。
-	// Enforce a 15s overall deadline for the connectivity probe so slow/unreachable clusters fail predictably.
-	probeCtx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
-	defer cancel()
 
-	version, err := mgr.ServerVersion(probeCtx, uint(id))
-	if err != nil {
-		result.Message = err.Error()
-		result.ErrorCode = k8s.ClassifyK8sError(err)
-		result.ElapsedMs = time.Since(start).Milliseconds()
-		c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": result})
-		return
+	var credMeta *k8s.Credentials
+	if h.service != nil && h.service.repo != nil {
+		credMeta, _ = K8sCredentialsLoaderFromRepository(h.service.repo)(c.Request.Context(), uint(id))
 	}
-	result.Connected = true
-	result.ServerVersion = version
-
-	targetNS := h.service.defaultK8sNamespace(probeCtx, uint(id))
-	items, err := mgr.PrecheckRBAC(probeCtx, uint(id), targetNS)
-	if err != nil {
-		// 并发 SSAR 遇到超时或网络错误时按连接/体检失败回传，不误标为「权限不足」。
-		// Surface SSAR transport/timeout failures as probe errors instead of misreporting insufficient RBAC.
-		result.Connected = false
-		result.Message = err.Error()
-		result.ErrorCode = k8s.ClassifyK8sError(err)
-		result.ElapsedMs = time.Since(start).Milliseconds()
-		c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": result})
-		return
-	}
-	result.RBAC = items
-	result.PermissionMode = k8s.EvaluatePermissionMode(items)
-	result.CanManageRBAC = k8s.CanManageRBAC(items)
-	result.CanListNamespaces = k8s.CanListNamespaces(items)
-	result.ControlPlaneSA = mgr.WhoAmIServiceAccount(probeCtx, uint(id))
-
-	// 探测目标命名空间内已有 ServiceAccount 供最小权限引导直接回填，失败不阻断连通测试。
-	// Best-effort list existing ServiceAccounts in the target namespace for minimal-mode SA onboarding.
-	if sas, saErr := mgr.ListNamespaceObjects(probeCtx, uint(id), targetNS, "serviceaccounts"); saErr == nil && len(sas) > 0 {
-		result.ServiceAccounts = sas
-	}
-	result.ElapsedMs = time.Since(start).Milliseconds()
+	targetNS := h.service.defaultK8sNamespace(c.Request.Context(), uint(id))
+	result := runK8sProbe(c.Request.Context(), mgr, uint(id), targetNS, credMeta)
 
 	if result.Connected {
-		// 连通成功顺带更新版本号、授权模式与在线状态；失败只回传结果不改库，避免误标离线。
-		// On success refresh version/permission_mode/online state; failures leave the DB untouched.
-		h.service.updateK8sVersionAfterProbe(c.Request.Context(), uint(id), version, string(result.PermissionMode))
+		// 连通成功顺带更新版本号、授权模式、凭据到期时间与在线状态；失败只回传结果不改库，避免误标离线。
+		// On success refresh version/permission_mode/expiry/online state; failures leave the DB untouched.
+		h.service.updateK8sVersionAfterProbe(c.Request.Context(), uint(id), result.ServerVersion, string(result.PermissionMode), result.CredentialExpiresAt)
 	}
 	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": result})
+}
+
+// TestK8sDraftConnection 对未落库凭据（或编辑/轮换草稿）执行只读连通性与 RBAC 预检，不写数据库或 K8s。
+// TestK8sDraftConnection runs a stateless read-only connectivity and RBAC probe against draft
+// or rotation credentials without writing to the database or Kubernetes.
+// @Summary 预检未保存 K8s 凭据连通性与 RBAC / Probe draft kubernetes credentials
+// @Tags hosts
+// @Accept json
+// @Produce json
+// @Param request body K8sDraftTestRequest true "预检请求 / Draft probe request"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/hosts/k8s/test-connection [post]
+func (h *Handler) TestK8sDraftConnection(c *gin.Context) {
+	var req K8sDraftTestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": err.Error()})
+		return
+	}
+	mgr, err := h.buildK8sManager()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error_msg": err.Error()})
+		return
+	}
+
+	authMode := strings.TrimSpace(req.K8sAuthMode)
+	if authMode == "" {
+		authMode = "kubeconfig"
+	}
+	targetNS := strings.TrimSpace(req.K8sNamespace)
+	if targetNS == "" && req.HostID > 0 && h.service != nil {
+		targetNS = h.service.defaultK8sNamespace(c.Request.Context(), req.HostID)
+	}
+	if targetNS == "" {
+		targetNS = "default"
+	}
+
+	var storedCred *k8s.Credentials
+	if req.HostID > 0 && h.service != nil && h.service.repo != nil {
+		storedCred, _ = K8sCredentialsLoaderFromRepository(h.service.repo)(c.Request.Context(), req.HostID)
+	}
+
+	failInvalid := func(msg string) {
+		c.JSON(http.StatusOK, gin.H{
+			"error_msg": "",
+			"data": &K8sTestConnectionResult{
+				Connected: false,
+				Message:   msg,
+				ErrorCode: "invalid_config",
+				RBAC:      []k8s.RBACCheckItem{},
+			},
+		})
+	}
+
+	var cred *k8s.Credentials
+	switch authMode {
+	case "kubeconfig":
+		rawKC := strings.TrimSpace(req.K8sKubeconfig)
+		if rawKC == "" && storedCred != nil {
+			rawKC = storedCred.Kubeconfig
+		}
+		if rawKC == "" {
+			failInvalid(ErrK8sCredentialsRequired.Error())
+			return
+		}
+		apiOverride := strings.TrimSpace(req.K8sAPIURL)
+		if apiOverride != "" && !ValidateK8sAPIURL(apiOverride) {
+			failInvalid(ErrK8sAPIURLInvalid.Error())
+			return
+		}
+		normalized, serverURL, normErr := k8s.NormalizeKubeconfig(rawKC, req.K8sContext, apiOverride)
+		if normErr != nil {
+			failInvalid(normErr.Error())
+			return
+		}
+		cred = &k8s.Credentials{
+			AuthMode:   k8s.AuthModeKubeconfig,
+			APIURL:     serverURL,
+			Namespace:  targetNS,
+			Kubeconfig: normalized,
+		}
+	case "token":
+		apiURL := strings.TrimSpace(req.K8sAPIURL)
+		if apiURL == "" && storedCred != nil {
+			apiURL = storedCred.APIURL
+		}
+		if !ValidateK8sAPIURL(apiURL) {
+			failInvalid(ErrK8sAPIURLInvalid.Error())
+			return
+		}
+		tok := strings.TrimSpace(req.K8sToken)
+		if tok == "" && storedCred != nil && strings.TrimSpace(req.K8sToken) == "" {
+			tok = storedCred.Token
+		}
+		if tok == "" {
+			failInvalid(ErrK8sCredentialsRequired.Error())
+			return
+		}
+		caCert := strings.TrimSpace(req.K8sCACert)
+		if !req.K8sInsecureSkipTLS && caCert == "" && storedCred != nil {
+			caCert = storedCred.CACert
+		}
+		cred = &k8s.Credentials{
+			AuthMode:        k8s.AuthModeToken,
+			APIURL:          strings.TrimRight(apiURL, "/"),
+			Namespace:       targetNS,
+			Token:           tok,
+			CACert:          caCert,
+			InsecureSkipTLS: req.K8sInsecureSkipTLS,
+		}
+	default:
+		failInvalid(ErrK8sAuthModeInvalid.Error())
+		return
+	}
+
+	result := runK8sProbe(c.Request.Context(), mgr.WithCredentials(cred), 0, targetNS, cred)
+	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": result})
+}
+
+// InspectK8sKubeconfig 解析 kubeconfig 上下文列表、API 地址与便携性警告（只读、不入库、不回显凭据）。
+// InspectK8sKubeconfig parses kubeconfig contexts, endpoints, and portability warnings without persisting or echoing secrets.
+// @Summary 解析 kubeconfig 上下文与警告 / Inspect kubeconfig contexts and warnings
+// @Tags hosts
+// @Accept json
+// @Produce json
+// @Param request body InspectK8sKubeconfigRequest true "解析请求 / Inspect request"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/hosts/k8s/inspect-kubeconfig [post]
+func (h *Handler) InspectK8sKubeconfig(c *gin.Context) {
+	var req InspectK8sKubeconfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": err.Error()})
+		return
+	}
+	res := k8s.InspectKubeconfig(req.Kubeconfig, req.Context)
+	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": res})
 }
 
 // ListK8sNamespaces 列出该 Host 可见的 Namespace 供创建向导下拉选择。
@@ -274,6 +444,12 @@ func (h *Handler) ListK8sNamespaceObjects(c *gin.Context) {
 	}
 	names, err := mgr.ListNamespaceObjects(c.Request.Context(), uint(id), namespace, kind)
 	if err != nil {
+		// 最小权限环境可能未授予 secrets list；优雅返回空列表让前端退化为手动输入。
+		// Minimal RBAC setups may omit secrets list; return an empty list so UI degrades to manual input.
+		if apierrors.IsForbidden(err) {
+			c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": []string{}})
+			return
+		}
 		c.JSON(http.StatusBadGateway, gin.H{"error_msg": err.Error(), "data": []string{}})
 		return
 	}

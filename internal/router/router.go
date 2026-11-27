@@ -345,6 +345,8 @@ func Serve() {
 				hostRouter.PUT("/:id", hostHandler.UpdateHost)
 				hostRouter.DELETE("/:id", hostHandler.DeleteHost)
 				hostRouter.GET("/:id/install-command", hostHandler.GetInstallCommand)
+				hostRouter.POST("/k8s/test-connection", hostHandler.TestK8sDraftConnection)
+				hostRouter.POST("/k8s/inspect-kubeconfig", hostHandler.InspectK8sKubeconfig)
 				hostRouter.POST("/:id/test-connection", hostHandler.TestK8sConnection)
 				hostRouter.GET("/:id/k8s/namespaces", hostHandler.ListK8sNamespaces)
 				hostRouter.GET("/:id/k8s/namespaces/:namespace/objects", hostHandler.ListK8sNamespaceObjects)
@@ -877,9 +879,9 @@ func Serve() {
 				packageRouter.PUT("/registries/:id", admin.LoginAdminRequired(), installerHandler.UpdateContainerRegistry)
 				packageRouter.DELETE("/registries/:id", admin.LoginAdminRequired(), installerHandler.DeleteContainerRegistry)
 				packageRouter.POST("/registries/:id/test", admin.LoginAdminRequired(), installerHandler.TestContainerRegistry)
-				// probe 是不落库的注册前连通性测试，登录用户可用。
-				// probe is a pre-registration connectivity test that persists nothing.
-				packageRouter.POST("/registries/probe", installerHandler.ProbeRegistryTransient)
+				// probe 同样限管理员：防止普通账号拿接口当内网探测跳板（SSRF）。
+				// probe is also admin-only so regular accounts cannot abuse it for internal SSRF scanning.
+				packageRouter.POST("/registries/probe", admin.LoginAdminRequired(), installerHandler.ProbeRegistryTransient)
 
 				// 离线资产包（须注册在 /:version 之前，避免被版本参数吞掉）
 				// Offline asset bundles (register before /:version so Gin does not swallow the path)

@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 307)
+	require.Len(t, Registry(), 309)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -513,6 +513,8 @@ func TestK8sOperationsRegistered(t *testing.T) {
 		risk   RiskLevel
 	}{
 		"host.test-connection":         {"POST", "/api/v1/hosts/:id/test-connection", RiskR0},
+		"host.k8s-test-draft":          {"POST", "/api/v1/hosts/k8s/test-connection", RiskR0},
+		"host.k8s-inspect-kubeconfig":  {"POST", "/api/v1/hosts/k8s/inspect-kubeconfig", RiskR0},
 		"host.k8s-namespaces":          {"GET", "/api/v1/hosts/:id/k8s/namespaces", RiskR0},
 		"host.k8s-namespace-objects":   {"GET", "/api/v1/hosts/:id/k8s/namespaces/:namespace/objects", RiskR0},
 		"host.k8s-discover":            {"GET", "/api/v1/hosts/:id/k8s/discover", RiskR0},

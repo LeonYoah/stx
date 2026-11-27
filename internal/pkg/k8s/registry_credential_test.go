@@ -20,6 +20,7 @@ package k8s
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,7 +30,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
-func TestEnsureRegistryCredentialSecretCreatesOwnedSecret(t *testing.T) {
+func TestEnsureRegistryCredentialSecretCreatesOwnedSecretAndMapsDockerHub(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	name, err := EnsureRegistryCredentialSecret(context.Background(), clientset, "ns", "demo", "reg.example.com", "user", "pass")
 	require.NoError(t, err)
@@ -41,6 +42,18 @@ func TestEnsureRegistryCredentialSecretCreatesOwnedSecret(t *testing.T) {
 	raw := string(secret.Data[corev1.DockerConfigJsonKey])
 	assert.Contains(t, raw, "reg.example.com")
 	assert.Contains(t, raw, base64.StdEncoding.EncodeToString([]byte("user:pass")))
+
+	// docker.io 凭据写入必须映射到 kubelet 识别的 https://index.docker.io/v1/，并保留既有仓库凭据。
+	// docker.io credentials must map to https://index.docker.io/v1/ and preserve existing entries.
+	_, err = EnsureRegistryCredentialSecret(context.Background(), clientset, "ns", "demo", "docker.io", "hubuser", "hubpass")
+	require.NoError(t, err)
+	secret, err = clientset.CoreV1().Secrets("ns").Get(context.Background(), name, metav1.GetOptions{})
+	require.NoError(t, err)
+	var decoded dockerConfigPayload
+	require.NoError(t, json.Unmarshal(secret.Data[corev1.DockerConfigJsonKey], &decoded))
+	assert.Contains(t, decoded.Auths, "reg.example.com", "previous registry entry must be retained during rolling upgrade")
+	assert.Contains(t, decoded.Auths, "https://index.docker.io/v1/")
+	assert.Equal(t, "hubuser", decoded.Auths["https://index.docker.io/v1/"].Username)
 }
 
 func TestEnsureRegistryCredentialSecretUpdatesExisting(t *testing.T) {
@@ -55,14 +68,17 @@ func TestEnsureRegistryCredentialSecretUpdatesExisting(t *testing.T) {
 			},
 		},
 		Type: corev1.SecretTypeDockerConfigJson,
-		Data: map[string][]byte{corev1.DockerConfigJsonKey: []byte(`{"auths":{}}`)},
+		Data: map[string][]byte{corev1.DockerConfigJsonKey: []byte(`{"auths":{"old.example.com":{"username":"u1","password":"p1","auth":"dTE6cDE="}}}`)},
 	}
 	clientset := fake.NewSimpleClientset(existing)
 	_, err := EnsureRegistryCredentialSecret(context.Background(), clientset, "ns", "demo", "reg2.example.com", "u2", "p2")
 	require.NoError(t, err)
 	secret, err := clientset.CoreV1().Secrets("ns").Get(context.Background(), names.RegistryCredentialSecret, metav1.GetOptions{})
 	require.NoError(t, err)
-	assert.Contains(t, string(secret.Data[corev1.DockerConfigJsonKey]), "reg2.example.com")
+	var decoded dockerConfigPayload
+	require.NoError(t, json.Unmarshal(secret.Data[corev1.DockerConfigJsonKey], &decoded))
+	assert.Contains(t, decoded.Auths, "old.example.com")
+	assert.Contains(t, decoded.Auths, "reg2.example.com")
 }
 
 func TestEnsureRegistryCredentialSecretRejectsForeignConflict(t *testing.T) {

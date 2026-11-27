@@ -23,6 +23,7 @@ import {Input} from '@/components/arc/input/input';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Button} from '@/components/arc/button/button';
 import {Select} from '@/components/arc/select/select';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {K8sImagePicker} from '@/components/common/k8s/K8sImagePicker';
 import {RadioCards} from '@/components/arc/radio-cards/radio-cards';
 import {isValidClusterCode, recommendClusterCode} from '@/lib/cluster-code';
@@ -106,7 +107,6 @@ export function k8sVersionCapabilities(version: string): SeaTunnelVersionCapabil
 export function K8sBasicContent({form, patch}: StepProps) {
   const t = useTranslations();
   const [codeTouched, setCodeTouched] = useState(Boolean(form.cluster_code));
-  const [versionTouched, setVersionTouched] = useState(false);
   const codeInvalid = form.cluster_code.length > 0 && !isValidClusterCode(form.cluster_code);
   return (
     <div className='space-y-4' data-testid='k8s-basic-step'>
@@ -128,18 +128,18 @@ export function K8sBasicContent({form, patch}: StepProps) {
         </div>
         <div className='space-y-1.5'>
           <Input
-            label={t('cluster.k8s.version')}
-            value={form.version}
+            label={t('cluster.clusterCode')}
+            value={form.cluster_code}
             onChange={(e) => {
-              setVersionTouched(true);
-              patch({version: e.target.value});
+              setCodeTouched(true);
+              patch({cluster_code: e.target.value.toLowerCase().trim()});
             }}
-            placeholder='3.1.0'
-            data-testid='k8s-version-input'
+            placeholder={t('common.optional')}
+            data-testid='k8s-cluster-code-input'
           />
-          <p className='text-xs text-muted-foreground'>
-            {versionTouched ? t('cluster.k8s.versionManualHint') : t('cluster.k8s.versionAutoHint')}
-          </p>
+          {codeInvalid ? (
+            <p className='text-xs font-medium text-destructive'>{t('cluster.clusterCodeInvalid')}</p>
+          ) : null}
         </div>
       </div>
 
@@ -170,35 +170,17 @@ export function K8sBasicContent({form, patch}: StepProps) {
         <p className='text-sm font-medium'>{t('cluster.k8s.image')}</p>
         <K8sImagePicker
           value={form.image}
+          version={form.version}
           onChange={(next) =>
             patch({
               image: next.image,
-              version: versionTouched ? form.version : next.seatunnelVersion || form.version,
-              image_pull_policy: next.pullPolicy,
-              image_pull_secrets: next.pullSecrets || form.image_pull_secrets,
+              version: next.seatunnelVersion,
             })
           }
         />
       </div>
-      <div className='grid grid-cols-2 gap-4'>
-        <div className='space-y-1.5'>
-          <Input
-            label={t('cluster.clusterCode')}
-            value={form.cluster_code}
-            onChange={(e) => {
-              setCodeTouched(true);
-              patch({cluster_code: e.target.value.toLowerCase().trim()});
-            }}
-            placeholder={t('common.optional')}
-            data-testid='k8s-cluster-code-input'
-          />
-          {codeInvalid ? (
-            <p className='text-xs font-medium text-destructive'>{t('cluster.clusterCodeInvalid')}</p>
-          ) : null}
-        </div>
-        <div className='space-y-1.5'>
-          <Input label={t('cluster.descriptionLabel')} value={form.description} onChange={(e) => patch({description: e.target.value})} />
-        </div>
+      <div className='space-y-1.5'>
+        <Input label={t('cluster.descriptionLabel')} value={form.description} onChange={(e) => patch({description: e.target.value})} />
       </div>
     </div>
   );
@@ -335,6 +317,50 @@ export function K8sConfigContent({form, patch}: StepProps) {
         
       </div>
 
+      <div className='space-y-2.5 border-t-[0.5px] border-border/80 pt-3' data-testid='k8s-access-section'>
+        <div className='space-y-1.5'>
+          <p className='text-sm font-medium'>{t('cluster.k8s.accessMode')}</p>
+          <SegmentedControl
+            label={t('cluster.k8s.accessMode')}
+            value={form.access_mode}
+            onValueChange={(value) => {
+              const nextMode = value as K8sWizardFormState['access_mode'];
+              patch({
+                access_mode: nextMode,
+                ...(nextMode === 'external' && form.java_proxy_mode === 'managed'
+                  ? {java_proxy_mode: 'external'}
+                  : {}),
+              });
+            }}
+            options={[
+              {value: 'in_cluster', label: t('cluster.k8s.accessModeInCluster')},
+              {value: 'external', label: t('cluster.k8s.accessModeExternal')},
+            ]}
+            data-testid='k8s-access-mode'
+          />
+          <p className='text-xs text-muted-foreground'>
+            {form.access_mode === 'external'
+              ? t('host.k8sAccessModeExternalDesc')
+              : t('host.k8sAccessModeInClusterDesc')}
+          </p>
+          <p className='text-[11px] text-muted-foreground'>
+            {t('cluster.k8s.accessModeInheritedHint')}
+          </p>
+        </div>
+        {form.access_mode === 'external' ? (
+          <div className='space-y-1'>
+            <Input
+              label={t('cluster.k8s.externalBaseUrl')}
+              value={form.external_base_url}
+              placeholder='http://192.168.1.10:30080'
+              onChange={(e) => patch({external_base_url: e.target.value})}
+              data-testid='k8s-external-base-url'
+            />
+            <p className='text-xs text-muted-foreground'>{t('cluster.k8s.externalBaseUrlHint')}</p>
+          </div>
+        ) : null}
+      </div>
+
       <div className='space-y-2 border-t-[0.5px] border-border/80 pt-3' data-testid='k8s-proxy-section'>
         <p className='text-sm font-medium'>{t('cluster.k8s.proxyTitle')}</p>
         <div className='grid grid-cols-3 gap-3'>
@@ -345,23 +371,38 @@ export function K8sConfigContent({form, patch}: StepProps) {
               onValueChange={(value) => patch({java_proxy_mode: value})}
               options={[
                   {value: 'managed', label: t('cluster.k8s.proxyModeManaged')},
+                  {value: 'external', label: t('cluster.k8s.proxyModeExternal')},
                   {value: 'disabled', label: t('cluster.k8s.proxyModeDisabled')},
                 ]}
               data-testid='k8s-proxy-mode'
             />
           </div>
-          <div className='space-y-1.5'>
-            <Input label={t('cluster.k8s.proxyPort')} value={form.java_proxy_port} onChange={(e) => patch({java_proxy_port: e.target.value})} placeholder='18080' data-testid='k8s-proxy-port' />
-          </div>
-          <div className='space-y-1.5'>
-            <Select
-              label={t('cluster.k8s.proxyHeap')}
-              value={form.java_proxy_heap}
-              onValueChange={(value) => patch({java_proxy_heap: value})}
-              options={['512m', '1024m', '2048m', '4096m'].map((heap) => ({value: heap, label: heap}))}
-              data-testid='k8s-proxy-heap'
-            />
-          </div>
+          {form.java_proxy_mode === 'external' ? (
+            <div className='col-span-2 space-y-1.5'>
+              <Input
+                label={t('cluster.k8s.proxyExternalUrl')}
+                value={form.java_proxy_external_url}
+                onChange={(e) => patch({java_proxy_external_url: e.target.value})}
+                placeholder='http://192.168.1.10:31808'
+                data-testid='k8s-proxy-external-url'
+              />
+            </div>
+          ) : (
+            <>
+              <div className='space-y-1.5'>
+                <Input label={t('cluster.k8s.proxyPort')} value={form.java_proxy_port} onChange={(e) => patch({java_proxy_port: e.target.value})} placeholder='18080' data-testid='k8s-proxy-port' />
+              </div>
+              <div className='space-y-1.5'>
+                <Select
+                  label={t('cluster.k8s.proxyHeap')}
+                  value={form.java_proxy_heap}
+                  onValueChange={(value) => patch({java_proxy_heap: value})}
+                  options={['512m', '1024m', '2048m', '4096m'].map((heap) => ({value: heap, label: heap}))}
+                  data-testid='k8s-proxy-heap'
+                />
+              </div>
+            </>
+          )}
         </div>
         {form.java_proxy_mode === 'managed' ? (
           <p className='text-xs text-muted-foreground' data-testid='k8s-proxy-derived-memory'>
@@ -438,6 +479,8 @@ export function K8sPrecheckContent({form, onResult}: {form: K8sWizardFormState; 
         cluster_name: form.name,
         cluster_code: form.cluster_code,
         deployment_mode: form.deployment_mode,
+        access_mode: form.access_mode,
+        version: form.version,
         image: form.image,
         image_pull_secrets: form.image_pull_secrets,
         service_account: form.service_account,
@@ -506,6 +549,10 @@ export function buildK8sCreatePayload(form: K8sWizardFormState): Record<string, 
     host_id: form.host_id,
     management_source: 'stx_deployed',
     namespace: form.namespace,
+    access_mode: form.access_mode,
+    ...(form.access_mode === 'external' && form.external_base_url.trim()
+      ? {external_base_url: form.external_base_url.trim()}
+      : {}),
     image: form.image,
     image_pull_policy: form.image_pull_policy,
     image_pull_secrets: form.image_pull_secrets,
@@ -530,6 +577,9 @@ export function buildK8sCreatePayload(form: K8sWizardFormState): Record<string, 
     java_proxy_mode: form.java_proxy_mode,
     java_proxy_port: parseInt(form.java_proxy_port, 10) || 18080,
     java_proxy_jvm_opts: `-Xmx${form.java_proxy_heap}`,
+    ...(form.java_proxy_mode === 'external' && form.java_proxy_external_url.trim()
+      ? {java_proxy_external_url: form.java_proxy_external_url.trim()}
+      : {}),
     enable_event_channel: form.event_report_enabled,
     // 回调地址缺省继承控制面 app.external_url（与主机部署一致）；
     // 集群详情的引擎事件通道卡片提供部署后覆写入口。

@@ -174,3 +174,35 @@ func TestCleanupFailedDeployOnlyOwnedResources(t *testing.T) {
 	_, err = clientset.CoreV1().ConfigMaps("seatunnel").Get(context.Background(), "user-config", metav1.GetOptions{})
 	assert.NoError(t, err, "user cm must survive")
 }
+
+// TestCleanupFailedDeployZeroDeleteDegradesToScaleZero 验证零 delete 权限下失败回滚
+// 会先将工作负载缩容至 0 并返回带精确标签清理命令的提示。
+// TestCleanupFailedDeployZeroDeleteDegradesToScaleZero verifies failed-deploy cleanup
+// without delete RBAC scales workloads to 0 and returns a label-scoped kubectl command.
+func TestCleanupFailedDeployZeroDeleteDegradesToScaleZero(t *testing.T) {
+	ownedLabels := map[string]string{"app.kubernetes.io/managed-by": "stx", k8s.LabelClusterCodeKey: "demo"}
+	replicas := int32(2)
+	clientset := fake.NewSimpleClientset(
+		&appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "demo-master", Namespace: "seatunnel", Labels: ownedLabels},
+			Spec:       appsv1.StatefulSetSpec{Replicas: &replicas},
+		},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "demo-master", Namespace: "seatunnel", Labels: ownedLabels}},
+	)
+	for _, res := range []string{"statefulsets", "services"} {
+		resourceName := res
+		clientset.PrependReactor("delete", resourceName, func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: resourceName}, "forbidden", nil)
+		})
+	}
+	mgr := newLifecycleTestManager(clientset)
+	cfg := &k8s.SessionConfig{HostID: 1, Namespace: "seatunnel"}
+	err := cleanupFailedK8sDeploy(context.Background(), mgr, cfg, "demo")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), k8s.ManualCleanupCommand("seatunnel", "demo"))
+
+	sts, getErr := clientset.AppsV1().StatefulSets("seatunnel").Get(context.Background(), "demo-master", metav1.GetOptions{})
+	require.NoError(t, getErr)
+	require.NotNil(t, sts.Spec.Replicas)
+	assert.Equal(t, int32(0), *sts.Spec.Replicas)
+}

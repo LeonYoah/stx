@@ -62,6 +62,9 @@ var (
 	// ErrK8sAuthModeInvalid indicates the Kubernetes auth mode is unsupported.
 	// ErrK8sAuthModeInvalid 表示不支持的 Kubernetes 认证方式。
 	ErrK8sAuthModeInvalid = errors.New("host: unsupported kubernetes auth mode, must be kubeconfig or token")
+	// ErrK8sAccessModeInvalid indicates the Kubernetes access mode is unsupported.
+	// ErrK8sAccessModeInvalid 表示不支持的 Kubernetes 连接方式。
+	ErrK8sAccessModeInvalid = errors.New("host: unsupported kubernetes access mode, must be in_cluster or external")
 	// ErrK8sKubeconfigInvalid indicates the kubeconfig content cannot be parsed.
 	// ErrK8sKubeconfigInvalid 表示 kubeconfig 内容无法解析。
 	ErrK8sKubeconfigInvalid = errors.New("host: invalid kubeconfig content")

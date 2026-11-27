@@ -514,8 +514,8 @@ type managedMetricsTarget struct {
 	Env         string
 	Target      string
 	ProbeURL    string
-	// Transport K8s apiserver_proxy 目标的定制 RoundTripper；裸金属为空。
-	// Transport is the custom RoundTripper for K8s apiserver_proxy targets; empty for bare metal.
+	// Transport 可选的按目标定制 RoundTripper；裸金属为空。
+	// Transport is the optional custom RoundTripper per target; empty for bare metal.
 	Transport http.RoundTripper
 }
 
@@ -939,17 +939,16 @@ func isDuplicateKeyError(err error) bool {
 	return strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique constraint")
 }
 
-// SetK8sClientManager 注入 K8sClientManager 供 K8s 集群指标抓取（apiserver_proxy）。
-// SetK8sClientManager injects the K8sClientManager for K8s cluster metrics scraping (apiserver_proxy).
+// SetK8sClientManager 注入 K8sClientManager 供 K8s 集群指标抓取。
+// SetK8sClientManager injects the K8sClientManager for K8s cluster metrics scraping.
 func (s *Service) SetK8sClientManager(mgr *k8s.ClientManager) {
 	s.k8sManager = mgr
 }
 
-// collectK8sMetricsTargets 为 K8s 集群生成逐 Pod 抓取目标：URL 走 apiserver_proxy pod 代理，
-// Transport 注入 API Server TLS/认证；失败静默降级为空集，不拖垮整体抓取面。
-// collectK8sMetricsTargets builds per-pod scrape targets for K8s clusters: URLs go through the
-// apiserver_proxy pod proxy and the Transport carries API server TLS/auth; failures degrade
-// silently to an empty set rather than breaking the whole scrape surface.
+// collectK8sMetricsTargets 为 K8s 集群生成逐 Pod 抓取目标：按连接方式直连 Pod IP 或外部入口；
+// 失败静默降级为空集，不拖垮整体抓取面。
+// collectK8sMetricsTargets builds per-pod scrape targets for K8s clusters using in-cluster Pod IPs
+// or external base URL; failures degrade silently to an empty set.
 func (s *Service) collectK8sMetricsTargets(ctx context.Context, c *cluster.Cluster, metricsPath string) []*managedMetricsTarget {
 	out := []*managedMetricsTarget{}
 	if s.k8sManager == nil {

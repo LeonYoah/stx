@@ -189,17 +189,25 @@ func (s *Service) validateDockerHost(req *CreateHostRequest, host *Host) error {
 // validateK8sHost 验证并设置 Kubernetes 类型的字段。
 func (s *Service) validateK8sHost(req *CreateHostRequest, host *Host) error {
 	// 仅支持 kubeconfig 与 token 两种互斥认证模式：
-	// - kubeconfig：自带 API Server 与 TLS 信息，后端校验语法并自动回填 k8s_api_url，忽略 token/CA/跳过校验字段。
-	// - token：显式提供 k8s_api_url + bearer token（可选 CA 证书或跳过 TLS 校验），忽略 kubeconfig 字段。
+	// - kubeconfig：自带 API Server 与 TLS 信息，按可选上下文与地址覆写规范化后入库；
+	// - token：显式提供 k8s_api_url + bearer token（可选 CA 证书或跳过 TLS 校验）。
 	// Only kubeconfig and token auth modes are supported and mutually exclusive:
-	// - kubeconfig: embeds API server and TLS config; validated on save with k8s_api_url auto-extracted.
-	// - token: requires explicit k8s_api_url + bearer token (optional CA cert or insecure skip TLS).
+	// - kubeconfig: normalized with optional context selection and API URL override on save;
+	// - token: requires explicit k8s_api_url + bearer token (optional CA cert or skip TLS).
 	authMode := strings.TrimSpace(req.K8sAuthMode)
 	if authMode == "" {
 		authMode = "kubeconfig"
 	}
+	accessMode := strings.TrimSpace(req.K8sAccessMode)
+	if accessMode == "" {
+		accessMode = string(k8s.AccessModeInCluster)
+	}
+	if !ValidateK8sAccessMode(accessMode) {
+		return fmt.Errorf("%w: %q", ErrK8sAccessModeInvalid, accessMode)
+	}
 
 	host.K8sAuthMode = authMode
+	host.K8sAccessMode = accessMode
 	host.K8sNamespace = strings.TrimSpace(req.K8sNamespace)
 	if host.K8sNamespace == "" {
 		host.K8sNamespace = "default"
@@ -211,22 +219,21 @@ func (s *Service) validateK8sHost(req *CreateHostRequest, host *Host) error {
 		if strings.TrimSpace(req.K8sKubeconfig) == "" {
 			return ErrK8sCredentialsRequired
 		}
-		serverURL, err := k8s.ParseKubeconfigServerURL(req.K8sKubeconfig)
+		apiOverride := strings.TrimSpace(req.K8sAPIURL)
+		if apiOverride != "" && !ValidateK8sAPIURL(apiOverride) {
+			return ErrK8sAPIURLInvalid
+		}
+		normalized, serverURL, err := k8s.NormalizeKubeconfig(req.K8sKubeconfig, req.K8sContext, apiOverride)
 		if err != nil {
 			return fmt.Errorf("%w: %v", ErrK8sKubeconfigInvalid, err)
 		}
 		if serverURL != "" {
 			host.K8sAPIURL = serverURL
-		} else if strings.TrimSpace(req.K8sAPIURL) != "" {
-			if !ValidateK8sAPIURL(strings.TrimSpace(req.K8sAPIURL)) {
-				return ErrK8sAPIURLInvalid
-			}
-			host.K8sAPIURL = strings.TrimRight(strings.TrimSpace(req.K8sAPIURL), "/")
 		}
 		// 凭据加密落库（enc:v1: 前缀）；加密失败直接报错，绝不静默降级明文。
 		// Credentials are encrypted at rest (enc:v1: prefix); encryption failures surface as
 		// errors and never silently degrade to plaintext storage.
-		kubeconfigEnc, err := secretbox.Encrypt(req.K8sKubeconfig)
+		kubeconfigEnc, err := secretbox.Encrypt(normalized)
 		if err != nil {
 			return err
 		}
@@ -234,6 +241,10 @@ func (s *Service) validateK8sHost(req *CreateHostRequest, host *Host) error {
 		host.K8sToken = ""
 		host.K8sCACert = ""
 		host.K8sInsecureSkipTLS = false
+		host.K8sCredentialExpiresAt = k8s.ExtractCredentialsExpiry(&k8s.Credentials{
+			AuthMode:   k8s.AuthModeKubeconfig,
+			Kubeconfig: normalized,
+		})
 	case "token":
 		apiURL := strings.TrimSpace(req.K8sAPIURL)
 		if !ValidateK8sAPIURL(apiURL) {
@@ -256,6 +267,10 @@ func (s *Service) validateK8sHost(req *CreateHostRequest, host *Host) error {
 		} else {
 			host.K8sCACert = ""
 		}
+		host.K8sCredentialExpiresAt = k8s.ExtractCredentialsExpiry(&k8s.Credentials{
+			AuthMode: k8s.AuthModeToken,
+			Token:    token,
+		})
 	default:
 		return fmt.Errorf("%w: %q", ErrK8sAuthModeInvalid, authMode)
 	}
@@ -405,6 +420,19 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 	}
 	host.K8sAuthMode = authMode
 
+	if req.K8sAccessMode != nil {
+		accessMode := strings.TrimSpace(*req.K8sAccessMode)
+		if accessMode == "" {
+			accessMode = string(k8s.AccessModeInCluster)
+		}
+		if !ValidateK8sAccessMode(accessMode) {
+			return fmt.Errorf("%w: %q", ErrK8sAccessModeInvalid, accessMode)
+		}
+		host.K8sAccessMode = accessMode
+	} else if strings.TrimSpace(host.K8sAccessMode) == "" {
+		host.K8sAccessMode = string(k8s.AccessModeInCluster)
+	}
+
 	credentialOrNSChanged := authModeChanged
 	if req.K8sNamespace != nil {
 		ns := strings.TrimSpace(*req.K8sNamespace)
@@ -420,6 +448,15 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 		host.K8sDefaultServiceAccount = strings.TrimSpace(*req.K8sDefaultServiceAccount)
 	}
 
+	var ctxOverride string
+	if req.K8sContext != nil {
+		ctxOverride = strings.TrimSpace(*req.K8sContext)
+	}
+	var urlOverride string
+	if req.K8sAPIURL != nil {
+		urlOverride = strings.TrimSpace(*req.K8sAPIURL)
+	}
+
 	// 按目标认证模式只更新对应字段，并做切换后的合并校验：
 	// 留空保留原值（跨层指南错误九）；若切换模式后库中与入参均缺失必需凭据则拒绝保存。
 	// Apply only the fields belonging to the active auth mode and validate post-merge:
@@ -427,12 +464,15 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 	// the target mode's required credential is rejected.
 	switch authMode {
 	case "kubeconfig":
+		if urlOverride != "" && !ValidateK8sAPIURL(urlOverride) {
+			return ErrK8sAPIURLInvalid
+		}
 		if req.K8sKubeconfig != nil && strings.TrimSpace(*req.K8sKubeconfig) != "" {
-			serverURL, err := k8s.ParseKubeconfigServerURL(*req.K8sKubeconfig)
+			normalized, serverURL, err := k8s.NormalizeKubeconfig(*req.K8sKubeconfig, ctxOverride, urlOverride)
 			if err != nil {
 				return fmt.Errorf("%w: %v", ErrK8sKubeconfigInvalid, err)
 			}
-			enc, err := secretbox.Encrypt(*req.K8sKubeconfig)
+			enc, err := secretbox.Encrypt(normalized)
 			if err != nil {
 				return err
 			}
@@ -441,9 +481,42 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 			if serverURL != "" {
 				host.K8sAPIURL = serverURL
 			}
-		}
-		if strings.TrimSpace(host.K8sKubeconfig) == "" {
-			return ErrK8sCredentialsRequired
+			host.K8sCredentialExpiresAt = k8s.ExtractCredentialsExpiry(&k8s.Credentials{
+				AuthMode:   k8s.AuthModeKubeconfig,
+				Kubeconfig: normalized,
+			})
+		} else {
+			if strings.TrimSpace(host.K8sKubeconfig) == "" {
+				return ErrK8sCredentialsRequired
+			}
+			// 仅改 context 或覆写 API Server 地址时，解密已有 kubeconfig 重建并同步更新过期时间。
+			// When only switching context or overriding server URL on an existing kubeconfig, re-normalize and re-encrypt.
+			plainKC, decErr := secretbox.Decrypt(host.K8sKubeconfig)
+			if decErr != nil {
+				return decErr
+			}
+			if ctxOverride != "" || (urlOverride != "" && strings.TrimRight(urlOverride, "/") != host.K8sAPIURL) {
+				normalized, serverURL, err := k8s.NormalizeKubeconfig(plainKC, ctxOverride, urlOverride)
+				if err != nil {
+					return fmt.Errorf("%w: %v", ErrK8sKubeconfigInvalid, err)
+				}
+				enc, err := secretbox.Encrypt(normalized)
+				if err != nil {
+					return err
+				}
+				host.K8sKubeconfig = enc
+				if serverURL != "" {
+					host.K8sAPIURL = serverURL
+				}
+				plainKC = normalized
+				credentialOrNSChanged = true
+			}
+			if authModeChanged || credentialOrNSChanged || host.K8sCredentialExpiresAt == nil {
+				host.K8sCredentialExpiresAt = k8s.ExtractCredentialsExpiry(&k8s.Credentials{
+					AuthMode:   k8s.AuthModeKubeconfig,
+					Kubeconfig: plainKC,
+				})
+			}
 		}
 	case "token":
 		if req.K8sAPIURL != nil {
@@ -458,12 +531,17 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 			host.K8sAPIURL = trimmedURL
 		}
 		if req.K8sToken != nil && strings.TrimSpace(*req.K8sToken) != "" {
-			enc, err := secretbox.Encrypt(strings.TrimSpace(*req.K8sToken))
+			cleanToken := strings.TrimSpace(*req.K8sToken)
+			enc, err := secretbox.Encrypt(cleanToken)
 			if err != nil {
 				return err
 			}
 			host.K8sToken = enc
 			credentialOrNSChanged = true
+			host.K8sCredentialExpiresAt = k8s.ExtractCredentialsExpiry(&k8s.Credentials{
+				AuthMode: k8s.AuthModeToken,
+				Token:    cleanToken,
+			})
 		}
 		// CA 证书与编辑弹窗"留空保留原值"提示保持一致，空串不覆盖已有证书。
 		// Keep CA cert aligned with the edit dialog's "leave empty to keep" hint so empty input
@@ -483,6 +561,14 @@ func (s *Service) updateK8sFields(req *UpdateHostRequest, host *Host) error {
 		}
 		if strings.TrimSpace(host.K8sToken) == "" {
 			return ErrK8sCredentialsRequired
+		}
+		if authModeChanged && (req.K8sToken == nil || strings.TrimSpace(*req.K8sToken) == "") {
+			if plainTok, decErr := secretbox.Decrypt(host.K8sToken); decErr == nil {
+				host.K8sCredentialExpiresAt = k8s.ExtractCredentialsExpiry(&k8s.Credentials{
+					AuthMode: k8s.AuthModeToken,
+					Token:    plainTok,
+				})
+			}
 		}
 	}
 	if credentialOrNSChanged {
@@ -946,9 +1032,9 @@ func (s *Service) defaultK8sNamespace(ctx context.Context, hostID uint) string {
 	return h.K8sNamespace
 }
 
-// updateK8sVersionAfterProbe 连通成功后刷新版本号、权限模式并标记在线。
-// updateK8sVersionAfterProbe refreshes server version, permission mode, and marks the host connected.
-func (s *Service) updateK8sVersionAfterProbe(ctx context.Context, hostID uint, version, permissionMode string) {
+// updateK8sVersionAfterProbe 连通成功后刷新版本号、权限模式、凭据到期时间并标记在线。
+// updateK8sVersionAfterProbe refreshes server version, permission mode, credential expiry, and marks the host connected.
+func (s *Service) updateK8sVersionAfterProbe(ctx context.Context, hostID uint, version, permissionMode string, credExpiresAt *time.Time) {
 	h, err := s.repo.GetByID(ctx, hostID)
 	if err != nil || h == nil {
 		return
@@ -956,6 +1042,9 @@ func (s *Service) updateK8sVersionAfterProbe(ctx context.Context, hostID uint, v
 	h.K8sVersion = version
 	if permissionMode != "" {
 		h.K8sPermissionMode = permissionMode
+	}
+	if credExpiresAt != nil {
+		h.K8sCredentialExpiresAt = credExpiresAt
 	}
 	h.Status = HostStatusConnected
 	_ = s.repo.Update(ctx, h)

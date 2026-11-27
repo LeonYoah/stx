@@ -47,15 +47,12 @@ const (
 type AccessMode string
 
 const (
-	// AccessModeAPIServerProxy 经 K8s API Server 的 pods/services proxy 访问（默认，已实测）。
-	// AccessModeAPIServerProxy reaches pods/services through the API server proxy (default, verified).
-	AccessModeAPIServerProxy AccessMode = "apiserver_proxy"
-	// AccessModeInCluster 控制面自身在集群内，直连 Pod IP / Service DNS。
+	// AccessModeInCluster 控制面自身在集群内，直连 Pod IP / Service DNS（默认）。
 	// AccessModeInCluster connects to pod IPs / service DNS directly when the control plane
-	// itself runs inside the cluster.
+	// itself runs inside the cluster (default).
 	AccessModeInCluster AccessMode = "in_cluster"
-	// AccessModeExternal 直连用户配置的外部入口（Ingress/NodePort/port-forward 等）。
-	// AccessModeExternal uses the user-provided external base URL (Ingress/NodePort/port-forward).
+	// AccessModeExternal 直连用户配置的外部入口（Ingress/NodePort/LB 等）。
+	// AccessModeExternal uses the user-provided external base URL (Ingress/NodePort/LB).
 	AccessModeExternal AccessMode = "external"
 )
 
@@ -255,7 +252,7 @@ func (c *SessionConfig) ApplyDefaults() {
 		c.ManagementSource = ManagementSourceAdopted
 	}
 	if c.AccessMode == "" {
-		c.AccessMode = AccessModeAPIServerProxy
+		c.AccessMode = AccessModeInCluster
 	}
 	if c.ImagePullPolicy == "" {
 		c.ImagePullPolicy = "IfNotPresent"
@@ -328,7 +325,7 @@ func (c *SessionConfig) Validate() error {
 		return fmt.Errorf("k8s: image is required")
 	}
 	switch c.AccessMode {
-	case AccessModeAPIServerProxy, AccessModeInCluster, AccessModeExternal:
+	case AccessModeInCluster, AccessModeExternal:
 	default:
 		return fmt.Errorf("k8s: unsupported access_mode %q", c.AccessMode)
 	}

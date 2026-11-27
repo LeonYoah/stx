@@ -33,7 +33,7 @@ func newProxyK8sCluster(t *testing.T, repo *Repository, javaProxy map[string]int
 	k8sCfg := map[string]interface{}{
 		"host_id":           1,
 		"namespace":         "seatunnel",
-		"access_mode":       "apiserver_proxy",
+		"access_mode":       "in_cluster",
 		"management_source": "stx_deployed",
 		"image":             "apache/seatunnel:3.1.0",
 		"master_replicas":   1,

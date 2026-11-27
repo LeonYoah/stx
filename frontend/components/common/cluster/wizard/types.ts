@@ -243,6 +243,8 @@ export interface K8sWizardFormState {
   image_pull_policy: string;
   image_pull_secrets: string;
   service_account: string;
+  access_mode: 'in_cluster' | 'external';
+  external_base_url: string;
   deployment_mode: 'separated' | 'hybrid';
   master_replicas: number;
   worker_replicas: number;
@@ -261,6 +263,7 @@ export interface K8sWizardFormState {
   java_proxy_mode: string;
   java_proxy_port: string;
   java_proxy_heap: string;
+  java_proxy_external_url: string;
   runtime_dynamic_slot: boolean;
   runtime_slot_num: string;
   runtime_slot_allocation_strategy: string;
@@ -300,6 +303,8 @@ export const INITIAL_K8S_WIZARD_FORM: K8sWizardFormState = {
   image_pull_policy: 'IfNotPresent',
   image_pull_secrets: '',
   service_account: '',
+  access_mode: 'in_cluster',
+  external_base_url: '',
   deployment_mode: 'separated',
   master_replicas: 1,
   worker_replicas: 2,
@@ -318,6 +323,7 @@ export const INITIAL_K8S_WIZARD_FORM: K8sWizardFormState = {
   java_proxy_mode: 'managed',
   java_proxy_port: '18080',
   java_proxy_heap: '512m',
+  java_proxy_external_url: '',
   runtime_dynamic_slot: true,
   runtime_slot_num: '',
   runtime_slot_allocation_strategy: '',

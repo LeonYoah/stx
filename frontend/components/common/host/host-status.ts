@@ -19,8 +19,10 @@ import {
   HostStatus,
   HostType,
   type HostInfo,
+  type K8sAccessMode,
   type K8sConnectErrorCode,
   type K8sPermissionMode,
+  type K8sRBACCheckItem,
 } from '@/lib/services/host/types';
 
 // getHostStatusLabel 按主机类型统一映射状态文案：非物理机处于 pending 时展示「待连接」，
@@ -80,5 +82,66 @@ export function getK8sConnectErrorHint(
       return t('host.k8sGuide.errors.invalid_config');
     default:
       return t('host.k8sGuide.errors.unknown');
+  }
+}
+
+// getK8sAccessModeLabel 将 K8s 连接方式枚举映射为产品展示文案。
+// getK8sAccessModeLabel maps Kubernetes access mode enums to user-facing labels.
+export function getK8sAccessModeLabel(
+  mode: K8sAccessMode | undefined,
+  t: (key: string) => string,
+): string {
+  switch (mode) {
+    case 'external':
+      return t('host.k8sAccessModeExternal');
+    case 'in_cluster':
+    default:
+      return t('host.k8sAccessModeInCluster');
+  }
+}
+
+// getK8sCredentialExpiryState 判断凭据到期状态（已过期 / 30 天内临期 / 有效 / 无内置到期）。
+// getK8sCredentialExpiryState classifies credential expiration status (expired / expiring_soon / valid / unknown).
+export function getK8sCredentialExpiryState(
+  expiresAt?: string | null,
+): 'expired' | 'expiring_soon' | 'valid' | 'unknown' {
+  if (!expiresAt) {
+    return 'unknown';
+  }
+  const ts = Date.parse(expiresAt);
+  if (Number.isNaN(ts)) {
+    return 'unknown';
+  }
+  const diff = ts - Date.now();
+  if (diff <= 0) {
+    return 'expired';
+  }
+  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+  if (diff <= thirtyDaysMs) {
+    return 'expiring_soon';
+  }
+  return 'valid';
+}
+
+// isK8sRbacRequired 判断一条 RBAC 核验项是否属于核心必选权限（排除 optional 与 extended）。
+// isK8sRbacRequired returns true only for core required RBAC rules (excluding optional and extended tiers).
+export function isK8sRbacRequired(item: Pick<K8sRBACCheckItem, 'scope'>): boolean {
+  return !item.scope || item.scope === 'required';
+}
+
+// getK8sRbacScopeLabel 将后端三档 scope（required / optional / extended）映射为可读标签。
+// getK8sRbacScopeLabel maps backend RBAC scope tiers (required / optional / extended) to UI labels.
+export function getK8sRbacScopeLabel(
+  scope: K8sRBACCheckItem['scope'],
+  t: (key: string) => string,
+): string {
+  switch (scope) {
+    case 'optional':
+      return t('host.k8sRbacScopeOptional');
+    case 'extended':
+      return t('host.k8sRbacScopeExtended');
+    case 'required':
+    default:
+      return t('host.k8sRbacScopeRequired');
   }
 }

@@ -616,10 +616,21 @@ func (p *JavaProxyManager) DeleteProxy(ctx context.Context, cfg *SessionConfig, 
 		serviceName = cfg.JavaProxy.ServiceName
 	}
 	var errs []string
-	deleteOne := func(kind string, del func() error) {
-		if err := del(); err != nil && !apierrors.IsNotFound(err) {
-			errs = append(errs, fmt.Sprintf("%s: %v", kind, err))
+	var forbidden []string
+	scaleZeroPayload := []byte(`{"spec":{"replicas":0}}`)
+	deleteOne := func(kind string, del func() error, onForbidden func()) {
+		err := del()
+		if err == nil || apierrors.IsNotFound(err) {
+			return
 		}
+		if apierrors.IsForbidden(err) {
+			if onForbidden != nil {
+				onForbidden()
+			}
+			forbidden = append(forbidden, kind)
+			return
+		}
+		errs = append(errs, fmt.Sprintf("%s: %v", kind, err))
 	}
 	policy := metav1.DeletePropagationBackground
 	deleteOne("deployment/"+deploymentName, func() error {
@@ -631,6 +642,8 @@ func (p *JavaProxyManager) DeleteProxy(ctx context.Context, cfg *SessionConfig, 
 			return nil
 		}
 		return clientset.AppsV1().Deployments(ns).Delete(ctx, deploymentName, metav1.DeleteOptions{PropagationPolicy: &policy})
+	}, func() {
+		_, _ = clientset.AppsV1().Deployments(ns).Patch(ctx, deploymentName, types.MergePatchType, scaleZeroPayload, metav1.PatchOptions{})
 	})
 	deleteOne("service/"+serviceName, func() error {
 		obj, err := clientset.CoreV1().Services(ns).Get(ctx, serviceName, metav1.GetOptions{})
@@ -641,7 +654,7 @@ func (p *JavaProxyManager) DeleteProxy(ctx context.Context, cfg *SessionConfig, 
 			return nil
 		}
 		return clientset.CoreV1().Services(ns).Delete(ctx, serviceName, metav1.DeleteOptions{})
-	})
+	}, nil)
 	deleteOne("configmap/"+jarCMName, func() error {
 		obj, err := clientset.CoreV1().ConfigMaps(ns).Get(ctx, jarCMName, metav1.GetOptions{})
 		if err != nil {
@@ -651,7 +664,15 @@ func (p *JavaProxyManager) DeleteProxy(ctx context.Context, cfg *SessionConfig, 
 			return nil
 		}
 		return clientset.CoreV1().ConfigMaps(ns).Delete(ctx, jarCMName, metav1.DeleteOptions{})
-	})
+	}, nil)
+	if len(forbidden) > 0 {
+		msg := fmt.Sprintf("k8s: proxy delete forbidden (%s); scaled deployment to 0 where permitted — run manually: %s",
+			strings.Join(forbidden, ", "), ManualCleanupCommand(ns, clusterCode))
+		if len(errs) > 0 {
+			return fmt.Errorf("%s; additional errors: %s", msg, strings.Join(errs, "; "))
+		}
+		return fmt.Errorf("%s", msg)
+	}
 	if len(errs) > 0 {
 		return fmt.Errorf("k8s: delete proxy partially failed: %s", strings.Join(errs, "; "))
 	}

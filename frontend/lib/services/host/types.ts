@@ -32,6 +32,34 @@
 export type K8sAuthMode = 'kubeconfig' | 'token';
 
 /**
+ * Kubernetes host access mode
+ * Kubernetes 主机连接方式
+ */
+export type K8sAccessMode = 'in_cluster' | 'external';
+
+export interface K8sKubeconfigContextSummary {
+  name: string;
+  cluster: string;
+  user: string;
+  namespace?: string;
+  server: string;
+  has_external_files: boolean;
+  has_exec_plugin: boolean;
+  has_loopback_server: boolean;
+  credential_expires_at?: string | null;
+  credential_kind: string;
+}
+
+export interface K8sKubeconfigInspectResult {
+  valid: boolean;
+  error?: string;
+  current_context?: string;
+  selected_context?: string;
+  contexts: K8sKubeconfigContextSummary[];
+  warnings?: string[];
+}
+
+/**
  * Host type enumeration
  * 主机类型枚举
  */
@@ -148,6 +176,8 @@ export interface HostInfo {
   k8s_version?: string;
   /** Kubernetes auth mode / K8s 认证方式 */
   k8s_auth_mode?: K8sAuthMode;
+  /** Kubernetes connection mode / K8s 连接方式 */
+  k8s_access_mode?: K8sAccessMode;
   /** Whether kubeconfig is stored (never returns plaintext) / 是否已存 kubeconfig（永不回明文） */
   has_k8s_kubeconfig?: boolean;
   /** Whether token is stored / 是否已存 token */
@@ -158,6 +188,8 @@ export interface HostInfo {
   k8s_default_service_account?: string;
   /** Latest probed RBAC permission tier / 最近一次连通体检识别出的授权模式 */
   k8s_permission_mode?: K8sPermissionMode;
+  /** Parsed credential expiration timestamp / 凭据到期时间 */
+  k8s_credential_expires_at?: string | null;
 
   /** Creation time / 创建时间 */
   created_at: string;
@@ -199,10 +231,14 @@ export interface CreateHostRequest {
   k8s_namespace?: string;
   /** Kubeconfig content / Kubeconfig 内容 */
   k8s_kubeconfig?: string;
+  /** Selected kubeconfig context / 指定 Kubeconfig 上下文 */
+  k8s_context?: string;
   /** Service account token / 服务账户令牌 */
   k8s_token?: string;
   /** Auth mode / 认证方式 */
   k8s_auth_mode?: K8sAuthMode;
+  /** Connection mode / 连接方式 */
+  k8s_access_mode?: K8sAccessMode;
   /** CA certificate PEM / CA 证书 PEM */
   k8s_ca_cert?: string;
   /** Skip TLS verification / 跳过 TLS 校验 */
@@ -229,7 +265,7 @@ export interface K8sRBACCheckItem {
   verb: string;
   allowed: boolean;
   reason?: string;
-  scope?: 'required' | 'extended';
+  scope?: 'required' | 'optional' | 'extended';
 }
 
 /**
@@ -245,8 +281,21 @@ export interface K8sTestConnectionResult {
   can_list_namespaces?: boolean;
   control_plane_sa?: string;
   service_accounts?: string[];
+  credential_expires_at?: string | null;
   rbac: K8sRBACCheckItem[];
   elapsed_ms: number;
+}
+
+export interface K8sDraftTestRequest {
+  host_id?: number;
+  k8s_auth_mode: K8sAuthMode;
+  k8s_namespace?: string;
+  k8s_kubeconfig?: string;
+  k8s_context?: string;
+  k8s_api_url?: string;
+  k8s_token?: string;
+  k8s_ca_cert?: string;
+  k8s_insecure_skip_tls?: boolean;
 }
 
 /**
@@ -280,10 +329,14 @@ export interface UpdateHostRequest {
   k8s_namespace?: string;
   /** Kubeconfig content / Kubeconfig 内容 */
   k8s_kubeconfig?: string;
+  /** Selected kubeconfig context / 指定 Kubeconfig 上下文 */
+  k8s_context?: string;
   /** Service account token / 服务账户令牌 */
   k8s_token?: string;
   /** Auth mode / 认证方式 */
   k8s_auth_mode?: K8sAuthMode;
+  /** Connection mode / 连接方式 */
+  k8s_access_mode?: K8sAccessMode;
   /** CA certificate PEM / CA 证书 PEM */
   k8s_ca_cert?: string;
   /** Skip TLS verification / 跳过 TLS 校验 */

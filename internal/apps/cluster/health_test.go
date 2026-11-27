@@ -363,7 +363,8 @@ func TestEvaluateK8sClusterHealth_NonRunningZeroPodsAndServiceFallback(t *testin
 				"kubernetes": map[string]interface{}{
 					"host_id":              1,
 					"namespace":            "seatunnel",
-					"access_mode":          "apiserver_proxy",
+					"access_mode":          "external",
+					"external_base_url":    apiServer.URL,
 					"cluster_service_name": "adopted-svc",
 					"master_http_port":     8080,
 					"master_replicas":      masterReplicas,
@@ -414,9 +415,9 @@ func TestEvaluateK8sClusterHealth_NonRunningZeroPodsAndServiceFallback(t *testin
 	if infoHealthy.HealthStatus != HealthStatusHealthy || infoHealthy.RunningNodes != 2 {
 		t.Fatalf("expected healthy with 2 ready pods, got %s running=%d reasons=%v", infoHealthy.HealthStatus, infoHealthy.RunningNodes, infoHealthy.HealthReasons)
 	}
-	wantPath := "/api/v1/namespaces/seatunnel/services/http:adopted-svc:8080/proxy/overview"
+	wantPath := "/overview"
 	if len(overviewPaths) != 1 || overviewPaths[0] != wantPath {
-		t.Fatalf("expected /overview probe via ClusterServiceName %q, got %v", wantPath, overviewPaths)
+		t.Fatalf("expected /overview probe via external base url %q, got %v", wantPath, overviewPaths)
 	}
 }
 
@@ -484,7 +485,8 @@ func TestEvaluateK8sClusterHealth_UsesLiveWorkloadReplicas(t *testing.T) {
 			"kubernetes": map[string]interface{}{
 				"host_id":              1,
 				"namespace":            "seatunnel",
-				"access_mode":          "apiserver_proxy",
+				"access_mode":          "external",
+				"external_base_url":    apiServer.URL,
 				"cluster_service_name": "demo",
 				"master_http_port":     8080,
 				"master_replicas":      1,
@@ -538,7 +540,7 @@ func TestScaleK8sComponentPersistsReplicas(t *testing.T) {
 			"kubernetes": map[string]interface{}{
 				"host_id":              1,
 				"namespace":            "seatunnel",
-				"access_mode":          "apiserver_proxy",
+				"access_mode":          "in_cluster",
 				"management_source":    "stx_deployed",
 				"image":                "apache/seatunnel:3.1.0",
 				"master_replicas":      1,
@@ -594,7 +596,7 @@ func TestEvaluateK8sClusterHealth_NodeCounts(t *testing.T) {
 			"kubernetes": map[string]interface{}{
 				"host_id":           1,
 				"namespace":         "seatunnel",
-				"access_mode":       "apiserver_proxy",
+				"access_mode":       "in_cluster",
 				"management_source": "stx_deployed",
 				"master_replicas":   1,
 				"worker_replicas":   2,

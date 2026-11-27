@@ -72,10 +72,8 @@ type ScrapeTarget struct {
 	// Labels 是注入标签集：job/instance/cluster/cluster_id/cluster_name/env 等。
 	// Labels is the injected label set: job/instance/cluster/cluster_id/cluster_name/env etc.
 	Labels map[string]string
-	// Transport 可选的按目标定制 RoundTripper（K8s apiserver_proxy 目标需要注入 API
-	// Server 的 TLS/认证）；为空时走共享 HTTPClient。
-	// Transport optionally customizes the RoundTripper per target (K8s apiserver_proxy targets
-	// require the API server's TLS/auth); empty means the shared HTTPClient.
+	// Transport 可选的按目标定制 RoundTripper；为空时走共享 HTTPClient。
+	// Transport optionally customizes the RoundTripper per target; empty means the shared HTTPClient.
 	Transport http.RoundTripper
 }
 

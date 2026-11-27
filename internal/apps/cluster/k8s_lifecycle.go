@@ -26,6 +26,7 @@ import (
 	"github.com/LeonYoah/stx/internal/pkg/locale"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // verifyAdoptedK8sObjectsExist 纳管前真查 namespace/workload/service/configmap，
@@ -117,6 +118,8 @@ func cleanupFailedK8sDeploy(ctx context.Context, mgr *k8s.ClientManager, cfg *k8
 	deletePolicy := metav1.DeletePropagationBackground
 	deleteOpts := metav1.DeleteOptions{PropagationPolicy: &deletePolicy}
 	failures := make([]string, 0)
+	forbidden := make([]string, 0)
+	scaleZeroPayload := []byte(`{"spec":{"replicas":0}}`)
 	remove := func(kind string, items []string) {
 		// 逆序回收：后创建的先删，降低依赖悬空（workload 先于 service/configmap 建则反向）。
 		// Reverse-order reclamation: later-created objects go first, reducing dangling
@@ -137,6 +140,21 @@ func cleanupFailedK8sDeploy(ctx context.Context, mgr *k8s.ClientManager, cfg *k8
 				delErr = clientset.CoreV1().Secrets(ns).Delete(ctx, name, deleteOpts)
 			}
 			if delErr != nil && !apierrors.IsNotFound(delErr) {
+				if apierrors.IsForbidden(delErr) {
+					if kind == "secret" {
+						continue
+					}
+					// 无 delete 权限时尽力先缩容至 0，避免残留空转 Pod，并向运维输出精确清理命令。
+					// Without delete permission, best-effort scale workloads to 0 and surface a manual kubectl command.
+					switch kind {
+					case "statefulset":
+						_, _ = clientset.AppsV1().StatefulSets(ns).Patch(ctx, name, types.MergePatchType, scaleZeroPayload, metav1.PatchOptions{})
+					case "deployment":
+						_, _ = clientset.AppsV1().Deployments(ns).Patch(ctx, name, types.MergePatchType, scaleZeroPayload, metav1.PatchOptions{})
+					}
+					forbidden = append(forbidden, fmt.Sprintf("%s/%s", kind, name))
+					continue
+				}
 				failures = append(failures, fmt.Sprintf("%s/%s: %v", kind, name, delErr))
 			}
 		}
@@ -182,6 +200,17 @@ func cleanupFailedK8sDeploy(ctx context.Context, mgr *k8s.ClientManager, cfg *k8
 			names = append(names, item.Name)
 		}
 		remove("secret", names)
+	}
+	if len(forbidden) > 0 {
+		cmd := k8s.ManualCleanupCommand(ns, clusterCode)
+		msg := fmt.Sprintf(locale.Pick(ctx,
+			"当前凭据缺少删除权限（已尽力将工作负载缩容至 0），请手动执行清理：%s（未删：%s）",
+			"credential lacks delete permission (workloads scaled to 0 where permitted); run manually: %s (remaining: %s)"),
+			cmd, strings.Join(forbidden, ", "))
+		if len(failures) > 0 {
+			return fmt.Errorf("%s；%s", msg, strings.Join(failures, "；"))
+		}
+		return fmt.Errorf("%s", msg)
 	}
 	if len(failures) > 0 {
 		return fmt.Errorf("%s: %s", locale.Pick(ctx, "部分资源回收失败", "partial cleanup failure"), strings.Join(failures, "；"))

@@ -37,6 +37,7 @@ import {
 } from '@/components/common/layout';
 import type {NodeJavaRuntimeView} from '@/components/common/java/NodeJavaHomeCell';
 import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
+import {getClusterDeployModeLabel, isK8sInfra} from '@/lib/infra';
 import {
   HealthStatus,
   NodeRole,
@@ -168,7 +169,8 @@ export function ClusterOverviewTab({
     jobLogMode === 'per_job' ? 'per_job' : 'mixed';
 
 
-  const isK8s = Boolean(cluster.infra_type && cluster.infra_type !== 'bare_metal');
+  const isK8s = isK8sInfra(cluster.infra_type);
+  const deployModeLabel = getClusterDeployModeLabel(cluster.infra_type);
   const k8sCfg = ((cluster.config as Record<string, unknown> | undefined)?.['kubernetes'] || {}) as Record<string, unknown>;
   const hazelcastPort = isK8s
     ? Number(k8sCfg['hazelcast_port']) || '-'
@@ -360,6 +362,7 @@ export function ClusterOverviewTab({
               <dt className='text-muted-foreground'>{t('cluster.version')}</dt>
               <dd className='flex flex-wrap items-center gap-1.5 font-mono text-sm font-medium tabular-nums'>
                 <span>{cluster.version || '-'}</span>
+                <NeutralChip>{deployModeLabel}</NeutralChip>
                 <NeutralChip>{modeLabel}</NeutralChip>
               </dd>
             </div>

@@ -27,9 +27,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func newTestManager(fakeClient *fake.Clientset) *ClientManager {
@@ -50,7 +53,7 @@ func testSessionConfig() *SessionConfig {
 		HostID:             1,
 		Namespace:          "e2e-ns",
 		ManagementSource:   ManagementSourceSTXDeployed,
-		AccessMode:         AccessModeAPIServerProxy,
+		AccessMode:         AccessModeInCluster,
 		Image:              "apache/seatunnel:3.1.0",
 		MasterWorkloadName: "e2e-master",
 		WorkerWorkloadName: "e2e-worker",
@@ -474,22 +477,12 @@ func TestTransport_baseURLs(t *testing.T) {
 	mgr := newTestManager(client)
 	ctx := context.Background()
 
-	transport := NewTransport(mgr, 1, "seatunnel", AccessModeAPIServerProxy, "")
-	svcURL, err := transport.ServiceBaseURL(ctx, "seatunnel-master", 8080)
-	if err != nil {
-		t.Fatalf("service url error: %v", err)
+	unsupported := NewTransport(mgr, 1, "seatunnel", AccessMode("apiserver_proxy"), "")
+	if _, err := unsupported.ServiceBaseURL(ctx, "seatunnel-master", 8080); err == nil {
+		t.Fatal("expected error for unsupported apiserver_proxy service url")
 	}
-	expected := "https://127.0.0.1:8443/api/v1/namespaces/seatunnel/services/http:seatunnel-master:8080/proxy"
-	if svcURL != expected {
-		t.Fatalf("unexpected service proxy url:\n got %q\nwant %q", svcURL, expected)
-	}
-	podURL, err := transport.PodBaseURL(ctx, "seatunnel-master-0", "10.244.0.3", 8080)
-	if err != nil {
-		t.Fatalf("pod url error: %v", err)
-	}
-	expectedPod := "https://127.0.0.1:8443/api/v1/namespaces/seatunnel/pods/http:seatunnel-master-0:8080/proxy"
-	if podURL != expectedPod {
-		t.Fatalf("unexpected pod proxy url:\n got %q\nwant %q", podURL, expectedPod)
+	if _, err := unsupported.PodBaseURL(ctx, "seatunnel-master-0", "10.244.0.3", 8080); err == nil {
+		t.Fatal("expected error for unsupported apiserver_proxy pod url")
 	}
 
 	inCluster := NewTransport(mgr, 1, "seatunnel", AccessModeInCluster, "")
@@ -518,12 +511,14 @@ func TestTransport_baseURLs(t *testing.T) {
 	}
 }
 
-// TestRBACRequiredRulesFollowRealModel 逐条断言预检规则遵循真实 K8s RBAC 模型，
-// 防止非 cluster-admin 集群上的假阴性回归。
-// TestRBACRequiredRulesFollowRealModel asserts every precheck rule follows the real K8s RBAC
-// model, guarding against false negatives on non-cluster-admin clusters.
+// TestRBACRequiredRulesFollowRealModel 逐条断言核心与按需 RBAC 规则遵循真实 K8s 模型：
+// 1) 核心 RBACRequiredRules 不包含 secrets、*/proxy、pods(create/watch/delete)、batch/jobs、events；
+// 2) 高敏/场景化能力拆入 RBACOptionalRules（secrets 与 workload/pods delete），全表不包含 services/proxy 与 pods/proxy；
+// 3) services 不含 patch。
+// TestRBACRequiredRulesFollowRealModel asserts lean required rules and capability-gated
+// optional rules follow the real K8s RBAC model without proxy subresources or dead permissions.
 func TestRBACRequiredRulesFollowRealModel(t *testing.T) {
-	expect := map[string]struct {
+	expectRequired := map[string]struct {
 		group       string
 		resource    string
 		subresource string
@@ -532,66 +527,121 @@ func TestRBACRequiredRulesFollowRealModel(t *testing.T) {
 		"statefulsets":           {"apps", "statefulsets", ""},
 		"deployments":            {"apps", "deployments", ""},
 		"replicasets":            {"apps", "replicasets", ""},
-		"jobs":                   {"batch", "jobs", ""},
 		"services":               {"", "services", ""},
 		"configmaps":             {"", "configmaps", ""},
-		"secrets":                {"", "secrets", ""},
 		"serviceaccounts":        {"", "serviceaccounts", ""},
 		"persistentvolumeclaims": {"", "persistentvolumeclaims", ""},
-		"events":                 {"", "events", ""},
 	}
-	seen := map[string]bool{}
+	seenRequired := map[string]bool{}
 	for _, rule := range RBACRequiredRules {
 		key := rule.Resource
 		if rule.Subresource != "" {
 			key = rule.Resource + "/" + rule.Subresource
 		}
-		seen[key] = true
+		seenRequired[key] = true
 		if rule.Subresource == "" {
-			want, ok := expect[rule.Resource]
+			want, ok := expectRequired[rule.Resource]
 			if !ok {
-				t.Fatalf("unexpected resource %q in rules", rule.Resource)
+				t.Fatalf("unexpected resource %q in RBACRequiredRules", rule.Resource)
 			}
 			if rule.Group != want.group {
 				t.Fatalf("resource %q: group=%q want %q", rule.Resource, rule.Group, want.group)
 			}
+			if rule.Resource == "pods" && (rule.Verb == "create" || rule.Verb == "watch" || rule.Verb == "delete") {
+				t.Fatalf("RBACRequiredRules must not require pods %s", rule.Verb)
+			}
 		} else {
-			if rule.Group != "" {
-				t.Fatalf("subresource rule %q: core group must be empty, got %q", key, rule.Group)
-			}
-			switch key {
-			case "pods/proxy", "pods/log", "services/proxy":
-			default:
-				t.Fatalf("unexpected subresource rule %q", key)
+			if rule.Group != "" || key != "pods/log" {
+				t.Fatalf("RBACRequiredRules unexpected subresource rule group=%q key=%q", rule.Group, key)
 			}
 		}
-	}
-	// proxy 子资源必须覆盖 create（REST 代理提交作业与伴生 Proxy 调用都是 POST 语义）。
-	// Proxy subresources must cover create since proxied job submission and companion proxy
-	// calls are POST semantics.
-	proxyCreate := map[string]bool{}
-	for _, rule := range RBACRequiredRules {
-		if rule.Verb == "create" && rule.Subresource != "" {
-			proxyCreate[rule.Resource+"/"+rule.Subresource] = true
-		}
-	}
-	for _, key := range []string{"pods/proxy", "services/proxy"} {
-		if !proxyCreate[key] {
-			t.Fatalf("%s must include create verb", key)
-		}
-	}
-	// services 不再包含 patch（Session 最小权限，Master HTTP 自发布仍为 Open Discussion）。
-	// services no longer carries patch (session least privilege; master HTTP self-publish is
-	// still an open discussion).
-	for _, rule := range RBACRequiredRules {
 		if rule.Resource == "services" && rule.Subresource == "" && rule.Verb == "patch" {
 			t.Fatal("services patch must not be required for session mode")
 		}
-	}
-	for _, key := range []string{"pods/log", "services/proxy", "pods/proxy"} {
-		if !seen[key] {
-			t.Fatalf("missing required subresource rule %q", key)
+		if rule.Verb == "delete" {
+			t.Fatalf("RBACRequiredRules must be zero-delete; found %s delete", rule.Resource)
 		}
+	}
+	if !seenRequired["pods/log"] {
+		t.Fatal("missing required subresource rule pods/log")
+	}
+
+	// secrets 与全部 delete 权限留在 RBACOptionalRules 按需判定，且全表不请求 services/proxy 或 pods/proxy。
+	// secrets and delete verbs live in RBACOptionalRules; proxy subresources are never requested.
+	seenOptionalDelete := map[string]bool{}
+	seenOptional := map[string]bool{}
+	for _, rule := range RBACOptionalRules {
+		key := rule.Resource
+		if rule.Subresource != "" {
+			key = rule.Resource + "/" + rule.Subresource
+		}
+		seenOptional[key] = true
+		if key == "pods/proxy" || key == "services/proxy" {
+			t.Fatalf("RBACOptionalRules must not include proxy subresource %q", key)
+		}
+		if rule.Verb == "delete" {
+			seenOptionalDelete[key] = true
+		}
+	}
+	for _, key := range []string{"statefulsets", "deployments", "services", "configmaps", "pods", "secrets"} {
+		if !seenOptionalDelete[key] {
+			t.Fatalf("RBACOptionalRules must include delete verb for %s", key)
+		}
+	}
+	if !seenOptional["secrets"] {
+		t.Fatal("RBACOptionalRules must include secrets")
+	}
+}
+
+// TestPermissionModeZeroDeleteAndUninstallFallback 验证零 delete 最小权限可直接获判 minimal，
+// 且 Uninstall 遇 403 时将 StatefulSet/Deployment 缩容至 0 并返回按标签精确清理命令。
+// TestPermissionModeZeroDeleteAndUninstallFallback verifies zero-delete tokens evaluate to
+// PermissionModeMinimal and Uninstall on 403 scales workloads to 0 with ManualCleanupCommand.
+func TestPermissionModeZeroDeleteAndUninstallFallback(t *testing.T) {
+	items := make([]RBACCheckItem, 0, len(RBACRequiredRules)+len(RBACOptionalRules))
+	for _, rule := range RBACRequiredRules {
+		res := rule.Resource
+		if rule.Subresource != "" {
+			res += "/" + rule.Subresource
+		}
+		items = append(items, RBACCheckItem{Resource: res, Verb: rule.Verb, Allowed: true, Scope: RBACScopeRequired})
+	}
+	for _, rule := range RBACOptionalRules {
+		res := rule.Resource
+		if rule.Subresource != "" {
+			res += "/" + rule.Subresource
+		}
+		items = append(items, RBACCheckItem{Resource: res, Verb: rule.Verb, Allowed: false, Scope: RBACScopeOptional})
+	}
+	if mode := EvaluatePermissionMode(items); mode != PermissionModeMinimal {
+		t.Fatalf("zero-delete required rules mode=%q, want %q", mode, PermissionModeMinimal)
+	}
+	if CanDeleteWorkloads(items) {
+		t.Fatal("CanDeleteWorkloads must be false when delete verbs are denied")
+	}
+
+	client := fake.NewSimpleClientset()
+	mgr := newTestManager(client)
+	sm := NewSessionManager(mgr)
+	cfg := testSessionConfig()
+	ctx := context.Background()
+	if _, err := sm.Deploy(ctx, &DeployOptions{Config: cfg, ClusterCode: "e2e", ClusterID: 42}); err != nil {
+		t.Fatalf("deploy failed: %v", err)
+	}
+
+	for _, res := range []string{"statefulsets", "deployments", "services", "configmaps"} {
+		resourceName := res
+		client.PrependReactor("delete", resourceName, func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: resourceName}, "forbidden", nil)
+		})
+	}
+	err := sm.Uninstall(ctx, cfg, "e2e")
+	if err == nil || !strings.Contains(err.Error(), ManualCleanupCommand("e2e-ns", "e2e")) {
+		t.Fatalf("expected uninstall error with ManualCleanupCommand, got: %v", err)
+	}
+	sts, getErr := client.AppsV1().StatefulSets("e2e-ns").Get(ctx, ResourceNamesFor("e2e").MasterSTS, metav1.GetOptions{})
+	if getErr != nil || sts.Spec.Replicas == nil || *sts.Spec.Replicas != 0 {
+		t.Fatalf("expected master statefulset scaled to 0 on 403 delete, got sts=%v err=%v", sts, getErr)
 	}
 }
 

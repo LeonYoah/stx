@@ -108,18 +108,18 @@ func docCoversRule(doc parsedYAMLDoc, group, resource string, verb string) bool 
 	return false
 }
 
-// TestRenderMinimalRBACYAML 验证单命名空间最小权限模板隔离 STX 控制面与 SeaTunnel 运行身份，
-// 且完整覆盖 RBACRequiredRules 全部必需权限而不包含 ClusterRole。
-// TestRenderMinimalRBACYAML verifies the minimal single-namespace YAML isolates STX manager
-// from SeaTunnel runner, covers every rule in RBACRequiredRules, and emits no ClusterRole.
+// TestRenderMinimalRBACYAML 验证单命名空间控制面模板严格隔离 SeaTunnel 引擎运行身份，
+// 且完整覆盖 RBACRequiredRules 全部必需权限而不包含 ClusterRole 或 */proxy。
+// TestRenderMinimalRBACYAML verifies single-namespace control-plane YAML omits runner SA,
+// covers every rule in RBACRequiredRules, and never emits ClusterRole or */proxy.
 func TestRenderMinimalRBACYAML(t *testing.T) {
-	raw := RenderMinimalRBACYAML("seatunnel-prod", "st-runner")
+	raw := RenderMinimalRBACYAML("seatunnel-prod", "stx-manager")
 	docs := decodeYAMLDocs(t, raw)
-	var managerRole, runnerRole parsedYAMLDoc
-	foundManagerSA, foundRunnerSA := false, false
+	var managerRole parsedYAMLDoc
+	foundManagerSA := false
 	for _, doc := range docs {
 		if doc.Kind == "ClusterRole" || doc.Kind == "ClusterRoleBinding" {
-			t.Fatalf("minimal template must not contain %s", doc.Kind)
+			t.Fatalf("control-plane template must not contain %s", doc.Kind)
 		}
 		if doc.Kind == "ServiceAccount" && doc.Metadata.Name == DefaultSTXManagerServiceAccount {
 			foundManagerSA = true
@@ -127,18 +127,15 @@ func TestRenderMinimalRBACYAML(t *testing.T) {
 				t.Fatalf("manager SA namespace=%q want seatunnel-prod", doc.Metadata.Namespace)
 			}
 		}
-		if doc.Kind == "ServiceAccount" && doc.Metadata.Name == "st-runner" {
-			foundRunnerSA = true
+		if doc.Kind == "ServiceAccount" && doc.Metadata.Name == DefaultSeaTunnelRunnerServiceAccount {
+			t.Fatalf("control-plane template must not bundle %s", DefaultSeaTunnelRunnerServiceAccount)
 		}
 		if doc.Kind == "Role" && doc.Metadata.Name == "stx-manager-role" {
 			managerRole = doc
 		}
-		if doc.Kind == "Role" && doc.Metadata.Name == "st-runner-role" {
-			runnerRole = doc
-		}
 	}
-	if !foundManagerSA || !foundRunnerSA {
-		t.Fatalf("expected both stx-manager and st-runner ServiceAccounts")
+	if !foundManagerSA {
+		t.Fatalf("expected %s ServiceAccount", DefaultSTXManagerServiceAccount)
 	}
 	for _, rule := range RBACRequiredRules {
 		res := rule.Resource
@@ -146,17 +143,82 @@ func TestRenderMinimalRBACYAML(t *testing.T) {
 			res = rule.Resource + "/" + rule.Subresource
 		}
 		if !docCoversRule(managerRole, rule.Group, res, rule.Verb) {
-			t.Fatalf("minimal stx-manager role missing required rule group=%q resource=%q verb=%q", rule.Group, res, rule.Verb)
+			t.Fatalf("control-plane role missing required rule group=%q resource=%q verb=%q", rule.Group, res, rule.Verb)
 		}
 	}
-	// 运行账号严格只读 endpoints/pods/services，不可修改 secrets/statefulsets 等资源。
-	// Runner role must remain strictly read-only over endpoints/pods/services.
-	for _, forbidden := range []string{"secrets", "statefulsets", "deployments", "roles", "rolebindings"} {
-		for _, v := range []string{"get", "list", "create", "update", "delete"} {
-			if docCoversRule(runnerRole, "", forbidden, v) || docCoversRule(runnerRole, "apps", forbidden, v) {
-				t.Fatalf("runner role must not grant %s %s", forbidden, v)
-			}
+	// 默认控制面模板严格不含 delete、secrets，且不包含多余权限。
+	// Default control-plane template omits delete, secrets, and unused rules.
+	if docCoversRule(managerRole, "batch", "jobs", "delete") || docCoversRule(managerRole, "", "events", "list") || docCoversRule(managerRole, "", "pods", "create") {
+		t.Fatalf("control-plane role must not contain unused batch/jobs, events, or pods create rules")
+	}
+	for _, grpRes := range [][2]string{{"apps", "statefulsets"}, {"apps", "deployments"}, {"", "services"}, {"", "configmaps"}, {"", "pods"}, {"", "secrets"}} {
+		if docCoversRule(managerRole, grpRes[0], grpRes[1], "delete") {
+			t.Fatalf("default control-plane role must not require delete on %s", grpRes[1])
 		}
+	}
+	if docCoversRule(managerRole, "", "secrets", "get") || docCoversRule(managerRole, "", "services/proxy", "get") || docCoversRule(managerRole, "", "pods/proxy", "get") {
+		t.Fatalf("default control-plane role must not include secrets or proxy subresources")
+	}
+	if cmd := RenderTokenCommand("seatunnel-prod"); cmd != "kubectl -n seatunnel-prod create token stx-manager --duration=8760h" {
+		t.Fatalf("unexpected token command: %q", cmd)
+	}
+
+	// 可选模块组合：开启 delete/secrets 精确反映在 YAML 中，且仍不包含 runner SA 与 proxy 子资源。
+	// Modular options: enabling delete/secrets updates YAML cleanly while keeping runner SA and proxy subresources out.
+	bare := RenderMinimalRBACYAMLWithOptions("seatunnel-prod", "stx-manager", MinimalRBACOptions{})
+	if strings.Contains(bare, DefaultSeaTunnelRunnerServiceAccount) || strings.Contains(bare, "services/proxy") || strings.Contains(bare, "pods/proxy") || strings.Contains(bare, `resources: ["secrets"]`) || strings.Contains(bare, `"delete"`) {
+		t.Fatalf("expected bare control-plane YAML without optional blocks, got:\n%s", bare)
+	}
+	fullOpt := RenderMinimalRBACYAMLWithOptions("seatunnel-prod", "ops-stx", MinimalRBACOptions{
+		IncludeDeleteRules: true,
+		IncludeSecretRules: true,
+	})
+	if strings.Contains(fullOpt, DefaultSeaTunnelRunnerServiceAccount) {
+		t.Fatalf("control-plane YAML must never include %s", DefaultSeaTunnelRunnerServiceAccount)
+	}
+	var optRole parsedYAMLDoc
+	for _, doc := range decodeYAMLDocs(t, fullOpt) {
+		if doc.Kind == "Role" && doc.Metadata.Name == "ops-stx-role" {
+			optRole = doc
+		}
+	}
+	if !docCoversRule(optRole, "apps", "statefulsets", "delete") || !docCoversRule(optRole, "", "secrets", "create") || !docCoversRule(optRole, "", "pods", "delete") {
+		t.Fatalf("expected delete and secrets rules when enabled via options")
+	}
+	if docCoversRule(optRole, "", "services/proxy", "get") || docCoversRule(optRole, "", "pods/proxy", "get") {
+		t.Fatalf("control-plane YAML must never include services/proxy or pods/proxy")
+	}
+	if kcCmd := RenderKubeconfigCommand("seatunnel-prod", "ops-stx"); !strings.Contains(kcCmd, "create token ops-stx") || !strings.Contains(kcCmd, "certificate-authority-data") {
+		t.Fatalf("unexpected kubeconfig cmd: %q", kcCmd)
+	}
+}
+
+// TestRenderSeaTunnelRunnerRBACYAML 验证引擎运行账号模板严格独立且只读。
+// TestRenderSeaTunnelRunnerRBACYAML verifies standalone engine runner YAML stays read-only and isolated.
+func TestRenderSeaTunnelRunnerRBACYAML(t *testing.T) {
+	raw := RenderSeaTunnelRunnerRBACYAML("seatunnel-prod", "st-runner")
+	if strings.Contains(raw, DefaultSTXManagerServiceAccount) || strings.Contains(raw, "ClusterRole") {
+		t.Fatalf("runner template must not reference %s or ClusterRole", DefaultSTXManagerServiceAccount)
+	}
+	docs := decodeYAMLDocs(t, raw)
+	var runnerRole parsedYAMLDoc
+	foundSA, foundBinding := false, false
+	for _, doc := range docs {
+		if doc.Kind == "ServiceAccount" && doc.Metadata.Name == "st-runner" && doc.Metadata.Namespace == "seatunnel-prod" {
+			foundSA = true
+		}
+		if doc.Kind == "Role" && doc.Metadata.Name == "st-runner-role" {
+			runnerRole = doc
+		}
+		if doc.Kind == "RoleBinding" && doc.Metadata.Name == "st-runner-binding" {
+			if doc.RoleRef.Name != "st-runner-role" || len(doc.Subjects) != 1 || doc.Subjects[0].Name != "st-runner" {
+				t.Fatalf("unexpected runner binding: %+v", doc)
+			}
+			foundBinding = true
+		}
+	}
+	if !foundSA || !foundBinding || runnerRole.Kind == "" {
+		t.Fatalf("expected standalone runner SA/Role/RoleBinding")
 	}
 	for _, readRes := range []string{"endpoints", "pods", "services"} {
 		for _, verb := range []string{"get", "list", "watch"} {
@@ -165,71 +227,12 @@ func TestRenderMinimalRBACYAML(t *testing.T) {
 			}
 		}
 	}
-	if cmd := RenderTokenCommand("seatunnel-prod"); cmd != "kubectl -n seatunnel-prod create token stx-manager --duration=8760h" {
-		t.Fatalf("unexpected token command: %q", cmd)
-	}
-}
-
-// TestRenderFullRBACYAML 验证全面权限模板完整覆盖 RBACRequiredRules 与 RBACExtendedRules。
-// TestRenderFullRBACYAML verifies the full YAML covers both required and extended RBAC rules.
-func TestRenderFullRBACYAML(t *testing.T) {
-	raw := RenderFullRBACYAML("seatunnel")
-	docs := decodeYAMLDocs(t, raw)
-	var clusterRole parsedYAMLDoc
-	for _, doc := range docs {
-		if doc.Kind == "ClusterRole" && doc.Metadata.Name == "stx-manager-cluster-role" {
-			clusterRole = doc
-		}
-	}
-	if clusterRole.Kind == "" {
-		t.Fatal("missing ClusterRole stx-manager-cluster-role")
-	}
-	for _, rule := range RBACRequiredRules {
-		res := rule.Resource
-		if rule.Subresource != "" {
-			res = rule.Resource + "/" + rule.Subresource
-		}
-		if !docCoversRule(clusterRole, rule.Group, res, rule.Verb) {
-			t.Fatalf("full ClusterRole missing required rule group=%q resource=%q verb=%q", rule.Group, res, rule.Verb)
-		}
-	}
-	for _, rule := range RBACExtendedRules {
-		res := rule.Resource
-		if rule.Subresource != "" {
-			res = rule.Resource + "/" + rule.Subresource
-		}
-		if !docCoversRule(clusterRole, rule.Group, res, rule.Verb) {
-			t.Fatalf("full ClusterRole missing extended rule group=%q resource=%q verb=%q", rule.Group, res, rule.Verb)
-		}
-	}
-
-	// 验证自定义控制面 SA 时，ServiceAccount / ClusterRole / ClusterRoleBinding / roleRef 全部联动一致。
-	// Verify custom control-plane SA keeps ServiceAccount, ClusterRole, ClusterRoleBinding, and roleRef in lockstep.
-	customFull := RenderFullRBACYAML("seatunnel-full", "stx-manager-full")
-	customDocs := decodeYAMLDocs(t, customFull)
-	foundRole, foundBinding := false, false
-	for _, doc := range customDocs {
-		if doc.Kind == "ClusterRole" && doc.Metadata.Name == "stx-manager-full-cluster-role" {
-			foundRole = true
-		}
-		if doc.Kind == "ClusterRoleBinding" && doc.Metadata.Name == "stx-manager-full-cluster-binding" {
-			if doc.RoleRef.Name != "stx-manager-full-cluster-role" {
-				t.Fatalf("roleRef.name=%q, want stx-manager-full-cluster-role", doc.RoleRef.Name)
+	for _, forbidden := range []string{"secrets", "statefulsets", "deployments", "roles", "rolebindings"} {
+		for _, v := range []string{"get", "list", "create", "update", "delete"} {
+			if docCoversRule(runnerRole, "", forbidden, v) || docCoversRule(runnerRole, "apps", forbidden, v) {
+				t.Fatalf("runner role must not grant %s %s", forbidden, v)
 			}
-			if len(doc.Subjects) != 1 || doc.Subjects[0].Name != "stx-manager-full" {
-				t.Fatalf("unexpected subjects: %+v", doc.Subjects)
-			}
-			foundBinding = true
 		}
-	}
-	if !foundRole || !foundBinding {
-		t.Fatalf("custom full template missing synced ClusterRole/Binding: role=%v binding=%v", foundRole, foundBinding)
-	}
-	if cmd := RenderTokenCommand("seatunnel-full", "stx-manager-full"); cmd != "kubectl -n seatunnel-full create token stx-manager-full --duration=8760h" {
-		t.Fatalf("unexpected custom token cmd: %q", cmd)
-	}
-	if kcCmd := RenderKubeconfigCommand("seatunnel-full", "stx-manager-full"); !strings.Contains(kcCmd, "create token stx-manager-full") || !strings.Contains(kcCmd, "certificate-authority-data") {
-		t.Fatalf("unexpected kubeconfig cmd: %q", kcCmd)
 	}
 }
 

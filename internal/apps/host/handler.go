@@ -366,6 +366,7 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		errors.Is(err, ErrK8sAPIURLInvalid),
 		errors.Is(err, ErrK8sCredentialsRequired),
 		errors.Is(err, ErrK8sAuthModeInvalid),
+		errors.Is(err, ErrK8sAccessModeInvalid),
 		errors.Is(err, ErrK8sKubeconfigInvalid):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrHostHasCluster),

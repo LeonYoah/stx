@@ -30,6 +30,18 @@ func k8sOperationSpecs() []OperationSpec {
 			[]InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Host ID"}},
 			"stx host test-connection 1",
 		),
+		k8sManualReadOperation(
+			"host.k8s-test-draft", []string{"host", "test-k8s"}, "Probe draft or rotation kubernetes credentials without saving",
+			"POST", "/api/v1/hosts/k8s/test-connection",
+			[]InputSpec{},
+			"stx host test-k8s --request-file k8s-draft.json",
+		),
+		k8sManualReadOperation(
+			"host.k8s-inspect-kubeconfig", []string{"host", "inspect-kubeconfig"}, "Inspect kubeconfig contexts and portability warnings",
+			"POST", "/api/v1/hosts/k8s/inspect-kubeconfig",
+			[]InputSpec{},
+			"stx host inspect-kubeconfig --kubeconfig @~/.kube/config",
+		),
 		k8sReadOperation(
 			"host.k8s-namespaces", []string{"host", "k8s-namespaces"}, "List visible kubernetes namespaces",
 			"GET", "/api/v1/hosts/:id/k8s/namespaces",
@@ -174,4 +186,17 @@ func k8sReadOperation(id string, commandPath []string, summary, method, route st
 func k8sClusterReadOperation(id string, commandPath []string, summary, method, route string, inputs []InputSpec, example string) OperationSpec {
 	spec := k8sReadOperation(id, commandPath, summary, method, route, inputs, example)
 	return spec
+}
+
+// k8sManualReadOperation 登记由专用 CLI 处理的 K8s 只读操作（如带凭据文件参数的预检与 kubeconfig 解析）。
+// k8sManualReadOperation registers a read-only K8s operation handled by custom CLI commands
+// (e.g. draft credential probe and kubeconfig inspection with @file inputs).
+func k8sManualReadOperation(id string, commandPath []string, summary, method, route string, inputs []InputSpec, example string) OperationSpec {
+	return OperationSpec{
+		ID: id, CommandPath: commandPath, Summary: summary, GeneratedCLI: false, Method: method, Route: route,
+		Mode: ModeNormal, AuthRequired: true, Risk: RiskR0, Revision: 1, SupportsPick: true,
+		Input:         inputs,
+		OutputExample: `{"api_version":"v1","operation_id":"` + id + `","request_id":"req_example","data":{},"result_meta":{"complete":true}}`,
+		Example:       example,
+	}
 }

@@ -27,6 +27,7 @@
 import {useState, useEffect, useCallback, useMemo, useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {useRouter} from 'next/navigation';
+import {isK8sInfra} from '@/lib/infra';
 import {
   Eye,
   Layers3,
@@ -112,9 +113,9 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
       const data = await services.plugin.listInstalledPlugins(clusterId);
       try {
         const info = await services.cluster.getCluster(clusterId);
-        // 兼容历史过渡值 kubernetes；契约值为 kubernetes_session / kubernetes_application_*。
-        // Tolerates the legacy literal kubernetes; contractual values are kubernetes_session / kubernetes_application_*.
-        setIsK8sCluster(info.infra_type === 'kubernetes' || info.infra_type?.startsWith('kubernetes_') === true);
+        // 统一走 @/lib/infra 判定 K8s 集群形态（兼容历史字面值 kubernetes 与新契约值）。
+        // Use shared @/lib/infra predicate for K8s detection (covers legacy kubernetes & contractual shapes).
+        setIsK8sCluster(isK8sInfra(info.infra_type));
       } catch {
         setIsK8sCluster(false);
       }

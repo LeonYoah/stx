@@ -22,18 +22,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
 
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/LeonYoah/stx/internal/pkg/regclient"
 	"github.com/LeonYoah/stx/internal/utils/secretbox"
 )
 
-// DockerHubRegistryHost 官方公共仓库的登记 host（系统预置行，不可删除）。
+// DockerHubRegistryHost 官方公共仓库的登记 host（系统预置行，不可删除或改名）。
 // DockerHubRegistryHost is the registered host of the official public registry
-// (system-seeded row, not deletable).
+// (system-seeded row, immutable host and non-deletable).
 const DockerHubRegistryHost = "docker.io"
 
 // DockerHubOfficialRepo docker.io 上 SeaTunnel 官方镜像路径的预填值（上游事实，可编辑）。
@@ -41,30 +45,34 @@ const DockerHubRegistryHost = "docker.io"
 // upstream fact, still editable).
 const DockerHubOfficialRepo = "apache/seatunnel"
 
-// ContainerRegistry 登记的镜像仓库：凭据每仓库一份，部署/升级按镜像 host 精确匹配。
-// Catalog/探测状态为缓存值，注册与手动测试时刷新。
+// ContainerRegistry 登记的镜像仓库：凭据每仓库一份，部署/升级按镜像 host 精确匹配；
+// 可选配置 DefaultRepo 作为下游镜像选择器的默认镜像路径，探测仅校验连通性与认证，不做全仓 _catalog 扫库。
 // ContainerRegistry is a registered image registry: one credential set per host,
-// matched exactly by image host at deploy/upgrade time. Catalog and probe status
-// are cached values refreshed on registration and manual tests.
+// matched exactly by image host at deploy/upgrade time. Optional DefaultRepo prefills
+// the downstream image picker; probing verifies reachability and auth without sweeping /v2/_catalog.
 type ContainerRegistry struct {
 	ID       uint   `json:"id" gorm:"primaryKey;autoIncrement"`
 	Host     string `json:"host" gorm:"size:255;uniqueIndex;not null"`
-	Username string `json:"username" gorm:"size:255"`
+	// DefaultRepo 可选默认镜像路径（如 apache/seatunnel 或 bigdata/seatunnel），供部署/升级自动预填并实时查 tag。
+	// DefaultRepo is an optional default repository path (e.g. apache/seatunnel) prefilled in deploy/upgrade pickers.
+	DefaultRepo string `json:"default_repo" gorm:"column:default_repo;size:255"`
+	Username    string `json:"username" gorm:"size:255"`
 	// 密码 secretbox 加密落库且永不随响应返回（json:"-"）。
 	// The password is secretbox-encrypted at rest and never serialized.
 	Password string `json:"-" gorm:"size:1024"`
-	// IsSystem 预置行（docker.io）：不可删除，用户名/密码字段无意义。
-	// IsSystem marks seeded rows (docker.io): not deletable.
-	IsSystem     bool   `json:"is_system" gorm:"column:is_system"`
-	CatalogJSON  string `json:"-" gorm:"column:catalog_json;type:text"`
-	CatalogRepos []string `json:"catalog_repos" gorm:"-"`
-	ProbeScheme  string `json:"probe_scheme" gorm:"column:probe_scheme;size:8"`
-	ProbeStatus  string `json:"probe_status" gorm:"column:probe_status;size:16"`
-	ProbeError   string `json:"probe_error" gorm:"column:probe_error;size:512"`
+	// IsSystem 预置行（docker.io）：host 不可改、不可删除；允许补充 Docker Hub 凭据以防匿名限流。
+	// IsSystem marks seeded rows (docker.io): host is immutable and non-deletable,
+	// while user credentials remain editable (e.g. to bypass anonymous rate limits).
+	IsSystem     bool       `json:"is_system" gorm:"column:is_system"`
+	CatalogJSON  string     `json:"-" gorm:"column:catalog_json;type:text"`
+	CatalogRepos []string   `json:"catalog_repos" gorm:"-"`
+	ProbeScheme  string     `json:"probe_scheme" gorm:"column:probe_scheme;size:8"`
+	ProbeStatus  string     `json:"probe_status" gorm:"column:probe_status;size:16"`
+	ProbeError   string     `json:"probe_error" gorm:"column:probe_error;size:512"`
 	ProbeAt      *time.Time `json:"probe_at" gorm:"column:probe_at"`
-	HasAuth      bool      `json:"has_auth" gorm:"-"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	HasAuth      bool       `json:"has_auth" gorm:"-"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
 // TableName 固定表名 container_registries。
@@ -74,19 +82,57 @@ func (ContainerRegistry) TableName() string { return "container_registries" }
 // ContainerRegistryRequest 创建/更新仓库的请求体。
 // ContainerRegistryRequest is the create/update payload.
 type ContainerRegistryRequest struct {
-	Host     string `json:"host"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Host        string `json:"host"`
+	DefaultRepo string `json:"default_repo"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
 }
 
-// NormalizeRegistryHost 清洗仓库 host：剥离误带 scheme 与尾斜杠。
-// NormalizeRegistryHost strips a mistakenly carried scheme and trailing slashes.
+// ContainerRegistryProbeRequest 注册/编辑态不落库探测请求（编辑态传 id 且密码留空时自动复用库内密文）。
+// ContainerRegistryProbeRequest is the transient probe payload; when ID is given with an
+// empty password, the stored secret is reused so edit-drawer tests do not false-fail 401.
+type ContainerRegistryProbeRequest struct {
+	ID          uint   `json:"id"`
+	Host        string `json:"host"`
+	DefaultRepo string `json:"default_repo"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+}
+
+// ContainerRegistryProbeResult 注册/编辑态测试连接返回值。
+// ContainerRegistryProbeResult is the transient probe response payload.
+type ContainerRegistryProbeResult struct {
+	Status string `json:"status"`
+	Scheme string `json:"scheme"`
+	Error  string `json:"error,omitempty"`
+}
+
+// NormalizeRegistryHost 清洗仓库 host：剥离误带 scheme 与尾斜杠并统一小写。
+// NormalizeRegistryHost strips a mistakenly carried scheme, trailing slashes, and lowercases.
 func NormalizeRegistryHost(raw string) string {
 	host := strings.TrimSpace(raw)
 	for _, scheme := range []string{"https://", "http://"} {
 		host = strings.TrimPrefix(host, scheme)
 	}
-	return strings.TrimRight(host, "/")
+	return strings.ToLower(strings.TrimRight(host, "/"))
+}
+
+// NormalizeDefaultRepo 清洗默认镜像路径：去掉首尾空白与斜杠。
+// NormalizeDefaultRepo trims whitespace and leading/trailing slashes from a default repository path.
+func NormalizeDefaultRepo(raw string) string {
+	return strings.Trim(strings.TrimSpace(raw), "/")
+}
+
+// DockerConfigAuthKey 返回写入 .dockerconfigjson auths 映射的权威键值：
+// kubelet/containerd 对 Docker Hub 识别 https://index.docker.io/v1/，其余仓库用裸 host[:port]。
+// DockerConfigAuthKey returns the canonical .dockerconfigjson auths key: kubelet/containerd
+// expect https://index.docker.io/v1/ for Docker Hub, and bare host[:port] for private registries.
+func DockerConfigAuthKey(host string) string {
+	normalized := NormalizeRegistryHost(host)
+	if normalized == DockerHubRegistryHost || normalized == "index.docker.io" || normalized == "registry-1.docker.io" {
+		return "https://index.docker.io/v1/"
+	}
+	return normalized
 }
 
 // DecryptPassword 解密仓库密码；未设置返回空串。
@@ -111,6 +157,9 @@ func (r *ContainerRegistry) afterLoad() {
 	if strings.TrimSpace(r.CatalogJSON) != "" {
 		_ = json.Unmarshal([]byte(r.CatalogJSON), &r.CatalogRepos)
 	}
+	if r.CatalogRepos == nil {
+		r.CatalogRepos = []string{}
+	}
 }
 
 // RegistryImageHost 从镜像引用解析仓库 host：第一段含 "." 或 ":" 或为 localhost
@@ -129,34 +178,57 @@ func RegistryImageHost(image string) string {
 		return DockerHubRegistryHost
 	}
 	first := strings.SplitN(image, "/", 2)[0]
-	if strings.ContainsAny(first, ".:") || first == "localhost" {
-		return first
+	if strings.ContainsAny(first, ".:") || strings.EqualFold(first, "localhost") {
+		return strings.ToLower(first)
 	}
 	return DockerHubRegistryHost
 }
 
-var errRegistryNotFound = errors.New("installer: container registry not found")
+var (
+	errRegistryNotFound        = errors.New("installer: container registry not found")
+	errRegistryAlreadyExists   = errors.New("installer: container registry already exists")
+	errRegistryValidation      = errors.New("installer: invalid container registry request")
+	errSystemRegistryProtected = errors.New("installer: system container registry is protected")
+)
 
-// ErrRegistryNotFound 暴露哨兵错误供上层 errors.Is 判断。
-// ErrRegistryNotFound exposes the sentinel for errors.Is checks.
+// ErrRegistryNotFound 暴露仓库不存在哨兵错误（HTTP 404）。
+// ErrRegistryNotFound exposes the not-found sentinel error (HTTP 404).
 func ErrRegistryNotFound() error { return errRegistryNotFound }
 
-// validateRegistryRequest 校验仓库请求并清洗 host。
-// validateRegistryRequest validates the payload and normalizes the host.
-func validateRegistryRequest(req *ContainerRegistryRequest, requirePassword bool) error {
+// ErrRegistryAlreadyExists 暴露仓库 host 冲突哨兵错误（HTTP 409）。
+// ErrRegistryAlreadyExists exposes the duplicate-host sentinel error (HTTP 409).
+func ErrRegistryAlreadyExists() error { return errRegistryAlreadyExists }
+
+// ErrRegistryValidation 暴露参数校验失败哨兵错误（HTTP 400）。
+// ErrRegistryValidation exposes the validation sentinel error (HTTP 400).
+func ErrRegistryValidation() error { return errRegistryValidation }
+
+// ErrSystemRegistryProtected 暴露系统行保护哨兵错误（HTTP 400）。
+// ErrSystemRegistryProtected exposes the system-row protection sentinel error (HTTP 400).
+func ErrSystemRegistryProtected() error { return errSystemRegistryProtected }
+
+// validateRegistryRequest 校验仓库请求并清洗 host 与默认镜像路径。
+// validateRegistryRequest validates the payload and normalizes host and default_repo.
+func validateRegistryRequest(ctx context.Context, req *ContainerRegistryRequest, requirePassword bool) error {
 	req.Host = NormalizeRegistryHost(req.Host)
+	req.DefaultRepo = NormalizeDefaultRepo(req.DefaultRepo)
 	req.Username = strings.TrimSpace(req.Username)
 	if req.Host == "" {
-		return errors.New("installer: registry host is required")
+		return fmt.Errorf("%w: %s", errRegistryValidation, locale.Pick(ctx, "仓库地址不能为空", "registry host is required"))
 	}
-	if strings.ContainsAny(req.Host, "/ \t") {
-		return errors.New("installer: registry host must be a bare host[:port] without path")
+	if strings.ContainsAny(req.Host, "/ \t\r\n") {
+		return fmt.Errorf("%w: %s", errRegistryValidation, locale.Pick(ctx, "仓库地址不能包含路径或空白字符（仅填写 host[:port]）", "registry host must be a bare host[:port] without paths or whitespace"))
+	}
+	if req.DefaultRepo != "" {
+		if strings.Contains(req.DefaultRepo, "://") || strings.ContainsAny(req.DefaultRepo, ":@ \t\r\n") {
+			return fmt.Errorf("%w: %s", errRegistryValidation, locale.Pick(ctx, "默认镜像名仅填写仓库路径（如 apache/seatunnel），不要包含协议、Tag 或空白字符", "default repository must be a repository path only (e.g. apache/seatunnel) without scheme, tag, or whitespace"))
+		}
 	}
 	if req.Username == "" && strings.TrimSpace(req.Password) != "" {
-		return errors.New("installer: registry username is required when a password is provided")
+		return fmt.Errorf("%w: %s", errRegistryValidation, locale.Pick(ctx, "填写密码时必须同时填写用户名", "username is required when a password is provided"))
 	}
 	if requirePassword && req.Username != "" && strings.TrimSpace(req.Password) == "" {
-		return errors.New("installer: registry password is required when a username is provided")
+		return fmt.Errorf("%w: %s", errRegistryValidation, locale.Pick(ctx, "填写用户名时必须提供密码", "password is required when a username is provided"))
 	}
 	return nil
 }
@@ -191,7 +263,7 @@ func (s *Service) FindRegistryByHost(ctx context.Context, host string) (*Contain
 // CreateContainerRegistry 创建仓库（host 唯一），成功后立即同步探测。
 // CreateContainerRegistry creates a registry (unique host) and probes synchronously.
 func (s *Service) CreateContainerRegistry(ctx context.Context, req *ContainerRegistryRequest) (*ContainerRegistry, error) {
-	if err := validateRegistryRequest(req, true); err != nil {
+	if err := validateRegistryRequest(ctx, req, true); err != nil {
 		return nil, err
 	}
 	var count int64
@@ -199,9 +271,13 @@ func (s *Service) CreateContainerRegistry(ctx context.Context, req *ContainerReg
 		return nil, err
 	}
 	if count > 0 {
-		return nil, fmt.Errorf("installer: registry %s already exists", req.Host)
+		return nil, fmt.Errorf("%w: %s", errRegistryAlreadyExists, fmt.Sprintf(locale.Pick(ctx, "镜像仓库 %s 已存在", "registry %s already exists"), req.Host))
 	}
-	row := &ContainerRegistry{Host: req.Host, Username: req.Username}
+	row := &ContainerRegistry{
+		Host:        req.Host,
+		DefaultRepo: req.DefaultRepo,
+		Username:    req.Username,
+	}
 	if strings.TrimSpace(req.Password) != "" {
 		encrypted, err := secretbox.Encrypt(strings.TrimSpace(req.Password))
 		if err != nil {
@@ -217,18 +293,25 @@ func (s *Service) CreateContainerRegistry(ctx context.Context, req *ContainerReg
 	return row, nil
 }
 
-// UpdateContainerRegistry 更新仓库；密码留空保持原值，system 行仅允许更新探测缓存。
-// UpdateContainerRegistry updates a registry; empty password keeps the stored one.
+// UpdateContainerRegistry 更新仓库：
+// 1) 系统行（docker.io）锁定 host 不可改，仅允许补充/清除 Docker Hub 凭据；
+// 2) 已有凭据时密码留空保持原值；匿名仓库填写用户名时必须同时提供密码。
+// UpdateContainerRegistry updates a registry: system row locks its host while permitting
+// credentials; empty password preserves existing ciphertext, but switching from anonymous
+// to authenticated requires a non-empty password.
 func (s *Service) UpdateContainerRegistry(ctx context.Context, id uint, req *ContainerRegistryRequest) (*ContainerRegistry, error) {
 	var row ContainerRegistry
 	if err := s.db.WithContext(ctx).First(&row, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errRegistryNotFound
+			return nil, fmt.Errorf("%w: %s", errRegistryNotFound, locale.Pick(ctx, "镜像仓库不存在", "container registry not found"))
 		}
 		return nil, err
 	}
-	if err := validateRegistryRequest(req, false); err != nil {
+	if err := validateRegistryRequest(ctx, req, false); err != nil {
 		return nil, err
+	}
+	if row.IsSystem && req.Host != row.Host {
+		return nil, fmt.Errorf("%w: %s", errSystemRegistryProtected, locale.Pick(ctx, "系统预置仓库地址不可修改", "system registry host cannot be modified"))
 	}
 	if req.Host != row.Host {
 		var count int64
@@ -236,10 +319,14 @@ func (s *Service) UpdateContainerRegistry(ctx context.Context, id uint, req *Con
 			return nil, err
 		}
 		if count > 0 {
-			return nil, fmt.Errorf("installer: registry %s already exists", req.Host)
+			return nil, fmt.Errorf("%w: %s", errRegistryAlreadyExists, fmt.Sprintf(locale.Pick(ctx, "镜像仓库 %s 已存在", "registry %s already exists"), req.Host))
 		}
 	}
+	if req.Username != "" && strings.TrimSpace(req.Password) == "" && strings.TrimSpace(row.Password) == "" {
+		return nil, fmt.Errorf("%w: %s", errRegistryValidation, locale.Pick(ctx, "首次配置用户名时必须提供密码", "password is required when enabling authentication"))
+	}
 	row.Host = req.Host
+	row.DefaultRepo = req.DefaultRepo
 	row.Username = req.Username
 	if strings.TrimSpace(req.Password) != "" {
 		encrypted, err := secretbox.Encrypt(strings.TrimSpace(req.Password))
@@ -267,114 +354,167 @@ func (s *Service) DeleteContainerRegistry(ctx context.Context, id uint) error {
 	var row ContainerRegistry
 	if err := s.db.WithContext(ctx).First(&row, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errRegistryNotFound
+			return fmt.Errorf("%w: %s", errRegistryNotFound, locale.Pick(ctx, "镜像仓库不存在", "container registry not found"))
 		}
 		return err
 	}
 	if row.IsSystem {
-		return errors.New("installer: system registry cannot be deleted")
+		return fmt.Errorf("%w: %s", errSystemRegistryProtected, locale.Pick(ctx, "系统预置仓库不可删除", "system registry cannot be deleted"))
 	}
 	return s.db.WithContext(ctx).Delete(&row).Error
 }
 
-// ProbeContainerRegistry 探测连通性并刷新 catalog 缓存（同步执行，10s 上限）。
-// ProbeContainerRegistry probes connectivity and refreshes the catalog cache
-// synchronously with the client's own timeout.
-// ProbeRegistryTransient 注册前不落库探测：用户点「测试连接」时凭据尚未入库，
-// 直接用表单值 ping+catalog 验证，成功后注册流程会再正式探测一次。
-// ProbeRegistryTransient probes without persisting: the credentials are not yet
-// stored when the user clicks "test connection" in the register dialog, so the
-// form values probe the registry directly.
-func (s *Service) ProbeRegistryTransient(ctx context.Context, host, username, password string) (string, string, []string, error) {
-	req := &ContainerRegistryRequest{Host: host, Username: username, Password: password}
-	if err := validateRegistryRequest(req, false); err != nil {
-		return "", "", nil, err
+// formatRegistryProbeError 将底层 regclient 鉴权错误转为可读文案。
+// formatRegistryProbeError formats regclient auth errors into localized user-facing messages.
+func formatRegistryProbeError(ctx context.Context, err error) string {
+	switch {
+	case errors.Is(err, regclient.ErrAuthRequired):
+		return locale.Pick(ctx, "仓库要求认证，请填写用户名和密码", "registry requires authentication; please provide username and password")
+	case errors.Is(err, regclient.ErrAuthFailed):
+		return locale.Pick(ctx, "认证失败，请检查用户名和密码", "authentication failed; please check username and password")
+	default:
+		return err.Error()
 	}
-	normalized := req.Host
-	if normalized == DockerHubRegistryHost {
-		return "public", "https", nil, nil
-	}
-	client := regclient.New(normalized, username, password)
-	if err := client.Ping(ctx); err != nil {
-		return "error", client.Scheme(), nil, err
-	}
-	repos, err := client.Catalog(ctx)
-	if err != nil {
-		return "reachable", client.Scheme(), nil, nil
-	}
-	return "ok", client.Scheme(), repos, nil
 }
 
+// ProbeRegistryTransient 注册/编辑前不落库探测：
+// 当传入 ID 且密码留空时自动回填库内已有密码，避免编辑态测试误报 401；
+// 仅校验 /v2/ 连通性与授权有效性，不扫全仓 /v2/_catalog。
+// ProbeRegistryTransient probes without persisting; when ID is supplied with an empty
+// password, stored credentials are decrypted and used so edit-mode tests work seamlessly.
+// It verifies /v2/ connectivity and authorization without sweeping /v2/_catalog.
+func (s *Service) ProbeRegistryTransient(ctx context.Context, req *ContainerRegistryProbeRequest) (*ContainerRegistryProbeResult, error) {
+	if req == nil {
+		return nil, fmt.Errorf("%w: %s", errRegistryValidation, locale.Pick(ctx, "请求体不能为空", "request body is required"))
+	}
+	baseReq := &ContainerRegistryRequest{
+		Host:        req.Host,
+		DefaultRepo: req.DefaultRepo,
+		Username:    req.Username,
+		Password:    req.Password,
+	}
+	if err := validateRegistryRequest(ctx, baseReq, false); err != nil {
+		return nil, err
+	}
+	password := strings.TrimSpace(baseReq.Password)
+	if req.ID > 0 && baseReq.Username != "" && password == "" {
+		var existing ContainerRegistry
+		if err := s.db.WithContext(ctx).First(&existing, req.ID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, fmt.Errorf("%w: %s", errRegistryNotFound, locale.Pick(ctx, "镜像仓库不存在", "container registry not found"))
+			}
+			return nil, err
+		}
+		decrypted, decErr := existing.DecryptPassword()
+		if decErr != nil {
+			return nil, decErr
+		}
+		if decrypted == "" {
+			return nil, fmt.Errorf("%w: %s", errRegistryValidation, locale.Pick(ctx, "请填写仓库密码后再测试连接", "password is required before testing authentication"))
+		}
+		password = decrypted
+	} else if baseReq.Username != "" && password == "" {
+		return nil, fmt.Errorf("%w: %s", errRegistryValidation, locale.Pick(ctx, "填写用户名时必须提供密码", "password is required when a username is provided"))
+	}
+
+	normalized := baseReq.Host
+	if normalized == DockerHubRegistryHost && baseReq.Username == "" {
+		return &ContainerRegistryProbeResult{Status: "public", Scheme: "https"}, nil
+	}
+	client := regclient.New(normalized, baseReq.Username, password)
+	if err := client.PingStrict(ctx); err != nil {
+		return &ContainerRegistryProbeResult{
+			Status: "error",
+			Scheme: client.Scheme(),
+			Error:  formatRegistryProbeError(ctx, err),
+		}, nil
+	}
+	return &ContainerRegistryProbeResult{Status: "ok", Scheme: client.Scheme()}, nil
+}
+
+// ProbeContainerRegistry 探测仓库连通性与授权状态（同步执行，10s 上限），不再全量扫 /v2/_catalog。
+// ProbeContainerRegistry probes connectivity and authorization synchronously without sweeping /v2/_catalog.
 func (s *Service) ProbeContainerRegistry(ctx context.Context, row *ContainerRegistry) {
 	now := time.Now()
 	row.ProbeAt = &now
+	row.CatalogJSON = ""
 	password, err := row.DecryptPassword()
 	if err != nil {
 		row.ProbeStatus = "error"
 		row.ProbeError = err.Error()
 		_ = s.db.WithContext(ctx).Model(row).Updates(map[string]interface{}{
 			"probe_status": row.ProbeStatus, "probe_error": row.ProbeError, "probe_at": row.ProbeAt,
+			"catalog_json": "",
 		}).Error
+		row.afterLoad()
 		return
 	}
-	if row.Host == DockerHubRegistryHost {
-		// docker.io 无匿名 catalog 可枚举，也无凭据概念：连通性不做远程探测，
-		// 状态恒为 public，镜像路径由前端预填 apache/seatunnel。
-		// docker.io exposes no anonymous catalog and needs no credentials: skip the
-		// remote probe entirely.
+	if row.Host == DockerHubRegistryHost && strings.TrimSpace(row.Username) == "" {
+		// 未配置凭据的 docker.io 保持 public 公开态。
+		// Anonymous docker.io stays in public state without probing.
 		row.ProbeStatus = "public"
 		row.ProbeError = ""
 		row.ProbeScheme = "https"
 	} else {
 		client := regclient.New(row.Host, row.Username, password)
-		if err := client.Ping(ctx); err != nil {
+		if err := client.PingStrict(ctx); err != nil {
 			row.ProbeStatus = "error"
-			row.ProbeError = err.Error()
-		} else {
+			row.ProbeError = formatRegistryProbeError(ctx, err)
 			row.ProbeScheme = client.Scheme()
-			repos, err := client.Catalog(ctx)
-			if err != nil {
-				// ping 通但 catalog 失败（匿名仓库禁用枚举等）：连通但无缓存，
-				// 前端退化为可输入 combobox。
-				// Ping passed but catalog failed (e.g. anonymous catalog disabled):
-				// reachable without a cache; the frontend degrades to a combobox.
-				row.ProbeStatus = "reachable"
-				row.ProbeError = err.Error()
-				row.CatalogJSON = ""
-			} else {
-				row.ProbeStatus = "ok"
-				row.ProbeError = ""
-				payload, _ := json.Marshal(repos)
-				row.CatalogJSON = string(payload)
-			}
+		} else {
+			row.ProbeStatus = "ok"
+			row.ProbeError = ""
+			row.ProbeScheme = client.Scheme()
 		}
 	}
 	_ = s.db.WithContext(ctx).Model(row).Updates(map[string]interface{}{
 		"probe_status": row.ProbeStatus, "probe_error": row.ProbeError, "probe_at": row.ProbeAt,
-		"probe_scheme": row.ProbeScheme, "catalog_json": row.CatalogJSON,
+		"probe_scheme": row.ProbeScheme, "catalog_json": "",
 	}).Error
 	row.afterLoad()
 }
 
-// ProbeRegistryTags 实时探测指定镜像的 tag 列表（不缓存，前端选择时调用）。
-// ProbeRegistryTags fetches the tag list of one repo live (not cached).
+// ProbeRegistryTags 实时探测指定镜像的 tag 列表（不缓存，按语义版本倒序返回）。
+// ProbeRegistryTags fetches the tag list of one repo live and returns tags sorted with
+// semantic versions descending first.
 func (s *Service) ProbeRegistryTags(ctx context.Context, id uint, repo string) ([]string, error) {
 	var row ContainerRegistry
 	if err := s.db.WithContext(ctx).First(&row, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errRegistryNotFound
+			return nil, fmt.Errorf("%w: %s", errRegistryNotFound, locale.Pick(ctx, "镜像仓库不存在", "container registry not found"))
 		}
 		return nil, err
 	}
-	if row.Host == DockerHubRegistryHost {
-		return fetchDockerHubTags(ctx, repo)
+	cleanRepo := strings.Trim(strings.TrimSpace(repo), "/")
+	if cleanRepo == "" {
+		return nil, fmt.Errorf("%w: %s", errRegistryValidation, locale.Pick(ctx, "镜像名不能为空", "repository name is required"))
 	}
 	password, err := row.DecryptPassword()
 	if err != nil {
 		return nil, err
 	}
+	if row.Host == DockerHubRegistryHost {
+		if row.HasCredentials() {
+			client := regclient.New(row.Host, row.Username, password)
+			tags, tagErr := client.Tags(ctx, cleanRepo)
+			if tagErr == nil {
+				return sortImageTags(tags), nil
+			}
+		}
+		// 匿名或 OCI tags 接口受限时回退 Docker Hub 公开 tags 接口。
+		// Fall back to the Docker Hub public tags API when anonymous or OCI tags fail.
+		tags, hubErr := fetchDockerHubTags(ctx, cleanRepo)
+		if hubErr != nil {
+			return nil, hubErr
+		}
+		return sortImageTags(tags), nil
+	}
 	client := regclient.New(row.Host, row.Username, password)
-	return client.Tags(ctx, strings.TrimSpace(repo))
+	tags, err := client.Tags(ctx, cleanRepo)
+	if err != nil {
+		return nil, err
+	}
+	return sortImageTags(tags), nil
 }
 
 // GetContainerRegistry 按 ID 读取仓库并回填派生字段。
@@ -383,10 +523,77 @@ func (s *Service) GetContainerRegistry(ctx context.Context, id uint) (*Container
 	var row ContainerRegistry
 	if err := s.db.WithContext(ctx).First(&row, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errRegistryNotFound
+			return nil, fmt.Errorf("%w: %s", errRegistryNotFound, locale.Pick(ctx, "镜像仓库不存在", "container registry not found"))
 		}
 		return nil, err
 	}
 	row.afterLoad()
 	return &row, nil
+}
+
+var semverTagPattern = regexp.MustCompile(`^v?(\d+)\.(\d+)(?:\.(\d+))?(?:([-+].*))?$`)
+
+type parsedSemverTag struct {
+	raw     string
+	valid   bool
+	major   int
+	minor   int
+	patch   int
+	hasPre  bool
+}
+
+func parseSemverTag(tag string) parsedSemverTag {
+	m := semverTagPattern.FindStringSubmatch(strings.TrimSpace(tag))
+	if len(m) == 0 {
+		return parsedSemverTag{raw: tag}
+	}
+	major, _ := strconv.Atoi(m[1])
+	minor, _ := strconv.Atoi(m[2])
+	patch := 0
+	if m[3] != "" {
+		patch, _ = strconv.Atoi(m[3])
+	}
+	return parsedSemverTag{
+		raw:    tag,
+		valid:  true,
+		major:  major,
+		minor:  minor,
+		patch:  patch,
+		hasPre: m[4] != "",
+	}
+}
+
+// sortImageTags 将语义版本 tag 按从新到旧排在最前（同版本纯数字优先于带后缀变体），
+// 非语义 tag 排在后面按字典序排列。
+// sortImageTags sorts semantic version tags descending first (clean release before
+// suffixed variants), with non-semver tags ordered lexicographically afterward.
+func sortImageTags(tags []string) []string {
+	if len(tags) <= 1 {
+		return tags
+	}
+	out := append([]string(nil), tags...)
+	sort.SliceStable(out, func(i, j int) bool {
+		a := parseSemverTag(out[i])
+		b := parseSemverTag(out[j])
+		if a.valid != b.valid {
+			return a.valid
+		}
+		if !a.valid {
+			return out[i] < out[j]
+		}
+		if a.major != b.major {
+			return a.major > b.major
+		}
+		if a.minor != b.minor {
+			return a.minor > b.minor
+		}
+		if a.patch != b.patch {
+			return a.patch > b.patch
+		}
+		if a.hasPre != b.hasPre {
+			return !a.hasPre
+		}
+		return out[i] < out[j]
+	})
+	return out
 }

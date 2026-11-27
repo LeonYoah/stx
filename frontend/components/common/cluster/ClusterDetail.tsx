@@ -45,6 +45,7 @@ import {
   TabsTrigger as ArcTabsTrigger,
 } from '@/components/arc/tabs/tabs';
 import {toast} from '@/lib/toast';
+import {isBareMetalInfra, isK8sInfra} from '@/lib/infra';
 import {
   ArrowLeft,
   Play,
@@ -420,7 +421,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   // 提前计算基础设施类型：opsView 归一化与 Pod 拉取都依赖它，且需在 early return 前就绪。
   // Infra type is computed early: both opsView normalization and pod loading depend on
   // it and it must be ready before the early returns.
-  const clusterIsK8s = Boolean(cluster?.infra_type && cluster.infra_type !== 'bare_metal');
+  const clusterIsK8s = isK8sInfra(cluster?.infra_type);
   const resolvedRoute = useMemo(
     () =>
       resolveClusterDetailRoute(rawTabParam, rawViewParam, Boolean(webUINode)),
@@ -1735,7 +1736,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     );
   }
 
-  const isK8sCluster = Boolean(cluster?.infra_type && cluster.infra_type !== 'bare_metal');
+  const isK8sCluster = isK8sInfra(cluster?.infra_type);
   // 配置查找极廉价，不用 useMemo：本组件存在 early return，hooks 位置受限。
   // The config lookup is trivially cheap, so no useMemo: this component has early
   // returns that constrain hook placement.
@@ -2215,7 +2216,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         </ArcTabsContent>
 
         <ArcTabsContent value='nodes'>
-          {activeTab === 'nodes' && cluster?.infra_type && cluster.infra_type !== 'bare_metal' ? (
+          {activeTab === 'nodes' && isK8sInfra(cluster?.infra_type) ? (
             <div className='px-1 py-2'>
               <K8sNodesPanel
                 clusterId={clusterId}
@@ -2225,7 +2226,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               />
             </div>
           ) : null}
-          {activeTab === 'nodes' && (!cluster?.infra_type || cluster.infra_type === 'bare_metal') ? (
+          {activeTab === 'nodes' && isBareMetalInfra(cluster?.infra_type) ? (
             <ClusterNodesTab
               clusterId={clusterId}
               nodes={nodes}

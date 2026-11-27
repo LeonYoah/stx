@@ -21,6 +21,7 @@ import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Collapsible as CollapsiblePrimitive} from 'radix-ui';
 import {isSoleDefaultCluster} from '@/lib/cluster-preference';
+import {isBareMetalInfra} from '@/lib/infra';
 import {ChevronRight, Plus} from 'lucide-react';
 import {Combobox} from '@/components/arc/combobox/combobox';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
@@ -353,13 +354,12 @@ export function SettingsSidebarPanel({
                   onExecutionModeChange(value as ExecutionMode)
                 }
                 options={(() => {
-                  // K8s 集群无本地进程语义：选中 K8s 集群时隐藏 local 模式（后端亦硬拦截）。
-                  // K8s clusters have no local process semantics: hide local mode when a K8s
-                  // cluster is selected (the backend hard-blocks it too).
+                  // 仅 Standalone 主机集群具备本地进程语义；K8s / YARN 等外部调度形态隐藏 local 模式（后端亦硬拦截）。
+                  // Only Standalone host clusters support local process semantics; hide local mode on K8s/YARN.
                   const selected = clusters.find((c) => String(c.id) === String(clusterId));
-                  const isK8s = selected?.infra_type && selected.infra_type !== 'bare_metal';
+                  const supportsLocal = !selected || isBareMetalInfra(selected.infra_type);
                   const opts = [{value: 'cluster', label: t('clusterMode')}];
-                  if (!isK8s) {
+                  if (supportsLocal) {
                     opts.push({value: 'local', label: t('localMode')});
                   }
                   return opts;

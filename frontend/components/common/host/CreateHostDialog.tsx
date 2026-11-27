@@ -18,39 +18,49 @@
 'use client';
 
 /**
- * 新增主机两步引导弹窗：先通过分段控件确定主机类型，再按类型呈现精简必填字段与行内校验，
- * 提交后无缝进入第 2 步（物理机 Agent 部署引导 / K8s 连通与 RBAC 权限体检）。
- * Two-step Create Host dialog: select host type first via SegmentedControl, collect focused fields
- * with inline validation, then transition into Step 2 (bare-metal Agent guide or K8s RBAC probe).
+ * 新增主机引导抽屉（v2 水平 Step Indicator + 全宽单层画布）：
+ * - 物理机：2 步精简创建与 Agent 部署引导；
+ * - Kubernetes：3 步水平 Step Indicator（1 连接与范围 → 2 授权与凭据 → 3 预检与保存），
+ *   命名空间在 Step 1 首屏与 Step 2 顶部均可直接编辑并实时联动控制面 YAML，
+ *   Step 3 保存主机后再按需展开独立的 SeaTunnel 引擎运行账号预备与绑定卡片。
+ * Create Host onboarding drawer (v2 horizontal Step Indicator + full-width single canvas):
+ * - Bare-metal: 2-step form + Agent guide;
+ * - Kubernetes: 3-step horizontal stepper (1 Access & Scope → 2 RBAC & Credentials → 3 Verify & Save),
+ *   editable namespace on both Step 1 and top of Step 2 live-synced with control-plane YAML,
+ *   plus optional post-save SeaTunnel engine SA prep and bind-default on Step 3.
  */
 
-import {useState} from 'react';
+import {Fragment, useState} from 'react';
 import {useTranslations} from 'next-intl';
+import {Check} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
-import {CopyButton} from '@/components/arc/copy-button/copy-button';
-import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {Drawer, DrawerContent} from '@/components/arc/drawer/drawer';
 import {Input} from '@/components/arc/input/input';
+import {RadioCards} from '@/components/arc/radio-cards/radio-cards';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Label} from '@/components/ui/label';
 import {Textarea} from '@/components/ui/textarea';
 import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {
-  HostType,
   CreateHostRequest,
-  UpdateHostRequest,
   HostInfo,
+  HostStatus,
+  HostType,
+  K8sAccessMode,
   K8sAuthMode,
+  K8sTestConnectionResult,
 } from '@/lib/services/host/types';
 import {
   looksTruncatedK8sToken,
-  renderK8sExportKubeconfigCommand,
   sanitizeK8sToken,
 } from '@/lib/k8s-rbac-templates';
+import {cn} from '@/lib/utils';
 import {HostInstallGuideContent} from './HostInstallGuideContent';
-import {K8sConnectGuideContent} from './K8sConnectGuideContent';
+import {K8sConnectGuideContent, type K8sDraftHostInput} from './K8sConnectGuideContent';
+import {K8sKubeconfigField} from './K8sKubeconfigField';
 import {K8sRBACTemplateSection} from './K8sRBACTemplateSection';
 
 const INITIAL_FORM_DATA: CreateHostRequest = {
@@ -63,11 +73,11 @@ const INITIAL_FORM_DATA: CreateHostRequest = {
   docker_tls_enabled: false,
   docker_cert_path: '',
   k8s_api_url: '',
-  k8s_namespace: 'default',
-  k8s_default_service_account: '',
+  k8s_namespace: 'seatunnel',
   k8s_kubeconfig: '',
   k8s_token: '',
   k8s_auth_mode: 'kubeconfig',
+  k8s_access_mode: 'in_cluster',
   k8s_ca_cert: '',
   k8s_insecure_skip_tls: false,
 };
@@ -79,11 +89,14 @@ type CreateFieldErrorKey =
   | 'k8s_api_url'
   | 'k8s_token';
 
+type K8sPrepMode = 'generate' | 'existing';
+
 interface CreateHostDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: (createdHost?: HostInfo) => void;
   onViewDetail?: (host: HostInfo) => void;
+  onDeployCluster?: (host: HostInfo) => void;
 }
 
 export function CreateHostDialog({
@@ -91,12 +104,18 @@ export function CreateHostDialog({
   onOpenChange,
   onSuccess,
   onViewDetail,
+  onDeployCluster,
 }: CreateHostDialogProps) {
   const t = useTranslations();
   const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<1 | 2>(1);
+  const [savingHost, setSavingHost] = useState(false);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [createdHost, setCreatedHost] = useState<HostInfo | null>(null);
   const [optionalOpen, setOptionalOpen] = useState(false);
+  const [k8sPrepMode, setK8sPrepMode] = useState<K8sPrepMode>('generate');
+  const [k8sContext, setK8sContext] = useState('');
+  const [k8sServerOverride, setK8sServerOverride] = useState('');
+  const [namespaceTouched, setNamespaceTouched] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<
     Partial<Record<CreateFieldErrorKey, string>>
   >({});
@@ -106,7 +125,8 @@ export function CreateHostDialog({
 
   const k8sAuthMode: K8sAuthMode =
     formData.k8s_auth_mode === 'token' ? 'token' : 'kubeconfig';
-  const exportKubeconfigCmd = renderK8sExportKubeconfigCommand();
+  const k8sAccessMode: K8sAccessMode =
+    formData.k8s_access_mode || 'in_cluster';
 
   const clearFieldError = (key: CreateFieldErrorKey) => {
     setFieldErrors((prev) => {
@@ -123,6 +143,11 @@ export function CreateHostDialog({
     setFormData({...INITIAL_FORM_DATA});
     setFieldErrors({});
     setOptionalOpen(false);
+    setK8sPrepMode('generate');
+    setK8sContext('');
+    setK8sServerOverride('');
+    setNamespaceTouched(false);
+    setSavingHost(false);
     setStep(1);
     setCreatedHost(null);
   };
@@ -134,7 +159,7 @@ export function CreateHostDialog({
 
   // Tip 016：表单字段校验错误就地贴在对应字段下方，不再仅用消失式 Toast 提示。
   // Tip 016: surface validation errors inline on each offending field instead of ephemeral toasts.
-  const validateForm = (): boolean => {
+  const validateStep1 = (): boolean => {
     const errors: Partial<Record<CreateFieldErrorKey, string>> = {};
     if (!formData.name || formData.name.trim().length === 0) {
       errors.name = t('host.errors.nameRequired');
@@ -151,24 +176,28 @@ export function CreateHostDialog({
       }
     }
 
-    if (formData.host_type === HostType.KUBERNETES) {
-      if (k8sAuthMode === 'kubeconfig') {
-        if (!formData.k8s_kubeconfig || formData.k8s_kubeconfig.trim().length === 0) {
-          errors.k8s_kubeconfig = t('host.errors.k8sKubeconfigRequired');
-        }
-      } else {
-        const apiUrl = (formData.k8s_api_url || '').trim();
-        if (apiUrl.length === 0) {
-          errors.k8s_api_url = t('host.errors.k8sUrlRequired');
-        } else if (
-          !apiUrl.startsWith('https://') &&
-          !apiUrl.startsWith('http://')
-        ) {
-          errors.k8s_api_url = t('host.errors.k8sUrlInvalid');
-        }
-        if (sanitizeK8sToken(formData.k8s_token).length === 0) {
-          errors.k8s_token = t('host.errors.k8sTokenRequired');
-        }
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const validateK8sStep2 = (): boolean => {
+    const errors: Partial<Record<CreateFieldErrorKey, string>> = {};
+    if (k8sAuthMode === 'kubeconfig') {
+      if (!formData.k8s_kubeconfig || formData.k8s_kubeconfig.trim().length === 0) {
+        errors.k8s_kubeconfig = t('host.errors.k8sKubeconfigRequired');
+      }
+    } else {
+      const apiUrl = (formData.k8s_api_url || '').trim();
+      if (apiUrl.length === 0) {
+        errors.k8s_api_url = t('host.errors.k8sUrlRequired');
+      } else if (
+        !apiUrl.startsWith('https://') &&
+        !apiUrl.startsWith('http://')
+      ) {
+        errors.k8s_api_url = t('host.errors.k8sUrlInvalid');
+      }
+      if (sanitizeK8sToken(formData.k8s_token).length === 0) {
+        errors.k8s_token = t('host.errors.k8sTokenRequired');
       }
     }
 
@@ -176,113 +205,29 @@ export function CreateHostDialog({
     return Object.keys(errors).length === 0;
   };
 
-  const handleSubmit = async () => {
-    if (!validateForm()) {
+  const handleSubmitStep1 = async () => {
+    if (!validateStep1()) {
+      return;
+    }
+
+    if (formData.host_type === HostType.KUBERNETES) {
+      setStep(2);
       return;
     }
 
     setLoading(true);
     try {
-      const cleanedToken = sanitizeK8sToken(formData.k8s_token);
-      // 从 Step 2「返回修改凭据」后再次提交，直接更新当前主机并重新进入连通体检，避免重复建主机。
-      // When resubmitting after "Edit Credentials" from Step 2, update the existing host instead of creating a duplicate.
-      if (createdHost && formData.host_type === HostType.KUBERNETES) {
-        const defaultSA = formData.k8s_default_service_account?.trim() || '';
-        const updatePayload: UpdateHostRequest =
-          k8sAuthMode === 'kubeconfig'
-            ? {
-                name: formData.name.trim(),
-                description: formData.description,
-                k8s_auth_mode: 'kubeconfig',
-                k8s_namespace: formData.k8s_namespace?.trim() || 'default',
-                k8s_kubeconfig: formData.k8s_kubeconfig?.trim(),
-                k8s_default_service_account: defaultSA,
-              }
-            : {
-                name: formData.name.trim(),
-                description: formData.description,
-                k8s_auth_mode: 'token',
-                k8s_api_url: formData.k8s_api_url?.trim(),
-                k8s_namespace: formData.k8s_namespace?.trim() || 'default',
-                k8s_token: cleanedToken,
-                k8s_insecure_skip_tls: Boolean(formData.k8s_insecure_skip_tls),
-                k8s_ca_cert: formData.k8s_insecure_skip_tls
-                  ? ''
-                  : formData.k8s_ca_cert?.trim() || '',
-                k8s_default_service_account: defaultSA,
-              };
-        const result = await services.host.updateHostSafe(
-          createdHost.id,
-          updatePayload,
-        );
-        if (result.success) {
-          const updated: HostInfo = result.data || {
-            ...createdHost,
-            ...updatePayload,
-          };
-          setCreatedHost(updated);
-          onSuccess(updated);
-          setStep(2);
-        } else {
-          toast.error(result.error || t('host.updateError'));
-        }
-        return;
-      }
-
-      let payload: CreateHostRequest = formData;
-      if (formData.host_type === HostType.BARE_METAL) {
-        payload = {
-          ...formData,
-          name: formData.name.trim(),
-          ip_address: formData.ip_address?.trim(),
-        };
-      } else if (formData.host_type === HostType.KUBERNETES) {
-        // 按认证方式收敛提交字段，避免另一模式的草稿残留干扰后端校验。
-        // Scope payload strictly to the active auth mode so draft fields from the other mode never leak.
-        const defaultSA = formData.k8s_default_service_account?.trim() || '';
-        payload =
-          k8sAuthMode === 'kubeconfig'
-            ? {
-                name: formData.name.trim(),
-                host_type: HostType.KUBERNETES,
-                description: formData.description,
-                k8s_auth_mode: 'kubeconfig',
-                k8s_namespace: formData.k8s_namespace?.trim() || 'default',
-                k8s_kubeconfig: formData.k8s_kubeconfig?.trim(),
-                ...(defaultSA ? {k8s_default_service_account: defaultSA} : {}),
-              }
-            : {
-                name: formData.name.trim(),
-                host_type: HostType.KUBERNETES,
-                description: formData.description,
-                k8s_auth_mode: 'token',
-                k8s_api_url: formData.k8s_api_url?.trim(),
-                k8s_namespace: formData.k8s_namespace?.trim() || 'default',
-                k8s_token: cleanedToken,
-                k8s_insecure_skip_tls: Boolean(formData.k8s_insecure_skip_tls),
-                k8s_ca_cert: formData.k8s_insecure_skip_tls
-                  ? ''
-                  : formData.k8s_ca_cert?.trim() || '',
-                ...(defaultSA ? {k8s_default_service_account: defaultSA} : {}),
-              };
-      }
+      const payload: CreateHostRequest = {
+        ...formData,
+        name: formData.name.trim(),
+        ip_address: formData.ip_address?.trim(),
+      };
       const result = await services.host.createHostSafe(payload);
       if (result.success && result.data) {
         const created = result.data;
         onSuccess(created);
-
-        // 物理机进入 Step 2 Agent 部署引导；Kubernetes 进入 Step 2 连通性与 RBAC 权限体检。
-        // Bare metal transitions to Step 2 Agent guide; Kubernetes transitions to Step 2 connectivity & RBAC check.
-        if (
-          formData.host_type === HostType.BARE_METAL ||
-          formData.host_type === HostType.KUBERNETES
-        ) {
-          setCreatedHost(created);
-          setStep(2);
-        } else {
-          toast.success(t('host.createSuccess'));
-          handleClose();
-        }
+        setCreatedHost(created);
+        setStep(2);
       } else {
         toast.error(result.error || t('host.createError'));
       }
@@ -293,117 +238,393 @@ export function CreateHostDialog({
     }
   };
 
-  const isK8sStep2 = createdHost?.host_type === HostType.KUBERNETES;
-  const dialogTitle =
-    step === 2
-      ? isK8sStep2
-        ? t('host.k8sGuide.title')
-        : t('host.installGuide.title')
+  const handleK8sStep2Next = () => {
+    if (!validateK8sStep2()) {
+      return;
+    }
+    setStep(3);
+  };
+
+  const handleSaveK8sHost = async (probe: K8sTestConnectionResult) => {
+    setSavingHost(true);
+    try {
+      const cleanedToken = sanitizeK8sToken(formData.k8s_token);
+      const payload: CreateHostRequest =
+        k8sAuthMode === 'kubeconfig'
+          ? {
+              name: formData.name.trim(),
+              host_type: HostType.KUBERNETES,
+              description: formData.description?.trim() || '',
+              k8s_auth_mode: 'kubeconfig',
+              k8s_access_mode: k8sAccessMode,
+              k8s_namespace: formData.k8s_namespace?.trim() || 'seatunnel',
+              k8s_kubeconfig: formData.k8s_kubeconfig?.trim(),
+              ...(k8sContext.trim() ? {k8s_context: k8sContext.trim()} : {}),
+              ...(k8sServerOverride.trim()
+                ? {k8s_api_url: k8sServerOverride.trim()}
+                : {}),
+            }
+          : {
+              name: formData.name.trim(),
+              host_type: HostType.KUBERNETES,
+              description: formData.description?.trim() || '',
+              k8s_auth_mode: 'token',
+              k8s_access_mode: k8sAccessMode,
+              k8s_api_url: formData.k8s_api_url?.trim(),
+              k8s_namespace: formData.k8s_namespace?.trim() || 'seatunnel',
+              k8s_token: cleanedToken,
+              k8s_insecure_skip_tls: Boolean(formData.k8s_insecure_skip_tls),
+              k8s_ca_cert: formData.k8s_insecure_skip_tls
+                ? ''
+                : formData.k8s_ca_cert?.trim() || '',
+            };
+      const result = await services.host.createHostSafe(payload);
+      if (!result.success || !result.data) {
+        toast.error(result.error || t('host.createError'));
+        return;
+      }
+      let finalHost: HostInfo = {
+        ...result.data,
+        status: HostStatus.CONNECTED,
+        is_online: true,
+        k8s_version: probe.server_version || result.data.k8s_version,
+        k8s_permission_mode: probe.permission_mode || result.data.k8s_permission_mode,
+        k8s_credential_expires_at:
+          probe.credential_expires_at ?? result.data.k8s_credential_expires_at,
+      };
+      try {
+        await services.host.testK8sConnection(result.data.id, {timeoutMs: 20000});
+        const fresh = await services.host.getHostSafe?.(result.data.id);
+        if (fresh?.success && fresh.data) {
+          finalHost = fresh.data;
+        }
+      } catch {
+        // 入库已完成，若服务端二次刷新失败保留预检阶段结果。
+        // Persist succeeded; keep Step 3 probe metadata if follow-up refresh fails transiently.
+      }
+      toast.success(t('host.createSuccess'));
+      setCreatedHost(finalHost);
+      onSuccess(finalHost);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('host.createError'));
+    } finally {
+      setSavingHost(false);
+    }
+  };
+
+  const isK8sWizard =
+    formData.host_type === HostType.KUBERNETES ||
+    createdHost?.host_type === HostType.KUBERNETES;
+
+  const k8sDraftInput: K8sDraftHostInput = {
+    name: formData.name.trim(),
+    description: formData.description,
+    k8s_auth_mode: k8sAuthMode,
+    k8s_access_mode: k8sAccessMode,
+    k8s_namespace: formData.k8s_namespace?.trim() || 'seatunnel',
+    k8s_kubeconfig: formData.k8s_kubeconfig?.trim(),
+    k8s_context: k8sContext.trim() || undefined,
+    k8s_api_url:
+      k8sAuthMode === 'kubeconfig'
+        ? k8sServerOverride.trim() || undefined
+        : formData.k8s_api_url?.trim(),
+    k8s_token: sanitizeK8sToken(formData.k8s_token),
+    k8s_ca_cert: formData.k8s_insecure_skip_tls
+      ? ''
+      : formData.k8s_ca_cert?.trim() || '',
+    k8s_insecure_skip_tls: Boolean(formData.k8s_insecure_skip_tls),
+  };
+
+  const drawerTitle = isK8sWizard
+    ? t('host.k8sGuide.title')
+    : step === 2
+      ? t('host.installGuide.title')
       : t('host.createHost');
-  const step1Label =
-    formData.host_type === HostType.KUBERNETES
-      ? t('host.k8sGuide.step1')
-      : t('host.installGuide.step1');
-  const step2Label =
-    formData.host_type === HostType.KUBERNETES
-      ? t('host.k8sGuide.step2')
-      : t('host.installGuide.step2');
+  const drawerDesc = isK8sWizard
+    ? t('host.k8sGuide.subtitle')
+    : step === 2
+      ? t('host.installGuide.subtitle')
+      : undefined;
   const tokenLooksTruncated = looksTruncatedK8sToken(formData.k8s_token);
 
+  const k8sSteps = [
+    {num: 1 as const, title: t('host.k8sGuide.stepAccessTitle')},
+    {num: 2 as const, title: t('host.k8sGuide.stepCredentialsTitle')},
+    {num: 3 as const, title: t('host.k8sGuide.stepProbeTitle')},
+  ];
+
+  const handleStepClick = (targetStep: 1 | 2 | 3) => {
+    if (createdHost || targetStep === step) {
+      return;
+    }
+    if (targetStep < step) {
+      setStep(targetStep);
+      return;
+    }
+    if (targetStep === 2 && validateStep1()) {
+      setStep(2);
+    } else if (targetStep === 3 && validateStep1() && validateK8sStep2()) {
+      setStep(3);
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent
-        title={dialogTitle}
-        className='arc-compact w-[min(calc(100vw-2rem),640px)]!'
-        bodyClassName='max-h-[min(85dvh,720px)] overflow-y-auto'
+    <Drawer
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          handleClose();
+        }
+      }}
+    >
+      <DrawerContent
+        side='right'
+        title={drawerTitle}
+        description={drawerDesc}
+        className={cn(
+          // DrawerContent portal 到 body，重挂 .arc-compact 保证密度一致；水平 Step Indicator 释放完整单层画布宽度。
+          // DrawerContent portals to <body>; re-apply .arc-compact and give the single canvas full horizontal breathing room.
+          'arc-compact [&>div[class*=body]]:flex [&>div[class*=body]]:flex-1 [&>div[class*=body]]:flex-col [&>div[class*=body]]:p-0!',
+          isK8sWizard ? 'w-[min(94vw,760px)]!' : 'w-[min(92vw,560px)]!',
+        )}
       >
-        {step === 1 ? (
-          <>
-            {/* 先选主机类型（Tip 020 分段控件），再展示对应类型的两步路径与字段 / Choose host type first */}
-            <div className='mb-4 flex flex-wrap items-center justify-between gap-3 border-b-[0.5px] border-border/80 pb-3.5'>
-              {createdHost ? (
-                <div className='flex items-center gap-2 text-xs'>
-                  <span className='text-muted-foreground'>{t('host.hostType')}</span>
-                  <Badge variant='outline'>
-                    {t(
-                      `host.types.${formData.host_type === HostType.BARE_METAL ? 'bareMetal' : formData.host_type}`,
-                    )}
-                  </Badge>
-                </div>
-              ) : (
-                <SegmentedControl
-                  label={t('host.hostType')}
-                  value={formData.host_type || HostType.BARE_METAL}
-                  onValueChange={(value) => {
-                    if (
-                      value === HostType.BARE_METAL ||
-                      value === HostType.KUBERNETES
-                    ) {
-                      setFormData((prev) => ({...prev, host_type: value}));
-                      setFieldErrors({});
-                    }
-                  }}
-                  options={[
-                    {
-                      value: HostType.BARE_METAL,
-                      label: t('host.types.bareMetal'),
-                      testId: 'host-type-bare-metal',
-                    },
-                    {
-                      value: HostType.KUBERNETES,
-                      label: t('host.types.kubernetes'),
-                      testId: 'host-type-kubernetes',
-                    },
-                  ]}
-                />
-              )}
-              <div className='flex items-center gap-2 text-xs'>
-                <span className='inline-flex items-center gap-1.5 font-medium text-primary'>
-                  <span className='flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground'>
-                    1
-                  </span>
-                  {step1Label}
-                </span>
-                <span className='h-px w-5 bg-border' />
-                <span className='inline-flex items-center gap-1.5 text-muted-foreground'>
-                  <span className='flex h-5 w-5 items-center justify-center rounded-full border border-muted-foreground/30 text-[11px]'>
-                    2
-                  </span>
-                  {step2Label}
-                </span>
-              </div>
+        {/* 顶部整合条：主机类型切换 + 水平 Step Indicator（去掉重复的「第 X / 3 步」徽章与 228px 侧栏） */}
+        {/* Unified top bar: host type selector + horizontal Step Indicator (no redundant step counter badge) */}
+        <div className='flex shrink-0 flex-wrap items-center justify-between gap-3 border-b-[0.5px] border-border/80 px-5 py-3'>
+          {createdHost || step > 1 ? (
+            <div className='flex items-center gap-2 text-xs'>
+              <Badge variant='outline'>
+                {t(
+                  `host.types.${formData.host_type === HostType.BARE_METAL ? 'bareMetal' : formData.host_type}`,
+                )}
+              </Badge>
             </div>
+          ) : (
+            <SegmentedControl
+              label={t('host.hostType')}
+              value={formData.host_type || HostType.BARE_METAL}
+              onValueChange={(value) => {
+                if (
+                  value === HostType.BARE_METAL ||
+                  value === HostType.KUBERNETES
+                ) {
+                  setFormData((prev) => ({...prev, host_type: value}));
+                  setFieldErrors({});
+                }
+              }}
+              options={[
+                {
+                  value: HostType.BARE_METAL,
+                  label: t('host.types.bareMetal'),
+                  testId: 'host-type-bare-metal',
+                },
+                {
+                  value: HostType.KUBERNETES,
+                  label: t('host.types.kubernetes'),
+                  testId: 'host-type-kubernetes',
+                },
+              ]}
+            />
+          )}
 
-            <div className='space-y-4'>
-              <Input
-                id='name'
-                label={`${t('host.name')} *`}
-                value={formData.name}
-                error={fieldErrors.name}
-                onChange={(e) => {
-                  setFormData({...formData, name: e.target.value});
-                  clearFieldError('name');
-                }}
-                placeholder={t('host.namePlaceholder')}
-              />
+          {isK8sWizard ? (
+            <nav
+              className='flex items-center gap-1.5'
+              aria-label={t('host.k8sGuide.title')}
+            >
+              {k8sSteps.map((item, idx) => {
+                const done = Boolean(createdHost) || step > item.num;
+                const active = !createdHost && step === item.num;
+                return (
+                  <Fragment key={item.num}>
+                    <button
+                      type='button'
+                      onClick={() => handleStepClick(item.num)}
+                      disabled={Boolean(createdHost)}
+                      data-testid={`k8s-wizard-step-${item.num}`}
+                      aria-current={active ? 'step' : undefined}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs transition-colors',
+                        active
+                          ? 'bg-primary/10 font-semibold text-foreground'
+                          : done
+                            ? 'font-medium text-foreground/80 hover:bg-muted/60'
+                            : 'text-muted-foreground hover:bg-muted/50',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'flex size-4 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold tabular-nums',
+                          done
+                            ? 'bg-emerald-600 text-white'
+                            : active
+                              ? 'bg-primary text-primary-foreground'
+                              : 'border border-border text-muted-foreground',
+                        )}
+                      >
+                        {done ? <Check className='size-2.5' aria-hidden /> : item.num}
+                      </span>
+                      <span className='whitespace-nowrap'>{item.title}</span>
+                    </button>
+                    {idx < k8sSteps.length - 1 ? (
+                      <span
+                        aria-hidden
+                        className={cn(
+                          'h-px w-4 rounded-full transition-colors',
+                          done ? 'bg-emerald-500/70' : 'bg-border',
+                        )}
+                      />
+                    ) : null}
+                  </Fragment>
+                );
+              })}
+            </nav>
+          ) : (
+            <Badge variant='outline' className='font-mono text-[11px] tabular-nums'>
+              {t('host.k8sGuide.stepCounter', {
+                current: step,
+                total: 2,
+              })}
+            </Badge>
+          )}
+        </div>
 
-              {formData.host_type === HostType.BARE_METAL ? (
-                <Input
-                  id='ip_address'
-                  label={`${t('host.ipAddress')} *`}
-                  value={formData.ip_address}
-                  error={fieldErrors.ip_address}
-                  onChange={(e) => {
-                    setFormData({...formData, ip_address: e.target.value});
-                    clearFieldError('ip_address');
-                  }}
-                  placeholder='192.168.1.100'
-                />
-              ) : null}
-
-              {formData.host_type === HostType.KUBERNETES ? (
-                <div className='space-y-4 border-t-[0.5px] border-border/80 pt-4'>
+        {isK8sWizard ? (
+          <div className='flex min-h-0 flex-1 flex-col'>
+            <div className='min-h-0 flex-1 overflow-y-auto p-5 lg:p-6'>
+              {step === 1 ? (
+                <div className='space-y-5' data-testid='k8s-step-1'>
+                  {/* Step 1 首屏直接开放主机名与命名空间编辑 / Editable host name + namespace right on Step 1 */}
                   <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
+                    <Input
+                      id='name'
+                      label={`${t('host.name')} *`}
+                      value={formData.name}
+                      error={fieldErrors.name}
+                      onChange={(e) => {
+                        setFormData({...formData, name: e.target.value});
+                        clearFieldError('name');
+                      }}
+                      placeholder={t('host.namePlaceholder')}
+                    />
+                    <Input
+                      id='k8s_namespace'
+                      label={t('host.namespace')}
+                      value={formData.k8s_namespace}
+                      onChange={(e) => {
+                        setNamespaceTouched(true);
+                        setFormData({
+                          ...formData,
+                          k8s_namespace: e.target.value,
+                        });
+                      }}
+                      placeholder='seatunnel'
+                      className='font-mono text-xs'
+                    />
+                  </div>
+
+                  <div className='space-y-2.5 border-t-[0.5px] border-border/80 pt-4'>
+                    <Label>{t('host.k8sAccessMode')}</Label>
+                    <RadioCards
+                      layout='grid'
+                      minColumnWidth={210}
+                      value={k8sAccessMode}
+                      onValueChange={(value) =>
+                        setFormData({
+                          ...formData,
+                          k8s_access_mode: value as K8sAccessMode,
+                        })
+                      }
+                      options={[
+                        {
+                          value: 'in_cluster',
+                          label: (
+                            <span data-testid='k8s-access-mode-in_cluster'>
+                              {t('host.k8sAccessModeInCluster')}
+                            </span>
+                          ),
+                          description: t('host.k8sAccessModeInClusterDesc'),
+                        },
+                        {
+                          value: 'external',
+                          label: (
+                            <span data-testid='k8s-access-mode-external'>
+                              {t('host.k8sAccessModeExternal')}
+                            </span>
+                          ),
+                          description: t('host.k8sAccessModeExternalDesc'),
+                        },
+                      ]}
+                    />
+                    <div className='rounded-[var(--radius-control)] bg-muted/40 px-3 py-2 text-xs text-muted-foreground dark:bg-muted/25'>
+                      {k8sAccessMode === 'external'
+                        ? t('host.k8sAccessFlowExternal')
+                        : t('host.k8sAccessFlowInCluster')}
+                    </div>
+                  </div>
+
+                  <div className='space-y-2.5 border-t-[0.5px] border-border/80 pt-4'>
+                    <Label>{t('host.k8sGuide.prepQuestion')}</Label>
+                    <RadioCards
+                      layout='grid'
+                      minColumnWidth={210}
+                      value={k8sPrepMode}
+                      onValueChange={(value) =>
+                        setK8sPrepMode(value as K8sPrepMode)
+                      }
+                      options={[
+                        {
+                          value: 'generate',
+                          label: (
+                            <span data-testid='k8s-prep-mode-generate'>
+                              {t('host.k8sGuide.prepGenerateLabel')}
+                            </span>
+                          ),
+                          description: t('host.k8sGuide.prepGenerateDesc'),
+                        },
+                        {
+                          value: 'existing',
+                          label: (
+                            <span data-testid='k8s-prep-mode-existing'>
+                              {t('host.k8sGuide.prepExistingLabel')}
+                            </span>
+                          ),
+                          description: t('host.k8sGuide.prepExistingDesc'),
+                        },
+                      ]}
+                    />
+                  </div>
+
+                  <div className='border-t-[0.5px] border-border/80 pt-3'>
+                    <button
+                      type='button'
+                      className='text-xs font-medium text-muted-foreground hover:text-foreground'
+                      onClick={() => setOptionalOpen((prev) => !prev)}
+                      aria-expanded={optionalOpen}
+                      data-testid='k8s-step1-optional-toggle'
+                    >
+                      {optionalOpen ? '▾' : '▸'} {t('host.optionalSettings')}
+                    </button>
+                    {optionalOpen ? (
+                      <div className='mt-3'>
+                        <Input
+                          id='description'
+                          label={t('host.descriptionLabel')}
+                          value={formData.description || ''}
+                          onChange={(e) =>
+                            setFormData({...formData, description: e.target.value})
+                          }
+                          placeholder={t('host.descriptionPlaceholder')}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : step === 2 ? (
+                <div className='space-y-4' data-testid='k8s-step-2'>
+                  {/* Step 2 顶部置顶认证方式与命名空间：编辑后实时联动下方控制面 YAML 与命令 */}
+                  {/* Top parameter strip on Step 2: auth mode & editable namespace live-synced with RBAC YAML below */}
+                  <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-end'>
                     <div className='space-y-1.5'>
                       <Label>{t('host.k8sAuthMode')}</Label>
                       <SegmentedControl
@@ -414,7 +635,7 @@ export function CreateHostDialog({
                             ...formData,
                             k8s_auth_mode: value as K8sAuthMode,
                           });
-                          setFieldErrors((prev) => ({name: prev.name}));
+                          setFieldErrors({});
                         }}
                         options={[
                           {value: 'kubeconfig', label: 'Kubeconfig'},
@@ -426,292 +647,313 @@ export function CreateHostDialog({
                       id='k8s_namespace'
                       label={t('host.namespace')}
                       value={formData.k8s_namespace}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        setNamespaceTouched(true);
                         setFormData({
                           ...formData,
                           k8s_namespace: e.target.value,
-                        })
-                      }
-                      placeholder='default'
+                        });
+                      }}
+                      placeholder='seatunnel'
                       className='font-mono text-xs'
                     />
                   </div>
 
-                  {k8sAuthMode === 'kubeconfig' ? (
-                    <div className='space-y-2'>
-                      <Label htmlFor='k8s_kubeconfig'>
-                        {t('host.kubeconfig')} *
-                      </Label>
-                      <Textarea
+                  <K8sRBACTemplateSection
+                    namespace={formData.k8s_namespace?.trim() || 'seatunnel'}
+                    authMode={k8sAuthMode}
+                    defaultOpen={k8sPrepMode === 'generate'}
+                  />
+
+                  <div className='space-y-4 border-t-[0.5px] border-border/80 pt-4'>
+                    {k8sAuthMode === 'kubeconfig' ? (
+                      <K8sKubeconfigField
                         id='k8s_kubeconfig'
-                        value={formData.k8s_kubeconfig}
-                        aria-invalid={Boolean(fieldErrors.k8s_kubeconfig)}
-                        onChange={(e) => {
-                          setFormData({
-                            ...formData,
-                            k8s_kubeconfig: e.target.value,
-                          });
+                        label={`${t('host.kubeconfig')} *`}
+                        value={formData.k8s_kubeconfig || ''}
+                        onChange={(nextValue) => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            k8s_kubeconfig: nextValue,
+                          }));
                           clearFieldError('k8s_kubeconfig');
                         }}
-                        placeholder={t('host.kubeconfigPlaceholder')}
-                        className='font-mono text-xs'
-                        rows={6}
-                      />
-                      {fieldErrors.k8s_kubeconfig ? (
-                        <p className='text-xs text-destructive'>
-                          {fieldErrors.k8s_kubeconfig}
-                        </p>
-                      ) : (
-                        <p className='text-xs text-muted-foreground'>
-                          {t('host.k8sKubeconfigAutoHint')}
-                        </p>
-                      )}
-                      <div className='flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-[11px] dark:bg-muted/30'>
-                        <div className='min-w-0 space-y-0.5'>
-                          <div className='text-muted-foreground'>
-                            {t('host.k8sKubeconfigQuickCmdLabel')}
-                          </div>
-                          <code className='block truncate font-mono text-foreground'>
-                            {exportKubeconfigCmd}
-                          </code>
-                        </div>
-                        <CopyButton
-                          value={exportKubeconfigCmd}
-                          label={t('common.copy')}
-                          variant='plain'
-                          className='h-7 shrink-0 px-2 text-xs'
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <Input
-                        id='k8s_api_url'
-                        label={`${t('host.k8sApiUrl')} *`}
-                        value={formData.k8s_api_url}
-                        error={fieldErrors.k8s_api_url}
-                        onChange={(e) => {
-                          setFormData({...formData, k8s_api_url: e.target.value});
-                          clearFieldError('k8s_api_url');
+                        contextName={k8sContext}
+                        onContextChange={setK8sContext}
+                        serverOverride={k8sServerOverride}
+                        onServerOverrideChange={setK8sServerOverride}
+                        onNamespaceDetected={(ns) => {
+                          if (!namespaceTouched) {
+                            setFormData((prev) => ({
+                              ...prev,
+                              k8s_namespace: ns,
+                            }));
+                          }
                         }}
-                        placeholder='https://kubernetes.default.svc:6443'
-                        className='font-mono text-xs'
+                        accessMode={k8sAccessMode}
+                        error={fieldErrors.k8s_kubeconfig}
+                        hint={t('host.k8sKubeconfigAutoHint')}
+                        testIdPrefix='create-kubeconfig'
                       />
-                      <div className='space-y-1.5'>
-                        <Label htmlFor='k8s_token'>{t('host.token')} *</Label>
-                        <Textarea
-                          id='k8s_token'
-                          value={formData.k8s_token}
-                          aria-invalid={Boolean(fieldErrors.k8s_token)}
+                    ) : (
+                      <>
+                        <Input
+                          id='k8s_api_url'
+                          label={`${t('host.k8sApiUrl')} *`}
+                          value={formData.k8s_api_url}
+                          error={fieldErrors.k8s_api_url}
                           onChange={(e) => {
-                            setFormData({...formData, k8s_token: e.target.value});
-                            clearFieldError('k8s_token');
+                            setFormData({
+                              ...formData,
+                              k8s_api_url: e.target.value,
+                            });
+                            clearFieldError('k8s_api_url');
                           }}
-                          placeholder={t('host.tokenPlaceholder')}
+                          placeholder={
+                            k8sAccessMode === 'in_cluster'
+                              ? 'https://kubernetes.default.svc:443'
+                              : 'https://192.168.1.10:6443'
+                          }
                           className='font-mono text-xs'
-                          rows={3}
                         />
-                        {fieldErrors.k8s_token ? (
-                          <p className='text-xs text-destructive'>
-                            {fieldErrors.k8s_token}
-                          </p>
-                        ) : tokenLooksTruncated ? (
-                          <p
-                            className='text-xs text-amber-600 dark:text-amber-400'
-                            data-testid='k8s-token-truncated-warning'
-                          >
-                            {t('host.k8sTokenTruncatedWarning')}
-                          </p>
-                        ) : null}
-                      </div>
-                      <Checkbox
-                        id='k8s_insecure_skip_tls'
-                        checked={Boolean(formData.k8s_insecure_skip_tls)}
-                        onCheckedChange={(checked) =>
-                          setFormData({
-                            ...formData,
-                            k8s_insecure_skip_tls: checked === true,
-                          })
-                        }
-                        label={t('host.k8sInsecureSkipTLS')}
-                      />
-                      {!formData.k8s_insecure_skip_tls ? (
                         <div className='space-y-1.5'>
-                          <Label htmlFor='k8s_ca_cert'>
-                            {t('host.k8sCaCert')}
+                          <Label htmlFor='k8s_token'>
+                            {t('host.token')} *
                           </Label>
                           <Textarea
-                            id='k8s_ca_cert'
-                            value={formData.k8s_ca_cert}
-                            onChange={(e) =>
+                            id='k8s_token'
+                            value={formData.k8s_token}
+                            aria-invalid={Boolean(fieldErrors.k8s_token)}
+                            onChange={(e) => {
                               setFormData({
                                 ...formData,
-                                k8s_ca_cert: e.target.value,
-                              })
-                            }
-                            placeholder={t('host.k8sCaCertPlaceholder')}
+                                k8s_token: e.target.value,
+                              });
+                              clearFieldError('k8s_token');
+                            }}
+                            placeholder={t('host.tokenPlaceholder')}
                             className='font-mono text-xs'
                             rows={3}
                           />
+                          {fieldErrors.k8s_token ? (
+                            <p className='text-xs text-destructive'>
+                              {fieldErrors.k8s_token}
+                            </p>
+                          ) : tokenLooksTruncated ? (
+                            <p
+                              className='text-xs text-amber-600 dark:text-amber-400'
+                              data-testid='k8s-token-truncated-warning'
+                            >
+                              {t('host.k8sTokenTruncatedWarning')}
+                            </p>
+                          ) : null}
                         </div>
-                      ) : null}
-                    </>
-                  )}
-                </div>
-              ) : null}
-
-              {/* 低频可选字段收进折叠区，收敛 Step 1 首屏决策点 / Collapse low-frequency optional fields */}
-              <div className='border-t-[0.5px] border-border/80 pt-3'>
-                <button
-                  type='button'
-                  className='text-xs font-medium text-muted-foreground hover:text-foreground'
-                  onClick={() => setOptionalOpen((prev) => !prev)}
-                  aria-expanded={optionalOpen}
-                  data-testid='create-host-optional-toggle'
-                >
-                  {optionalOpen ? '▾' : '▸'} {t('host.optionalSettings')}
-                </button>
-                {optionalOpen ? (
-                  <div className='mt-3 space-y-3'>
-                    <div className='space-y-1.5'>
-                      <Label htmlFor='description'>
-                        {t('host.descriptionLabel')}
-                      </Label>
-                      <Textarea
-                        id='description'
-                        value={formData.description}
-                        onChange={(e) =>
-                          setFormData({...formData, description: e.target.value})
-                        }
-                        placeholder={t('host.descriptionPlaceholder')}
-                        rows={2}
-                      />
-                    </div>
-                    {formData.host_type === HostType.KUBERNETES ? (
-                      <div className='space-y-1'>
-                        <Input
-                          id='k8s_default_service_account'
-                          label={t('host.k8sDefaultServiceAccount')}
-                          value={formData.k8s_default_service_account || ''}
-                          onChange={(e) =>
+                        <Checkbox
+                          id='k8s_insecure_skip_tls'
+                          checked={Boolean(formData.k8s_insecure_skip_tls)}
+                          onCheckedChange={(checked) =>
                             setFormData({
                               ...formData,
-                              k8s_default_service_account: e.target.value,
+                              k8s_insecure_skip_tls: checked === true,
                             })
                           }
-                          placeholder='seatunnel-runner'
-                          className='font-mono text-xs'
+                          label={t('host.k8sInsecureSkipTLS')}
                         />
-                        <p className='text-[11px] text-muted-foreground'>
-                          {t('host.k8sDefaultServiceAccountHint')}
-                        </p>
+                        {formData.k8s_insecure_skip_tls ? (
+                          <p
+                            className='text-xs text-amber-600 dark:text-amber-400'
+                            data-testid='k8s-skip-tls-warning'
+                          >
+                            {t('host.k8sInsecureSkipTLSWarning')}
+                          </p>
+                        ) : (
+                          <div className='space-y-1.5'>
+                            <Label htmlFor='k8s_ca_cert'>
+                              {t('host.k8sCaCert')}
+                            </Label>
+                            <Textarea
+                              id='k8s_ca_cert'
+                              value={formData.k8s_ca_cert}
+                              onChange={(e) =>
+                                setFormData({
+                                  ...formData,
+                                  k8s_ca_cert: e.target.value,
+                                })
+                              }
+                              placeholder={t('host.k8sCaCertPlaceholder')}
+                              className='font-mono text-xs'
+                              rows={3}
+                            />
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <K8sConnectGuideContent
+                  draft={k8sDraftInput}
+                  savedHost={createdHost}
+                  onHostUpdated={(updated) => {
+                    setCreatedHost(updated);
+                    onSuccess(updated);
+                  }}
+                  onBackToEdit={() => setStep(2)}
+                  onSaveHost={handleSaveK8sHost}
+                  savingHost={savingHost}
+                  onDeployCluster={onDeployCluster}
+                  onViewDetail={onViewDetail}
+                  onClose={handleClose}
+                />
+              )}
+            </div>
+
+            {step < 3 ? (
+              <div className='flex shrink-0 items-center justify-between gap-2 border-t-[0.5px] border-border/80 px-5 py-3.5'>
+                <div>
+                  {step === 2 ? (
+                    <Button
+                      type='button'
+                      variant='secondary'
+                      size='sm'
+                      onClick={() => setStep(1)}
+                    >
+                      {t('common.previous')}
+                    </Button>
+                  ) : null}
+                </div>
+                <div className='flex items-center gap-2'>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    onClick={handleClose}
+                  >
+                    {t('common.cancel')}
+                  </Button>
+                  {step === 1 ? (
+                    <Button
+                      type='button'
+                      size='sm'
+                      onClick={() => void handleSubmitStep1()}
+                      data-testid='k8s-step1-next'
+                    >
+                      {t('host.k8sGuide.nextToCredentials')}
+                    </Button>
+                  ) : (
+                    <Button
+                      type='button'
+                      size='sm'
+                      onClick={handleK8sStep2Next}
+                      data-testid='k8s-step2-next'
+                    >
+                      {t('host.k8sGuide.nextStepTest')}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          /* 物理机两步创建与引导 / Bare-metal 2-step form & onboarding guide */
+          <div className='flex min-h-0 flex-1 flex-col'>
+            <div className='min-h-0 flex-1 overflow-y-auto p-5 lg:p-6'>
+              {step === 1 ? (
+                <div className='space-y-4'>
+                  <Input
+                    id='name'
+                    label={`${t('host.name')} *`}
+                    value={formData.name}
+                    error={fieldErrors.name}
+                    onChange={(e) => {
+                      setFormData({...formData, name: e.target.value});
+                      clearFieldError('name');
+                    }}
+                    placeholder={t('host.namePlaceholder')}
+                  />
+                  <Input
+                    id='ip_address'
+                    label={`${t('host.ipAddress')} *`}
+                    value={formData.ip_address}
+                    error={fieldErrors.ip_address}
+                    onChange={(e) => {
+                      setFormData({...formData, ip_address: e.target.value});
+                      clearFieldError('ip_address');
+                    }}
+                    placeholder='192.168.1.100'
+                  />
+
+                  <div className='border-t-[0.5px] border-border/80 pt-3'>
+                    <button
+                      type='button'
+                      className='text-xs font-medium text-muted-foreground hover:text-foreground'
+                      onClick={() => setOptionalOpen((prev) => !prev)}
+                      aria-expanded={optionalOpen}
+                      data-testid='create-host-optional-toggle'
+                    >
+                      {optionalOpen ? '▾' : '▸'} {t('host.optionalSettings')}
+                    </button>
+                    {optionalOpen ? (
+                      <div className='mt-3 space-y-1.5'>
+                        <Label htmlFor='description'>
+                          {t('host.descriptionLabel')}
+                        </Label>
+                        <Textarea
+                          id='description'
+                          value={formData.description}
+                          onChange={(e) =>
+                            setFormData({...formData, description: e.target.value})
+                          }
+                          placeholder={t('host.descriptionPlaceholder')}
+                          rows={2}
+                        />
                       </div>
                     ) : null}
                   </div>
-                ) : null}
-              </div>
-
-              {formData.host_type === HostType.KUBERNETES ? (
-                <K8sRBACTemplateSection
-                  namespace={formData.k8s_namespace?.trim() || 'default'}
-                  runnerServiceAccount={
-                    formData.k8s_default_service_account?.trim() ||
-                    'seatunnel-runner'
-                  }
-                  authMode={k8sAuthMode}
+                </div>
+              ) : createdHost ? (
+                <HostInstallGuideContent
+                  host={createdHost}
+                  onConnected={(updated) => {
+                    setCreatedHost(updated);
+                    onSuccess(updated);
+                  }}
+                  onViewDetail={(targetHost) => {
+                    handleClose();
+                    onViewDetail?.(targetHost);
+                  }}
+                  onClose={handleClose}
                 />
               ) : null}
             </div>
 
-            <div className='mt-5 flex items-center justify-end gap-2 border-t-[0.5px] border-border/80 pt-4'>
-              <Button
-                type='button'
-                variant='secondary'
-                size='sm'
-                onClick={handleClose}
-                disabled={loading}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button
-                type='button'
-                size='sm'
-                loading={loading}
-                onClick={() => void handleSubmit()}
-                disabled={loading}
-              >
-                {loading
-                  ? createdHost
-                    ? t('common.loading')
-                    : t('common.creating')
-                  : formData.host_type === HostType.BARE_METAL
-                    ? t('host.installGuide.nextStepAgent')
-                    : formData.host_type === HostType.KUBERNETES
-                      ? createdHost
-                        ? t('host.k8sGuide.saveAndRetest')
-                        : t('host.k8sGuide.nextStepTest')
-                      : t('common.create')}
-              </Button>
-            </div>
-          </>
-        ) : createdHost ? (
-          <>
-            <div className='mb-3 flex items-center gap-2 text-xs'>
-              <span className='inline-flex items-center gap-1.5 text-muted-foreground'>
-                <span className='flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[11px] text-muted-foreground'>
-                  ✓
-                </span>
-                {isK8sStep2
-                  ? t('host.k8sGuide.step1')
-                  : t('host.installGuide.step1')}
-              </span>
-              <span className='h-px w-6 bg-border' />
-              <span className='inline-flex items-center gap-1.5 font-medium text-primary'>
-                <span className='flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground'>
-                  2
-                </span>
-                {isK8sStep2
-                  ? t('host.k8sGuide.step2')
-                  : t('host.installGuide.step2')}
-              </span>
-            </div>
-            {isK8sStep2 ? (
-              <K8sConnectGuideContent
-                host={createdHost}
-                onConnected={(updated) => {
-                  setCreatedHost(updated);
-                  setFormData((prev) => ({
-                    ...prev,
-                    k8s_default_service_account:
-                      updated.k8s_default_service_account ??
-                      prev.k8s_default_service_account,
-                  }));
-                  onSuccess(updated);
-                }}
-                onBackToEdit={() => setStep(1)}
-                onViewDetail={(targetHost) => {
-                  handleClose();
-                  onViewDetail?.(targetHost);
-                }}
-                onClose={handleClose}
-              />
-            ) : (
-              <HostInstallGuideContent
-                host={createdHost}
-                onConnected={(updated) => {
-                  setCreatedHost(updated);
-                  onSuccess(updated);
-                }}
-                onViewDetail={(targetHost) => {
-                  handleClose();
-                  onViewDetail?.(targetHost);
-                }}
-                onClose={handleClose}
-              />
-            )}
-          </>
-        ) : null}
-      </DialogContent>
-    </Dialog>
+            {step === 1 ? (
+              <div className='flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border/80 px-5 py-3.5'>
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={handleClose}
+                  disabled={loading}
+                >
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  type='button'
+                  size='sm'
+                  loading={loading}
+                  onClick={() => void handleSubmitStep1()}
+                  disabled={loading}
+                >
+                  {loading
+                    ? t('common.creating')
+                    : t('host.installGuide.nextStepAgent')}
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </DrawerContent>
+    </Drawer>
   );
 }

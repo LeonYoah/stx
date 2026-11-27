@@ -32,6 +32,7 @@ import (
 
 	authenticationv1 "k8s.io/api/authentication/v1"
 	authv1 "k8s.io/api/authorization/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/version"
@@ -136,6 +137,19 @@ func (m *ClientManager) Invalidate(hostID uint) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.cache, hostID)
+}
+
+// WithCredentials 返回临时绑定指定明文凭据的独立 ClientManager（不读写缓存，用于保存前预检或凭据轮换测试）。
+// WithCredentials returns an ephemeral ClientManager bound to the given plaintext credentials
+// without touching cache or persisted storage, used for pre-save probes and credential rotation checks.
+func (m *ClientManager) WithCredentials(cred *Credentials) *ClientManager {
+	factory := m.factory
+	return NewClientManagerWithFactory(
+		func(context.Context, uint) (*Credentials, error) {
+			return cred, nil
+		},
+		factory,
+	)
 }
 
 // ParseKubeconfigServerURL 解析 kubeconfig 内容并提取内嵌的 API Server 地址。
@@ -261,6 +275,9 @@ const (
 	// RBACScopeRequired 单命名空间最小权限运行必需的核心权限。
 	// RBACScopeRequired marks core permissions strictly required for single-namespace runtime operations.
 	RBACScopeRequired = "required"
+	// RBACScopeOptional 按需可选能力权限（私仓 Secret 自动代建 / 页面卸载删资源 / 重建单 Pod）。
+	// RBACScopeOptional marks capability-gated optional rules (auto pull-secret / workload & pod delete).
+	RBACScopeOptional = "optional"
 	// RBACScopeExtended 跨命名空间发现或自动创建每集群专属 RBAC 所需的扩展权限。
 	// RBACScopeExtended marks extended permissions needed for multi-namespace listing or auto per-cluster RBAC.
 	RBACScopeExtended = "extended"
@@ -292,14 +309,11 @@ type RBACCheckItem struct {
 	Scope    string `json:"scope,omitempty"`
 }
 
-// RBACRequiredRules 测试连接必须覆盖的资源与动作；与伴生 Proxy、常驻集群运维、日志读取的
-// 按真实 K8s RBAC 模型拆填 Group/Resource/Subresource/Verb；services 不含 patch
-// （Session 模式最小权限，Master HTTP 自发布归属尚为 Open Discussion）；services/proxy 与
-// pods/proxy 需要 create，因为 REST 代理提交作业与伴生 Proxy 调用都是 POST 语义。
-// RBACRequiredRules follows the real K8s RBAC model with Group/Resource/Subresource/Verb split;
-// services drops patch (session-mode least privilege, master HTTP self-publish ownership still an
-// open discussion); services/proxy and pods/proxy need create because proxied job submission and
-// companion proxy calls are POST semantics.
+// RBACRequiredRules 核心运行时与部署必选权限（零 delete、零 secrets、零 */proxy）：
+// 即使在禁止 delete、secrets 与 apiserver proxy 的生产受限命名空间中也能通过基础体检，
+// 完整支持部署、纳管、扩缩容、启停（replicas=0）、配置下发、滚动升级与日志查看。
+// RBACRequiredRules defines the lean zero-delete core runtime/deploy rules (no delete,
+// no secrets, no */proxy) so strict production namespaces pass minimal onboarding cleanly.
 var RBACRequiredRules = []struct {
 	Group       string
 	Resource    string
@@ -308,52 +322,52 @@ var RBACRequiredRules = []struct {
 }{
 	{"", "pods", "", "get"},
 	{"", "pods", "", "list"},
-	{"", "pods", "", "watch"},
-	{"", "pods", "", "create"},
-	{"", "pods", "", "delete"},
-	{"", "pods", "proxy", "get"},
-	{"", "pods", "proxy", "create"},
 	{"", "pods", "log", "get"},
 	{"apps", "statefulsets", "", "get"},
 	{"apps", "statefulsets", "", "list"},
 	{"apps", "statefulsets", "", "create"},
 	{"apps", "statefulsets", "", "update"},
 	{"apps", "statefulsets", "", "patch"},
-	{"apps", "statefulsets", "", "delete"},
 	{"apps", "deployments", "", "get"},
 	{"apps", "deployments", "", "list"},
 	{"apps", "deployments", "", "create"},
 	{"apps", "deployments", "", "update"},
 	{"apps", "deployments", "", "patch"},
-	{"apps", "deployments", "", "delete"},
 	{"apps", "replicasets", "", "list"},
 	{"", "services", "", "get"},
 	{"", "services", "", "list"},
 	{"", "services", "", "create"},
 	{"", "services", "", "update"},
-	{"", "services", "", "delete"},
-	{"", "services", "proxy", "get"},
-	{"", "services", "proxy", "create"},
 	{"", "configmaps", "", "get"},
 	{"", "configmaps", "", "list"},
 	{"", "configmaps", "", "create"},
 	{"", "configmaps", "", "update"},
-	{"", "configmaps", "", "patch"},
-	{"", "configmaps", "", "delete"},
+	{"", "serviceaccounts", "", "get"},
+	{"", "serviceaccounts", "", "list"},
+	{"", "persistentvolumeclaims", "", "get"},
+	{"", "persistentvolumeclaims", "", "list"},
+}
+
+// RBACOptionalRules 按需探测的高敏/场景化权限：
+// - secrets: 仅 STX 自动代建私仓拉取 Secret 与下拉枚举时使用；
+// - statefulsets/deployments/services/configmaps(delete) & pods(delete): 仅页面卸载集群、失败回滚与重建单 Pod 使用。
+// RBACOptionalRules probes capability-gated rules evaluated dynamically per scenario.
+var RBACOptionalRules = []struct {
+	Group       string
+	Resource    string
+	Subresource string
+	Verb        string
+}{
 	{"", "secrets", "", "get"},
 	{"", "secrets", "", "list"},
 	{"", "secrets", "", "create"},
 	{"", "secrets", "", "update"},
 	{"", "secrets", "", "delete"},
-	{"", "serviceaccounts", "", "get"},
-	{"", "serviceaccounts", "", "list"},
-	{"", "persistentvolumeclaims", "", "get"},
-	{"", "persistentvolumeclaims", "", "list"},
-	{"", "events", "", "list"},
-	{"batch", "jobs", "", "get"},
-	{"batch", "jobs", "", "list"},
-	{"batch", "jobs", "", "create"},
-	{"batch", "jobs", "", "delete"},
+	{"apps", "statefulsets", "", "delete"},
+	{"apps", "deployments", "", "delete"},
+	{"", "services", "", "delete"},
+	{"", "configmaps", "", "delete"},
+	{"", "pods", "", "delete"},
 }
 
 // RBACExtendedRules 用于识别全面授权能力（跨命名空间枚举与自动建 SA/Role/RoleBinding）。
@@ -370,6 +384,7 @@ var RBACExtendedRules = []struct {
 	{"", "namespaces", "", "list", true},
 	{"", "namespaces", "", "create", true},
 	{"", "serviceaccounts", "", "create", false},
+	{"", "serviceaccounts", "", "delete", false},
 	{"rbac.authorization.k8s.io", "roles", "", "create", false},
 	{"rbac.authorization.k8s.io", "rolebindings", "", "create", false},
 	{"", "endpoints", "", "list", false},
@@ -395,7 +410,7 @@ func (m *ClientManager) PrecheckRBAC(ctx context.Context, hostID uint, namespace
 		verb        string
 		scope       string
 	}
-	specs := make([]rbacRuleSpec, 0, len(RBACRequiredRules)+len(RBACExtendedRules))
+	specs := make([]rbacRuleSpec, 0, len(RBACRequiredRules)+len(RBACOptionalRules)+len(RBACExtendedRules))
 	for _, rule := range RBACRequiredRules {
 		specs = append(specs, rbacRuleSpec{
 			ns:          namespace,
@@ -404,6 +419,16 @@ func (m *ClientManager) PrecheckRBAC(ctx context.Context, hostID uint, namespace
 			subresource: rule.Subresource,
 			verb:        rule.Verb,
 			scope:       RBACScopeRequired,
+		})
+	}
+	for _, rule := range RBACOptionalRules {
+		specs = append(specs, rbacRuleSpec{
+			ns:          namespace,
+			group:       rule.Group,
+			resource:    rule.Resource,
+			subresource: rule.Subresource,
+			verb:        rule.Verb,
+			scope:       RBACScopeOptional,
 		})
 	}
 	for _, rule := range RBACExtendedRules {
@@ -497,7 +522,7 @@ func AllRequiredRBACAllowed(items []RBACCheckItem) bool {
 	}
 	hasRequired := false
 	for _, item := range items {
-		if item.Scope == RBACScopeExtended {
+		if item.Scope != "" && item.Scope != RBACScopeRequired {
 			continue
 		}
 		hasRequired = true
@@ -515,6 +540,29 @@ func rbacRuleAllowed(items []RBACCheckItem, resource, verb string) bool {
 		}
 	}
 	return false
+}
+
+// CanManageSecrets 判断凭据是否支持 STX 自动代建、更新与回收私有仓库拉取 Secret。
+// CanManageSecrets reports whether STX can materialize and reclaim private registry secrets.
+func CanManageSecrets(items []RBACCheckItem) bool {
+	return rbacRuleAllowed(items, "secrets", "get") &&
+		rbacRuleAllowed(items, "secrets", "create") &&
+		rbacRuleAllowed(items, "secrets", "update")
+}
+
+// CanDeletePods 判断凭据是否支持手动删除单个 Pod 触发重建。
+// CanDeletePods reports whether single-pod deletion is permitted.
+func CanDeletePods(items []RBACCheckItem) bool {
+	return rbacRuleAllowed(items, "pods", "delete")
+}
+
+// CanDeleteWorkloads 判断凭据是否支持卸载集群或失败回滚时自动删除 STX 创建的 K8s 资源。
+// CanDeleteWorkloads reports whether STX can delete workloads, services, and configmaps on teardown.
+func CanDeleteWorkloads(items []RBACCheckItem) bool {
+	return rbacRuleAllowed(items, "statefulsets", "delete") &&
+		rbacRuleAllowed(items, "deployments", "delete") &&
+		rbacRuleAllowed(items, "services", "delete") &&
+		rbacRuleAllowed(items, "configmaps", "delete")
 }
 
 // CanManageRBAC 判断当前凭据是否具备按集群自动创建隔离 ServiceAccount/Role/RoleBinding 的权限。
@@ -708,7 +756,11 @@ func (m *ClientManager) ListNamespaceObjects(ctx context.Context, hostID uint, n
 			return nil, err
 		}
 		for _, item := range list.Items {
-			names = append(names, item.Name)
+			// 仅列出镜像拉取凭据类型 Secret，避免将 TLS/Token/普通业务 Secret 混入拉取凭据下拉框。
+			// Filter to image-pull Secret types so TLS/token/opaque Secrets never clutter pull-secret picks.
+			if item.Type == corev1.SecretTypeDockerConfigJson || item.Type == corev1.SecretTypeDockercfg {
+				names = append(names, item.Name)
+			}
 		}
 	case "serviceaccounts":
 		list, err := clientset.CoreV1().ServiceAccounts(namespace).List(ctx, metav1.ListOptions{})

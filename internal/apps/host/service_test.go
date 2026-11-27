@@ -1343,3 +1343,95 @@ func TestUpdateK8sHostAuthModeSwitchValidation(t *testing.T) {
 		t.Fatalf("switching to in_cluster must fail with ErrK8sAuthModeInvalid, got: %v", err)
 	}
 }
+
+// TestK8sHostAccessModeContextOverrideAndExpiry 验证：
+// 1) k8s_access_mode 默认为 in_cluster、支持 external 并拒绝 apiserver_proxy 及非法枚举；
+// 2) kubeconfig 模式支持按 k8s_context 切换上下文与 k8s_api_url 地址覆写并写入规范化 YAML；
+// 3) Token/Kubeconfig 到期时间自动提取到 k8s_credential_expires_at 并在 HostInfo 中返回。
+// TestK8sHostAccessModeContextOverrideAndExpiry verifies access mode defaults/validation,
+// kubeconfig context selection + API server URL override, and credential expiry extraction in HostInfo.
+func TestK8sHostAccessModeContextOverrideAndExpiry(t *testing.T) {
+	secretbox.SetSecret("test-secret-k8s-access-mode")
+	t.Cleanup(func() { secretbox.SetSecret("") })
+
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	svc := NewService(NewRepository(db), cluster.NewRepository(db), nil)
+	ctx := context.Background()
+
+	for _, badMode := range []string{"tunnel", "apiserver_proxy"} {
+		if _, err := svc.Create(ctx, &CreateHostRequest{
+			Name:          "k8s-bad-" + badMode,
+			HostType:      HostTypeKubernetes,
+			K8sAuthMode:   "token",
+			K8sAccessMode: badMode,
+			K8sAPIURL:     "https://10.0.0.10:6443",
+			K8sToken:      "tok",
+		}); !errors.Is(err, ErrK8sAccessModeInvalid) {
+			t.Fatalf("mode %q: expected ErrK8sAccessModeInvalid, got %v", badMode, err)
+		}
+	}
+
+	multiKC := `apiVersion: v1
+kind: Config
+clusters:
+- name: c-dev
+  cluster:
+    server: https://127.0.0.1:6443
+    insecure-skip-tls-verify: true
+- name: c-prod
+  cluster:
+    server: https://10.0.0.30:6443
+    insecure-skip-tls-verify: true
+contexts:
+- name: dev
+  context:
+    cluster: c-dev
+    user: u-dev
+- name: prod
+  context:
+    cluster: c-prod
+    user: u-prod
+current-context: dev
+users:
+- name: u-dev
+  user:
+    token: dev-tok
+- name: u-prod
+  user:
+    token: eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6c2VhdHVubmVsOnN0eC1tYW5hZ2VyIiwiZXhwIjoxODkzNDU2MDAwfQ.sig
+`
+	created, err := svc.Create(ctx, &CreateHostRequest{
+		Name:          "k8s-ctx-override",
+		HostType:      HostTypeKubernetes,
+		K8sAuthMode:   "kubeconfig",
+		K8sAccessMode: "external",
+		K8sContext:    "prod",
+		K8sAPIURL:     "https://192.168.10.20:6443/",
+		K8sKubeconfig: multiKC,
+	})
+	if err != nil {
+		t.Fatalf("create k8s host with context + server override: %v", err)
+	}
+	if created.K8sAccessMode != "external" || created.K8sAPIURL != "https://192.168.10.20:6443" {
+		t.Fatalf("unexpected access/api fields: access=%q url=%q", created.K8sAccessMode, created.K8sAPIURL)
+	}
+	if created.K8sCredentialExpiresAt == nil || created.K8sCredentialExpiresAt.Unix() != 1893456000 {
+		t.Fatalf("expected credential expiry unix 1893456000, got %v", created.K8sCredentialExpiresAt)
+	}
+	created.K8sPermissionMode = "minimal"
+	info := created.ToHostInfo(DefaultHeartbeatTimeout, svc.GetProcessStartedAt())
+	if info.K8sAccessMode != "external" || info.K8sPermissionMode != "minimal" || info.K8sCredentialExpiresAt == nil {
+		t.Fatalf("HostInfo missing K8s metadata: %+v", info)
+	}
+
+	inClusterMode := "in_cluster"
+	updated, err := svc.Update(ctx, created.ID, &UpdateHostRequest{K8sAccessMode: &inClusterMode})
+	if err != nil {
+		t.Fatalf("update access mode: %v", err)
+	}
+	if updated.K8sAccessMode != "in_cluster" {
+		t.Fatalf("updated K8sAccessMode=%q, want in_cluster", updated.K8sAccessMode)
+	}
+}

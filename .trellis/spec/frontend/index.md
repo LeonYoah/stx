@@ -27,6 +27,7 @@ STX 控制台为 **Next.js 15**（App Router）应用，使用 **React 19**、**
 | [目录结构](./directory-structure.md) | App Router、`components/arc/` 与 `components/common/layout/` 模块组织、services 与 hooks 约定 | 已更新 |
 | [API 与 Services](./api-and-services.md) | API 客户端、BaseService 服务层、执行协议、错误拦截、类型与运行时兜底、作业拓扑契约 | 已填写 |
 | [E2E 测试](./e2e-testing.md) | Playwright 目录、夹具策略、功能流样例、CI 门禁过滤规则 | 已填写 |
+| [全局部署模式模型](../guides/deployment-mode-model.md) | Standalone / K8s Session / K8s Application / 规划 YARN 术语、集群架构命名、`@/lib/infra` 单一真源与 ESLint 防线 | 已填写 |
 
 ---
 

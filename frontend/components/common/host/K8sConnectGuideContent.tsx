@@ -18,12 +18,14 @@
 'use client';
 
 /**
- * Kubernetes 主机连通性与 RBAC 权限体检引导组件：
- * 创建第 2 步及列表/操作区触发时自动运行 testK8sConnection，支持可取消探测、
- * 300ms 延迟 / 500ms 驻留的单一加载态、分类故障排障建议、动态排除当前控制面身份并一键绑定默认运行 SA。
- * Kubernetes host connectivity & RBAC onboarding guide component:
- * auto-runs abortable testK8sConnection with single-indicator delayed loading, classified error hints,
- * dynamic control-plane SA exclusion, and one-click runner ServiceAccount binding.
+ * Kubernetes 控制面连通性与 RBAC 权限体检引导组件（v2 Structured Output 版）：
+ * - 保存前：以单张结构化验证卡展示 1 行 4 阶段流水线 + 2x2 键值字段（身份/权限范围/RBAC 核验/到期）+ 行内明细；
+ *   保留 Tip 017 的 300ms/500ms 防闪烁延迟、固定最小高度防跳动与随时取消；
+ * - 保存后：展示结构化接入完成卡（直达部署集群/主机详情），并紧跟可选「预备 SeaTunnel 引擎运行账号」结构化卡片，
+ *   保持双 SA 清单完全隔离的同时允许一键检测并设为本主机默认以供后续部署自动复用。
+ * Kubernetes control-plane probe & post-save onboarding component (v2 structured-output layout):
+ * renders a single structured verification card before saving (1-row 4-stage pipeline + 2x2 KV grid + inline details),
+ * and a post-save completion card with an optional isolated SeaTunnel engine SA prep & bind-default card.
  */
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
@@ -33,52 +35,132 @@ import {
   Check,
   Cloud,
   RefreshCw,
-  ShieldCheck,
   Wrench,
   X,
 } from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/arc/button/button';
-import {Input} from '@/components/arc/input/input';
-import {Select} from '@/components/arc/select/select';
 import services from '@/lib/services';
 import {
   HostInfo,
   HostStatus,
+  K8sAccessMode,
+  K8sAuthMode,
   K8sTestConnectionResult,
 } from '@/lib/services/host/types';
-import {DEFAULT_STX_MANAGER_SA} from '@/lib/k8s-rbac-templates';
+import {formatDateTimeTz} from '@/lib/timezone';
+import {K8sEngineSATemplateSection} from './K8sEngineSATemplateSection';
 import {K8sRBACTemplateSection} from './K8sRBACTemplateSection';
 import {
   getK8sConnectErrorHint,
+  getK8sCredentialExpiryState,
   getK8sPermissionModeLabel,
+  getK8sRbacScopeLabel,
+  isK8sRbacRequired,
 } from './host-status';
 
+export interface K8sDraftHostInput {
+  name: string;
+  description?: string;
+  k8s_auth_mode: K8sAuthMode;
+  k8s_access_mode: K8sAccessMode;
+  k8s_namespace: string;
+  k8s_kubeconfig?: string;
+  k8s_context?: string;
+  k8s_api_url?: string;
+  k8s_token?: string;
+  k8s_ca_cert?: string;
+  k8s_insecure_skip_tls?: boolean;
+}
+
 interface K8sConnectGuideContentProps {
-  host: HostInfo;
+  host?: HostInfo;
+  draft?: K8sDraftHostInput;
+  savedHost?: HostInfo | null;
   onConnected?: (updatedHost: HostInfo) => void;
+  onHostUpdated?: (updatedHost: HostInfo) => void;
   onBackToEdit?: () => void;
+  onSaveHost?: (probe: K8sTestConnectionResult) => Promise<void>;
+  savingHost?: boolean;
+  onDeployCluster?: (host: HostInfo) => void;
   onViewDetail?: (host: HostInfo) => void;
   onClose?: () => void;
 }
+
+type StageStatus = 'pending' | 'running' | 'ok' | 'fail';
 
 function isAbortError(err: unknown): boolean {
   if (!err || typeof err !== 'object') {
     return false;
   }
   const e = err as {name?: string; code?: string};
-  return e.name === 'CanceledError' || e.name === 'AbortError' || e.code === 'ERR_CANCELED';
+  return (
+    e.name === 'CanceledError' ||
+    e.name === 'AbortError' ||
+    e.code === 'ERR_CANCELED'
+  );
+}
+
+// resolveStageStatuses 将异步探测周期与后端错误码映射为 4 阶段状态指示（Tip 017）。
+// resolveStageStatuses maps live probe timing and classified backend errors onto the 4-stage pipeline.
+function resolveStageStatuses(params: {
+  isBusy: boolean;
+  elapsedSec: number;
+  cancelled: boolean;
+  result: K8sTestConnectionResult | null;
+  errorMsg: string;
+}): StageStatus[] {
+  const {isBusy, elapsedSec, cancelled, result, errorMsg} = params;
+  if (cancelled) {
+    return ['pending', 'pending', 'pending', 'pending'];
+  }
+  if (isBusy) {
+    if (elapsedSec >= 3) {
+      return ['ok', 'ok', 'ok', 'running'];
+    }
+    return ['ok', 'running', 'pending', 'pending'];
+  }
+  if (!result && errorMsg) {
+    return ['ok', 'fail', 'pending', 'pending'];
+  }
+  if (!result) {
+    return ['pending', 'pending', 'pending', 'pending'];
+  }
+  if (!result.connected) {
+    switch (result.error_code) {
+      case 'invalid_config':
+        return ['fail', 'pending', 'pending', 'pending'];
+      case 'unauthorized':
+        return ['ok', 'ok', 'fail', 'pending'];
+      default:
+        return ['ok', 'fail', 'pending', 'pending'];
+    }
+  }
+  if (result.permission_mode === 'insufficient') {
+    return ['ok', 'ok', 'ok', 'fail'];
+  }
+  return ['ok', 'ok', 'ok', 'ok'];
 }
 
 export function K8sConnectGuideContent({
   host,
+  draft,
+  savedHost = null,
   onConnected,
+  onHostUpdated,
   onBackToEdit,
+  onSaveHost,
+  savingHost = false,
+  onDeployCluster,
   onViewDetail,
   onClose,
 }: K8sConnectGuideContentProps) {
   const t = useTranslations();
-  const [currentHost, setCurrentHost] = useState<HostInfo>(host);
+  const isDraft = Boolean(draft && !host);
+  const [currentHost, setCurrentHost] = useState<HostInfo | undefined>(host);
+  const [effectiveSavedHost, setEffectiveSavedHost] = useState<HostInfo | null>(
+    savedHost,
+  );
   const [testing, setTesting] = useState(true);
   const [showLoader, setShowLoader] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -86,35 +168,25 @@ export function K8sConnectGuideContent({
   const [errorMsg, setErrorMsg] = useState('');
   const [result, setResult] = useState<K8sTestConnectionResult | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [selectedSA, setSelectedSA] = useState(
-    host.k8s_default_service_account || '',
-  );
-  const [savingSA, setSavingSA] = useState(false);
-  const [savedSAHint, setSavedSAHint] = useState(false);
+  const [enginePrepOpen, setEnginePrepOpen] = useState(true);
 
   const onConnectedRef = useRef(onConnected);
   onConnectedRef.current = onConnected;
   const currentHostRef = useRef(currentHost);
   currentHostRef.current = currentHost;
-  const defaultSARef = useRef(host.k8s_default_service_account);
-  defaultSARef.current = host.k8s_default_service_account;
-  const prevHostIdRef = useRef(host.id);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const abortRef = useRef<AbortController | null>(null);
   const loaderShownAtRef = useRef<number | null>(null);
   const minHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setCurrentHost(host);
-    // 仅在切换主机或后端明确返回已配置默认 SA 时更新选择态，避免 onConnected 回写 host 冲掉自动推断的 seatunnel-runner。
-    // Only reset selectedSA when switching host IDs or receiving a configured SA, so onConnected updates don't clobber auto-detected seatunnel-runner.
-    setSelectedSA((prev) => {
-      if (host.k8s_default_service_account) {
-        return host.k8s_default_service_account;
-      }
-      return host.id === prevHostIdRef.current ? prev : '';
-    });
-    prevHostIdRef.current = host.id;
   }, [host]);
+
+  useEffect(() => {
+    setEffectiveSavedHost(savedHost);
+  }, [savedHost]);
 
   // Tip 017：加载超过 300ms 才显示指示器，显现后至少驻留 500ms 防闪烁；并按 3s / 10s 更新阶段与慢响应提示。
   // Tip 017: delay loader by 300ms and hold at least 500ms once visible; track elapsed seconds for stage & slow hints.
@@ -168,22 +240,22 @@ export function K8sConnectGuideContent({
     };
   }, []);
 
-  // 动态排除当前控制面自身身份（无论自定义名还是默认 stx-manager），防止引擎 Pod 误继承控制面高权限。
-  // Dynamically exclude the detected control-plane SA (and default stx-manager) so engine pods never inherit control-plane rights.
-  const excludedControlPlaneSAs = useMemo(() => {
-    const excluded = new Set<string>([DEFAULT_STX_MANAGER_SA]);
-    if (result?.control_plane_sa) {
-      excluded.add(result.control_plane_sa);
-    }
-    return excluded;
-  }, [result?.control_plane_sa]);
-
-  const candidateSAs = useMemo(() => {
-    const raw = result?.service_accounts || [];
-    return raw.filter((sa) => !excludedControlPlaneSAs.has(sa));
-  }, [result?.service_accounts, excludedControlPlaneSAs]);
+  const draftProbeKey = draft
+    ? JSON.stringify([
+        draft.k8s_auth_mode,
+        draft.k8s_access_mode,
+        draft.k8s_namespace,
+        draft.k8s_kubeconfig,
+        draft.k8s_context,
+        draft.k8s_api_url,
+        draft.k8s_token,
+        draft.k8s_ca_cert,
+        draft.k8s_insecure_skip_tls,
+      ])
+    : '';
 
   const runProbe = useCallback(async () => {
+    void draftProbeKey;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -191,44 +263,51 @@ export function K8sConnectGuideContent({
     setTesting(true);
     setCancelled(false);
     setErrorMsg('');
-    setSavedSAHint(false);
     try {
-      const probe = await services.host.testK8sConnection(host.id, {
-        signal: controller.signal,
-        timeoutMs: 20000,
-      });
-      if (controller.signal.aborted) {
+      const currentDraft = draftRef.current;
+      const probe =
+        !host?.id && currentDraft
+          ? await services.host.testK8sDraftConnection(
+              {
+                k8s_auth_mode: currentDraft.k8s_auth_mode,
+                k8s_namespace: currentDraft.k8s_namespace || 'default',
+                k8s_kubeconfig: currentDraft.k8s_kubeconfig,
+                k8s_context: currentDraft.k8s_context,
+                k8s_api_url: currentDraft.k8s_api_url,
+                k8s_token: currentDraft.k8s_token,
+                k8s_ca_cert: currentDraft.k8s_ca_cert,
+                k8s_insecure_skip_tls: currentDraft.k8s_insecure_skip_tls,
+              },
+              {signal: controller.signal, timeoutMs: 20000},
+            )
+          : host?.id
+            ? await services.host.testK8sConnection(host.id, {
+                signal: controller.signal,
+                timeoutMs: 20000,
+              })
+            : null;
+      if (!probe || controller.signal.aborted) {
         return;
       }
       setResult(probe);
       if (probe.permission_mode === 'insufficient') {
         setDetailsOpen(true);
       }
-      const excluded = new Set<string>([DEFAULT_STX_MANAGER_SA]);
-      if (probe.control_plane_sa) {
-        excluded.add(probe.control_plane_sa);
-      }
-      const candidates = (probe.service_accounts || []).filter(
-        (sa) => !excluded.has(sa),
-      );
-      if (probe.connected) {
+      if (probe.connected && host?.id) {
         const base = currentHostRef.current;
-        const updated: HostInfo = {
-          ...base,
-          status: HostStatus.CONNECTED,
-          is_online: true,
-          k8s_version: probe.server_version || base.k8s_version,
-          k8s_permission_mode: probe.permission_mode || base.k8s_permission_mode,
-        };
-        setCurrentHost(updated);
-        onConnectedRef.current?.(updated);
-      }
-      if (
-        probe.permission_mode === 'minimal' &&
-        !defaultSARef.current &&
-        candidates.includes('seatunnel-runner')
-      ) {
-        setSelectedSA('seatunnel-runner');
+        if (base) {
+          const updated: HostInfo = {
+            ...base,
+            status: HostStatus.CONNECTED,
+            is_online: true,
+            k8s_version: probe.server_version || base.k8s_version,
+            k8s_permission_mode: probe.permission_mode || base.k8s_permission_mode,
+            k8s_credential_expires_at:
+              probe.credential_expires_at ?? base.k8s_credential_expires_at,
+          };
+          setCurrentHost(updated);
+          onConnectedRef.current?.(updated);
+        }
       }
     } catch (err) {
       if (controller.signal.aborted || isAbortError(err)) {
@@ -241,7 +320,7 @@ export function K8sConnectGuideContent({
         setTesting(false);
       }
     }
-  }, [host.id]);
+  }, [host?.id, draftProbeKey]);
 
   useEffect(() => {
     void runProbe();
@@ -261,115 +340,299 @@ export function K8sConnectGuideContent({
     onBackToEdit?.();
   };
 
-  const handleSaveDefaultSA = async () => {
-    const nextSA = selectedSA.trim();
-    if (!nextSA) {
-      return;
-    }
-    setSavingSA(true);
-    try {
-      const res = await services.host.updateHostSafe(currentHost.id, {
-        k8s_default_service_account: nextSA,
-      });
-      if (res.success) {
-        const updated: HostInfo = {
-          ...currentHost,
-          ...(res.data || {}),
-          k8s_default_service_account: nextSA,
-        };
-        setCurrentHost(updated);
-        setSavedSAHint(true);
-        onConnectedRef.current?.(updated);
-      }
-    } finally {
-      setSavingSA(false);
-    }
-  };
-
   const rbacItems = useMemo(() => result?.rbac || [], [result]);
-  const requiredItems = rbacItems.filter((item) => item.scope !== 'extended');
-  const extendedItems = rbacItems.filter((item) => item.scope === 'extended');
+  const requiredItems = rbacItems.filter((item) => isK8sRbacRequired(item));
+  const extendedItems = rbacItems.filter((item) => !isK8sRbacRequired(item));
   const requiredOk = requiredItems.filter((item) => item.allowed).length;
   const extendedOk = extendedItems.filter((item) => item.allowed).length;
   const deniedRequiredLabels = requiredItems
     .filter((item) => !item.allowed)
     .map((item) => `${item.resource}(${item.verb})`);
 
-  const namespace = currentHost.k8s_namespace || 'default';
-  const configuredSA = currentHost.k8s_default_service_account?.trim() || '';
-  const configuredSAReady =
-    Boolean(configuredSA) &&
-    (candidateSAs.length === 0 || candidateSAs.includes(configuredSA));
+  const displayName =
+    effectiveSavedHost?.name || draft?.name || currentHost?.name || '-';
+  const namespace =
+    effectiveSavedHost?.k8s_namespace ||
+    draft?.k8s_namespace ||
+    currentHost?.k8s_namespace ||
+    'seatunnel';
+  const effectiveAuthMode: K8sAuthMode =
+    draft?.k8s_auth_mode || currentHost?.k8s_auth_mode || 'kubeconfig';
+
   const isBusy = testing || showLoader;
   const failureHint = getK8sConnectErrorHint(result?.error_code, t);
+  const canSaveDraft = Boolean(
+    isDraft &&
+      !effectiveSavedHost &&
+      onSaveHost &&
+      !isBusy &&
+      result?.connected &&
+      result.permission_mode !== 'insufficient',
+  );
+  const expiryTimestamp =
+    result?.credential_expires_at || currentHost?.k8s_credential_expires_at;
+  const expiryState = getK8sCredentialExpiryState(expiryTimestamp);
+  const stageStatuses = resolveStageStatuses({
+    isBusy,
+    elapsedSec,
+    cancelled,
+    result,
+    errorMsg,
+  });
+  const stageLabels = [
+    t('host.k8sGuide.stageFormat'),
+    t('host.k8sGuide.stageNetwork'),
+    t('host.k8sGuide.stageAuth'),
+    t('host.k8sGuide.stageRbac'),
+  ];
+  const boundRunnerSA = effectiveSavedHost?.k8s_default_service_account?.trim() || '';
 
   return (
     <div className='space-y-4' data-testid='k8s-connect-guide'>
-      {/* 单层扁平头部摘要：用 0.5px 细线分隔，等待期不在徽章处重复旋转 spinner / Flat hairline summary row */}
-      <div className='flex flex-wrap items-center justify-between gap-2 border-b-[0.5px] border-border/80 pb-3 text-xs'>
-        <div className='flex min-w-0 items-center gap-2'>
-          <Cloud className='size-4 shrink-0 text-primary' aria-hidden />
-          <span className='font-medium text-foreground'>{currentHost.name}</span>
-          <span className='truncate font-mono text-muted-foreground'>
-            {currentHost.k8s_api_url || '-'} · ns: {namespace}
-          </span>
-        </div>
-        {!isBusy ? (
-          <div className='flex flex-wrap items-center gap-1.5'>
-            {cancelled ? (
-              <Badge variant='outline'>{t('host.k8sGuide.cancelTest')}</Badge>
-            ) : result?.connected ? (
-              <>
-                <Badge
-                  variant='default'
-                  className='gap-1 border-emerald-500/30 bg-emerald-500/15 font-medium text-emerald-700 dark:text-emerald-300'
+      {effectiveSavedHost ? (
+        <>
+          {/* 保存完成后的结构化结果卡：字段芯片 + 直达操作 / Structured post-save completion card */}
+          <div
+            className='flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-control)] bg-emerald-500/10 px-4 py-3 text-xs'
+            data-testid='k8s-guide-saved-banner'
+          >
+            <div className='flex min-w-0 flex-wrap items-center gap-2'>
+              <span className='inline-flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-300'>
+                <Check className='size-3.5' aria-hidden />
+                {t('host.k8sGuide.savedBannerTitle')}
+              </span>
+              <Badge variant='outline' className='font-mono text-[11px]'>
+                {effectiveSavedHost.name}
+              </Badge>
+              <Badge variant='outline' className='font-mono text-[11px]'>
+                ns: {namespace}
+              </Badge>
+              <Badge
+                variant={boundRunnerSA ? 'default' : 'outline'}
+                className={
+                  boundRunnerSA
+                    ? 'border-emerald-500/30 bg-emerald-500/15 font-mono text-[11px] text-emerald-700 dark:text-emerald-300'
+                    : 'text-[11px]'
+                }
+                data-testid='k8s-guide-saved-engine-sa-chip'
+              >
+                {boundRunnerSA
+                  ? t('host.k8sEngineSaBoundBadge', {sa: boundRunnerSA})
+                  : t('host.k8sEngineSaAutoLabel')}
+              </Badge>
+            </div>
+            <div className='flex flex-wrap items-center gap-2'>
+              {onViewDetail ? (
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='secondary'
+                  onClick={() => {
+                    onClose?.();
+                    onViewDetail(effectiveSavedHost);
+                  }}
+                  data-testid='k8s-guide-view-detail'
                 >
-                  <Check className='size-3' aria-hidden />
-                  <span className='tabular-nums'>
-                    {t('host.k8sConnected')} · {result.server_version || ''}
-                    {result.elapsed_ms ? ` · ${result.elapsed_ms}ms` : ''}
-                  </span>
+                  {t('host.installGuide.viewHostDetail')}
+                </Button>
+              ) : null}
+              {onDeployCluster ? (
+                <Button
+                  type='button'
+                  size='sm'
+                  onClick={() => {
+                    onClose?.();
+                    onDeployCluster(effectiveSavedHost);
+                  }}
+                  data-testid='k8s-guide-deploy-cluster'
+                >
+                  {t('host.k8sGuide.deployClusterAction')}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          {/* 可选预备 SeaTunnel 引擎运行账号结构化卡片：与控制面 YAML 独立，绑定后后续建集群自动复用 */}
+          {/* Optional SeaTunnel engine SA prep card: isolated from control-plane YAML, reused on deploy once bound */}
+          <div
+            className='overflow-hidden rounded-[var(--radius-control)] bg-muted/35 dark:bg-muted/25'
+            data-testid='k8s-guide-engine-sa-card'
+          >
+            <div className='flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-xs'>
+              <div className='flex min-w-0 flex-wrap items-center gap-2'>
+                <span className='font-medium text-foreground'>
+                  {t('host.k8sEngineSaPrepTitle')}
+                </span>
+                <Badge variant='outline' className='text-[11px]'>
+                  {t('host.k8sEngineSaPrepBadge')}
                 </Badge>
-                {result.permission_mode ? (
+                {boundRunnerSA ? (
+                  <Badge
+                    variant='default'
+                    className='border-emerald-500/30 bg-emerald-500/15 font-mono text-[11px] text-emerald-700 dark:text-emerald-300'
+                  >
+                    {t('host.k8sEngineSaBoundBadge', {sa: boundRunnerSA})}
+                  </Badge>
+                ) : null}
+              </div>
+              <Button
+                type='button'
+                size='sm'
+                variant='secondary'
+                onClick={() => setEnginePrepOpen((prev) => !prev)}
+                data-testid='k8s-guide-engine-sa-toggle'
+              >
+                {enginePrepOpen
+                  ? `${t('host.k8sEngineSaCollapse')} ▾`
+                  : `${t('host.k8sEngineSaExpand')} ▸`}
+              </Button>
+            </div>
+            {enginePrepOpen ? (
+              <div className='space-y-3 border-t-[0.5px] border-border/70 px-4 py-3'>
+                <p className='rounded-md bg-background/70 px-3 py-2 text-xs text-muted-foreground dark:bg-background/40'>
+                  {t('host.k8sEngineSaSectionDesc')}
+                </p>
+                <K8sEngineSATemplateSection
+                  collapsible={false}
+                  namespace={namespace}
+                  hostId={effectiveSavedHost.id}
+                  initialRunnerSA={boundRunnerSA || undefined}
+                  onBoundDefaultSA={(updated) => {
+                    setEffectiveSavedHost(updated);
+                    onHostUpdated?.(updated);
+                  }}
+                />
+              </div>
+            ) : null}
+          </div>
+        </>
+      ) : (
+        /* 保存前 / 既有主机重测：单张 Structured Output 预检卡片 / Structured verification card */
+        <div
+          className='overflow-hidden rounded-[var(--radius-control)] bg-muted/35 dark:bg-muted/25'
+          aria-busy={isBusy}
+          aria-live='polite'
+        >
+          {/* 卡片头部：主机名 + 命名空间 + 草稿标记 + 连通结论 / Card header */}
+          <div className='flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-xs'>
+            <div className='flex min-w-0 flex-wrap items-center gap-2'>
+              <Cloud className='size-4 shrink-0 text-primary' aria-hidden />
+              <span className='font-medium text-foreground'>{displayName}</span>
+              <Badge variant='outline' className='font-mono text-[11px]'>
+                ns: {namespace}
+              </Badge>
+              {isDraft ? (
+                <Badge
+                  variant='outline'
+                  className='text-[11px] text-muted-foreground'
+                  data-testid='k8s-guide-draft-notice'
+                >
+                  {t('host.k8sGuide.notPersistedNotice')}
+                </Badge>
+              ) : null}
+            </div>
+            {!isBusy ? (
+              <div className='flex flex-wrap items-center gap-1.5'>
+                {cancelled ? (
+                  <Badge variant='outline'>{t('host.k8sGuide.cancelTest')}</Badge>
+                ) : result?.connected ? (
                   <Badge
                     variant={
                       result.permission_mode === 'insufficient'
                         ? 'destructive'
-                        : 'outline'
+                        : 'default'
                     }
-                    data-testid='k8s-guide-permission-mode'
+                    className={
+                      result.permission_mode === 'insufficient'
+                        ? 'gap-1 text-[11px] tabular-nums'
+                        : 'gap-1 border-emerald-500/30 bg-emerald-500/15 font-medium text-emerald-700 tabular-nums dark:text-emerald-300'
+                    }
                   >
-                    {getK8sPermissionModeLabel(result.permission_mode, t)}
+                    {result.permission_mode === 'insufficient' ? (
+                      <AlertTriangle className='size-3' aria-hidden />
+                    ) : (
+                      <Check className='size-3' aria-hidden />
+                    )}
+                    <span>
+                      {result.permission_mode === 'insufficient'
+                        ? t('host.k8sPermissionModeInsufficient')
+                        : t('host.k8sConnected')}
+                      {result.server_version ? ` · ${result.server_version}` : ''}
+                      {result.elapsed_ms ? ` · ${result.elapsed_ms}ms` : ''}
+                    </span>
                   </Badge>
-                ) : null}
-              </>
-            ) : (
-              <Badge variant='destructive'>{t('host.k8sConnectFailed')}</Badge>
-            )}
+                ) : (
+                  <Badge variant='destructive'>{t('host.k8sConnectFailed')}</Badge>
+                )}
+              </div>
+            ) : null}
           </div>
-        ) : null}
-      </div>
 
-      {/* 主体结果区：预留最小高度防止内容到达时弹窗跳动 / Reserved min-height region to avoid layout jump */}
-      <div
-        className='min-h-[112px]'
-        aria-busy={isBusy}
-        aria-live='polite'
-      >
-        {isBusy ? (
-          showLoader ? (
-            <div className='space-y-2.5 py-2 text-xs'>
-              <div className='flex items-center justify-between gap-2'>
-                <span className='inline-flex items-center gap-2 text-muted-foreground'>
-                  <RefreshCw
-                    className='size-3.5 shrink-0 animate-spin text-primary'
-                    aria-hidden
-                  />
-                  <span>
-                    {elapsedSec >= 3
+          {/* 1 行 4 阶段微缩流水线（横向 4 格，节省 ~120px 垂直空间） / Compact 1-row 4-stage strip */}
+          <div className='border-t-[0.5px] border-border/70 px-4 py-2.5'>
+            <div
+              className='grid grid-cols-2 gap-2 sm:grid-cols-4'
+              data-testid='k8s-guide-stage-list'
+            >
+              {stageLabels.map((label, idx) => {
+                const st = stageStatuses[idx] || 'pending';
+                return (
+                  <div
+                    key={label}
+                    className='flex items-center justify-between gap-2 rounded-md bg-background/80 px-2.5 py-1.5 text-xs dark:bg-background/40'
+                  >
+                    <span
+                      className={
+                        st === 'pending'
+                          ? 'truncate text-muted-foreground'
+                          : 'truncate font-medium text-foreground'
+                      }
+                    >
+                      {idx + 1} {label}
+                    </span>
+                    {st === 'running' ? (
+                      <RefreshCw
+                        className='size-3 shrink-0 animate-spin text-primary'
+                        aria-label={t('host.k8sGuide.stageRunning')}
+                      />
+                    ) : st === 'ok' ? (
+                      <span
+                        className='shrink-0 font-semibold text-emerald-600 dark:text-emerald-400'
+                        aria-label={t('host.k8sGuide.stagePassed')}
+                      >
+                        ✓
+                      </span>
+                    ) : st === 'fail' ? (
+                      <span
+                        className='shrink-0 font-semibold text-rose-600 dark:text-rose-400'
+                        aria-label={t('host.k8sGuide.stageFailed')}
+                      >
+                        ✕
+                      </span>
+                    ) : (
+                      <span
+                        className='shrink-0 text-muted-foreground'
+                        aria-label={t('host.k8sGuide.stageWaiting')}
+                      >
+                        ○
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 结果主体（预留最小高度防止内容到达跳动 / Reserved min-height body） */}
+          <div className='min-h-[112px] border-t-[0.5px] border-border/70 px-4 py-3'>
+            {isBusy && showLoader ? (
+              <div className='flex flex-wrap items-center justify-between gap-2 py-2 text-xs'>
+                <span className='text-muted-foreground'>
+                  {elapsedSec >= 10
+                    ? t('host.k8sGuide.slowHint')
+                    : elapsedSec >= 3
                       ? t('host.k8sGuide.testingStageRbac')
                       : t('host.k8sGuide.testing')}
-                  </span>
                 </span>
                 <Button
                   type='button'
@@ -382,272 +645,242 @@ export function K8sConnectGuideContent({
                   {t('host.k8sGuide.cancelTest')}
                 </Button>
               </div>
-              {elapsedSec >= 10 ? (
-                <p className='text-amber-700 dark:text-amber-300'>
-                  {t('host.k8sGuide.slowHint')}
-                </p>
-              ) : null}
-            </div>
-          ) : null
-        ) : cancelled ? (
-          <div className='py-2 text-xs text-muted-foreground'>
-            {t('host.k8sGuide.cancelledHint')}
-          </div>
-        ) : !result?.connected ? (
-          <div className='space-y-2 rounded-md bg-rose-500/8 px-3 py-2.5 text-xs'>
-            <p className='font-medium text-rose-600 dark:text-rose-400'>
-              {failureHint}
-            </p>
-            <p className='font-mono text-[11px] text-muted-foreground break-words'>
-              {result?.message || errorMsg || t('host.k8sConnectFailed')}
-            </p>
-          </div>
-        ) : result.permission_mode === 'insufficient' ? (
-          <div className='space-y-3'>
-            <div className='flex items-start gap-2 rounded-md bg-rose-500/8 px-3 py-2.5 text-xs'>
-              <AlertTriangle
-                className='mt-0.5 size-4 shrink-0 text-rose-600'
-                aria-hidden
-              />
-              <div className='space-y-1'>
+            ) : cancelled ? (
+              <p className='py-2 text-xs text-muted-foreground'>
+                {t('host.k8sGuide.cancelledHint')}
+              </p>
+            ) : !isBusy && !result?.connected ? (
+              <div className='space-y-1.5 rounded-md bg-rose-500/10 px-3 py-2.5 text-xs'>
                 <p className='font-medium text-rose-600 dark:text-rose-400'>
-                  {t('host.k8sGuide.insufficientTitle')}
+                  {failureHint}
                 </p>
-                <p className='text-muted-foreground'>
-                  {t('host.k8sGuide.insufficientDesc', {
-                    permissions: deniedRequiredLabels.join(', '),
-                  })}
+                <p className='font-mono text-[11px] text-muted-foreground break-words'>
+                  {result?.message || errorMsg || t('host.k8sConnectFailed')}
                 </p>
               </div>
-            </div>
-            <K8sRBACTemplateSection
-              namespace={namespace}
-              runnerServiceAccount={selectedSA || 'seatunnel-runner'}
-              authMode={currentHost.k8s_auth_mode}
-              defaultOpen
-            />
-          </div>
-        ) : result.permission_mode === 'minimal' ? (
-          <div className='space-y-3'>
-            <div className='flex items-start gap-2 rounded-md bg-amber-500/8 px-3 py-2.5 text-xs'>
-              <ShieldCheck
-                className='mt-0.5 size-4 shrink-0 text-amber-600'
-                aria-hidden
-              />
-              <div className='space-y-1'>
-                <p className='font-medium text-foreground'>
-                  {t('host.k8sGuide.minimalTitle')}
-                </p>
-                <p className='text-muted-foreground'>
-                  {t('host.k8sGuide.minimalDesc')}
-                </p>
-              </div>
-            </div>
-
-            {configuredSAReady ? (
-              <p className='flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300'>
-                <Check className='size-3.5 shrink-0' aria-hidden />
-                <span>
-                  {t('host.k8sGuide.minimalSaReady', {sa: configuredSA})}
-                </span>
-              </p>
-            ) : (
-              <div className='space-y-2 border-t-[0.5px] border-border/80 pt-3'>
-                <p className='text-xs font-medium text-foreground'>
-                  {t('host.k8sGuide.minimalSaSelectLabel')}
-                </p>
-                <div className='flex flex-wrap items-end gap-2'>
-                  <div className='min-w-[220px] flex-1'>
-                    {candidateSAs.length > 0 ? (
-                      <Select
-                        label={t('host.k8sDefaultServiceAccount')}
-                        value={selectedSA}
-                        onValueChange={(v) => {
-                          setSelectedSA(v);
-                          setSavedSAHint(false);
-                        }}
-                        placeholder={t('host.k8sGuide.minimalSaPlaceholder')}
-                        options={candidateSAs.map((sa) => ({value: sa, label: sa}))}
-                        data-testid='k8s-guide-sa-select'
-                      />
-                    ) : (
-                      <Input
-                        label={t('host.k8sDefaultServiceAccount')}
-                        value={selectedSA}
-                        onChange={(e) => {
-                          setSelectedSA(e.target.value);
-                          setSavedSAHint(false);
-                        }}
-                        placeholder='seatunnel-runner'
-                        className='font-mono text-xs'
-                        data-testid='k8s-guide-sa-input'
-                      />
-                    )}
+            ) : !isBusy && result?.permission_mode === 'insufficient' ? (
+              <div className='space-y-3'>
+                <div className='flex items-start gap-2 rounded-md bg-rose-500/10 px-3 py-2.5 text-xs'>
+                  <AlertTriangle
+                    className='mt-0.5 size-4 shrink-0 text-rose-600'
+                    aria-hidden
+                  />
+                  <div className='space-y-1'>
+                    <p className='font-medium text-rose-600 dark:text-rose-400'>
+                      {t('host.k8sGuide.insufficientTitle')}
+                    </p>
+                    <p className='text-muted-foreground'>
+                      {t('host.k8sGuide.insufficientDesc', {
+                        permissions: deniedRequiredLabels.join(', '),
+                      })}
+                    </p>
                   </div>
-                  <Button
-                    type='button'
-                    size='sm'
-                    variant='secondary'
-                    loading={savingSA}
-                    disabled={savingSA || !selectedSA.trim()}
-                    onClick={() => void handleSaveDefaultSA()}
-                    data-testid='k8s-guide-save-sa'
-                  >
-                    {t('host.k8sGuide.minimalSaSave')}
-                  </Button>
                 </div>
-                {savedSAHint ? (
-                  <p className='text-xs text-emerald-600'>
-                    {t('host.k8sGuide.minimalSaSaved')}
-                  </p>
-                ) : null}
-                {candidateSAs.length === 0 ? (
-                  <p className='text-[11px] text-muted-foreground'>
-                    {t('host.k8sGuide.minimalSaMissingHint')}
-                  </p>
+                <K8sRBACTemplateSection
+                  namespace={namespace}
+                  authMode={effectiveAuthMode}
+                  defaultOpen
+                />
+              </div>
+            ) : !isBusy && result?.connected ? (
+              /* Structured Output 2x2 键值网格（零冗余长句） / Structured 2x2 KV grid */
+              <div className='space-y-3'>
+                <dl className='grid grid-cols-1 gap-x-6 gap-y-3 text-xs sm:grid-cols-2'>
+                  <div>
+                    <dt className='text-[11px] text-muted-foreground'>
+                      {t('host.k8sGuide.detectedControlPlaneSa')}
+                    </dt>
+                    <dd className='mt-0.5 font-mono font-medium text-foreground'>
+                      {result.control_plane_sa || '-'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className='text-[11px] text-muted-foreground'>
+                      {t('host.k8sGuide.permissionScopeLabel')}
+                    </dt>
+                    <dd className='mt-0.5'>
+                      <Badge
+                        variant='outline'
+                        className='text-[11px]'
+                        data-testid='k8s-guide-permission-mode'
+                      >
+                        {result.permission_mode
+                          ? getK8sPermissionModeLabel(result.permission_mode, t)
+                          : '-'}
+                      </Badge>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className='text-[11px] text-muted-foreground'>
+                      {t('host.k8sGuide.rbacSummaryLabel')}
+                    </dt>
+                    <dd className='mt-0.5 flex flex-wrap items-center gap-2 tabular-nums'>
+                      <span className='font-medium text-foreground'>
+                        {t('host.k8sGuide.rbacSummaryValue', {
+                          requiredOk,
+                          requiredTotal: requiredItems.length,
+                          extendedOk,
+                          extendedTotal: extendedItems.length,
+                        })}
+                      </span>
+                      {rbacItems.length > 0 ? (
+                        <button
+                          type='button'
+                          className='text-[11px] font-medium text-primary hover:underline'
+                          onClick={() => setDetailsOpen((open) => !open)}
+                          aria-expanded={detailsOpen}
+                          data-testid='k8s-guide-rbac-details-toggle'
+                        >
+                          {t('host.k8sGuide.rbacDetailsToggle')}{' '}
+                          {detailsOpen ? '▾' : '▸'}
+                        </button>
+                      ) : null}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className='text-[11px] text-muted-foreground'>
+                      {t('host.k8sCredentialExpiry')}
+                    </dt>
+                    <dd className='mt-0.5 flex flex-wrap items-center gap-1.5 font-mono tabular-nums'>
+                      <span className='text-foreground'>
+                        {expiryTimestamp
+                          ? formatDateTimeTz(expiryTimestamp)
+                          : t('host.k8sCredentialExpiryUnknown')}
+                      </span>
+                      {expiryState === 'expired' ? (
+                        <Badge variant='destructive' className='text-[11px]'>
+                          {t('host.k8sCredentialExpired')}
+                        </Badge>
+                      ) : expiryState === 'expiring_soon' ? (
+                        <Badge variant='secondary' className='text-[11px]'>
+                          {t('host.k8sCredentialExpiringSoon')}
+                        </Badge>
+                      ) : null}
+                    </dd>
+                  </div>
+                </dl>
+
+                {detailsOpen && rbacItems.length > 0 ? (
+                  <div className='max-h-52 overflow-auto border-t-[0.5px] border-border/70 pt-2 text-xs'>
+                    <table className='w-full [&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
+                      <thead>
+                        <tr className='text-left text-muted-foreground'>
+                          <th className='px-2 py-1.5 font-medium'>
+                            {t('host.k8sRbacResource')}
+                          </th>
+                          <th className='px-2 py-1.5 font-medium'>
+                            {t('host.k8sRbacVerb')}
+                          </th>
+                          <th className='px-2 py-1.5 font-medium'>
+                            {t('host.k8sRbacScope')}
+                          </th>
+                          <th className='px-2 py-1.5 font-medium'>
+                            {t('host.k8sRbacPrecheck')}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rbacItems.map((item, idx) => {
+                          const isOptionalOrExtended = !isK8sRbacRequired(item);
+                          const cls = item.allowed
+                            ? 'text-emerald-600'
+                            : isOptionalOrExtended
+                              ? 'text-muted-foreground'
+                              : 'text-rose-600';
+                          return (
+                            <tr key={idx} className='last:border-0'>
+                              <td className='px-2 py-1 font-mono'>{item.resource}</td>
+                              <td className='px-2 py-1'>{item.verb}</td>
+                              <td className='px-2 py-1 text-muted-foreground'>
+                                {getK8sRbacScopeLabel(item.scope, t)}
+                              </td>
+                              <td className={`px-2 py-1 ${cls}`}>
+                                {item.allowed
+                                  ? t('host.k8sRbacAllowed')
+                                  : isOptionalOrExtended
+                                    ? t('host.k8sRbacOptionalDenied')
+                                    : t('host.k8sRbacDenied')}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : null}
               </div>
-            )}
-
-            <K8sRBACTemplateSection
-              namespace={namespace}
-              runnerServiceAccount={
-                configuredSA || selectedSA.trim() || 'seatunnel-runner'
-              }
-              authMode={currentHost.k8s_auth_mode}
-            />
+            ) : null}
           </div>
-        ) : (
-          <div className='flex items-start gap-2 rounded-md bg-emerald-500/8 px-3 py-2.5 text-xs'>
-            <ShieldCheck
-              className='mt-0.5 size-4 shrink-0 text-emerald-600'
-              aria-hidden
-            />
-            <div className='space-y-1'>
-              <p className='font-medium text-emerald-700 dark:text-emerald-300'>
-                {t('host.k8sGuide.fullTitle')}
-              </p>
-              <p className='text-muted-foreground'>
-                {t('host.k8sGuide.fullDesc')}
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 可折叠 RBAC 检查明细表：直接落于画布并用 0.5px 细线分行 / Flat canvas table */}
-      {!isBusy && rbacItems.length > 0 ? (
-        <div className='border-t-[0.5px] border-border/80 pt-3'>
-          <button
-            type='button'
-            className='text-xs font-medium text-muted-foreground hover:text-foreground'
-            onClick={() => setDetailsOpen((open) => !open)}
-            aria-expanded={detailsOpen}
-            data-testid='k8s-guide-rbac-details-toggle'
-          >
-            {detailsOpen ? '▾' : '▸'}{' '}
-            {t('host.k8sGuide.rbacDetailsToggle', {
-              requiredOk,
-              requiredTotal: requiredItems.length,
-              extendedOk,
-              extendedTotal: extendedItems.length,
-            })}
-          </button>
-          {detailsOpen ? (
-            <div className='mt-2 max-h-56 overflow-auto text-xs'>
-              <table className='w-full [&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
-                <thead>
-                  <tr className='text-left text-muted-foreground'>
-                    <th className='px-2 py-1.5 font-medium'>
-                      {t('host.k8sRbacResource')}
-                    </th>
-                    <th className='px-2 py-1.5 font-medium'>
-                      {t('host.k8sRbacVerb')}
-                    </th>
-                    <th className='px-2 py-1.5 font-medium'>
-                      {t('host.k8sRbacScope')}
-                    </th>
-                    <th className='px-2 py-1.5 font-medium'>
-                      {t('host.k8sRbacPrecheck')}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rbacItems.map((item, idx) => {
-                    const isExtended = item.scope === 'extended';
-                    const cls = item.allowed
-                      ? 'text-emerald-600'
-                      : isExtended
-                        ? 'text-muted-foreground'
-                        : 'text-rose-600';
-                    return (
-                      <tr key={idx} className='last:border-0'>
-                        <td className='px-2 py-1 font-mono'>{item.resource}</td>
-                        <td className='px-2 py-1'>{item.verb}</td>
-                        <td className='px-2 py-1 text-muted-foreground'>
-                          {isExtended
-                            ? t('host.k8sRbacScopeExtended')
-                            : t('host.k8sRbacScopeRequired')}
-                        </td>
-                        <td className={`px-2 py-1 ${cls}`}>
-                          {item.allowed
-                            ? t('host.k8sRbacAllowed')
-                            : isExtended
-                              ? t('host.k8sRbacOptionalDenied')
-                              : t('host.k8sRbacDenied')}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
         </div>
-      ) : null}
+      )}
 
       {/* 底部操作栏 / Footer actions */}
       <div className='flex flex-wrap items-center justify-between gap-2 border-t-[0.5px] border-border/80 pt-3'>
         <div className='flex items-center gap-2'>
-          {onBackToEdit ? (
+          {onBackToEdit && !effectiveSavedHost ? (
             <Button
               type='button'
               size='sm'
               variant='secondary'
               onClick={handleBackToEdit}
+              disabled={savingHost}
               data-testid='k8s-guide-back-edit'
             >
               <Wrench className='size-3.5' aria-hidden />
               {t('host.k8sGuide.backToEdit')}
             </Button>
           ) : null}
-          <Button
-            type='button'
-            size='sm'
-            variant='secondary'
-            onClick={() => void runProbe()}
-            disabled={isBusy}
-            data-testid='k8s-guide-retest'
-          >
-            <RefreshCw className='size-3.5' aria-hidden />
-            {t('host.k8sGuide.retest')}
-          </Button>
-        </div>
-        <div className='flex items-center gap-2'>
-          {onViewDetail ? (
+          {!effectiveSavedHost ? (
             <Button
               type='button'
               size='sm'
               variant='secondary'
-              onClick={() => onViewDetail(currentHost)}
+              onClick={() => void runProbe()}
+              disabled={isBusy || savingHost}
+              data-testid='k8s-guide-retest'
             >
-              {t('host.installGuide.viewHostDetail')}
+              <RefreshCw className='size-3.5' aria-hidden />
+              {t('host.k8sGuide.retest')}
             </Button>
           ) : null}
-          {onClose ? (
-            <Button type='button' size='sm' onClick={onClose}>
-              {t('host.installGuide.done')}
+        </div>
+        <div className='flex items-center gap-2'>
+          {isDraft && onSaveHost && !effectiveSavedHost ? (
+            <Button
+              type='button'
+              size='sm'
+              loading={savingHost}
+              disabled={!canSaveDraft || savingHost}
+              onClick={() => {
+                if (result) {
+                  void onSaveHost(result);
+                }
+              }}
+              data-testid='k8s-guide-save-host'
+            >
+              {savingHost
+                ? t('host.k8sGuide.savingHost')
+                : t('host.k8sGuide.saveHost')}
             </Button>
+          ) : null}
+          {(!isDraft && onViewDetail && currentHost) || (effectiveSavedHost && onClose) ? (
+            <>
+              {!isDraft && onViewDetail && currentHost ? (
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='secondary'
+                  onClick={() => onViewDetail(currentHost)}
+                >
+                  {t('host.installGuide.viewHostDetail')}
+                </Button>
+              ) : null}
+              {onClose ? (
+                <Button type='button' size='sm' onClick={onClose}>
+                  {t('host.installGuide.done')}
+                </Button>
+              ) : null}
+            </>
           ) : null}
         </div>
       </div>

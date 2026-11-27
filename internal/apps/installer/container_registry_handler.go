@@ -18,11 +18,26 @@
 package installer
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/gin-gonic/gin"
 )
+
+func registryErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, errRegistryNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, errRegistryAlreadyExists):
+		return http.StatusConflict
+	case errors.Is(err, errRegistryValidation), errors.Is(err, errSystemRegistryProtected):
+		return http.StatusBadRequest
+	default:
+		return http.StatusInternalServerError
+	}
+}
 
 // ListContainerRegistries GET /api/v1/packages/registries
 // ListContainerRegistries 列出登记的镜像仓库。
@@ -34,10 +49,13 @@ import (
 func (h *Handler) ListContainerRegistries(c *gin.Context) {
 	rows, err := h.service.ListContainerRegistries(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error_msg": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": rows})
+	if rows == nil {
+		rows = []*ContainerRegistry{}
+	}
+	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": gin.H{"items": rows}})
 }
 
 // CreateContainerRegistry POST /api/v1/packages/registries
@@ -45,21 +63,21 @@ func (h *Handler) ListContainerRegistries(c *gin.Context) {
 // @Summary 登记镜像仓库（管理员） / Register a container registry (admin)
 // @Tags packages
 // @Produce json
-// @Param body body map[string]interface{} true "仓库定义 / Registry definition"
+// @Param body body ContainerRegistryRequest true "仓库定义 / Registry definition"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/packages/registries [post]
 func (h *Handler) CreateContainerRegistry(c *gin.Context) {
 	var req ContainerRegistryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": err.Error()})
 		return
 	}
 	row, err := h.service.CreateContainerRegistry(c.Request.Context(), &req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(registryErrorStatus(err), gin.H{"error_msg": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, row)
+	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": row})
 }
 
 // UpdateContainerRegistry PUT /api/v1/packages/registries/:id
@@ -68,26 +86,26 @@ func (h *Handler) CreateContainerRegistry(c *gin.Context) {
 // @Tags packages
 // @Produce json
 // @Param id path int true "仓库 ID / Registry ID"
-// @Param body body map[string]interface{} true "仓库定义 / Registry definition"
+// @Param body body ContainerRegistryRequest true "仓库定义 / Registry definition"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/packages/registries/{id} [put]
 func (h *Handler) UpdateContainerRegistry(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid registry id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": locale.Pick(c.Request.Context(), "无效的仓库 ID", "invalid registry id")})
 		return
 	}
 	var req ContainerRegistryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": err.Error()})
 		return
 	}
 	row, err := h.service.UpdateContainerRegistry(c.Request.Context(), uint(id), &req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(registryErrorStatus(err), gin.H{"error_msg": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, row)
+	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": row})
 }
 
 // DeleteContainerRegistry DELETE /api/v1/packages/registries/:id
@@ -101,14 +119,14 @@ func (h *Handler) UpdateContainerRegistry(c *gin.Context) {
 func (h *Handler) DeleteContainerRegistry(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid registry id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": locale.Pick(c.Request.Context(), "无效的仓库 ID", "invalid registry id")})
 		return
 	}
 	if err := h.service.DeleteContainerRegistry(c.Request.Context(), uint(id)); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(registryErrorStatus(err), gin.H{"error_msg": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": gin.H{"success": true}})
 }
 
 // TestContainerRegistry POST /api/v1/packages/registries/:id/test
@@ -122,16 +140,16 @@ func (h *Handler) DeleteContainerRegistry(c *gin.Context) {
 func (h *Handler) TestContainerRegistry(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid registry id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": locale.Pick(c.Request.Context(), "无效的仓库 ID", "invalid registry id")})
 		return
 	}
 	row, err := h.service.GetContainerRegistry(c.Request.Context(), uint(id))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(registryErrorStatus(err), gin.H{"error_msg": err.Error()})
 		return
 	}
 	h.service.ProbeContainerRegistry(c.Request.Context(), row)
-	c.JSON(http.StatusOK, row)
+	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": row})
 }
 
 // ListContainerRegistryTags GET /api/v1/packages/registries/:id/tags?repo=x
@@ -146,40 +164,44 @@ func (h *Handler) TestContainerRegistry(c *gin.Context) {
 func (h *Handler) ListContainerRegistryTags(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid registry id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": locale.Pick(c.Request.Context(), "无效的仓库 ID", "invalid registry id")})
 		return
 	}
 	repo := c.Query("repo")
 	tags, err := h.service.ProbeRegistryTags(c.Request.Context(), uint(id), repo)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		status := registryErrorStatus(err)
+		if status == http.StatusInternalServerError {
+			status = http.StatusBadGateway
+		}
+		c.JSON(status, gin.H{"error_msg": err.Error()})
 		return
 	}
 	if tags == nil {
 		tags = []string{}
 	}
-	c.JSON(http.StatusOK, gin.H{"items": tags})
+	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": gin.H{"items": tags}})
 }
 
 // ProbeRegistryTransient POST /api/v1/packages/registries/probe
-// ProbeRegistryTransient 注册前不落库测试连通性。
-// @Summary 注册前测试仓库连通性 / Probe a registry before registration
+// ProbeRegistryTransient 注册/编辑前不落库测试连通性（管理员）。
+// @Summary 注册或编辑前测试仓库连通性（管理员） / Probe a registry before save (admin)
 // @Tags packages
 // @Accept json
 // @Produce json
-// @Param payload body installer.ContainerRegistryRequest true "仓库信息 / Registry payload"
+// @Param payload body ContainerRegistryProbeRequest true "仓库信息 / Registry payload"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/packages/registries/probe [post]
 func (h *Handler) ProbeRegistryTransient(c *gin.Context) {
-	var req ContainerRegistryRequest
+	var req ContainerRegistryProbeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": err.Error()})
 		return
 	}
-	status, scheme, repos, err := h.service.ProbeRegistryTransient(c.Request.Context(), req.Host, req.Username, req.Password)
-	resp := gin.H{"status": status, "scheme": scheme, "repos": repos}
+	res, err := h.service.ProbeRegistryTransient(c.Request.Context(), &req)
 	if err != nil {
-		resp["error"] = err.Error()
+		c.JSON(registryErrorStatus(err), gin.H{"error_msg": err.Error()})
+		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": res})
 }

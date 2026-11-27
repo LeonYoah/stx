@@ -18,6 +18,7 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -265,4 +266,88 @@ func TestTestK8sConnectionSSARTimeoutAndIdentity(t *testing.T) {
 			t.Fatalf("expected connected=true control_plane_sa=ops-stx-ctrl, got %+v", payload.Data)
 		}
 	})
+}
+
+// TestTestK8sDraftConnectionAndInspectKubeconfig 验证保存前草稿探测（不写库）与 kubeconfig 解析。
+// TestTestK8sDraftConnectionAndInspectKubeconfig verifies stateless pre-save probing (no DB mutation)
+// and kubeconfig context inspection.
+func TestTestK8sDraftConnectionAndInspectKubeconfig(t *testing.T) {
+	clientset := fake.NewSimpleClientset(&corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{Name: "seatunnel-runner", Namespace: "seatunnel-min"},
+	})
+	clientset.PrependReactor("create", "selfsubjectaccessreviews", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		review := action.(k8stesting.CreateAction).GetObject().(*authv1.SelfSubjectAccessReview)
+		out := review.DeepCopy()
+		out.Status.Allowed = true
+		return true, out, nil
+	})
+	handler, svc, hostID := setupK8sHostHandlerForTest(t, clientset)
+
+	// 1. 草稿测试不应新建或修改任何主机记录 / Draft probe must not create or mutate DB host rows.
+	jwtTok := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6c2VhdHVubmVsLW1pbjpzdHgtZHJhZnQiLCJleHAiOjE4OTM0NTYwMDB9.sig"
+	draftBody, _ := json.Marshal(K8sDraftTestRequest{
+		K8sAuthMode:  "token",
+		K8sNamespace: "seatunnel-min",
+		K8sAPIURL:    "https://10.0.0.50:6443",
+		K8sToken:     jwtTok,
+	})
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/hosts/k8s/test-connection", bytes.NewReader(draftBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.TestK8sDraftConnection(c)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("draft status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var probeResp struct {
+		Data K8sTestConnectionResult `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &probeResp); err != nil {
+		t.Fatalf("unmarshal draft probe: %v", err)
+	}
+	if !probeResp.Data.Connected || probeResp.Data.ControlPlaneSA != "stx-draft" || probeResp.Data.CredentialExpiresAt == nil {
+		t.Fatalf("unexpected draft probe data: %+v", probeResp.Data)
+	}
+	before, _ := svc.Get(context.Background(), hostID)
+	if before.K8sAPIURL != "https://10.0.0.10:6443" {
+		t.Fatalf("draft probe unexpectedly mutated persisted host: %+v", before)
+	}
+
+	// 2. InspectK8sKubeconfig 返回上下文与警告 / InspectK8sKubeconfig surfaces contexts and warnings.
+	inspectBody, _ := json.Marshal(InspectK8sKubeconfigRequest{
+		Kubeconfig: `apiVersion: v1
+kind: Config
+clusters:
+- name: local
+  cluster:
+    server: https://127.0.0.1:6443
+contexts:
+- name: local
+  context:
+    cluster: local
+    user: admin
+    namespace: seatunnel
+current-context: local
+users:
+- name: admin
+  user:
+    token: ` + jwtTok,
+	})
+	rec2 := httptest.NewRecorder()
+	c2, _ := gin.CreateTestContext(rec2)
+	c2.Request = httptest.NewRequest(http.MethodPost, "/api/v1/hosts/k8s/inspect-kubeconfig", bytes.NewReader(inspectBody))
+	c2.Request.Header.Set("Content-Type", "application/json")
+	handler.InspectK8sKubeconfig(c2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("inspect status = %d body=%s", rec2.Code, rec2.Body.String())
+	}
+	var inspectResp struct {
+		Data k8s.KubeconfigInspectResult `json:"data"`
+	}
+	if err := json.Unmarshal(rec2.Body.Bytes(), &inspectResp); err != nil {
+		t.Fatalf("unmarshal inspect: %v", err)
+	}
+	if !inspectResp.Data.Valid || inspectResp.Data.SelectedContext != "local" || len(inspectResp.Data.Contexts) != 1 || !inspectResp.Data.Contexts[0].HasLoopbackServer {
+		t.Fatalf("unexpected inspect response: %+v", inspectResp.Data)
+	}
 }

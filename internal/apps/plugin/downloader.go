@@ -252,7 +252,7 @@ var pluginArtifactMappingsForPath = map[string]string{
 	"sqlite":     "connector-jdbc", // Driver: org.sqlite.JDBC
 	"gbase8a":    "connector-jdbc", // Driver: com.gbase.jdbc.Driver
 	"db2":        "connector-jdbc", // Driver: com.ibm.db2.jcc.DB2Driver
-	"tablestore": "connector-jdbc", // Driver: com.alicloud.openservices.tablestore.jdbc.OTSDriver
+	"tablestore": "connector-tablestore",
 	"saphana":    "connector-jdbc", // Driver: com.sap.db.jdbc.Driver
 	"teradata":   "connector-jdbc", // Driver: com.teradata.jdbc.TeraDriver
 	"snowflake":  "connector-jdbc", // Driver: net.snowflake.client.jdbc.SnowflakeDriver

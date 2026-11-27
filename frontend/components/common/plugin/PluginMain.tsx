@@ -430,6 +430,7 @@ export function PluginMain() {
           (result.total || 0) > 0
         ) {
           toast.warning(t('plugin.catalogFromSeedTitle'), {
+            id: `plugin-catalog-seed-${requestVersion}-${selectedMirror}`,
             description: t('plugin.catalogFromSeedDesc'),
             duration: 8000,
           });
@@ -1176,6 +1177,7 @@ export function PluginMain() {
           );
           if (shouldShowSeedCatalogNotice(result.source)) {
             toast.warning(t('plugin.catalogFromSeedTitle'), {
+              id: `plugin-catalog-seed-${requestVersion}-${selectedMirror}`,
               description: t('plugin.catalogFromSeedDesc'),
               duration: 8000,
             });

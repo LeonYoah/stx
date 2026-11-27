@@ -109,6 +109,7 @@ export interface PluginDependency {
   version: string;
   target_dir: string; // connectors/ or lib/ or plugins/<mapping>
   source_type?: PluginDependencySource;
+  source_url?: string;
   original_file_name?: string;
 }
 

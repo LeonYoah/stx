@@ -387,6 +387,7 @@ func (s *Service) resolveStoredOfficialDependencies(ctx context.Context, pluginN
 					Version:    resolveEffectiveDependencyVersion(version, item),
 					TargetDir:  item.TargetDir,
 					SourceType: PluginDependencySourceOfficial,
+					SourceURL:  item.SourceURL,
 				})
 			}
 			merged = mergeDependencies(merged, profileDeps)
@@ -411,6 +412,7 @@ func (s *Service) resolveStoredOfficialDependencies(ctx context.Context, pluginN
 			Version:    resolveEffectiveDependencyVersion(version, item),
 			TargetDir:  item.TargetDir,
 			SourceType: PluginDependencySourceOfficial,
+			SourceURL:  item.SourceURL,
 		})
 	}
 	status := mapProfileToStatus(primary)

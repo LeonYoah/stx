@@ -18,6 +18,10 @@
 package plugin
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -215,6 +219,96 @@ func TestDownloadPlugin_dependencyFailureIsRecordedWithoutBlocking(t *testing.T)
 	}
 	if len(locals) != 1 || len(locals[0].DependencyFailures) != 0 {
 		t.Fatalf("expected dependency failures to clear once jar exists, got %+v", locals)
+	}
+}
+
+func TestDownloadDependenciesUsesDirectSourceURL(t *testing.T) {
+	zipBuffer := &bytes.Buffer{}
+	zipWriter := zip.NewWriter(zipBuffer)
+	zipEntry, err := zipWriter.Create("bundle/lib/bos-hdfs-sdk-1.0.4-community.jar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := zipEntry.Write([]byte("bos-jar")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tarBuffer := &bytes.Buffer{}
+	gzipWriter := gzip.NewWriter(tarBuffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	jindoBytes := []byte("jindo-jar")
+	if err := tarWriter.WriteHeader(&tar.Header{Name: "jindosdk-4.6.1/lib/jindo-sdk-4.6.1.jar", Mode: 0o644, Size: int64(len(jindoBytes)), Typeflag: tar.TypeReg}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tarWriter.Write(jindoBytes); err != nil {
+		t.Fatal(err)
+	}
+	jindoCoreBytes := []byte("jindo-core-jar")
+	if err := tarWriter.WriteHeader(&tar.Header{Name: "jindosdk-4.6.1/lib/jindo-core-4.6.1.jar", Mode: 0o644, Size: int64(len(jindoCoreBytes)), Typeflag: tar.TypeReg}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tarWriter.Write(jindoCoreBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	jindoArchiveHits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/esdk-obs-java-3.19.7.3.jar":
+			_, _ = w.Write([]byte("obs-jar"))
+		case "/bos.zip":
+			_, _ = w.Write(zipBuffer.Bytes())
+		case "/jindo.tar.gz":
+			jindoArchiveHits++
+			_, _ = w.Write(tarBuffer.Bytes())
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	pluginsDir := t.TempDir()
+	d := NewDownloader(pluginsDir)
+	plugin := &Plugin{
+		Name:    "file-mixed",
+		Version: "3.1.0",
+		Dependencies: []PluginDependency{
+			{GroupID: "com.huawei.storage", ArtifactID: "esdk-obs-java", Version: "3.19.7.3", TargetDir: "lib", SourceURL: server.URL + "/esdk-obs-java-3.19.7.3.jar"},
+			{GroupID: "com.baidubce", ArtifactID: "bos-hdfs-sdk", Version: "1.0.4-community", TargetDir: "lib", SourceURL: server.URL + "/bos.zip"},
+			{GroupID: "com.aliyun.jindodata", ArtifactID: "jindo-sdk", Version: "4.6.1", TargetDir: "lib", SourceURL: server.URL + "/jindo.tar.gz"},
+			{GroupID: "com.aliyun.jindodata", ArtifactID: "jindo-core", Version: "4.6.1", TargetDir: "lib", SourceURL: server.URL + "/jindo.tar.gz"},
+		},
+	}
+
+	failures, err := d.DownloadDependencies(context.Background(), plugin, MirrorSourceApache, nil)
+	if err != nil {
+		t.Fatalf("DownloadDependencies returned error: %v", err)
+	}
+	if len(failures) != 0 {
+		t.Fatalf("expected no dependency failures, got %+v", failures)
+	}
+	for name, want := range map[string]string{
+		"esdk-obs-java-3.19.7.3.jar":       "obs-jar",
+		"bos-hdfs-sdk-1.0.4-community.jar": "bos-jar",
+		"jindo-sdk-4.6.1.jar":              "jindo-jar",
+		"jindo-core-4.6.1.jar":             "jindo-core-jar",
+	} {
+		data, err := os.ReadFile(filepath.Join(pluginsDir, "3.1.0", "lib", name))
+		if err != nil || string(data) != want {
+			t.Fatalf("expected %s content %q, got %q err=%v", name, want, data, err)
+		}
+	}
+	if jindoArchiveHits != 1 {
+		t.Fatalf("expected shared jindo archive to be downloaded once, got %d", jindoArchiveHits)
 	}
 }
 

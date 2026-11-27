@@ -97,11 +97,12 @@ var MirrorURLs = map[MirrorSource]string{
 // PluginDependency represents a dependency of a plugin.
 // PluginDependency 表示插件的依赖项。
 type PluginDependency struct {
-	GroupID          string                 `json:"group_id"`                     // Maven groupId
-	ArtifactID       string                 `json:"artifact_id"`                  // Maven artifactId
-	Version          string                 `json:"version"`                      // 版本号 / Version
-	TargetDir        string                 `json:"target_dir"`                   // 目标目录 (connectors/、lib/ 或 plugins/<mapping>) / Target directory
-	SourceType       PluginDependencySource `json:"source_type,omitempty"`        // 依赖来源 / Dependency source
+	GroupID          string                 `json:"group_id"`              // Maven groupId
+	ArtifactID       string                 `json:"artifact_id"`           // Maven artifactId
+	Version          string                 `json:"version"`               // 版本号 / Version
+	TargetDir        string                 `json:"target_dir"`            // 目标目录 (connectors/、lib/ 或 plugins/<mapping>) / Target directory
+	SourceType       PluginDependencySource `json:"source_type,omitempty"` // 依赖来源 / Dependency source
+	SourceURL        string                 `json:"source_url,omitempty"`
 	OriginalFileName string                 `json:"original_file_name,omitempty"` // 原始上传文件名 / Original uploaded file name
 	StoredPath       string                 `json:"-"`                            // 控制面存储路径（仅服务端内部使用）/ Stored path (server-side only)
 }

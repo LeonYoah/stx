@@ -20,6 +20,9 @@
 package plugin
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
@@ -30,6 +33,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -699,6 +703,12 @@ func (d *Downloader) DownloadDependencies(ctx context.Context, plugin *Plugin, m
 		return nil, nil
 	}
 	dependencyFailures := make([]PluginDependencyFailure, 0)
+	archiveCacheDir, err := os.MkdirTemp("", "stx-plugin-dep-archive-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dependency archive cache: %w", err)
+	}
+	defer os.RemoveAll(archiveCacheDir)
+	archiveCache := make(map[string]string)
 
 	baseURL := MirrorURLs[mirror]
 	if baseURL == "" {
@@ -759,13 +769,15 @@ func (d *Downloader) DownloadDependencies(ctx context.Context, plugin *Plugin, m
 				continue
 			}
 		default:
-			// Build Maven URL / 构建 Maven URL
-			groupPath := strings.ReplaceAll(dep.GroupID, ".", "/")
 			jarName := fmt.Sprintf("%s-%s.jar", dep.ArtifactID, dep.Version)
-			urls := d.buildArtifactURLs(baseURL, groupPath, dep.ArtifactID, dep.Version, jarName, mirror)
-
-			// Download the dependency / 下载依赖
-			_, sha1URL, err := d.downloadArtifactWithFallback(ctx, urls, targetPath, progress, callback)
+			sha1URL := ""
+			if isDirectDependencySourceURL(dep.SourceURL) {
+				err = d.downloadDependencyFromSourceURL(ctx, dep.SourceURL, jarName, targetPath, archiveCacheDir, archiveCache, progress, callback)
+			} else {
+				groupPath := strings.ReplaceAll(dep.GroupID, ".", "/")
+				urls := d.buildArtifactURLs(baseURL, groupPath, dep.ArtifactID, dep.Version, jarName, mirror)
+				_, sha1URL, err = d.downloadArtifactWithFallback(ctx, urls, targetPath, progress, callback)
+			}
 			if err != nil {
 				progress.Message = fmt.Sprintf("Warning: failed to download %s: %v", dep.ArtifactID, err)
 				dependencyFailures = append(dependencyFailures, PluginDependencyFailure{GroupID: dep.GroupID, ArtifactID: dep.ArtifactID, Version: dep.Version, TargetDir: targetDir, Error: err.Error()})
@@ -776,12 +788,12 @@ func (d *Downloader) DownloadDependencies(ctx context.Context, plugin *Plugin, m
 				continue
 			}
 
-			// Verify checksum (optional for dependencies) / 验证校验和（依赖可选）
-			if err := d.verifyChecksum(ctx, targetPath, sha1URL); err != nil {
-				// Log warning but don't fail / 记录警告但不失败
-				progress.Message = fmt.Sprintf("Warning: checksum verification failed for %s", dep.ArtifactID)
-				if callback != nil {
-					callback(progress)
+			if sha1URL != "" {
+				if err := d.verifyChecksum(ctx, targetPath, sha1URL); err != nil {
+					progress.Message = fmt.Sprintf("Warning: checksum verification failed for %s", dep.ArtifactID)
+					if callback != nil {
+						callback(progress)
+					}
 				}
 			}
 		}
@@ -797,6 +809,136 @@ func (d *Downloader) DownloadDependencies(ctx context.Context, plugin *Plugin, m
 	}
 
 	return dependencyFailures, nil
+}
+
+func isDirectDependencySourceURL(rawURL string) bool {
+	lower := strings.ToLower(strings.Split(strings.TrimSpace(rawURL), "?")[0])
+	return strings.HasSuffix(lower, ".jar") || strings.HasSuffix(lower, ".zip") || strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz")
+}
+
+func (d *Downloader) downloadDependencyFromSourceURL(ctx context.Context, sourceURL, jarName, targetPath, archiveCacheDir string, archiveCache map[string]string, progress *DownloadProgress, callback ProgressCallback) error {
+	sourceURL = strings.TrimSpace(sourceURL)
+	lower := strings.ToLower(strings.Split(sourceURL, "?")[0])
+	if strings.HasSuffix(lower, ".jar") {
+		return d.downloadDirectFileWithRetry(ctx, sourceURL, targetPath, progress, callback)
+	}
+	archivePath, cached := archiveCache[sourceURL]
+	if !cached {
+		sum := sha1.Sum([]byte(sourceURL))
+		archivePath = filepath.Join(archiveCacheDir, hex.EncodeToString(sum[:])+".archive")
+		if err := d.downloadDirectFileWithRetry(ctx, sourceURL, archivePath, progress, callback); err != nil {
+			return err
+		}
+		archiveCache[sourceURL] = archivePath
+	}
+	return extractDependencyJar(archivePath, lower, jarName, targetPath)
+}
+
+func shouldRetryDirectDownload(err error) bool {
+	if errors.Is(err, ErrFileNotFound) {
+		return false
+	}
+	return shouldTryNextMirror(err)
+}
+
+func (d *Downloader) downloadDirectFileWithRetry(ctx context.Context, sourceURL, targetPath string, progress *DownloadProgress, callback ProgressCallback) error {
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			progress.DownloadedBytes = 0
+			progress.Progress = 0
+		}
+		lastErr = d.downloadFile(ctx, sourceURL, targetPath, progress, callback)
+		if lastErr == nil || !shouldRetryDirectDownload(lastErr) || progress.DownloadedBytes > 0 {
+			return lastErr
+		}
+		select {
+		case <-ctx.Done():
+			return ErrDownloadCancelled
+		case <-time.After(time.Second):
+		}
+	}
+	return lastErr
+}
+
+func extractDependencyJar(archivePath, sourceURL, jarName, targetPath string) error {
+	lower := strings.ToLower(sourceURL)
+	switch {
+	case strings.HasSuffix(lower, ".zip"):
+		reader, err := zip.OpenReader(archivePath)
+		if err != nil {
+			return err
+		}
+		defer reader.Close()
+		for _, entry := range reader.File {
+			if entry.FileInfo().IsDir() || path.Base(entry.Name) != jarName {
+				continue
+			}
+			source, err := entry.Open()
+			if err != nil {
+				return err
+			}
+			defer source.Close()
+			return writeDependencyJar(targetPath, source)
+		}
+	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
+		file, err := os.Open(archivePath)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		gzipReader, err := gzip.NewReader(file)
+		if err != nil {
+			return err
+		}
+		defer gzipReader.Close()
+		tarReader := tar.NewReader(gzipReader)
+		for {
+			header, err := tarReader.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return err
+			}
+			if header.Typeflag != tar.TypeReg || path.Base(header.Name) != jarName {
+				continue
+			}
+			return writeDependencyJar(targetPath, tarReader)
+		}
+	default:
+		return fmt.Errorf("unsupported dependency source archive: %s", sourceURL)
+	}
+	return fmt.Errorf("%s not found in downloaded archive", jarName)
+}
+
+func writeDependencyJar(targetPath string, source io.Reader) error {
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return err
+	}
+	tmpPath := targetPath + ".extract-tmp"
+	target, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+	removeTemp := true
+	defer func() {
+		target.Close()
+		if removeTemp {
+			os.Remove(tmpPath)
+		}
+	}()
+	if _, err := io.Copy(target, source); err != nil {
+		return err
+	}
+	if err := target.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, targetPath); err != nil {
+		return err
+	}
+	removeTemp = false
+	return nil
 }
 
 func (d *Downloader) copyUploadedDependency(targetPath, storedPath string) error {

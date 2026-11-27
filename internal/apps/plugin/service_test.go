@@ -611,6 +611,24 @@ func TestInstallPluginToClusterRecordsAttachedConnectorDependencies(t *testing.T
 	}
 }
 
+func TestOfficialDependencyEffectiveDependenciesKeepDirectSourceURL(t *testing.T) {
+	service, _ := newTestPluginService(t)
+	deps, err := service.GetEffectiveDependencies(context.Background(), "file-obs", "3.1.0", nil)
+	if err != nil {
+		t.Fatalf("GetEffectiveDependencies returned error: %v", err)
+	}
+	byArtifact := make(map[string]PluginDependency, len(deps))
+	for _, dep := range deps {
+		byArtifact[dep.ArtifactID] = dep
+	}
+	if got := byArtifact["esdk-obs-java"].SourceURL; got != "https://repo.huaweicloud.com/artifactory/sdk_public/com/huawei/storage/esdk-obs-java/3.19.7.3/esdk-obs-java-3.19.7.3.jar" {
+		t.Fatalf("unexpected esdk source url %q", got)
+	}
+	if got := byArtifact["hadoop-huaweicloud"].SourceURL; got != "https://repo.huaweicloud.com/artifactory/sdk_public/org/apache/hadoop/hadoop-huaweicloud/3.1.1.29/hadoop-huaweicloud-3.1.1.29.jar" {
+		t.Fatalf("unexpected hadoop-huaweicloud source url %q", got)
+	}
+}
+
 func TestListAvailablePluginsFetchesRemoteAndPersistsCatalog(t *testing.T) {
 	service, repo := newTestPluginService(t)
 	ctx := context.Background()

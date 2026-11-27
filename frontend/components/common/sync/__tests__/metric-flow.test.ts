@@ -322,6 +322,22 @@ describe('buildMetricFlowSankey', () => {
     expect(colors['o:committed']).toBe('outcome-color');
     expect(colors['o:pending']).toBe('warn-color');
     expect(colors['o:backlog']).toBe('warn-color');
+
+    const withPendingColor = buildMetricFlowSankey(
+      tableMetrics([
+        {read: 500, write: 400, committed: 300},
+        {read: 300, write: 300, committed: 300},
+      ]),
+      {
+        ...sankeyOpts,
+        colors: {...sankeyOpts.colors, pending: 'info-color'},
+      },
+    );
+    const pendingColors = Object.fromEntries(
+      withPendingColor.nodes.map((node) => [node.id, node.color]),
+    );
+    expect(pendingColors['o:pending']).toBe('info-color');
+    expect(pendingColors['o:backlog']).toBe('warn-color');
   });
 
   it('switches Sankey flow weights and fallback outcome node in bytes mode', () => {

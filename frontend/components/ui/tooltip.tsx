@@ -22,27 +22,40 @@ import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 
 import {cn} from '@/lib/utils';
 
+// 标记外层是否已有 TooltipProvider：存在时子 Tooltip 直接复用组内计时器，
+// 避免每个 Tooltip 各自创建 Provider 破坏相邻触发器的 skipDelayDuration 连续切换。
+// Tracks whether an ancestor TooltipProvider exists so sibling Tooltips share one
+// hover timer and skipDelayDuration instead of shadowing it with nested providers.
+const TooltipProviderContext = React.createContext(false);
+
 function TooltipProvider({
-  delayDuration = 0,
+  delayDuration = 500,
+  skipDelayDuration = 400,
+  disableHoverableContent = true,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
   return (
-    <TooltipPrimitive.Provider
-      data-slot='tooltip-provider'
-      delayDuration={delayDuration}
-      {...props}
-    />
+    <TooltipProviderContext.Provider value={true}>
+      <TooltipPrimitive.Provider
+        data-slot='tooltip-provider'
+        delayDuration={delayDuration}
+        skipDelayDuration={skipDelayDuration}
+        disableHoverableContent={disableHoverableContent}
+        {...props}
+      />
+    </TooltipProviderContext.Provider>
   );
 }
 
 function Tooltip({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-  return (
-    <TooltipProvider>
-      <TooltipPrimitive.Root data-slot='tooltip' {...props} />
-    </TooltipProvider>
-  );
+  const hasProvider = React.useContext(TooltipProviderContext);
+  const root = <TooltipPrimitive.Root data-slot='tooltip' {...props} />;
+  if (hasProvider) {
+    return root;
+  }
+  return <TooltipProvider>{root}</TooltipProvider>;
 }
 
 function TooltipTrigger({
@@ -67,7 +80,7 @@ function TooltipContent({
           // shadcn 默认 z-50 会让 Arc 弹窗内的 HelpHint 被弹窗本体盖住。
           // z-[90] matches the Arc overlay scale (dialog 51, dropdown 60,
           // tooltip 90); the shadcn default z-50 hides tooltips inside Arc dialogs.
-          'bg-primary text-primary-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-[90] w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md px-3 py-1.5 text-xs text-balance',
+          'bg-primary text-primary-foreground pointer-events-none animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-[90] w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md px-3 py-1.5 text-xs text-balance',
           className,
         )}
         {...props}

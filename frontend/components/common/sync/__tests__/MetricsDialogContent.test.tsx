@@ -65,7 +65,7 @@ function job(partial: Partial<SyncJobInstance> = {}): SyncJobInstance {
 
 function renderSnapshot(
   instance: SyncJobInstance | null,
-  opts?: {unit?: MetricUnitMode; onOpenTrend?: () => void},
+  opts?: {unit?: MetricUnitMode; onOpenTrend?: () => void; onOpenCheckpoint?: () => void},
 ) {
   return render(
     <NextIntlClientProvider locale='zh' messages={zh} timeZone='Asia/Shanghai'>
@@ -73,6 +73,7 @@ function renderSnapshot(
         job={instance}
         unit={opts?.unit}
         onOpenTrend={opts?.onOpenTrend}
+        onOpenCheckpoint={opts?.onOpenCheckpoint}
       />
     </NextIntlClientProvider>,
   );
@@ -272,5 +273,27 @@ describe('MetricsDialogContent', () => {
     // 多链路时可在逐表明细中就地切换至流向图。 / Multi-link jobs can switch per-table details to Sankey flow in place.
     fireEvent.click(screen.getByRole('button', {name: copy.metricFlowDetailFlow}));
     expect(screen.getByTestId('snapshot-sankey-chart')).toBeInTheDocument();
+  });
+
+  it('opens the delivery stages guide popover on click and jumps to checkpoint', () => {
+    const onOpenCheckpoint = vi.fn();
+    renderSnapshot(
+      job({
+        result_preview: {
+          metrics: {
+            SourceReceivedCount: 70,
+            SinkWriteCount: 70,
+            SinkCommittedCount: 62,
+          },
+        },
+      }),
+      {onOpenCheckpoint},
+    );
+    fireEvent.click(screen.getByRole('button', {name: copy.metricFlowGuideTrigger}));
+    expect(screen.getByText(copy.metricFlowGuideTitle)).toBeInTheDocument();
+    expect(screen.getByText(copy.metricFlowBarDesc_pendingCommit)).toBeInTheDocument();
+    expect(screen.getByText(copy.metricFlowBarDesc_backlog)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: /查看检查点/}));
+    expect(onOpenCheckpoint).toHaveBeenCalledTimes(1);
   });
 });

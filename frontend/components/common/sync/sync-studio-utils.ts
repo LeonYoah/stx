@@ -4844,7 +4844,9 @@ export interface MetricFlowSankeyColors {
   table: string | ((pair: {srcLabel: string; sinkLabel: string}) => string);
   /** 已提交节点颜色。 / Committed node color. */
   outcome: string;
-  /** 待提交与待写节点的异常提示色。 / Pending-commit and backlog nodes (warning). */
+  /** 已写未提交节点颜色；缺省回退到 warning 以保持调用方兼容。 / Written-uncommitted node color; falls back to warning for caller compatibility. */
+  pending?: string;
+  /** 已读未写（积压）节点的异常提示色。 / Backlog (read, unwritten) node warning color. */
   warning: string;
 }
 
@@ -4991,7 +4993,11 @@ export function buildMetricFlowSankey(
     nodes.push({id: outcomeId, label: outcomeLabel, color: colors.outcome});
   }
   if (hasPending) {
-    nodes.push({id: 'o:pending', label: labels.pendingCommit, color: colors.warning});
+    nodes.push({
+      id: 'o:pending',
+      label: labels.pendingCommit,
+      color: colors.pending ?? colors.warning,
+    });
   }
   if (hasBacklog) {
     nodes.push({id: 'o:backlog', label: labels.backlog, color: colors.warning});

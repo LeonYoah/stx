@@ -28,6 +28,7 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
+  HelpCircle,
   Lightbulb,
   Search,
 } from 'lucide-react';
@@ -49,7 +50,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {cn} from '@/lib/utils';
 import {ExpandableTextPanel} from '@/components/common/layout';
 import type {SyncJobInstance, SyncValidateResult} from '@/lib/services/sync';
@@ -420,11 +427,11 @@ const FLOW_TONE_COLOR: Record<MetricFlowTone, string> = {
   danger: 'var(--danger)',
 };
 
-/** 分段条与图例共用的段样式：已提交/已写入用正向 success 语义色，待提交实心 warning，待写斜纹 warning。 / Segment styles shared by the flow bar and its legend: committed/written use success, pending-commit solid warning, backlog hatched warning. */
+/** 分段条与图例共用的段样式：已提交/已写入用正向 success，已写未提交用冷静 info（等 Checkpoint 缓冲），已读未写用斜纹 warning（真积压）。 / Segment styles shared by the flow bar and legend: committed/written use success, written-uncommitted uses info (checkpoint buffer), read-unwritten uses hatched warning (backlog). */
 const FLOW_BAR_STYLE: Record<MetricFlowBarSegmentKey, CSSProperties> = {
   committed: {background: 'var(--success)'},
   written: {background: 'var(--success)'},
-  pendingCommit: {background: 'var(--warning)'},
+  pendingCommit: {background: 'var(--info)'},
   backlog: {
     backgroundImage:
       'repeating-linear-gradient(-45deg, color-mix(in oklab, var(--warning) 65%, transparent) 0 4px, color-mix(in oklab, var(--warning) 18%, transparent) 4px 8px)',
@@ -544,10 +551,12 @@ export function MetricsDialogContent({
   job,
   unit = 'rows',
   onOpenTrend,
+  onOpenCheckpoint,
 }: {
   job: SyncJobInstance | null;
   unit?: MetricUnitMode;
   onOpenTrend?: () => void;
+  onOpenCheckpoint?: () => void;
 }) {
   const t = useTranslations('workbenchStudio');
   const tMetrics = useTranslations('workbenchStudio.jobDetail.metricsView');
@@ -575,6 +584,7 @@ export function MetricsDialogContent({
   const [detailView, setDetailView] = useState<'table' | 'sankey'>('table');
   const [sortByVolume, setSortByVolume] = useState(true);
   const [onlyAnomaly, setOnlyAnomaly] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [activeSegment, setActiveSegment] = useState<MetricFlowBarSegmentKey | null>(null);
   const sparklinePoints = useWriteRateSparkline(job, unit);
 
@@ -585,6 +595,7 @@ export function MetricsDialogContent({
     setTableSearch('');
     setDetailView('table');
     setOnlyAnomaly(false);
+    setGuideOpen(false);
     setActiveSegment(null);
   }, [job?.id]);
 
@@ -678,6 +689,7 @@ export function MetricsDialogContent({
         table: ({sinkLabel, srcLabel}) =>
           tableColors.get(sinkLabel) ?? tableColors.get(srcLabel) ?? 'var(--muted-foreground)',
         outcome: TREND_COLORS.committed,
+        pending: 'var(--info)',
         warning: 'var(--warning)',
       },
       maxLinks: 8,
@@ -746,9 +758,22 @@ export function MetricsDialogContent({
     flow.countState === 'balanced' &&
     flow.pendingCommitCount === 0 &&
     flow.readCount > 0;
+  // 仅存在已写未提交且无积压/写速落后时，状态结论用冷静 info 色而非橙色告警，避免流任务等 Checkpoint 造成误判。
+  // When only written-uncommitted buffer exists (no backlog or write lag), keep the pill calm info rather than warning amber.
+  const isPendingCommitOnly =
+    flow.tone === 'warning' &&
+    flow.pendingCommitCount > 0 &&
+    flow.backlogCount === 0 &&
+    flow.countState !== 'behind' &&
+    flow.countState !== 'writeZero' &&
+    flow.speedState !== 'lag';
   const toneColor = isHealthyNeutral
     ? 'var(--success)'
-    : FLOW_TONE_COLOR[flow.tone];
+    : isPendingCommitOnly
+      ? 'var(--info)'
+      : FLOW_TONE_COLOR[flow.tone];
+  const hasAnyTableBacklog = enrichedPairedRows.some((row) => row.backlogVal > 0);
+  const anomalyChipColor = hasAnyTableBacklog ? 'var(--warning)' : 'var(--info)';
   const barAria = bar.segments
     .filter((segment) => segment.value > 0)
     .map(
@@ -833,6 +858,7 @@ export function MetricsDialogContent({
   }
 
   return (
+    <TooltipProvider delayDuration={500} skipDelayDuration={400}>
     <div className='space-y-4 overflow-auto pr-1 pt-3'>
       {/* KPI 行：读 / 写 / 写速（按行数或按体积联动）+ 一句语义状态结论。 */}
       {/* KPI row: read / written / write rate (synced to rows or bytes) plus a single-line status pill. */}
@@ -938,11 +964,103 @@ export function MetricsDialogContent({
         </div>
       </div>
 
-      {/* 数据交付构成条：14px 语义分段条 + 占比概览 + 悬停明细与图例聚焦联动。 */}
-      {/* Delivery breakdown bar: 14px semantic segments, share summary, hover details, and legend focus toggle. */}
+      {/* 数据交付构成条：14px 语义分段条 + 阶段说明 Popover + 悬停明细与图例聚焦联动。 */}
+      {/* Delivery breakdown bar: 14px semantic segments, stage guide Popover, hover details, and legend focus toggle. */}
       <div className='space-y-2.5 border-t-[0.5px] border-border/80 pt-4'>
         <div className='flex flex-wrap items-center justify-between gap-2 text-xs'>
-          <span className='font-medium text-foreground'>{t('metricFlowBarTitle')}</span>
+          <div className='inline-flex items-center gap-1.5'>
+            <span className='font-medium text-foreground'>{t('metricFlowBarTitle')}</span>
+            <Popover open={guideOpen} onOpenChange={setGuideOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type='button'
+                  aria-label={t('metricFlowGuideTrigger')}
+                  className='-m-1 inline-flex items-center rounded-sm p-1 text-muted-foreground/75 transition-colors hover:text-foreground'
+                >
+                  <HelpCircle className='size-3.5' />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align='start'
+                sideOffset={6}
+                className='arc-compact w-80 space-y-3 rounded-[var(--radius-popover)] p-3.5 text-xs'
+              >
+                <div className='font-medium text-foreground'>
+                  {t('metricFlowGuideTitle')}
+                </div>
+                <ol className='space-y-2 text-muted-foreground'>
+                  <li className='flex items-start gap-2'>
+                    <span
+                      aria-hidden
+                      className='mt-1 size-2.5 shrink-0 rounded-[3px]'
+                      style={FLOW_BAR_STYLE.backlog}
+                    />
+                    <div className='min-w-0 leading-relaxed'>
+                      <span className='font-medium text-foreground'>
+                        {t('metricFlowBar_backlog')}
+                      </span>
+                      <span className='mx-1 text-muted-foreground/70'>
+                        ({t('metricFlowGuideFormulaBacklog')})
+                      </span>
+                      <p className='mt-0.5 text-muted-foreground'>
+                        {t('metricFlowBarDesc_backlog')}
+                      </p>
+                    </div>
+                  </li>
+                  <li className='flex items-start gap-2'>
+                    <span
+                      aria-hidden
+                      className='mt-1 size-2.5 shrink-0 rounded-[3px]'
+                      style={FLOW_BAR_STYLE.pendingCommit}
+                    />
+                    <div className='min-w-0 leading-relaxed'>
+                      <span className='font-medium text-foreground'>
+                        {t('metricFlowBar_pendingCommit')}
+                      </span>
+                      <span className='mx-1 text-muted-foreground/70'>
+                        ({t('metricFlowGuideFormulaPending')})
+                      </span>
+                      <p className='mt-0.5 text-muted-foreground'>
+                        {t('metricFlowBarDesc_pendingCommit')}
+                      </p>
+                    </div>
+                  </li>
+                  <li className='flex items-start gap-2'>
+                    <span
+                      aria-hidden
+                      className='mt-1 size-2.5 shrink-0 rounded-[3px]'
+                      style={FLOW_BAR_STYLE.committed}
+                    />
+                    <div className='min-w-0 leading-relaxed'>
+                      <span className='font-medium text-foreground'>
+                        {t('metricFlowBar_committed')}
+                      </span>
+                      <p className='mt-0.5 text-muted-foreground'>
+                        {t('metricFlowBarDesc_committed')}
+                      </p>
+                    </div>
+                  </li>
+                </ol>
+                {onOpenCheckpoint ? (
+                  <div className='flex items-center justify-between gap-2 border-t-[0.5px] border-border/80 pt-2.5'>
+                    <span className='text-muted-foreground'>
+                      {t('metricFlowGuideCheckpointHint')}
+                    </span>
+                    <button
+                      type='button'
+                      onClick={() => {
+                        setGuideOpen(false);
+                        onOpenCheckpoint();
+                      }}
+                      className='shrink-0 font-medium text-foreground hover:underline'
+                    >
+                      {t('metricFlowGuideOpenCheckpoint')} →
+                    </button>
+                  </div>
+                ) : null}
+              </PopoverContent>
+            </Popover>
+          </div>
           {bar.total > 0 ? (
             <span className='tabular-nums text-muted-foreground'>
               {barHasCommitSplit
@@ -987,8 +1105,13 @@ export function MetricsDialogContent({
                     }}
                   />
                 </TooltipTrigger>
-                <TooltipContent side='bottom' className='text-xs tabular-nums'>
-                  {t(`metricFlowBar_${segment.key}`)} · {formatAmountWithUnit(segment.value)} ({shareText})
+                <TooltipContent side='bottom' className='max-w-xs space-y-0.5 text-xs'>
+                  <div className='font-medium tabular-nums'>
+                    {t(`metricFlowBar_${segment.key}`)} · {formatAmountWithUnit(segment.value)} ({shareText})
+                  </div>
+                  <div className='opacity-85 leading-relaxed'>
+                    {t(`metricFlowBarDesc_${segment.key}`)}
+                  </div>
                 </TooltipContent>
               </Tooltip>
             );
@@ -1002,35 +1125,41 @@ export function MetricsDialogContent({
             const selected = activeSegment === segment.key;
             const shareText = formatSharePercent(segment.value, bar.total);
             return (
-              <button
-                key={segment.key}
-                type='button'
-                aria-pressed={selected}
-                onClick={() =>
-                  setActiveSegment((current) =>
-                    current === segment.key ? null : segment.key,
-                  )
-                }
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-colors',
-                  selected
-                    ? 'bg-muted text-foreground'
-                    : 'hover:bg-muted/50 hover:text-foreground',
-                )}
-              >
-                <span
-                  aria-hidden
-                  className='size-2.5 shrink-0 rounded-[3px]'
-                  style={FLOW_BAR_STYLE[segment.key]}
-                />
-                <span>{t(`metricFlowBar_${segment.key}`)}</span>
-                <span className='font-medium tabular-nums text-foreground'>
-                  {formatAmount(segment.value)}
-                </span>
-                <span className='tabular-nums text-muted-foreground'>
-                  ({shareText})
-                </span>
-              </button>
+              <Tooltip key={segment.key}>
+                <TooltipTrigger asChild>
+                  <button
+                    type='button'
+                    aria-pressed={selected}
+                    onClick={() =>
+                      setActiveSegment((current) =>
+                        current === segment.key ? null : segment.key,
+                      )
+                    }
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-colors',
+                      selected
+                        ? 'bg-muted text-foreground'
+                        : 'hover:bg-muted/50 hover:text-foreground',
+                    )}
+                  >
+                    <span
+                      aria-hidden
+                      className='size-2.5 shrink-0 rounded-[3px]'
+                      style={FLOW_BAR_STYLE[segment.key]}
+                    />
+                    <span>{t(`metricFlowBar_${segment.key}`)}</span>
+                    <span className='font-medium tabular-nums text-foreground'>
+                      {formatAmount(segment.value)}
+                    </span>
+                    <span className='tabular-nums text-muted-foreground'>
+                      ({shareText})
+                    </span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side='bottom' className='max-w-xs text-xs leading-relaxed'>
+                  {t(`metricFlowBarDesc_${segment.key}`)}
+                </TooltipContent>
+              </Tooltip>
             );
           })}
           {bar.overWriteCount > 0 ? (
@@ -1065,8 +1194,8 @@ export function MetricsDialogContent({
                   onClick={() => setOnlyAnomaly((value) => !value)}
                   className='inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors'
                   style={{
-                    background: `color-mix(in oklab, var(--warning) ${onlyAnomaly ? '22%' : '12%'}, transparent)`,
-                    color: 'var(--warning)',
+                    background: `color-mix(in oklab, ${anomalyChipColor} ${onlyAnomaly ? '22%' : '12%'}, transparent)`,
+                    color: anomalyChipColor,
                   }}
                 >
                   {onlyAnomaly
@@ -1196,8 +1325,8 @@ export function MetricsDialogContent({
                                         className='shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium tabular-nums'
                                         style={{
                                           background:
-                                            'color-mix(in oklab, var(--warning) 16%, transparent)',
-                                          color: 'var(--warning)',
+                                            'color-mix(in oklab, var(--info) 16%, transparent)',
+                                          color: 'var(--info)',
                                         }}
                                       >
                                         {t('metricFlowPendingBadge', {
@@ -1210,8 +1339,8 @@ export function MetricsDialogContent({
                                         className='shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium tabular-nums'
                                         style={{
                                           background:
-                                            'color-mix(in oklab, var(--danger) 14%, transparent)',
-                                          color: 'var(--danger)',
+                                            'color-mix(in oklab, var(--warning) 16%, transparent)',
+                                          color: 'var(--warning)',
                                         }}
                                       >
                                         {t('metricFlowBacklogBadge', {
@@ -1463,6 +1592,7 @@ export function MetricsDialogContent({
         </MetricFoldRow>
       ) : null}
     </div>
+    </TooltipProvider>
   );
 }
 

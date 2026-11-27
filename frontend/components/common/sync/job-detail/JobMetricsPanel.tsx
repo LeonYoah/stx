@@ -34,12 +34,14 @@ export function JobMetricsPanel({
   view,
   unit = 'rows',
   onViewChange,
+  onOpenCheckpoint,
 }: {
   job: SyncJobInstance | null;
   active: boolean;
   view: MetricsView;
   unit?: MetricUnitMode;
   onViewChange?: (view: MetricsView) => void;
+  onOpenCheckpoint?: () => void;
 }) {
   return (
     <div className='flex h-full min-h-0 flex-col'>
@@ -49,6 +51,7 @@ export function JobMetricsPanel({
             job={job}
             unit={unit}
             onOpenTrend={onViewChange ? () => onViewChange('trend') : undefined}
+            onOpenCheckpoint={onOpenCheckpoint}
           />
         ) : (
           <MetricsTrendView

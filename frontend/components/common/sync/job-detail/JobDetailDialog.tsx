@@ -353,6 +353,7 @@ export function JobDetailDialog({
                   view={metricsView}
                   unit={effectiveMetricsUnit}
                   onViewChange={setMetricsView}
+                  onOpenCheckpoint={() => onTabChange('checkpoint')}
                 />
               ) : null}
             </TabsContent>

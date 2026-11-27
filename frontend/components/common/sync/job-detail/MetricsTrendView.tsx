@@ -404,6 +404,7 @@ export function MetricsTrendView({
         table: ({sinkLabel, srcLabel}) =>
           tableColors.get(sinkLabel) ?? tableColors.get(srcLabel) ?? 'var(--muted-foreground)',
         outcome: TREND_COLORS.committed,
+        pending: 'var(--info)',
         warning: 'var(--warning)',
       },
       maxLinks: 8,

@@ -90,6 +90,32 @@ export function resolveSeatunnelVersion(
   return metadata?.recommended_version?.trim() || '';
 }
 
+/**
+ * 解析集群升级的默认目标版本：优先选严格高于当前版本的最新本地安装包，其次选严格高于当前版本的最新可用版本，避免默认选中当前版本触发 same_version 阻断。
+ * Resolve the default upgrade target version: prefer the newest local package strictly newer than currentVersion, then the newest catalog version strictly newer than currentVersion, avoiding same_version precheck blocks.
+ */
+export function resolveUpgradeTargetVersion(
+  metadata?: SeatunnelVersionMetadata | null,
+  currentVersion?: string | null,
+): string {
+  const current = String(currentVersion || '').trim();
+  if (current) {
+    const newerLocal = resolveSelectableSeatunnelVersions({
+      local_packages: metadata?.local_packages,
+    }).find((version) => compareSeatunnelVersions(version, current) > 0);
+    if (newerLocal) {
+      return newerLocal;
+    }
+    const newerCatalog = resolveSelectableSeatunnelVersions({
+      versions: metadata?.versions,
+    }).find((version) => compareSeatunnelVersions(version, current) > 0);
+    if (newerCatalog) {
+      return newerCatalog;
+    }
+  }
+  return resolveSeatunnelVersion(metadata);
+}
+
 export function buildSeatunnelInstallDir(version?: string): string {
   return version
     ? `/opt/seatunnel-${version}`

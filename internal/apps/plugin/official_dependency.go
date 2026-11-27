@@ -282,6 +282,18 @@ func (s *Service) GetEffectiveDependencies(ctx context.Context, pluginName, vers
 	return merged, nil
 }
 
+func profilesRequireExplicitSelection(profiles []PluginDependencyProfile) bool {
+	if len(profiles) <= 1 {
+		return false
+	}
+	for _, profile := range profiles {
+		if profile.IsDefault {
+			return false
+		}
+	}
+	return true
+}
+
 // enrichPluginsWithDependencyState adds lightweight dependency status for plugin marketplace.
 // enrichPluginsWithDependencyState 为插件市场补充轻量依赖状态。
 func (s *Service) enrichPluginsWithDependencyState(ctx context.Context, version string, plugins []Plugin) []Plugin {
@@ -299,16 +311,7 @@ func (s *Service) enrichPluginsWithDependencyState(ctx context.Context, version 
 		if len(profiles) == 1 {
 			result[i].Dependencies = effective
 		}
-		if len(profiles) > 1 {
-			hasDefault := false
-			for _, profile := range profiles {
-				if profile.IsDefault {
-					hasDefault = true
-					break
-				}
-			}
-			result[i].RequiresProfileSelection = !hasDefault
-		}
+		result[i].RequiresProfileSelection = profilesRequireExplicitSelection(profiles)
 	}
 	return result
 }

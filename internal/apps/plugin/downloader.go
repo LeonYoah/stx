@@ -398,12 +398,51 @@ func (d *Downloader) readPluginMetadata(pluginName, version string) (*localPlugi
 	return &payload, nil
 }
 
+// resolveConnectorPath 返回本地已存在的连接器 jar 路径；优先精确版本，其次兼容内部后缀版本下的基础版本 jar（如 3.1.0-hotfix1 -> 3.1.0）。
+// resolveConnectorPath returns an existing local connector jar path, checking exact version first and then base version for internal suffix releases (e.g. 3.1.0-hotfix1 -> 3.1.0).
+func (d *Downloader) resolveConnectorPath(artifactID, version string) string {
+	exactPath := d.GetConnectorPath(artifactID, version)
+	if _, err := os.Stat(exactPath); err == nil {
+		return exactPath
+	}
+	if base := connectorBaseVersion(version); base != "" && base != version {
+		basePath := filepath.Join(d.pluginsDir, version, "connectors", fmt.Sprintf("%s-%s.jar", artifactID, base))
+		if _, err := os.Stat(basePath); err == nil {
+			return basePath
+		}
+	}
+	return exactPath
+}
+
+func (d *Downloader) resolveConnectorPathByName(name, version string) string {
+	return d.resolveConnectorPath(getArtifactIDForPath(name), version)
+}
+
+// filterPendingDependencyFailures 过滤掉磁盘上已补齐的依赖失败项，避免手动上传或重试后仍持续告警。
+// filterPendingDependencyFailures drops recorded dependency failures whose jar is already present on disk.
+func (d *Downloader) filterPendingDependencyFailures(version string, failures []PluginDependencyFailure) []PluginDependencyFailure {
+	if len(failures) == 0 {
+		return nil
+	}
+	pending := make([]PluginDependencyFailure, 0, len(failures))
+	for _, failure := range failures {
+		if d.IsDependencyDownloaded(failure.ArtifactID, failure.Version, version, failure.TargetDir) {
+			continue
+		}
+		pending = append(pending, failure)
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+	return pending
+}
+
 // IsConnectorDownloaded checks if a connector is already downloaded.
 // IsConnectorDownloaded 检查连接器是否已下载。
 // Note: Uses GetConnectorPathByName which maps plugin name to artifact ID.
 // 注意：使用 GetConnectorPathByName 将插件名称映射到 artifact ID。
 func (d *Downloader) IsConnectorDownloaded(name, version string) bool {
-	path := d.GetConnectorPathByName(name, version)
+	path := d.resolveConnectorPathByName(name, version)
 	_, err := os.Stat(path)
 	return err == nil
 }
@@ -411,7 +450,7 @@ func (d *Downloader) IsConnectorDownloaded(name, version string) bool {
 // IsConnectorDownloadedByArtifactID checks if a connector is already downloaded using artifact ID.
 // IsConnectorDownloadedByArtifactID 使用 artifact ID 检查连接器是否已下载。
 func (d *Downloader) IsConnectorDownloadedByArtifactID(artifactID, version string) bool {
-	path := d.GetConnectorPath(artifactID, version)
+	path := d.resolveConnectorPath(artifactID, version)
 	_, err := os.Stat(path)
 	return err == nil
 }
@@ -421,7 +460,7 @@ func (d *Downloader) IsConnectorDownloadedByArtifactID(artifactID, version strin
 // Note: Uses GetConnectorPathByName which maps plugin name to artifact ID.
 // 注意：使用 GetConnectorPathByName 将插件名称映射到 artifact ID。
 func (d *Downloader) ReadPluginFile(name, version string) ([]byte, error) {
-	path := d.GetConnectorPathByName(name, version)
+	path := d.resolveConnectorPathByName(name, version)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read plugin file %s: %w", path, err)
@@ -432,7 +471,7 @@ func (d *Downloader) ReadPluginFile(name, version string) ([]byte, error) {
 // ReadPluginFileByArtifactID reads the plugin file content using artifact ID.
 // ReadPluginFileByArtifactID 使用 artifact ID 读取插件文件内容。
 func (d *Downloader) ReadPluginFileByArtifactID(artifactID, version string) ([]byte, error) {
-	path := d.GetConnectorPath(artifactID, version)
+	path := d.resolveConnectorPath(artifactID, version)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read plugin file %s: %w", path, err)
@@ -906,6 +945,9 @@ func (d *Downloader) DownloadPlugin(ctx context.Context, plugin *Plugin, mirror 
 			now := time.Now()
 			progress.EndTime = &now
 			d.UpsertActiveDownload(progress)
+			if callback != nil {
+				callback(progress)
+			}
 		}
 	}
 
@@ -1133,7 +1175,7 @@ func (d *Downloader) ListLocalPlugins() ([]LocalPlugin, error) {
 			}
 
 			name, artifactID, embeddedVersion := parseConnectorFilename(connEntry.Name(), version)
-			if embeddedVersion != "" && embeddedVersion != version {
+			if embeddedVersion != "" && !connectorEmbeddedVersionMatches(embeddedVersion, version) {
 				continue
 			}
 
@@ -1181,7 +1223,7 @@ func (d *Downloader) ListLocalPlugins() ([]LocalPlugin, error) {
 		plugins[i].SelectedProfileKeys = append([]string(nil), metadata.SelectedProfileKeys...)
 		plugins[i].AttachedConnectors = append([]string(nil), metadata.AttachedConnectors...)
 		plugins[i].Dependencies = append([]PluginDependency(nil), metadata.Dependencies...)
-		plugins[i].DependencyFailures = append([]PluginDependencyFailure(nil), metadata.DependencyFailures...)
+		plugins[i].DependencyFailures = d.filterPendingDependencyFailures(plugins[i].Version, metadata.DependencyFailures)
 		filtered = append(filtered, plugins[i])
 	}
 
@@ -1212,14 +1254,18 @@ func shouldHideAutoAttachedLocalPlugin(plugin LocalPlugin, hiddenPlugins map[str
 	return ok
 }
 
+func connectorBaseVersion(version string) string {
+	if idx := strings.IndexAny(version, "-+"); idx >= 0 {
+		return version[:idx]
+	}
+	return version
+}
+
 func connectorEmbeddedVersionMatches(embeddedVersion, version string) bool {
 	if embeddedVersion == version {
 		return true
 	}
-	base := version
-	if idx := strings.IndexAny(base, "-+"); idx >= 0 {
-		base = base[:idx]
-	}
+	base := connectorBaseVersion(version)
 	return base != version && embeddedVersion == base
 }
 
@@ -1258,7 +1304,7 @@ func determinePluginCategory(name string) PluginCategory {
 // Note: Uses GetConnectorPathByName which maps plugin name to artifact ID.
 // 注意：使用 GetConnectorPathByName 将插件名称映射到 artifact ID。
 func (d *Downloader) DeleteLocalPlugin(name, version string) error {
-	connectorPath := d.GetConnectorPathByName(name, version)
+	connectorPath := d.resolveConnectorPathByName(name, version)
 
 	// Check if exists / 检查是否存在
 	if _, err := os.Stat(connectorPath); os.IsNotExist(err) {
@@ -1278,15 +1324,16 @@ func (d *Downloader) DeleteLocalPlugin(name, version string) error {
 // LocalPlugin represents a locally downloaded plugin.
 // LocalPlugin 表示本地已下载的插件。
 type LocalPlugin struct {
-	Name                string                    `json:"name"`                            // 插件名称 / Plugin name
-	ArtifactID          string                    `json:"artifact_id"`                     // Maven artifact ID / Maven artifact ID
-	Version             string                    `json:"version"`                         // 版本号 / Version
-	Category            PluginCategory            `json:"category"`                        // 插件分类 / Plugin category
-	ConnectorPath       string                    `json:"connector_path"`                  // 连接器路径 / Connector path
-	Size                int64                     `json:"size"`                            // 文件大小 / File size
-	DownloadedAt        time.Time                 `json:"downloaded_at"`                   // 下载时间 / Downloaded at
-	SelectedProfileKeys []string                  `json:"selected_profile_keys,omitempty"` // 选中的画像 / Selected profiles
-	AttachedConnectors  []string                  `json:"attached_connectors,omitempty"`   // 自动附带的连接器 / Attached connectors
-	Dependencies        []PluginDependency        `json:"dependencies,omitempty"`          // 自动附带的依赖 / Auto attached dependencies
-	DependencyFailures  []PluginDependencyFailure `json:"dependency_failures,omitempty"`
+	Name                     string                    `json:"name"`                                 // 插件名称 / Plugin name
+	ArtifactID               string                    `json:"artifact_id"`                          // Maven artifact ID / Maven artifact ID
+	Version                  string                    `json:"version"`                              // 版本号 / Version
+	Category                 PluginCategory            `json:"category"`                             // 插件分类 / Plugin category
+	ConnectorPath            string                    `json:"connector_path"`                       // 连接器路径 / Connector path
+	Size                     int64                     `json:"size"`                                 // 文件大小 / File size
+	DownloadedAt             time.Time                 `json:"downloaded_at"`                        // 下载时间 / Downloaded at
+	SelectedProfileKeys      []string                  `json:"selected_profile_keys,omitempty"`      // 选中的画像 / Selected profiles
+	AttachedConnectors       []string                  `json:"attached_connectors,omitempty"`        // 自动附带的连接器 / Attached connectors
+	Dependencies             []PluginDependency        `json:"dependencies,omitempty"`               // 自动附带的依赖 / Auto attached dependencies
+	DependencyFailures       []PluginDependencyFailure `json:"dependency_failures,omitempty"`        // 下载失败的依赖列表 / Dependencies that failed to download
+	RequiresProfileSelection bool                      `json:"requires_profile_selection,omitempty"` // 是否必须显式选择场景画像 / Whether explicit profile selection is required
 }

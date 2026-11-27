@@ -1910,3 +1910,111 @@ func TestGetDownloadStatus_tablestoreDoesNotReuseJdbcConnector(t *testing.T) {
 		}
 	})
 }
+
+func TestGetDownloadStatus_exposesPendingDependencyFailuresAndRealCompletedCount(t *testing.T) {
+	pluginsDir := t.TempDir()
+	service, _ := newTestPluginServiceWithDownloader(t, pluginsDir)
+	const version = "3.0.0"
+
+	connectorPath := filepath.Join(pluginsDir, version, "connectors", "connector-jdbc-"+version+".jar")
+	if err := os.MkdirAll(filepath.Dir(connectorPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(connectorPath, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AddDependency(context.Background(), &AddDependencyRequest{
+		PluginName:       "jdbc",
+		SeatunnelVersion: version,
+		GroupID:          "com.example",
+		ArtifactID:       "ok-driver",
+		Version:          "1.0.0",
+		TargetDir:        "lib",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AddDependency(context.Background(), &AddDependencyRequest{
+		PluginName:       "jdbc",
+		SeatunnelVersion: version,
+		GroupID:          "com.example",
+		ArtifactID:       "missing-driver",
+		Version:          "1.0.0",
+		TargetDir:        "lib",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(pluginsDir, version, "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginsDir, version, "lib", "ok-driver-1.0.0.jar"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.downloader.writePluginMetadata(
+		&Plugin{Name: "jdbc", Version: version, ArtifactID: "connector-jdbc"},
+		[]string{"mysql"},
+		PluginDependencyFailure{GroupID: "com.example", ArtifactID: "missing-driver", Version: "1.0.0", TargetDir: "lib", Error: "404"},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	status := service.GetDownloadStatus("jdbc", version, []string{"mysql"})
+	if status.Status != "completed" {
+		t.Fatalf("expected completed status, got %+v", status)
+	}
+	if status.DependencyCompleted >= status.DependencyCount {
+		t.Fatalf("expected DependencyCompleted < DependencyCount when a dependency is missing, got %d/%d", status.DependencyCompleted, status.DependencyCount)
+	}
+	if len(status.DependencyFailures) != 1 || status.DependencyFailures[0].ArtifactID != "missing-driver" {
+		t.Fatalf("expected missing-driver in DependencyFailures, got %+v", status.DependencyFailures)
+	}
+	if status.Message == "" {
+		t.Fatalf("expected warning message when dependency failures exist")
+	}
+}
+
+func TestListLocalPlugins_populatesRequiresProfileSelection(t *testing.T) {
+	pluginsDir := t.TempDir()
+	service, _ := newTestPluginServiceWithDownloader(t, pluginsDir)
+	const version = "3.1.0"
+
+	connectorPath := filepath.Join(pluginsDir, version, "connectors", "connector-jdbc-"+version+".jar")
+	if err := os.MkdirAll(filepath.Dir(connectorPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(connectorPath, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	locals, err := service.ListLocalPlugins()
+	if err != nil {
+		t.Fatalf("ListLocalPlugins failed: %v", err)
+	}
+	if len(locals) != 1 || !locals[0].RequiresProfileSelection {
+		t.Fatalf("expected local jdbc plugin to set RequiresProfileSelection=true, got %+v", locals)
+	}
+}
+
+func TestIsPluginDownloaded_doesNotTriggerRemoteFetch(t *testing.T) {
+	pluginsDir := t.TempDir()
+	service, _ := newTestPluginServiceWithDownloader(t, pluginsDir)
+	fetchCalled := false
+	service.SetPluginFetcher(func(ctx context.Context, version string, mirror MirrorSource) ([]Plugin, MirrorSource, error) {
+		fetchCalled = true
+		return nil, mirror, nil
+	})
+
+	connectorPath := filepath.Join(pluginsDir, "9.9.98", "connectors", "connector-tablestore-9.9.98.jar")
+	if err := os.MkdirAll(filepath.Dir(connectorPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(connectorPath, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if !service.IsPluginDownloaded("tablestore", "9.9.98") {
+		t.Fatal("expected IsPluginDownloaded to detect local connector-tablestore jar")
+	}
+	if fetchCalled {
+		t.Fatal("IsPluginDownloaded must not invoke remote plugin fetcher")
+	}
+}

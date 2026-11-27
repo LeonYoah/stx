@@ -344,6 +344,7 @@ export interface LocalPlugin {
   attached_connectors?: string[];
   dependencies?: PluginDependency[];
   dependency_failures?: PluginDependencyFailure[];
+  requires_profile_selection?: boolean;
 }
 
 /**

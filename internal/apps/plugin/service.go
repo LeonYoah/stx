@@ -1207,11 +1207,13 @@ func (s *Service) GetDownloadStatus(name, version string, profileKeys []string) 
 		}
 	}
 
-	// 连接器就绪且元数据已落盘时，即便部分可选驱动未配置，也视为已下载就绪。
-	// When connector is ready and metadata is persisted, treat as completed even if optional drivers are omitted.
+	// 连接器就绪且元数据已落盘时，即便部分可选驱动未配置或部分依赖下载失败，也返回已完成并透出失败明细与真实完成数。
+	// When connector is ready and metadata is persisted, return completed while surfacing pending dependency failures and actual completed count.
 	if connectorDownloaded {
-		if _, metaErr := s.downloader.readPluginMetadata(name, version); metaErr == nil {
-			return &DownloadProgress{
+		if metadata, metaErr := s.downloader.readPluginMetadata(name, version); metaErr == nil {
+			pendingFailures := s.downloader.filterPendingDependencyFailures(version, metadata.DependencyFailures)
+			completedDeps := s.countDownloadedDependencies(plugin)
+			status := &DownloadProgress{
 				PluginName:          name,
 				Version:             version,
 				Status:              "completed",
@@ -1221,8 +1223,13 @@ func (s *Service) GetDownloadStatus(name, version string, profileKeys []string) 
 				ConnectorCount:      1,
 				ConnectorCompleted:  1,
 				DependencyCount:     len(plugin.Dependencies),
-				DependencyCompleted: len(plugin.Dependencies),
+				DependencyCompleted: completedDeps,
+				DependencyFailures:  pendingFailures,
 			}
+			if len(pendingFailures) > 0 {
+				status.Message = fmt.Sprintf("Warning: %d dependencies failed to download", len(pendingFailures))
+			}
+			return status
 		}
 	}
 
@@ -1248,12 +1255,24 @@ func (s *Service) ListLocalPlugins() ([]LocalPlugin, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctx := context.Background()
+	seededVersions := make(map[string]struct{})
 	for i := range plugins {
+		ver := strings.TrimSpace(plugins[i].Version)
+		if ver != "" {
+			if _, ok := seededVersions[ver]; !ok {
+				s.ensureBundledSeedLoaded(ctx, ver)
+				seededVersions[ver] = struct{}{}
+			}
+		}
+		profiles, _, _, _, _, _ := s.resolveStoredOfficialDependencies(ctx, plugins[i].Name, plugins[i].Version, nil)
+		plugins[i].RequiresProfileSelection = profilesRequireExplicitSelection(profiles)
+
 		if len(plugins[i].Dependencies) > 0 {
 			continue
 		}
 		deps, depErr := s.GetPluginDependenciesForVersionAndProfiles(
-			context.Background(),
+			ctx,
 			plugins[i].Name,
 			plugins[i].Version,
 			plugins[i].SelectedProfileKeys,
@@ -1380,11 +1399,38 @@ func (s *Service) DeleteLocalPlugin(name, version string) error {
 	return s.downloader.DeleteLocalPlugin(name, version)
 }
 
+// resolveLocalArtifactID 仅查本地目录快照、内置种子与静态映射，不触发远端 Maven 抓取。
+// resolveLocalArtifactID resolves a plugin's artifact ID from local catalog/seed/mapping without remote Maven fetches.
+func (s *Service) resolveLocalArtifactID(ctx context.Context, name, version string) string {
+	normalizedName := strings.ToLower(strings.TrimSpace(name))
+	if normalizedName == "" {
+		return ""
+	}
+	if strings.TrimSpace(version) == "" {
+		version = seatunnel.DefaultVersion()
+	}
+	if persisted, _, _ := s.loadPluginsFromCatalog(ctx, version); len(persisted) > 0 {
+		for _, p := range persisted {
+			if strings.ToLower(p.Name) == normalizedName && strings.TrimSpace(p.ArtifactID) != "" {
+				return strings.TrimSpace(p.ArtifactID)
+			}
+		}
+	}
+	for _, p := range s.pluginsFromBundledSeed(version) {
+		if strings.ToLower(p.Name) == normalizedName && strings.TrimSpace(p.ArtifactID) != "" {
+			return strings.TrimSpace(p.ArtifactID)
+		}
+	}
+	return getArtifactID(name)
+}
+
 // IsPluginDownloaded checks if a plugin is downloaded locally.
 // IsPluginDownloaded 检查插件是否已在本地下载。
 func (s *Service) IsPluginDownloaded(name, version string) bool {
-	if info, err := s.GetPluginInfo(context.Background(), name, version); err == nil && info != nil {
-		return s.isPluginConnectorDownloaded(info, version)
+	if artifactID := s.resolveLocalArtifactID(context.Background(), name, version); artifactID != "" {
+		if s.downloader.IsConnectorDownloadedByArtifactID(artifactID, version) {
+			return true
+		}
 	}
 	return s.downloader.IsConnectorDownloaded(name, version)
 }
@@ -1647,11 +1693,22 @@ func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, re
 			}
 		}
 		if !dependenciesReady {
-			if _, err := s.downloader.DownloadDependencies(ctx, pluginInfo, mirror, progressCallback); err != nil {
+			depFailures, err := s.downloader.DownloadDependencies(ctx, pluginInfo, mirror, progressCallback)
+			if err != nil {
 				progress.Status = "failed"
 				progress.Error = err.Error()
 				s.setInstallProgress(clusterID, req.PluginName, progress)
 				return nil, fmt.Errorf("failed to download plugin dependencies: %w", err)
+			}
+			if len(depFailures) > 0 {
+				// 依赖下载部分失败时写入元数据并终止安装，避免无节点环境误报成功或逐节点重复失败。
+				// Persist partial dependency failures to metadata and abort install so callers never see false success or per-node retry loops.
+				_ = s.downloader.writePluginMetadata(pluginInfo, normalizeProfileKeys(req.ProfileKeys), depFailures...)
+				summary := formatDependencyFailureSummary(depFailures)
+				progress.Status = "failed"
+				progress.Error = summary
+				s.setInstallProgress(clusterID, req.PluginName, progress)
+				return nil, fmt.Errorf("failed to download plugin dependencies: %s", summary)
 			}
 		}
 	}
@@ -1986,12 +2043,36 @@ func (s *Service) arePluginDependenciesDownloaded(plugin *Plugin) bool {
 	if plugin == nil {
 		return false
 	}
+	return s.countDownloadedDependencies(plugin) == len(plugin.Dependencies)
+}
+
+func (s *Service) countDownloadedDependencies(plugin *Plugin) int {
+	if plugin == nil {
+		return 0
+	}
+	completed := 0
 	for _, dep := range plugin.Dependencies {
-		if !s.downloader.IsDependencyDownloaded(dep.ArtifactID, dep.Version, plugin.Version, dep.TargetDir) {
-			return false
+		if s.downloader.IsDependencyDownloaded(dep.ArtifactID, dep.Version, plugin.Version, dep.TargetDir) {
+			completed++
 		}
 	}
-	return true
+	return completed
+}
+
+func formatDependencyFailureSummary(failures []PluginDependencyFailure) string {
+	parts := make([]string, 0, len(failures))
+	for _, failure := range failures {
+		label := failure.ArtifactID
+		if strings.TrimSpace(failure.Version) != "" {
+			label = fmt.Sprintf("%s-%s", label, failure.Version)
+		}
+		if strings.TrimSpace(failure.Error) != "" {
+			parts = append(parts, fmt.Sprintf("%s (%s)", label, failure.Error))
+		} else {
+			parts = append(parts, label)
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 // readFile reads a file from the filesystem.

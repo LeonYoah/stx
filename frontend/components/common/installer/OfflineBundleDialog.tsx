@@ -199,16 +199,18 @@ export function OfflineBundleDialog({
 
   const handleImportFileSelect = (selectedFile: File | null) => {
     setImportError(null);
-    setImportFile(selectedFile);
     if (!selectedFile) {
+      setImportFile(null);
       setImportVersion('');
       return;
     }
     if (!selectedFile.name.toLowerCase().endsWith('.tar.gz')) {
+      setImportFile(null);
       setImportVersion('');
       setImportError(t('invalidFileFormat'));
       return;
     }
+    setImportFile(selectedFile);
     if (isOfflineAssetBundleName(selectedFile.name)) {
       setImportVersion('');
       return;

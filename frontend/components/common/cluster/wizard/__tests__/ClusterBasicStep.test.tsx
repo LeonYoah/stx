@@ -16,8 +16,8 @@
  */
 
 /**
- * ClusterBasicStep: verifies manually uploaded offline versions are selectable and no recommended badge renders.
  * ClusterBasicStep：验证内网手动上传的本地安装包版本可选，且不再渲染冗余的推荐版本徽标。
+ * ClusterBasicStep: verifies manually uploaded offline versions are selectable and no recommended badge renders.
  */
 
 import React from 'react';

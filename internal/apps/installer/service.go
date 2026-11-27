@@ -259,6 +259,10 @@ type Service struct {
 	// tempDir 是临时文件目录（下载中的文件）
 	tempDir string
 
+	// renameFunc 允许单测在不修改包级全局状态的情况下注入跨卷重命名行为。
+	// renameFunc lets unit tests inject rename behavior (e.g. EXDEV) without mutating package-level globals.
+	renameFunc func(oldPath, newPath string) error
+
 	// installations tracks ongoing installations by host ID
 	// installations 按主机 ID 跟踪正在进行的安装
 	installations map[string]*InstallationStatus
@@ -1064,7 +1068,7 @@ func (s *Service) savePackageFromReader(ctx context.Context, version, fileName s
 		return nil, fmt.Errorf("failed to close package file: %w", err)
 	}
 
-	if err := moveFileAtomic(tempPath, destPath); err != nil {
+	if err := s.moveFileAtomic(tempPath, destPath); err != nil {
 		return nil, fmt.Errorf("failed to move package file: %w", err)
 	}
 
@@ -1095,24 +1099,41 @@ func (s *Service) savePackageFromReader(ctx context.Context, version, fileName s
 	}, nil
 }
 
+const (
+	// 单连接器 jar 与单次安装包解压的字节上限，防止恶意构造的 tar.gz 解压炸弹耗尽磁盘。
+	// Per-jar and per-archive byte caps when extracting bundled connectors to prevent decompression bombs.
+	maxBundledConnectorJarBytes   int64 = 512 << 20
+	maxBundledConnectorsTotalBytes int64 = 4 << 30
+)
+
 func directConnectorJarInArchive(name string) (string, bool) {
 	clean := path.Clean(strings.TrimPrefix(strings.ReplaceAll(name, "\\", "/"), "./"))
 	parts := strings.Split(strings.Trim(clean, "/"), "/")
-	if len(parts) < 2 {
+	var base string
+	// 仅允许顶层 connectors/<jar> 或单层发布根目录 <root>/connectors/<jar>，拒绝任意深度的嵌套目录。
+	// Only accept top-level connectors/<jar> or single-root <root>/connectors/<jar>; reject arbitrary nesting.
+	switch {
+	case len(parts) == 2 && parts[0] == "connectors":
+		base = parts[1]
+	case len(parts) == 3 && parts[1] == "connectors":
+		base = parts[2]
+	default:
 		return "", false
 	}
-	for i := 0; i < len(parts)-1; i++ {
-		if parts[i] == "connectors" && i == len(parts)-2 {
-			base := parts[len(parts)-1]
-			if strings.HasPrefix(base, "connector-") && strings.HasSuffix(base, ".jar") {
-				return base, true
-			}
-		}
+	if strings.HasPrefix(base, "connector-") && strings.HasSuffix(base, ".jar") {
+		return base, true
 	}
 	return "", false
 }
 
 func (s *Service) extractBundledConnectors(version, packagePath string) (int, error) {
+	return s.extractBundledConnectorsWithLimits(version, packagePath, maxBundledConnectorJarBytes, maxBundledConnectorsTotalBytes)
+}
+
+func (s *Service) extractBundledConnectorsWithLimits(version, packagePath string, maxPerJar, maxTotal int64) (int, error) {
+	if !packageVersionRegexp.MatchString(strings.TrimSpace(version)) {
+		return 0, ErrInvalidPackageVersion
+	}
 	file, err := os.Open(packagePath)
 	if err != nil {
 		return 0, err
@@ -1127,6 +1148,7 @@ func (s *Service) extractBundledConnectors(version, packagePath string) (int, er
 	targetDir := filepath.Join(s.pluginsDir(), version, "connectors")
 	reader := tar.NewReader(gzipReader)
 	count := 0
+	var totalBytes int64
 	for {
 		header, err := reader.Next()
 		if errors.Is(err, io.EOF) {
@@ -1154,7 +1176,19 @@ func (s *Service) extractBundledConnectors(version, packagePath string) (int, er
 			return count, err
 		}
 		tempPath := tempFile.Name()
-		_, copyErr := io.Copy(tempFile, reader)
+		var written int64
+		var copyErr error
+		if maxPerJar > 0 {
+			written, copyErr = io.Copy(tempFile, io.LimitReader(reader, maxPerJar+1))
+			if copyErr == nil && written > maxPerJar {
+				copyErr = fmt.Errorf("bundled connector %s exceeds maximum allowed size (%d bytes)", base, maxPerJar)
+			}
+		} else {
+			written, copyErr = io.Copy(tempFile, reader)
+		}
+		if copyErr == nil && maxTotal > 0 && totalBytes+written > maxTotal {
+			copyErr = fmt.Errorf("bundled connectors exceed total allowed size (%d bytes)", maxTotal)
+		}
 		closeErr := tempFile.Close()
 		if copyErr != nil || closeErr != nil {
 			_ = os.Remove(tempPath)
@@ -1171,6 +1205,7 @@ func (s *Service) extractBundledConnectors(version, packagePath string) (int, er
 			_ = os.Remove(tempPath)
 			return count, err
 		}
+		totalBytes += written
 		count++
 	}
 }
@@ -1708,9 +1743,15 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		s.markDownloadCancelled(task, tempPath)
 		return
 	}
-	if err := moveFileAtomic(tempPath, finalPath); err != nil {
+	if err := s.moveFileAtomic(tempPath, finalPath); err != nil {
 		s.markDownloadFailed(task, locale.Pick(ctx, fmt.Sprintf("移动文件失败: %v", err), fmt.Sprintf("Failed to move file: %v", err)), tempPath)
 		return
+	}
+
+	if connectorCount, extractErr := s.extractBundledConnectors(task.Version, finalPath); extractErr != nil {
+		logger.WarnF(ctx, "[Installer] package downloaded but bundled connectors were not extracted: version=%s error=%v", task.Version, extractErr)
+	} else if connectorCount > 0 {
+		logger.InfoF(ctx, "[Installer] extracted %d bundled connectors from downloaded package version=%s", connectorCount, task.Version)
 	}
 
 	if task.SourceRequested {
@@ -4051,12 +4092,21 @@ func normalizeProfileKeys(keys []string) []string {
 	return result
 }
 
-var renameFile = os.Rename
+func (s *Service) moveFileAtomic(src, dst string) error {
+	return moveFileAtomicWith(src, dst, s.renameFunc)
+}
 
 // moveFileAtomic 先尝试直接原子重命名；遇到跨挂载卷（EXDEV）时拷贝到目标同目录临时文件后再原子替换并删除源文件。
 // moveFileAtomic tries an atomic rename first; on cross-device link (EXDEV) it copies into a sibling temp file in dst's directory, renames atomically into place, and removes src.
 func moveFileAtomic(src, dst string) error {
-	if err := renameFile(src, dst); err == nil {
+	return moveFileAtomicWith(src, dst, os.Rename)
+}
+
+func moveFileAtomicWith(src, dst string, renameFn func(oldPath, newPath string) error) error {
+	if renameFn == nil {
+		renameFn = os.Rename
+	}
+	if err := renameFn(src, dst); err == nil {
 		return nil
 	} else if !errors.Is(err, syscall.EXDEV) {
 		return err

@@ -20,6 +20,7 @@ import {
   nextEventChannelEnabled,
   resolveSeatunnelVersion,
   resolveSelectableSeatunnelVersions,
+  resolveUpgradeTargetVersion,
 } from '@/lib/seatunnel-version';
 import type {PackageInfo} from '@/lib/services/installer/types';
 
@@ -109,6 +110,62 @@ describe('resolveSeatunnelVersion', () => {
     expect(resolveSeatunnelVersion({versions: [], local_packages: []})).toBe(
       '',
     );
+  });
+});
+
+describe('resolveUpgradeTargetVersion', () => {
+  it('avoids selecting the cluster current version when a newer catalog version exists', () => {
+    expect(
+      resolveUpgradeTargetVersion(
+        {
+          versions: ['3.1.0', '3.0.0', '2.3.13', '2.3.12'],
+          local_packages: [makeLocalPackage('2.3.13')],
+        },
+        '2.3.13',
+      ),
+    ).toBe('3.1.0');
+  });
+
+  it('prefers the newest local package strictly newer than the cluster current version', () => {
+    expect(
+      resolveUpgradeTargetVersion(
+        {
+          versions: ['3.1.0', '3.0.0', '2.3.13'],
+          local_packages: [
+            makeLocalPackage('2.3.13'),
+            makeLocalPackage('3.0.0'),
+          ],
+        },
+        '2.3.13',
+      ),
+    ).toBe('3.0.0');
+  });
+
+  it('does not downgrade when the cluster is already on the newest available version', () => {
+    expect(
+      resolveUpgradeTargetVersion(
+        {
+          versions: ['3.1.0', '2.3.13'],
+          local_packages: [
+            makeLocalPackage('3.1.0'),
+            makeLocalPackage('2.3.13'),
+          ],
+        },
+        '3.1.0',
+      ),
+    ).toBe('3.1.0');
+  });
+
+  it('keeps single-version fallback compatibility when no newer version is listed', () => {
+    expect(
+      resolveUpgradeTargetVersion(
+        {
+          versions: ['2.3.13'],
+          local_packages: [makeLocalPackage('2.3.13')],
+        },
+        '2.3.13',
+      ),
+    ).toBe('2.3.13');
   });
 });
 

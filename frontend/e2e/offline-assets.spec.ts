@@ -61,6 +61,10 @@ function createOfficialStylePackage(workdir: string): string {
 test('offline assets export import and official package import', async ({
   page,
 }, testInfo) => {
+  test.skip(
+    process.env.E2E_API_MODE === 'mock',
+    'Offline bundle import/export requires the real backend APIs',
+  );
   const workdir = testInfo.outputPath('offline-assets');
   fs.mkdirSync(workdir, {recursive: true});
   const packageArchive = createOfficialStylePackage(workdir);
@@ -81,94 +85,98 @@ test('offline assets export import and official package import', async ({
   await page.reload();
   await expect(page.getByTestId('package-management-root')).toBeVisible();
 
-  await page.getByRole('button', {name: /离线导入|Offline Import/i}).click();
-  await page.getByTestId('offline-assets-tab-import').click();
-  await page
-    .getByTestId('offline-assets-import-input')
-    .setInputFiles(packageArchive);
-  await expect(page.getByTestId('offline-import-version')).toHaveValue(version);
+  try {
+    await page.getByRole('button', {name: /离线导入|Offline Import/i}).click();
+    await page.getByTestId('offline-assets-tab-import').click();
+    await page
+      .getByTestId('offline-assets-import-input')
+      .setInputFiles(packageArchive);
+    await expect(page.getByTestId('offline-import-version')).toHaveValue(
+      version,
+    );
 
-  const uploadResponse = page.waitForResponse(
-    (response) =>
-      response.url().includes('/api/v1/packages/upload/chunk') &&
-      response.request().method() === 'POST' &&
-      response.ok(),
-  );
-  await page.getByTestId('offline-import-submit').click();
-  await uploadResponse;
-  await expect(
-    page.getByText(/已上传安装包|Uploaded package/).first(),
-  ).toBeVisible();
+    const uploadResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v1/packages/upload/chunk') &&
+        response.request().method() === 'POST' &&
+        response.ok(),
+    );
+    await page.getByTestId('offline-import-submit').click();
+    await uploadResponse;
+    await expect(
+      page.getByText(/已上传安装包|Uploaded package/).first(),
+    ).toBeVisible();
 
-  await page.getByTestId('offline-assets-tab-export').click();
-  await page.getByTestId('offline-bundle-export-version').click();
-  await page.getByRole('option', {name: new RegExp(version)}).click();
-  const includePlugins = page.getByTestId('offline-bundle-include-plugins');
-  if ((await includePlugins.getAttribute('data-state')) === 'checked') {
-    await includePlugins.click();
+    await page.getByTestId('offline-assets-tab-export').click();
+    await page.getByTestId('offline-bundle-export-version').click();
+    await page.getByRole('option', {name: new RegExp(version)}).click();
+    const includePlugins = page.getByTestId('offline-bundle-include-plugins');
+    if ((await includePlugins.getAttribute('data-state')) === 'checked') {
+      await includePlugins.click();
+    }
+
+    const createResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname.endsWith(
+          '/api/v1/packages/offline-bundles',
+        ) &&
+        response.request().method() === 'POST' &&
+        response.ok(),
+    );
+    const downloadEvent = page.waitForEvent('download');
+    await page.getByTestId('offline-bundle-create-submit').click();
+    await createResponse;
+    const download = await downloadEvent;
+    expect(download.suggestedFilename()).toBe(bundleFileName);
+    await expect(page.getByText(bundleFileName, {exact: true})).toBeVisible();
+
+    await deleteIfExists(
+      page,
+      `/api/v1/packages/${encodeURIComponent(version)}`,
+      `e2e-package-delete-before-import-${Date.now()}`,
+    );
+
+    await page.getByTestId('offline-assets-tab-import').click();
+    const downloadedPath = await download.path();
+    const bundleBuffer = fs.readFileSync(downloadedPath);
+    await page.getByTestId('offline-assets-import-input').setInputFiles({
+      name: bundleFileName,
+      mimeType: 'application/gzip',
+      buffer: bundleBuffer,
+    });
+    await expect(
+      page.getByText(/已识别为离线资产包|Recognized as an offline asset bundle/),
+    ).toBeVisible();
+    await expect(page.getByTestId('offline-import-version')).toHaveCount(0);
+
+    const importResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname.endsWith(
+          '/api/v1/packages/offline-bundles/import',
+        ) &&
+        response.request().method() === 'POST' &&
+        response.ok(),
+    );
+    await page.getByTestId('offline-import-submit').click();
+    await importResponse;
+    await expect(
+      page.getByText(/已导入离线资产包|Imported offline asset bundle/).first(),
+    ).toBeVisible();
+
+    const restoredPackage = await page.request.get(
+      backendURL(`/api/v1/packages/${encodeURIComponent(version)}`),
+    );
+    expect(restoredPackage.ok()).toBe(true);
+  } finally {
+    await deleteIfExists(
+      page,
+      `/api/v1/packages/offline-bundles/${encodeURIComponent(bundleFileName)}`,
+      `e2e-offline-bundle-final-cleanup-${Date.now()}`,
+    );
+    await deleteIfExists(
+      page,
+      `/api/v1/packages/${encodeURIComponent(version)}`,
+      `e2e-package-final-cleanup-${Date.now()}`,
+    );
   }
-
-  const createResponse = page.waitForResponse(
-    (response) =>
-      new URL(response.url()).pathname.endsWith(
-        '/api/v1/packages/offline-bundles',
-      ) &&
-      response.request().method() === 'POST' &&
-      response.ok(),
-  );
-  const downloadEvent = page.waitForEvent('download');
-  await page.getByTestId('offline-bundle-create-submit').click();
-  await createResponse;
-  const download = await downloadEvent;
-  expect(download.suggestedFilename()).toBe(bundleFileName);
-  await expect(page.getByText(bundleFileName, {exact: true})).toBeVisible();
-
-  await deleteIfExists(
-    page,
-    `/api/v1/packages/${encodeURIComponent(version)}`,
-    `e2e-package-delete-before-import-${Date.now()}`,
-  );
-
-  await page.getByTestId('offline-assets-tab-import').click();
-  const downloadedPath = await download.path();
-  const bundleBuffer = fs.readFileSync(downloadedPath);
-  await page.getByTestId('offline-assets-import-input').setInputFiles({
-    name: bundleFileName,
-    mimeType: 'application/gzip',
-    buffer: bundleBuffer,
-  });
-  await expect(
-    page.getByText(/已识别为离线资产包|Recognized as an offline asset bundle/),
-  ).toBeVisible();
-  await expect(page.getByTestId('offline-import-version')).toHaveCount(0);
-
-  const importResponse = page.waitForResponse(
-    (response) =>
-      new URL(response.url()).pathname.endsWith(
-        '/api/v1/packages/offline-bundles/import',
-      ) &&
-      response.request().method() === 'POST' &&
-      response.ok(),
-  );
-  await page.getByTestId('offline-import-submit').click();
-  await importResponse;
-  await expect(
-    page.getByText(/已导入离线资产包|Imported offline asset bundle/).first(),
-  ).toBeVisible();
-
-  const restoredPackage = await page.request.get(
-    backendURL(`/api/v1/packages/${encodeURIComponent(version)}`),
-  );
-  expect(restoredPackage.ok()).toBe(true);
-
-  await deleteIfExists(
-    page,
-    `/api/v1/packages/offline-bundles/${encodeURIComponent(bundleFileName)}`,
-    `e2e-offline-bundle-final-cleanup-${Date.now()}`,
-  );
-  await deleteIfExists(
-    page,
-    `/api/v1/packages/${encodeURIComponent(version)}`,
-    `e2e-package-final-cleanup-${Date.now()}`,
-  );
 });

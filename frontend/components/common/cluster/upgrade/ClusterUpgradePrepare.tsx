@@ -53,8 +53,8 @@ import {
 } from '@/components/ui/table';
 import services from '@/lib/services';
 import {
-  resolveSeatunnelVersion,
   resolveSelectableSeatunnelVersions,
+  resolveUpgradeTargetVersion,
 } from '@/lib/seatunnel-version';
 import {
   clearStUpgradeSession,
@@ -183,7 +183,9 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
       setAvailableVersions(versions);
       setTargetVersion(
         (current) =>
-          current || resolveSeatunnelVersion(versions) || clusterInfo.version,
+          current ||
+          resolveUpgradeTargetVersion(versions, clusterInfo.version) ||
+          clusterInfo.version,
       );
       restoreDraft();
     } catch (error) {
@@ -315,7 +317,10 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
     setPackageChecksum('');
     setConnectorNamesText('');
     const nextVersion =
-      resolveSeatunnelVersion(availableVersions || undefined) ||
+      resolveUpgradeTargetVersion(
+        availableVersions || undefined,
+        cluster?.version,
+      ) ||
       cluster?.version ||
       '';
     setTargetVersion(nextVersion);

@@ -609,10 +609,11 @@ func TestService_UploadPackageImportsBundledConnectors(t *testing.T) {
 	service := NewService(packageDir, nil)
 	const version = "9.9.94"
 	archive := createRuntimePackageArchive(t, version, map[string]string{
-		"connectors/connector-fake-9.9.94.jar":          "fake-jar",
-		"connectors/connector-console-9.9.94.jar":       "console-jar",
-		"connectors/nested/connector-ignore-9.9.94.jar": "ignored",
-		"lib/not-a-connector.jar":                       "ignored",
+		"connectors/connector-fake-9.9.94.jar":              "fake-jar",
+		"connectors/connector-console-9.9.94.jar":           "console-jar",
+		"connectors/nested/connector-ignore-9.9.94.jar":     "ignored",
+		"extra/connectors/connector-deep-ignore-9.9.94.jar": "ignored",
+		"lib/not-a-connector.jar":                           "ignored",
 	})
 	fileHeader := createUploadFileHeader(t, "file", packageFileName(version), archive)
 
@@ -631,8 +632,81 @@ func TestService_UploadPackageImportsBundledConnectors(t *testing.T) {
 			t.Fatalf("connector %s content = %q, want %q", name, got, want)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(root, "plugins", version, "connectors", "connector-ignore-9.9.94.jar")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("nested connector jar must not be imported, stat err=%v", err)
+	for _, ignored := range []string{"connector-ignore-9.9.94.jar", "connector-deep-ignore-9.9.94.jar"} {
+		if _, err := os.Stat(filepath.Join(root, "plugins", version, "connectors", ignored)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("nested connector jar %s must not be imported, stat err=%v", ignored, err)
+		}
+	}
+}
+
+func TestService_ExtractBundledConnectorsRespectsSizeLimit(t *testing.T) {
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "packages")
+	if err := os.MkdirAll(packageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const version = "9.9.96"
+	archive := createRuntimePackageArchive(t, version, map[string]string{
+		"connectors/connector-huge-9.9.96.jar": "0123456789abcdef",
+	})
+	archivePath := filepath.Join(packageDir, packageFileName(version))
+	if err := os.WriteFile(archivePath, archive, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(packageDir, nil)
+	if _, err := service.extractBundledConnectorsWithLimits(version, archivePath, 8, 64); err == nil {
+		t.Fatal("expected oversized connector jar to be rejected")
+	}
+	if _, err := os.Stat(filepath.Join(root, "plugins", version, "connectors", "connector-huge-9.9.96.jar")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("oversized jar must not be committed, stat err=%v", err)
+	}
+}
+
+func TestService_RunDownloadExtractsBundledConnectors(t *testing.T) {
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "packages")
+	tempDir := filepath.Join(root, "temp")
+	if err := os.MkdirAll(packageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(tempDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const version = "9.9.97"
+	archive := createRuntimePackageArchive(t, version, map[string]string{
+		"connectors/connector-fake-9.9.97.jar": "downloaded-fake-jar",
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(archive)
+	}))
+	defer server.Close()
+
+	service := NewService(packageDir, nil)
+	service.tempDir = tempDir
+	task := &DownloadTask{
+		ID:          "dl-test",
+		Version:     version,
+		Mirror:      MirrorApache,
+		DownloadURL: server.URL + "/" + packageFileName(version),
+		Status:      DownloadStatusPending,
+		done:        make(chan struct{}),
+	}
+	service.runDownload(context.Background(), task)
+	if task.Status != DownloadStatusCompleted {
+		t.Fatalf("expected download completed, got status=%s error=%s", task.Status, task.Error)
+	}
+	got, err := os.ReadFile(filepath.Join(root, "plugins", version, "connectors", "connector-fake-9.9.97.jar"))
+	if err != nil {
+		t.Fatalf("expected bundled connector extracted after download: %v", err)
+	}
+	if string(got) != "downloaded-fake-jar" {
+		t.Fatalf("unexpected extracted connector content %q", got)
 	}
 }
 
@@ -1077,14 +1151,12 @@ func TestMoveFileAtomicFallsBackOnCrossDeviceLink(t *testing.T) {
 			t.Fatalf("write src: %v", err)
 		}
 
-		origRename := renameFile
-		renameFile = func(oldPath, newPath string) error {
+		exdevRename := func(oldPath, newPath string) error {
 			return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: syscall.EXDEV}
 		}
-		defer func() { renameFile = origRename }()
 
-		if err := moveFileAtomic(src, dst); err != nil {
-			t.Fatalf("moveFileAtomic returned unexpected error: %v", err)
+		if err := moveFileAtomicWith(src, dst, exdevRename); err != nil {
+			t.Fatalf("moveFileAtomicWith returned unexpected error: %v", err)
 		}
 		got, err := os.ReadFile(dst)
 		if err != nil {
@@ -1110,12 +1182,9 @@ func TestMoveFileAtomicFallsBackOnCrossDeviceLink(t *testing.T) {
 		tempDir := t.TempDir()
 		service := NewService(packageDir, nil)
 		service.tempDir = tempDir
-
-		origRename := renameFile
-		renameFile = func(oldPath, newPath string) error {
+		service.renameFunc = func(oldPath, newPath string) error {
 			return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: syscall.EXDEV}
 		}
-		defer func() { renameFile = origRename }()
 
 		payload := []byte("seatunnel-3.0.0-tar-gz-content")
 		info, err := service.savePackageFromReader(
@@ -1147,13 +1216,11 @@ func TestMoveFileAtomicFallsBackOnCrossDeviceLink(t *testing.T) {
 			t.Fatalf("write src: %v", err)
 		}
 
-		origRename := renameFile
-		renameFile = func(oldPath, newPath string) error {
+		eaccesRename := func(oldPath, newPath string) error {
 			return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: syscall.EACCES}
 		}
-		defer func() { renameFile = origRename }()
 
-		err := moveFileAtomic(src, dst)
+		err := moveFileAtomicWith(src, dst, eaccesRename)
 		if !errors.Is(err, syscall.EACCES) {
 			t.Fatalf("expected EACCES error, got %v", err)
 		}

@@ -78,7 +78,9 @@ export function UploadPackageDialog({
     const extractedVersion = extractSeatunnelVersionFromPackageFileName(
       selectedFile.name,
     );
-    setVersion(extractedVersion);
+    if (extractedVersion) {
+      setVersion(extractedVersion);
+    }
   };
 
   // 验证并上传 / Validate and upload

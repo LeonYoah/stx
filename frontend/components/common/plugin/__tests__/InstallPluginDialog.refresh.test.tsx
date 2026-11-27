@@ -284,4 +284,27 @@ describe('InstallPluginDialog ready-on-open stability', () => {
     expect(getDownloadStatus.mock.calls.length).toBe(callsAfterComplete);
     expect(onDownloadComplete).toHaveBeenCalledTimes(1);
   });
+
+  it('requires profile confirmation from loaded official profiles even when plugin omits requires_profile_selection', async () => {
+    const pluginWithoutFlag: Plugin = {
+      ...samplePlugin,
+      requires_profile_selection: undefined,
+    };
+    const {findByText} = render(
+      <NextIntlClientProvider locale='zh' messages={zh}>
+        <InstallPluginDialog
+          open={true}
+          onOpenChange={vi.fn()}
+          plugin={pluginWithoutFlag}
+          version='2.3.12'
+          selectedProfileKeys={[]}
+          onDownloadComplete={vi.fn()}
+        />
+      </NextIntlClientProvider>,
+    );
+
+    expect(
+      await findByText(zh.plugin.confirmProfilesBeforeInstall),
+    ).toBeTruthy();
+  });
 });

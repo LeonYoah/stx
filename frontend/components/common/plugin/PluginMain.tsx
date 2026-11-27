@@ -1709,16 +1709,22 @@ export function PluginMain() {
   const getSelectedPluginsForBatchInstall = (): Plugin[] => {
     return localPlugins
       .filter((p) => selectedLocalPlugins.has(`${p.name}:${p.version}`))
-      .map((p) => ({
-        name: p.name,
-        display_name: p.name,
-        category: p.category,
-        version: p.version,
-        description: '',
-        group_id: 'org.apache.seatunnel',
-        artifact_id: p.artifact_id || `connector-${p.name}`,
-        dependencies: p.dependencies || [],
-      }));
+      .map((p) => {
+        const catalogPlugin = plugins.find((item) => item.name === p.name);
+        return {
+          name: p.name,
+          display_name: p.name,
+          category: p.category,
+          version: p.version,
+          description: '',
+          group_id: 'org.apache.seatunnel',
+          artifact_id: p.artifact_id || `connector-${p.name}`,
+          dependencies: p.dependencies || [],
+          requires_profile_selection:
+            p.requires_profile_selection ??
+            catalogPlugin?.requires_profile_selection,
+        };
+      });
   };
 
   /**
@@ -2007,6 +2013,7 @@ export function PluginMain() {
         const IconComponent = semanticIcon.icon;
         // AC12：本地卡片可点标题/眼睛打开详情（与可用列表一致）。
         // AC12: local cards open detail via title/Eye like the available list.
+        const catalogPlugin = plugins.find((item) => item.name === plugin.name);
         const pluginForDetail: Plugin = {
           name: plugin.name,
           display_name: plugin.name,
@@ -2016,6 +2023,9 @@ export function PluginMain() {
           group_id: 'org.apache.seatunnel',
           artifact_id: plugin.artifact_id || `connector-${plugin.name}`,
           dependencies: plugin.dependencies || [],
+          requires_profile_selection:
+            plugin.requires_profile_selection ??
+            catalogPlugin?.requires_profile_selection,
         };
         return {
           id: key,
@@ -2141,6 +2151,7 @@ export function PluginMain() {
     handleViewDetail,
     openDeleteLocalPluginDialog,
     openInstallDialog,
+    plugins,
     t,
   ]);
 

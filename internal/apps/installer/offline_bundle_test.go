@@ -147,3 +147,29 @@ func TestCreateOfflineBundleRequiresLocalPackage(t *testing.T) {
 		t.Fatalf("expected ErrOfflineBundlePackageMissing, got %v", err)
 	}
 }
+
+func TestImportOfflineBundleRejectsInvalidManifestVersion(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	staging := filepath.Join(root, "staging")
+	bundleRoot := filepath.Join(staging, "stx-seatunnel-offline-bad")
+	if err := os.MkdirAll(bundleRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"format":"stx-seatunnel-offline-bundle/v1","seatunnel_version":"../evil"}`
+	if err := os.WriteFile(filepath.Join(bundleRoot, "MANIFEST.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	archivePath := filepath.Join(root, "bad-bundle.tar.gz")
+	if err := createTarGz(archivePath, staging, "stx-seatunnel-offline-bad"); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(filepath.Join(root, "packages"), nil)
+	svc.tempDir = filepath.Join(root, "temp")
+	_ = os.MkdirAll(svc.tempDir, 0o755)
+	_, err := svc.ImportOfflineBundle(t.Context(), archivePath)
+	if !errors.Is(err, ErrOfflineBundleInvalid) {
+		t.Fatalf("expected ErrOfflineBundleInvalid for traversal version, got %v", err)
+	}
+}

@@ -173,8 +173,16 @@ func TestDownloadPlugin_dependencyFailureIsRecordedWithoutBlocking(t *testing.T)
 		},
 	}
 
-	if err := d.DownloadPlugin(context.Background(), plugin, MirrorSourceApache, []string{"mysql"}, true, false, nil); err != nil {
+	var finalCallbackProgress *DownloadProgress
+	if err := d.DownloadPlugin(context.Background(), plugin, MirrorSourceApache, []string{"mysql"}, true, false, func(p *DownloadProgress) {
+		cp := *p
+		cp.DependencyFailures = append([]PluginDependencyFailure(nil), p.DependencyFailures...)
+		finalCallbackProgress = &cp
+	}); err != nil {
 		t.Fatalf("expected dependency failure not to block plugin download, got %v", err)
+	}
+	if finalCallbackProgress == nil || finalCallbackProgress.Status != "completed" || len(finalCallbackProgress.DependencyFailures) != 1 {
+		t.Fatalf("expected final callback with completed status and dependency failure, got %+v", finalCallbackProgress)
 	}
 	if _, err := os.Stat(filepath.Join(pluginsDir, "9.9.91", "lib", "good-dep-1.0.jar")); err != nil {
 		t.Fatalf("expected successful dependency to be downloaded: %v", err)
@@ -195,6 +203,19 @@ func TestDownloadPlugin_dependencyFailureIsRecordedWithoutBlocking(t *testing.T)
 	if len(locals) != 1 || len(locals[0].DependencyFailures) != 1 || locals[0].DependencyFailures[0].ArtifactID != "missing-dep" {
 		t.Fatalf("expected local plugin to expose dependency failure, got %+v", locals)
 	}
+
+	// 手动补齐缺失依赖后，ListLocalPlugins 应自动收敛告警。
+	// Once the missing dependency jar is present on disk, ListLocalPlugins should stop reporting it as failed.
+	if err := os.WriteFile(filepath.Join(pluginsDir, "9.9.91", "lib", "missing-dep-1.0.jar"), []byte("manual-jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	locals, err = d.ListLocalPlugins()
+	if err != nil {
+		t.Fatalf("list local plugins after manual fix: %v", err)
+	}
+	if len(locals) != 1 || len(locals[0].DependencyFailures) != 0 {
+		t.Fatalf("expected dependency failures to clear once jar exists, got %+v", locals)
+	}
 }
 
 func TestConnectorEmbeddedVersionMatchesInternalSuffix(t *testing.T) {
@@ -206,5 +227,44 @@ func TestConnectorEmbeddedVersionMatchesInternalSuffix(t *testing.T) {
 	}
 	if connectorEmbeddedVersionMatches("3.1.1", "3.1.0-hotfix1") {
 		t.Fatalf("different embedded version must not match")
+	}
+
+	pluginsDir := t.TempDir()
+	const version = "3.1.0-hotfix1"
+	connectorsDir := filepath.Join(pluginsDir, version, "connectors")
+	if err := os.MkdirAll(connectorsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(connectorsDir, "connector-fake-3.1.0.jar"), []byte("base-fake-jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(connectorsDir, "connector-other-3.1.1.jar"), []byte("wrong-ver"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	d := NewDownloader(pluginsDir)
+	locals, err := d.ListLocalPlugins()
+	if err != nil {
+		t.Fatalf("ListLocalPlugins failed: %v", err)
+	}
+	if len(locals) != 1 || locals[0].Name != "fake" || locals[0].Version != version {
+		t.Fatalf("expected base-version jar to be listed under %s, got %+v", version, locals)
+	}
+	if !d.IsConnectorDownloaded("fake", version) || !d.IsConnectorDownloadedByArtifactID("connector-fake", version) {
+		t.Fatalf("expected IsConnectorDownloaded* to find base-version jar under %s", version)
+	}
+	data, err := d.ReadPluginFile("fake", version)
+	if err != nil || string(data) != "base-fake-jar" {
+		t.Fatalf("ReadPluginFile failed: data=%q err=%v", data, err)
+	}
+	data, err = d.ReadPluginFileByArtifactID("connector-fake", version)
+	if err != nil || string(data) != "base-fake-jar" {
+		t.Fatalf("ReadPluginFileByArtifactID failed: data=%q err=%v", data, err)
+	}
+	if err := d.DeleteLocalPlugin("fake", version); err != nil {
+		t.Fatalf("DeleteLocalPlugin failed for base-version jar: %v", err)
+	}
+	if d.IsConnectorDownloaded("fake", version) {
+		t.Fatalf("expected connector to be deleted")
 	}
 }

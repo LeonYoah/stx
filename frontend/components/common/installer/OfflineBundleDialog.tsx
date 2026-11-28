@@ -47,6 +47,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {FileUpload} from '@/components/ui/file-upload';
+import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {
   Select,
@@ -63,6 +64,10 @@ import {
   listOfflineBundles,
 } from '@/lib/services/installer';
 import type {OfflineBundleInfo, PackageInfo} from '@/lib/services/installer';
+import {
+  extractSeatunnelVersionFromPackageFileName,
+  isRecommendedSeatunnelVersionFormat,
+} from '@/lib/services/installer/package-version';
 
 type OfflineBundleDialogProps = {
   open: boolean;
@@ -71,10 +76,7 @@ type OfflineBundleDialogProps = {
   /** 打开完整「单包上传」表单（含源码包）/ Open full single-package upload form (incl. source) */
   onOpenSinglePackageUpload?: () => void;
   /** 单包上传到本地仓 / Upload a single bin archive into local cache */
-  onUploadSinglePackage?: (
-    file: File,
-    version: string,
-  ) => Promise<void>;
+  onUploadSinglePackage?: (file: File, version: string) => Promise<void>;
   onImported?: () => void;
 };
 
@@ -97,12 +99,6 @@ function isOfflineAssetBundleName(fileName: string): boolean {
   return /stx-seatunnel-offline-.*\.tar\.gz$/i.test(fileName.trim());
 }
 
-/** 从官方 bin 包名解析版本 / Parse version from apache-seatunnel-*-bin.tar.gz */
-function extractBinVersion(fileName: string): string {
-  const match = fileName.match(/apache-seatunnel-(.+)-bin\.tar\.gz$/i);
-  return match?.[1]?.trim() || '';
-}
-
 export function OfflineBundleDialog({
   open,
   onOpenChange,
@@ -122,6 +118,9 @@ export function OfflineBundleDialog({
   const [downloading, setDownloading] = useState<string | null>(null);
   const [bundles, setBundles] = useState<OfflineBundleInfo[]>([]);
   const [loadingList, setLoadingList] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importVersion, setImportVersion] = useState('');
+  const [importError, setImportError] = useState<string | null>(null);
   // null = 跟随是否已有本地安装包；用户点过之后以用户选择为准 / null follows local-package availability until the user toggles it
   const [prereqOpen, setPrereqOpen] = useState<boolean | null>(null);
   const prereqExpanded = prereqOpen ?? localPackages.length === 0;
@@ -138,7 +137,9 @@ export function OfflineBundleDialog({
     try {
       setBundles(await listOfflineBundles());
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('offlineBundleListFailed'));
+      toast.error(
+        err instanceof Error ? err.message : t('offlineBundleListFailed'),
+      );
     } finally {
       setLoadingList(false);
     }
@@ -150,6 +151,9 @@ export function OfflineBundleDialog({
     }
     const first = localPackages[0]?.version || '';
     setVersion((prev) => prev || first);
+    setImportFile(null);
+    setImportVersion('');
+    setImportError(null);
     // 有本地包时默认导出；否则默认导入（无网首装更常见）。
     // Prefer export when local packages exist; otherwise import (typical offline first install).
     setActiveTab(localPackages.length > 0 ? 'export' : 'import');
@@ -172,7 +176,9 @@ export function OfflineBundleDialog({
       await refreshList();
       await downloadOfflineBundle(info.file_name);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('offlineBundleCreateFailed'));
+      toast.error(
+        err instanceof Error ? err.message : t('offlineBundleCreateFailed'),
+      );
     } finally {
       setCreating(false);
     }
@@ -183,33 +189,62 @@ export function OfflineBundleDialog({
     try {
       await downloadOfflineBundle(bundle.file_name);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('offlineBundleDownloadFailed'));
+      toast.error(
+        err instanceof Error ? err.message : t('offlineBundleDownloadFailed'),
+      );
     } finally {
       setDownloading(null);
     }
   };
 
-  /**
-   * 按文件名分流：资产包走 import API；官方 bin 走单包上传。
-   * Route by filename: asset bundle → import API; official bin → single-package upload.
-   */
-  const handleImportFile = async (file: File | null) => {
-    if (!file) {
+  const handleImportFileSelect = (selectedFile: File | null) => {
+    setImportError(null);
+    if (!selectedFile) {
+      setImportFile(null);
+      setImportVersion('');
       return;
     }
-    const name = file.name;
+    if (!selectedFile.name.toLowerCase().endsWith('.tar.gz')) {
+      setImportFile(null);
+      setImportVersion('');
+      setImportError(t('invalidFileFormat'));
+      return;
+    }
+    setImportFile(selectedFile);
+    if (isOfflineAssetBundleName(selectedFile.name)) {
+      setImportVersion('');
+      return;
+    }
+    setImportVersion(
+      extractSeatunnelVersionFromPackageFileName(selectedFile.name),
+    );
+  };
+
+  const handleImportSelectedFile = async () => {
+    if (!importFile) {
+      setImportError(t('offlineImportChooseFileFirst'));
+      return;
+    }
+    const name = importFile.name;
+    if (!name.toLowerCase().endsWith('.tar.gz')) {
+      setImportError(t('invalidFileFormat'));
+      return;
+    }
 
     if (isOfflineAssetBundleName(name)) {
       setImporting(true);
+      setImportError(null);
       try {
-        const info = await importOfflineBundle(file);
+        const info = await importOfflineBundle(importFile);
         toast.success(
           t('offlineBundleImported', {version: info.seatunnel_version}),
         );
+        setImportFile(null);
+        setImportVersion('');
         await refreshList();
         onImported?.();
       } catch (err) {
-        toast.error(
+        setImportError(
           err instanceof Error ? err.message : t('offlineBundleImportFailed'),
         );
       } finally {
@@ -218,25 +253,45 @@ export function OfflineBundleDialog({
       return;
     }
 
-    const binVersion = extractBinVersion(name);
-    if (binVersion && onUploadSinglePackage) {
-      setImporting(true);
-      try {
-        await onUploadSinglePackage(file, binVersion);
-        toast.success(t('offlineImportSingleDone', {version: binVersion}));
-        onImported?.();
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : t('offlineImportSingleFailed'),
-        );
-      } finally {
-        setImporting(false);
-      }
+    const packageVersion = importVersion.trim();
+    if (!packageVersion) {
+      setImportError(t('offlineImportVersionRequired'));
+      return;
+    }
+    if (!onUploadSinglePackage) {
+      setImportError(t('offlineImportSingleFailed'));
       return;
     }
 
-    toast.error(t('offlineImportUnrecognized'));
+    setImporting(true);
+    setImportError(null);
+    try {
+      await onUploadSinglePackage(importFile, packageVersion);
+      toast.success(t('offlineImportSingleDone', {version: packageVersion}));
+      setImportFile(null);
+      setImportVersion('');
+      onImported?.();
+    } catch (err) {
+      setImportError(
+        err instanceof Error ? err.message : t('offlineImportSingleFailed'),
+      );
+    } finally {
+      setImporting(false);
+    }
   };
+
+  const selectedImportIsBundle = importFile
+    ? isOfflineAssetBundleName(importFile.name)
+    : false;
+  const trimmedImportVersion = importVersion.trim();
+  const showImportVersionWarning =
+    !selectedImportIsBundle &&
+    trimmedImportVersion.length > 0 &&
+    !isRecommendedSeatunnelVersionFormat(trimmedImportVersion);
+  const canImport =
+    importFile != null &&
+    !importing &&
+    (selectedImportIsBundle || trimmedImportVersion.length > 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -255,10 +310,18 @@ export function OfflineBundleDialog({
           className='min-h-0 flex-1 flex flex-col overflow-hidden'
         >
           <TabsList className='grid h-9 w-full shrink-0 grid-cols-2'>
-            <TabsTrigger value='import' className='text-xs'>
+            <TabsTrigger
+              value='import'
+              className='text-xs'
+              data-testid='offline-assets-tab-import'
+            >
               {t('offlineAssetsTabImport')}
             </TabsTrigger>
-            <TabsTrigger value='export' className='text-xs'>
+            <TabsTrigger
+              value='export'
+              className='text-xs'
+              data-testid='offline-assets-tab-export'
+            >
               {t('offlineAssetsTabExport')}
             </TabsTrigger>
           </TabsList>
@@ -271,18 +334,65 @@ export function OfflineBundleDialog({
               </ul>
               <FileUpload
                 id='offline-assets-import-input'
-                variant='button'
+                variant='input'
                 accept='.tar.gz,application/gzip'
+                value={importFile}
                 uploading={importing}
                 resetOnSelect
-                buttonLabel={t('offlineImportChooseFile')}
+                showSelectedFile={false}
+                emptyLabel={t('offlineImportChooseFile')}
+                error={importError}
                 data-testid='offline-assets-import'
-                onFileChange={(file) => {
-                  if (file) {
-                    void handleImportFile(file);
-                  }
-                }}
+                onFileChange={handleImportFileSelect}
               />
+              {importFile ? (
+                <div className='rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground'>
+                  {selectedImportIsBundle
+                    ? t('offlineImportKindBundle')
+                    : t('offlineImportKindPackage')}
+                </div>
+              ) : null}
+              {importFile && !selectedImportIsBundle ? (
+                <div className='space-y-1.5'>
+                  <Label htmlFor='offline-import-version' className='text-xs'>
+                    {t('version')}
+                    <span className='ml-0.5 text-destructive'>*</span>
+                  </Label>
+                  <Input
+                    id='offline-import-version'
+                    value={importVersion}
+                    disabled={importing}
+                    placeholder='3.1.0'
+                    data-testid='offline-import-version'
+                    onChange={(event) => {
+                      setImportVersion(event.target.value);
+                      setImportError(null);
+                    }}
+                  />
+                  <p className='text-xs text-muted-foreground'>
+                    {t('offlineImportVersionHint')}
+                  </p>
+                  {showImportVersionWarning ? (
+                    <p
+                      className='text-xs text-amber-600 dark:text-amber-400'
+                      data-testid='offline-import-version-warning'
+                    >
+                      {t('offlineImportVersionFormatWarning')}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              <Button
+                className='w-full'
+                disabled={!canImport}
+                data-testid='offline-import-submit'
+                onClick={() => void handleImportSelectedFile()}
+              >
+                {importing ? (
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                ) : null}
+                {t('offlineImportStart')}
+              </Button>
               {onOpenSinglePackageUpload ? (
                 <Button
                   variant='link'
@@ -333,7 +443,10 @@ export function OfflineBundleDialog({
                 <div className='space-y-1.5'>
                   <Label className='text-xs'>{t('version')}</Label>
                   <Select value={version} onValueChange={setVersion}>
-                    <SelectTrigger className='h-9'>
+                    <SelectTrigger
+                      className='h-9'
+                      data-testid='offline-bundle-export-version'
+                    >
                       <SelectValue
                         placeholder={t('offlineBundleSelectVersion')}
                       />
@@ -355,6 +468,7 @@ export function OfflineBundleDialog({
 
                 <label className='flex items-center gap-2 text-sm'>
                   <Checkbox
+                    data-testid='offline-bundle-include-plugins'
                     checked={includePlugins}
                     onCheckedChange={(v) => setIncludePlugins(v === true)}
                   />
@@ -362,6 +476,7 @@ export function OfflineBundleDialog({
                 </label>
                 <label className='flex items-center gap-2 text-sm'>
                   <Checkbox
+                    data-testid='offline-bundle-include-source'
                     checked={includeSource}
                     onCheckedChange={(v) => setIncludeSource(v === true)}
                   />
@@ -371,6 +486,7 @@ export function OfflineBundleDialog({
                 <Button
                   className='w-full'
                   disabled={!version || creating || localPackages.length === 0}
+                  data-testid='offline-bundle-create-submit'
                   onClick={() => void handleCreate()}
                 >
                   {creating ? (

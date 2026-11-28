@@ -45,6 +45,7 @@ export interface ApiError {
   - 后端写接口接入公共执行协议后，Web service 必须同步接入 `createWebExecutionHeaders`。不能只验证 CLI，也不能在全局 axios 拦截器里给所有 POST/PUT/DELETE 自动加执行请求头，因为登录、查询型 POST 和未接入公共执行协议的接口不需要这些请求头。
   - R1 请求必须发送稳定的 `Idempotency-Key` 和 `X-STX-Confirm: true`；R2/R3 首次请求取得 `confirmation_id` 后，必须复用同一个幂等键，并通过 `X-STX-Confirmation-ID` 只重试一次。上传分片应为每个分片生成稳定且互不相同的幂等键，使单个分片可以安全重试。
   - 在线补充 SeaTunnel 源码属于长耗时写请求，service 要为该请求设置独立的 10 分钟超时，不能沿用普通 API 客户端的 60 秒超时。
+  - SeaTunnel 离线资产包的创建与导入耗时随包体和网络变化，service 必须显式禁用普通 API 客户端的 60 秒超时；离线包下载必须使用浏览器原生下载指向后端流式文件接口，不能用 axios Blob 把数 GiB 文件先读入前端内存。
   - 同一业务动作的 CLI 与 Web 调用方必须一起检查。后端新增或提高风险等级时，至少验证 Web 正常请求、幂等重试、一次性确认和错误结构透传。
 - **使用**：组件或 hooks 从 `lib/services/<domain>` 导入 service，调用静态方法；错误用 try/catch 捕获，消息在 UI 中展示（toast 或行内错误状态）。
 

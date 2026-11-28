@@ -611,6 +611,24 @@ func TestInstallPluginToClusterRecordsAttachedConnectorDependencies(t *testing.T
 	}
 }
 
+func TestOfficialDependencyEffectiveDependenciesKeepDirectSourceURL(t *testing.T) {
+	service, _ := newTestPluginService(t)
+	deps, err := service.GetEffectiveDependencies(context.Background(), "file-obs", "3.1.0", nil)
+	if err != nil {
+		t.Fatalf("GetEffectiveDependencies returned error: %v", err)
+	}
+	byArtifact := make(map[string]PluginDependency, len(deps))
+	for _, dep := range deps {
+		byArtifact[dep.ArtifactID] = dep
+	}
+	if got := byArtifact["esdk-obs-java"].SourceURL; got != "https://repo.huaweicloud.com/artifactory/sdk_public/com/huawei/storage/esdk-obs-java/3.19.7.3/esdk-obs-java-3.19.7.3.jar" {
+		t.Fatalf("unexpected esdk source url %q", got)
+	}
+	if got := byArtifact["hadoop-huaweicloud"].SourceURL; got != "https://repo.huaweicloud.com/artifactory/sdk_public/org/apache/hadoop/hadoop-huaweicloud/3.1.1.29/hadoop-huaweicloud-3.1.1.29.jar" {
+		t.Fatalf("unexpected hadoop-huaweicloud source url %q", got)
+	}
+}
+
 func TestListAvailablePluginsFetchesRemoteAndPersistsCatalog(t *testing.T) {
 	service, repo := newTestPluginService(t)
 	ctx := context.Background()
@@ -819,6 +837,21 @@ func TestListAvailablePluginsFor2312UsesRemoteCatalogAndSeedDependencyBaseline(t
 	}
 	if names["jdbc"].DependencyStatus != PluginDependencyStatusUnknown {
 		t.Fatalf("expected jdbc unknown due to multiple seeded profiles, got %q", names["jdbc"].DependencyStatus)
+	}
+	if !names["jdbc"].RequiresProfileSelection {
+		t.Fatalf("expected jdbc to require profile selection")
+	}
+	if names["hive"].RequiresProfileSelection {
+		t.Fatalf("expected hive default profile not to require explicit selection")
+	}
+}
+
+func TestRequiresExplicitProfileSelectionUsesEnrichedProfileData(t *testing.T) {
+	if !requiresExplicitProfileSelection(&Plugin{Name: "custom-db", ArtifactID: "connector-custom-db", RequiresProfileSelection: true}) {
+		t.Fatalf("expected non-JDBC plugin with ambiguous profiles to require selection")
+	}
+	if requiresExplicitProfileSelection(&Plugin{Name: "jdbc", ArtifactID: "connector-jdbc"}) {
+		t.Fatalf("expected unenriched JDBC fallback not to force selection")
 	}
 }
 
@@ -1832,5 +1865,174 @@ func TestGetDownloadStatus_completedWhenConnectorAndMetadataExist(t *testing.T) 
 	}
 	if status.Progress != 100 {
 		t.Fatalf("expected progress 100, got %d", status.Progress)
+	}
+}
+
+func TestGetArtifactIDUsesConnectorMappings(t *testing.T) {
+	cases := map[string]string{
+		"mysql":      "connector-jdbc",
+		"mysql-cdc":  "connector-cdc-mysql",
+		"tablestore": "connector-tablestore",
+	}
+	for name, want := range cases {
+		if got := getArtifactID(name); got != want {
+			t.Fatalf("getArtifactID(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestGetDownloadStatus_tablestoreDoesNotReuseJdbcConnector(t *testing.T) {
+	newService := func(t *testing.T, pluginsDir string) *Service {
+		t.Helper()
+		service, _ := newTestPluginServiceWithDownloader(t, pluginsDir)
+		service.SetPluginFetcher(func(ctx context.Context, version string, mirror MirrorSource) ([]Plugin, MirrorSource, error) {
+			return []Plugin{{
+				Name:       "tablestore",
+				ArtifactID: "connector-tablestore",
+				GroupID:    "org.apache.seatunnel",
+				Version:    version,
+			}}, mirror, nil
+		})
+		return service
+	}
+	writeConnector := func(t *testing.T, pluginsDir, version, artifactID string) {
+		t.Helper()
+		path := filepath.Join(pluginsDir, version, "connectors", artifactID+"-"+version+".jar")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("failed to create connector dir: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("jar"), 0o644); err != nil {
+			t.Fatalf("failed to write connector jar: %v", err)
+		}
+	}
+
+	t.Run("jdbc 存在时 tablestore 仍视为未下载", func(t *testing.T) {
+		pluginsDir := t.TempDir()
+		service := newService(t, pluginsDir)
+		writeConnector(t, pluginsDir, "9.9.9", "connector-jdbc")
+
+		status := service.GetDownloadStatus("tablestore", "9.9.9", nil)
+		if status.Status != "not_started" {
+			t.Fatalf("expected tablestore not_started when only jdbc exists, got %s", status.Status)
+		}
+	})
+
+	t.Run("tablestore 自身 artifact 存在时返回完成", func(t *testing.T) {
+		pluginsDir := t.TempDir()
+		service := newService(t, pluginsDir)
+		writeConnector(t, pluginsDir, "9.9.9", "connector-tablestore")
+
+		status := service.GetDownloadStatus("tablestore", "9.9.9", nil)
+		if status.Status != "completed" {
+			t.Fatalf("expected tablestore completed when its artifact exists, got %s", status.Status)
+		}
+	})
+}
+
+func TestGetDownloadStatus_exposesPendingDependencyFailuresAndRealCompletedCount(t *testing.T) {
+	pluginsDir := t.TempDir()
+	service, _ := newTestPluginServiceWithDownloader(t, pluginsDir)
+	const version = "3.0.0"
+
+	connectorPath := filepath.Join(pluginsDir, version, "connectors", "connector-jdbc-"+version+".jar")
+	if err := os.MkdirAll(filepath.Dir(connectorPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(connectorPath, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AddDependency(context.Background(), &AddDependencyRequest{
+		PluginName:       "jdbc",
+		SeatunnelVersion: version,
+		GroupID:          "com.example",
+		ArtifactID:       "ok-driver",
+		Version:          "1.0.0",
+		TargetDir:        "lib",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AddDependency(context.Background(), &AddDependencyRequest{
+		PluginName:       "jdbc",
+		SeatunnelVersion: version,
+		GroupID:          "com.example",
+		ArtifactID:       "missing-driver",
+		Version:          "1.0.0",
+		TargetDir:        "lib",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(pluginsDir, version, "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginsDir, version, "lib", "ok-driver-1.0.0.jar"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.downloader.writePluginMetadata(
+		&Plugin{Name: "jdbc", Version: version, ArtifactID: "connector-jdbc"},
+		[]string{"mysql"},
+		PluginDependencyFailure{GroupID: "com.example", ArtifactID: "missing-driver", Version: "1.0.0", TargetDir: "lib", Error: "404"},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	status := service.GetDownloadStatus("jdbc", version, []string{"mysql"})
+	if status.Status != "completed" {
+		t.Fatalf("expected completed status, got %+v", status)
+	}
+	if status.DependencyCompleted >= status.DependencyCount {
+		t.Fatalf("expected DependencyCompleted < DependencyCount when a dependency is missing, got %d/%d", status.DependencyCompleted, status.DependencyCount)
+	}
+	if len(status.DependencyFailures) != 1 || status.DependencyFailures[0].ArtifactID != "missing-driver" {
+		t.Fatalf("expected missing-driver in DependencyFailures, got %+v", status.DependencyFailures)
+	}
+	if status.Message == "" {
+		t.Fatalf("expected warning message when dependency failures exist")
+	}
+}
+
+func TestListLocalPlugins_populatesRequiresProfileSelection(t *testing.T) {
+	pluginsDir := t.TempDir()
+	service, _ := newTestPluginServiceWithDownloader(t, pluginsDir)
+	const version = "3.1.0"
+
+	connectorPath := filepath.Join(pluginsDir, version, "connectors", "connector-jdbc-"+version+".jar")
+	if err := os.MkdirAll(filepath.Dir(connectorPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(connectorPath, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	locals, err := service.ListLocalPlugins()
+	if err != nil {
+		t.Fatalf("ListLocalPlugins failed: %v", err)
+	}
+	if len(locals) != 1 || !locals[0].RequiresProfileSelection {
+		t.Fatalf("expected local jdbc plugin to set RequiresProfileSelection=true, got %+v", locals)
+	}
+}
+
+func TestIsPluginDownloaded_doesNotTriggerRemoteFetch(t *testing.T) {
+	pluginsDir := t.TempDir()
+	service, _ := newTestPluginServiceWithDownloader(t, pluginsDir)
+	fetchCalled := false
+	service.SetPluginFetcher(func(ctx context.Context, version string, mirror MirrorSource) ([]Plugin, MirrorSource, error) {
+		fetchCalled = true
+		return nil, mirror, nil
+	})
+
+	connectorPath := filepath.Join(pluginsDir, "9.9.98", "connectors", "connector-tablestore-9.9.98.jar")
+	if err := os.MkdirAll(filepath.Dir(connectorPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(connectorPath, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if !service.IsPluginDownloaded("tablestore", "9.9.98") {
+		t.Fatal("expected IsPluginDownloaded to detect local connector-tablestore jar")
+	}
+	if fetchCalled {
+		t.Fatal("IsPluginDownloaded must not invoke remote plugin fetcher")
 	}
 }

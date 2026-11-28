@@ -497,5 +497,92 @@ describe('buildMetricFlowSankey', () => {
     expect(colors['o:committed']).toBe('outcome-color');
     expect(colors['o:pending']).toBe('warn-color');
     expect(colors['o:backlog']).toBe('warn-color');
+
+    const withPendingColor = buildMetricFlowSankey(
+      tableMetrics([
+        {read: 500, write: 400, committed: 300},
+        {read: 300, write: 300, committed: 300},
+      ]),
+      {
+        ...sankeyOpts,
+        colors: {...sankeyOpts.colors, pending: 'info-color'},
+      },
+    );
+    const pendingColors = Object.fromEntries(
+      withPendingColor.nodes.map((node) => [node.id, node.color]),
+    );
+    expect(pendingColors['o:pending']).toBe('info-color');
+    expect(pendingColors['o:backlog']).toBe('warn-color');
+  });
+
+  it('switches Sankey flow weights and fallback outcome node in bytes mode', () => {
+    const metrics = {
+      TableSourceReceivedCount: {'Source[0].db.small': 500, 'Source[1].db.wide': 20},
+      TableSinkWriteCount: {'Sink[0].db.small': 500, 'Sink[1].db.wide': 20},
+      TableSourceReceivedBytes: {'Source[0].db.small': 4096, 'Source[1].db.wide': 65536},
+      TableSinkWriteBytes: {'Sink[0].db.small': 4096, 'Sink[1].db.wide': 49152},
+    };
+    const sankey = buildMetricFlowSankey(metrics, {
+      ...sankeyOpts,
+      labels: {...sankeyOpts.labels, written: '已写入'},
+      unit: 'bytes',
+    });
+    // 体积口径按字节降序排序：db.wide（64 KB）排在 db.small（4 KB）之前；缺少表级提交字节时落到 o:written。
+    // Byte mode sorts by byte volume descending (db.wide before db.small) and routes writes to o:written when TableSinkCommittedBytes is absent.
+    expect(sankey.nodes[0].id).toBe('s:wide');
+    expect(sankey.nodes.some((node) => node.id === 'o:written')).toBe(true);
+    expect(sankey.nodes.some((node) => node.id === 'o:pending')).toBe(false);
+    const backlog = sankey.links.find((link) => link.source === 's:wide' && link.target === 'o:backlog');
+    expect(backlog?.value).toBe(16384);
+  });
+});
+
+describe('metric byte mode helpers', () => {
+  it('detects byte availability from global or per-table byte maps', () => {
+    expect(hasMetricByteData({SourceReceivedCount: 100, SinkWriteCount: 100})).toBe(false);
+    expect(hasMetricByteData({SourceReceivedBytes: 2048, SinkWriteBytes: 2048})).toBe(true);
+    expect(
+      hasMetricByteData({
+        TableSourceReceivedBytes: {'Source[0].db.a': 1024, 'Source[1].db.b': 2048},
+      }),
+    ).toBe(true);
+    expect(
+      resolveMetricByteTotals({
+        TableSourceReceivedBytes: {'Source[0].db.a': 1024, 'Source[1].db.b': 2048},
+      }).readBytes,
+    ).toBe(3072);
+  });
+
+  it('degrades cleanly without false pending warning when SinkCommittedBytes is missing', () => {
+    const flow = summarizeMetricFlow(
+      {SourceReceivedBytes: 10240, SinkWriteBytes: 10240},
+      {unit: 'bytes'},
+    );
+    expect(flow.hasCommitMetric).toBe(false);
+    expect(flow.pendingCommitCount).toBe(0);
+    expect(flow.tone).toBe('neutral');
+    expect(flow.segments.map((item) => item.key)).toEqual(['metricFlowVolumeBalanced']);
+
+    const bar = buildMetricFlowBar(flow.readCount, flow.writeCount, flow.committedCount, {
+      hasCommitMetric: flow.hasCommitMetric,
+    });
+    expect(bar.segments).toEqual([
+      {key: 'written', value: 10240, share: 1},
+      {key: 'backlog', value: 0, share: 0},
+    ]);
+  });
+
+  it('reports pending commit bytes when SinkCommittedBytes is present', () => {
+    const flow = summarizeMetricFlow(
+      {SourceReceivedBytes: 10240, SinkWriteBytes: 10240, SinkCommittedBytes: 8192},
+      {unit: 'bytes'},
+    );
+    expect(flow.hasCommitMetric).toBe(true);
+    expect(flow.pendingCommitCount).toBe(2048);
+    expect(flow.tone).toBe('warning');
+    expect(flow.segments.map((item) => item.key)).toEqual([
+      'metricFlowVolumeBalanced',
+      'metricFlowPendingCommitBytes',
+    ]);
   });
 });

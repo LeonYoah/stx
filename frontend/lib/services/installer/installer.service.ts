@@ -259,13 +259,13 @@ export async function listOfflineBundles(): Promise<OfflineBundleInfo[]> {
   return response.data.data ?? [];
 }
 
-/** Create offline bundle from local package (+ plugins) / 从本地仓打包离线资产 */
 export async function createOfflineBundle(
   request: OfflineBundleCreateRequest,
 ): Promise<OfflineBundleInfo> {
   const response = await apiClient.post<OfflineBundleResponse>(
     `${API_PREFIX}/packages/offline-bundles`,
     request,
+    {timeout: 0},
   );
   if (response.data.error_msg || !response.data.data) {
     throw new Error(response.data.error_msg || 'create offline bundle failed');
@@ -273,33 +273,34 @@ export async function createOfflineBundle(
   return response.data.data;
 }
 
-/** Download offline bundle file / 下载离线资产包文件 */
 export async function downloadOfflineBundle(
   fileName: string,
 ): Promise<void> {
   const name = fileName.replace(/\.tar\.gz$/i, '');
-  const response = await apiClient.get<Blob>(
-    `${API_PREFIX}/packages/offline-bundles/${encodeURIComponent(fileName)}/download`,
-    {responseType: 'blob'},
-  );
-  const url = URL.createObjectURL(response.data);
+  const baseURL = apiClient.defaults.baseURL ?? '/api/v1';
+  const normalizedBaseURL = baseURL.endsWith('/')
+    ? baseURL.slice(0, -1)
+    : baseURL;
   const anchor = document.createElement('a');
-  anchor.href = url;
+  anchor.href = `${normalizedBaseURL}/packages/offline-bundles/${encodeURIComponent(fileName)}/download`;
   anchor.download = fileName.endsWith('.tar.gz')
     ? fileName
     : `stx-seatunnel-offline-${name}.tar.gz`;
+  document.body.appendChild(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  anchor.remove();
 }
 
-/** Import offline bundle into local storage / 导入离线资产包到本地仓 */
 export async function importOfflineBundle(file: File): Promise<OfflineBundleInfo> {
   const form = new FormData();
   form.append('file', file);
   const response = await apiClient.post<OfflineBundleResponse>(
     `${API_PREFIX}/packages/offline-bundles/import`,
     form,
-    {headers: {'Content-Type': 'multipart/form-data'}},
+    {
+      headers: {'Content-Type': 'multipart/form-data'},
+      timeout: 0,
+    },
   );
   if (response.data.error_msg || !response.data.data) {
     throw new Error(response.data.error_msg || 'import offline bundle failed');

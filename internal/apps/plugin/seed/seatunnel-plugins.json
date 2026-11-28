@@ -1526,8 +1526,8 @@
           "version": "3.1.1.29",
           "target_dir": "lib",
           "required": true,
-          "source_url": "",
-          "note": ""
+          "source_url": "https://repo.huaweicloud.com/artifactory/sdk_public/org/apache/hadoop/hadoop-huaweicloud/3.1.1.29/hadoop-huaweicloud-3.1.1.29.jar",
+          "note": "华为 SDK 仓库直链 / Huawei SDK repository direct jar"
         },
         {
           "group_id": "com.huawei.storage",
@@ -1535,8 +1535,8 @@
           "version": "3.19.7.3",
           "target_dir": "lib",
           "required": true,
-          "source_url": "",
-          "note": ""
+          "source_url": "https://repo.huaweicloud.com/artifactory/sdk_public/com/huawei/storage/esdk-obs-java/3.19.7.3/esdk-obs-java-3.19.7.3.jar",
+          "note": "华为 SDK 仓库直链 / Huawei SDK repository direct jar"
         },
         {
           "group_id": "com.squareup.okhttp3",

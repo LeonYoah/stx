@@ -30,6 +30,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -575,6 +576,140 @@ func TestValidateSourceArchiveReadsEntireStream(t *testing.T) {
 	}
 }
 
+func createRuntimePackageArchive(t *testing.T, version string, files map[string]string) []byte {
+	t.Helper()
+	buffer := &bytes.Buffer{}
+	gzipWriter := gzip.NewWriter(buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	for name, content := range files {
+		data := []byte(content)
+		entryName := "apache-seatunnel-" + version + "/" + name
+		if err := tarWriter.WriteHeader(&tar.Header{Name: entryName, Mode: 0o644, Size: int64(len(data)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatalf("write tar header: %v", err)
+		}
+		if _, err := tarWriter.Write(data); err != nil {
+			t.Fatalf("write tar content: %v", err)
+		}
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatalf("close tar writer: %v", err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatalf("close gzip writer: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+func TestService_UploadPackageImportsBundledConnectors(t *testing.T) {
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "packages")
+	if err := os.MkdirAll(filepath.Join(root, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(packageDir, nil)
+	const version = "9.9.94"
+	archive := createRuntimePackageArchive(t, version, map[string]string{
+		"connectors/connector-fake-9.9.94.jar":              "fake-jar",
+		"connectors/connector-console-9.9.94.jar":           "console-jar",
+		"connectors/nested/connector-ignore-9.9.94.jar":     "ignored",
+		"extra/connectors/connector-deep-ignore-9.9.94.jar": "ignored",
+		"lib/not-a-connector.jar":                           "ignored",
+	})
+	fileHeader := createUploadFileHeader(t, "file", packageFileName(version), archive)
+
+	if _, err := service.UploadPackage(context.Background(), version, fileHeader); err != nil {
+		t.Fatalf("upload package with bundled connectors: %v", err)
+	}
+	for name, want := range map[string]string{
+		"connector-fake-9.9.94.jar":    "fake-jar",
+		"connector-console-9.9.94.jar": "console-jar",
+	} {
+		got, err := os.ReadFile(filepath.Join(root, "plugins", version, "connectors", name))
+		if err != nil {
+			t.Fatalf("expected bundled connector %s: %v", name, err)
+		}
+		if string(got) != want {
+			t.Fatalf("connector %s content = %q, want %q", name, got, want)
+		}
+	}
+	for _, ignored := range []string{"connector-ignore-9.9.94.jar", "connector-deep-ignore-9.9.94.jar"} {
+		if _, err := os.Stat(filepath.Join(root, "plugins", version, "connectors", ignored)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("nested connector jar %s must not be imported, stat err=%v", ignored, err)
+		}
+	}
+}
+
+func TestService_ExtractBundledConnectorsRespectsSizeLimit(t *testing.T) {
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "packages")
+	if err := os.MkdirAll(packageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const version = "9.9.96"
+	archive := createRuntimePackageArchive(t, version, map[string]string{
+		"connectors/connector-huge-9.9.96.jar": "0123456789abcdef",
+	})
+	archivePath := filepath.Join(packageDir, packageFileName(version))
+	if err := os.WriteFile(archivePath, archive, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(packageDir, nil)
+	if _, err := service.extractBundledConnectorsWithLimits(version, archivePath, 8, 64); err == nil {
+		t.Fatal("expected oversized connector jar to be rejected")
+	}
+	if _, err := os.Stat(filepath.Join(root, "plugins", version, "connectors", "connector-huge-9.9.96.jar")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("oversized jar must not be committed, stat err=%v", err)
+	}
+}
+
+func TestService_RunDownloadExtractsBundledConnectors(t *testing.T) {
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "packages")
+	tempDir := filepath.Join(root, "temp")
+	if err := os.MkdirAll(packageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(tempDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const version = "9.9.97"
+	archive := createRuntimePackageArchive(t, version, map[string]string{
+		"connectors/connector-fake-9.9.97.jar": "downloaded-fake-jar",
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(archive)
+	}))
+	defer server.Close()
+
+	service := NewService(packageDir, nil)
+	service.tempDir = tempDir
+	task := &DownloadTask{
+		ID:          "dl-test",
+		Version:     version,
+		Mirror:      MirrorApache,
+		DownloadURL: server.URL + "/" + packageFileName(version),
+		Status:      DownloadStatusPending,
+		done:        make(chan struct{}),
+	}
+	service.runDownload(context.Background(), task)
+	if task.Status != DownloadStatusCompleted {
+		t.Fatalf("expected download completed, got status=%s error=%s", task.Status, task.Error)
+	}
+	got, err := os.ReadFile(filepath.Join(root, "plugins", version, "connectors", "connector-fake-9.9.97.jar"))
+	if err != nil {
+		t.Fatalf("expected bundled connector extracted after download: %v", err)
+	}
+	if string(got) != "downloaded-fake-jar" {
+		t.Fatalf("unexpected extracted connector content %q", got)
+	}
+}
+
 func TestService_UploadPackageValidation(t *testing.T) {
 	service := NewService(t.TempDir(), nil)
 	ctx := context.Background()
@@ -916,8 +1051,11 @@ func TestService_CancelDownloadStopsRequestAndRemovesPartialFile(t *testing.T) {
 		t.Fatalf("取消后状态错误 / unexpected status after cancel: %s", task.Status)
 	}
 	fileName := packageFileName(version)
+	if _, err := os.Stat(filepath.Join(packageDir, "."+fileName+".tmp")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("临时文件仍然存在 / partial file still exists in packageDir: %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(tempDir, fileName+".tmp")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("临时文件仍然存在 / partial file still exists: %v", err)
+		t.Fatalf("临时文件仍然存在 / partial file still exists in tempDir: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(packageDir, fileName)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("最终文件不应存在 / final file must not exist: %v", err)
@@ -946,4 +1084,145 @@ func TestBuildInstallParamsAgentLocalFallback(t *testing.T) {
 	if params["agent_package_path"] != "/data/pkgs" {
 		t.Fatalf("agent_package_path=%q", params["agent_package_path"])
 	}
+}
+
+func TestListAvailableVersionsSortsLocalPackagesAndKeepsCapabilities(t *testing.T) {
+	packageDir := t.TempDir()
+	for _, fileName := range []string{
+		"apache-seatunnel-2.3.9-bin.tar.gz",
+		"apache-seatunnel-2.3.12-bin.tar.gz",
+		"apache-seatunnel-3.1.0-bin.tar.gz",
+		"apache-seatunnel-3.2.0-custom-bin.tar.gz",
+	} {
+		if err := os.WriteFile(filepath.Join(packageDir, fileName), []byte("stub"), 0o644); err != nil {
+			t.Fatalf("write stub package %s: %v", fileName, err)
+		}
+	}
+
+	service := NewService(packageDir, nil)
+	// 预填旧在线缓存模拟内网落后目录，确认本地高版本与自定义版本仍被识别与排序。
+	// Seed a stale online cache to simulate an intranet fallback list and verify newer/custom local packages are still recognized and ordered.
+	service.versionsMu.Lock()
+	service.cachedVersions = []string{"2.3.12", "2.3.11"}
+	service.versionsCacheTime = time.Now()
+	service.versionsMu.Unlock()
+
+	available, err := service.ListAvailableVersions(context.Background())
+	if err != nil {
+		t.Fatalf("ListAvailableVersions failed: %v", err)
+	}
+
+	wantLocalOrder := []string{"3.2.0-custom", "3.1.0", "2.3.12", "2.3.9"}
+	if len(available.LocalPackages) != len(wantLocalOrder) {
+		t.Fatalf("expected %d local packages, got %d", len(wantLocalOrder), len(available.LocalPackages))
+	}
+	for i, want := range wantLocalOrder {
+		if available.LocalPackages[i].Version != want {
+			t.Fatalf("local package[%d] = %q, want %q", i, available.LocalPackages[i].Version, want)
+		}
+	}
+
+	// 在线目录列表不混入自定义本地包，保持在线 Tab 语义纯净。
+	// Online catalog versions must not be polluted by custom local packages.
+	if len(available.Versions) != 2 || available.Versions[0] != "2.3.12" {
+		t.Fatalf("unexpected online versions: %v", available.Versions)
+	}
+	if available.RecommendedVersion != "3.2.0-custom" {
+		t.Fatalf("expected recommended_version compatibility field to prefer newest local package 3.2.0-custom, got %q", available.RecommendedVersion)
+	}
+
+	cap310, ok := available.VersionCapabilities["3.1.0"]
+	if !ok {
+		t.Fatal("expected VersionCapabilities to include local package 3.1.0")
+	}
+	if cap310.MinJavaVersion != 11 || !cap310.SupportsEventChannel {
+		t.Fatalf("unexpected 3.1.0 capabilities: %+v", cap310)
+	}
+}
+
+func TestMoveFileAtomicFallsBackOnCrossDeviceLink(t *testing.T) {
+	t.Run("cross-device rename falls back to sibling copy and atomic rename", func(t *testing.T) {
+		srcDir := t.TempDir()
+		dstDir := t.TempDir()
+		src := filepath.Join(srcDir, "package-upload.tmp")
+		dst := filepath.Join(dstDir, "apache-seatunnel-3.0.0-bin.tar.gz")
+		payload := []byte("fake-seatunnel-3.0.0-archive")
+		if err := os.WriteFile(src, payload, 0o600); err != nil {
+			t.Fatalf("write src: %v", err)
+		}
+
+		exdevRename := func(oldPath, newPath string) error {
+			return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: syscall.EXDEV}
+		}
+
+		if err := moveFileAtomicWith(src, dst, exdevRename); err != nil {
+			t.Fatalf("moveFileAtomicWith returned unexpected error: %v", err)
+		}
+		got, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatalf("read dst: %v", err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("dst payload mismatch: got %q, want %q", got, payload)
+		}
+		if _, err := os.Stat(src); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("expected src to be removed after fallback copy, err=%v", err)
+		}
+		entries, err := os.ReadDir(dstDir)
+		if err != nil {
+			t.Fatalf("readdir dstDir: %v", err)
+		}
+		if len(entries) != 1 || entries[0].Name() != filepath.Base(dst) {
+			t.Fatalf("expected only final file in dstDir, got %d entries", len(entries))
+		}
+	})
+
+	t.Run("savePackageFromReader succeeds when rename hits EXDEV", func(t *testing.T) {
+		packageDir := t.TempDir()
+		tempDir := t.TempDir()
+		service := NewService(packageDir, nil)
+		service.tempDir = tempDir
+		service.renameFunc = func(oldPath, newPath string) error {
+			return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: syscall.EXDEV}
+		}
+
+		payload := []byte("seatunnel-3.0.0-tar-gz-content")
+		info, err := service.savePackageFromReader(
+			context.Background(),
+			"3.0.0",
+			"apache-seatunnel-3.0.0-bin.tar.gz",
+			int64(len(payload)),
+			bytes.NewReader(payload),
+		)
+		if err != nil {
+			t.Fatalf("savePackageFromReader failed on EXDEV: %v", err)
+		}
+		if info.Version != "3.0.0" || !info.IsLocal {
+			t.Fatalf("unexpected package info: %+v", info)
+		}
+		got, err := os.ReadFile(filepath.Join(packageDir, "apache-seatunnel-3.0.0-bin.tar.gz"))
+		if err != nil {
+			t.Fatalf("read saved package: %v", err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("saved package mismatch: got %q, want %q", got, payload)
+		}
+	})
+
+	t.Run("non-EXDEV rename error is returned directly", func(t *testing.T) {
+		src := filepath.Join(t.TempDir(), "src.tmp")
+		dst := filepath.Join(t.TempDir(), "dst.tar.gz")
+		if err := os.WriteFile(src, []byte("x"), 0o600); err != nil {
+			t.Fatalf("write src: %v", err)
+		}
+
+		eaccesRename := func(oldPath, newPath string) error {
+			return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: syscall.EACCES}
+		}
+
+		err := moveFileAtomicWith(src, dst, eaccesRename)
+		if !errors.Is(err, syscall.EACCES) {
+			t.Fatalf("expected EACCES error, got %v", err)
+		}
+	})
 }

@@ -31,6 +31,7 @@ import {
   toBrushAnnotations,
   toLineChartData,
   toPipelineShare,
+  toVolumePipelineShare,
 } from '../metrics-trend-data';
 
 const label = (ts: number) => `t-${ts}`;
@@ -75,6 +76,13 @@ describe('metrics-trend-data', () => {
       written: 'Written',
       backlog: 'Backlog',
     })).toEqual([]);
+    expect(toVolumePipelineShare(10240, 7168, {
+      written: 'Written',
+      backlog: 'Backlog',
+    })).toEqual([
+      {key: 'written', label: 'Written', value: 7168, color: TREND_COLORS.write},
+      {key: 'backlog', label: 'Backlog', value: 3072, color: TREND_COLORS.read},
+    ]);
   });
 
   it('maps checkpoint points onto bars and annotations onto brush labels', () => {

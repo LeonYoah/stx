@@ -74,4 +74,39 @@ describe('useWriteRateSparkline', () => {
     });
     await waitFor(() => expect(result.current?.[0]?.[1]).toBe(200));
   });
+
+  it('switches to bytes_throughput when unit changes to bytes and accepts 2+ points', async () => {
+    const rowSeries = {
+      series: [{key: 'throughput_write', points: [[1000, 12], [2000, 18]]}],
+    } as unknown as SyncJobTimeseries;
+    const byteSeries = {
+      series: [{key: 'bytes_throughput_write', points: [[1000, 2048], [2000, 4096]]}],
+    } as unknown as SyncJobTimeseries;
+    let resolveBytes: (value: SyncJobTimeseries) => void = () => undefined;
+    vi.mocked(SyncService.getJobTimeseries)
+      .mockResolvedValueOnce(rowSeries)
+      .mockReturnValueOnce(
+        new Promise<SyncJobTimeseries>((resolve) => {
+          resolveBytes = resolve;
+        }),
+      );
+    const {result, rerender} = renderHook(
+      ({job, unit}: {job: SyncJobInstance; unit: 'rows' | 'bytes'}) =>
+        useWriteRateSparkline(job, unit),
+      {initialProps: {job: runningJob(7), unit: 'rows'}},
+    );
+    await waitFor(() => expect(result.current?.[1]?.[1]).toBe(18));
+
+    rerender({job: runningJob(7), unit: 'bytes'});
+    expect(result.current).toBeNull();
+    expect(SyncService.getJobTimeseries).toHaveBeenLastCalledWith(7, {
+      range: '1h',
+      metrics: 'bytes_throughput',
+    });
+
+    await act(async () => {
+      resolveBytes(byteSeries);
+    });
+    await waitFor(() => expect(result.current?.[1]?.[1]).toBe(4096));
+  });
 });

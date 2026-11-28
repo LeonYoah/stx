@@ -186,8 +186,19 @@ public final class StorageProbeConfigSupport {
 
     public static void applyCheckpointFastFailDefaults(Map<String, String> config) {
         String storageType = stringValue(config.get("storage.type"));
+        // 探测请求强制禁用 Hadoop FileSystem 缓存，避免凭证变更或切库后误命中旧连接。
+        // Force-disable Hadoop FileSystem cache for probes so credential changes or backend
+        // switches
+        // never hit a stale cached FileSystem.
+        config.put("disable.cache", "true");
         if (HDFS_STORAGE.equalsIgnoreCase(storageType)) {
             fillDefaultFSFromHdfsSiteIfMissing(config);
+            config.put("fs.hdfs.impl.disable.cache", "true");
+            config.put("seatunnel.hadoop.fs.hdfs.impl.disable.cache", "true");
+            return;
+        }
+        if (OSS_STORAGE.equalsIgnoreCase(storageType)) {
+            config.put("fs.oss.impl.disable.cache", "true");
             return;
         }
         if (!S3_STORAGE.equalsIgnoreCase(storageType)) {
@@ -197,23 +208,26 @@ public final class StorageProbeConfigSupport {
         config.putIfAbsent("fs.s3a.connection.timeout", "10000");
         config.putIfAbsent("fs.s3a.attempts.maximum", "1");
         config.putIfAbsent("fs.s3a.retry.limit", "1");
-        // 禁用 S3A FileSystem 缓存，避免同 bucket 更换/错误凭证时误命中旧连接。
-        // Disable S3A FileSystem cache so rotated or invalid credentials on the same bucket are
-        // verified fresh.
-        config.putIfAbsent("fs.s3a.impl.disable.cache", "true");
+        config.put("fs.s3a.impl.disable.cache", "true");
     }
 
     public static void applyIMapFastFailDefaults(Map<String, Object> config, long timeoutMs) {
         String storageType = stringValue(config.get("storage.type"));
+        config.put("disable.cache", "true");
         if (HDFS_STORAGE.equalsIgnoreCase(storageType)) {
             fillDefaultFSFromHdfsSiteIfMissingObjectMap(config);
+            config.put("fs.hdfs.impl.disable.cache", "true");
+            config.put("seatunnel.hadoop.fs.hdfs.impl.disable.cache", "true");
+        }
+        if (OSS_STORAGE.equalsIgnoreCase(storageType)) {
+            config.put("fs.oss.impl.disable.cache", "true");
         }
         if (S3_STORAGE.equalsIgnoreCase(storageType)) {
             config.putIfAbsent("fs.s3a.connection.establish.timeout", "5000");
             config.putIfAbsent("fs.s3a.connection.timeout", "10000");
             config.putIfAbsent("fs.s3a.attempts.maximum", "1");
             config.putIfAbsent("fs.s3a.retry.limit", "1");
-            config.putIfAbsent("fs.s3a.impl.disable.cache", "true");
+            config.put("fs.s3a.impl.disable.cache", "true");
         }
         config.putIfAbsent("writeDataTimeoutMilliseconds", Math.max(1000L, timeoutMs));
     }

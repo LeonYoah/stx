@@ -88,30 +88,34 @@ public class RuntimeStorageStatService {
         Path targetPath =
                 StorageProbeConfigSupport.resolveTargetPath(
                         conf, config, storageType, namespace, null, "stat");
-        FileSystem fs = targetPath.getFileSystem(conf);
-        boolean exists = fs.exists(targetPath);
-        long totalSizeBytes = 0L;
-        long fileCount = 0L;
-        if (exists) {
-            FileStatus status = fs.getFileStatus(targetPath);
-            if (status.isFile()) {
-                totalSizeBytes = status.getLen();
-                fileCount = 1L;
-            } else {
-                long[] walkResult = walk(fs, targetPath);
-                totalSizeBytes = walkResult[0];
-                fileCount = walkResult[1];
+        // 按次创建独立 FileSystem 并及时关闭，避免常驻 proxy 跨配置/跨凭证复用旧连接缓存。
+        // Create an isolated FileSystem per call and close it to avoid stale cross-credential cache
+        // hits in the long-lived proxy.
+        try (FileSystem fs = FileSystem.newInstance(targetPath.toUri(), conf)) {
+            boolean exists = fs.exists(targetPath);
+            long totalSizeBytes = 0L;
+            long fileCount = 0L;
+            if (exists) {
+                FileStatus status = fs.getFileStatus(targetPath);
+                if (status.isFile()) {
+                    totalSizeBytes = status.getLen();
+                    fileCount = 1L;
+                } else {
+                    long[] walkResult = walk(fs, targetPath);
+                    totalSizeBytes = walkResult[0];
+                    fileCount = walkResult[1];
+                }
             }
-        }
 
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("ok", true);
-        response.put("storageType", storageType);
-        response.put("path", targetPath.toString());
-        response.put("exists", exists);
-        response.put("totalSizeBytes", totalSizeBytes);
-        response.put("fileCount", fileCount);
-        return response;
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("ok", true);
+            response.put("storageType", storageType);
+            response.put("path", targetPath.toString());
+            response.put("exists", exists);
+            response.put("totalSizeBytes", totalSizeBytes);
+            response.put("fileCount", fileCount);
+            return response;
+        }
     }
 
     private long[] walk(FileSystem fs, Path root) throws IOException {

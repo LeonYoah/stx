@@ -741,19 +741,24 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       {stdin: `${password}\n`},
     );
 
-    // 安装前校验：分别测 HDFS HA（自定义别名）与 S3 MinIO / Pre-install CLI validate for HDFS HA & S3
+    // 安装前校验：分别测 HDFS HA（自定义别名）与 S3 MinIO，严格按注册 CLI 的 --request-file 契约传参
+    // Pre-install CLI validate for HDFS HA & S3 using the registered --request-file contract
     const hdfsValidateFile = path.join(cliConfigHome, 'hdfs-ha-ck.json');
     await fs.writeFile(
       hdfsValidateFile,
       JSON.stringify({
-        storage_type: 'HDFS',
-        namespace: '/seatunnel/checkpoint/',
-        hdfs_ha_enabled: true,
-        hdfs_name_services: hdfsHa.nameServices,
-        hdfs_ha_namenodes: hdfsHa.haNamenodes,
-        hdfs_namenode_rpc_address_1: hdfsHa.rpc1,
-        hdfs_namenode_rpc_address_2: hdfsHa.rpc2,
-        hdfs_failover_proxy_provider: hdfsHa.failoverProvider,
+        host_ids: [host.id],
+        kind: 'checkpoint',
+        checkpoint: {
+          storage_type: 'HDFS',
+          namespace: '/seatunnel/checkpoint/',
+          hdfs_ha_enabled: true,
+          hdfs_name_services: hdfsHa.nameServices,
+          hdfs_ha_namenodes: hdfsHa.haNamenodes,
+          hdfs_namenode_rpc_address_1: hdfsHa.rpc1,
+          hdfs_namenode_rpc_address_2: hdfsHa.rpc2,
+          hdfs_failover_proxy_provider: hdfsHa.failoverProvider,
+        },
       }),
       'utf8',
     );
@@ -763,11 +768,7 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
         'installer',
         'runtime-storage',
         'validate',
-        '--host-id',
-        String(host.id),
-        '--kind',
-        'checkpoint',
-        '--checkpoint-file',
+        '--request-file',
         hdfsValidateFile,
         '--output',
         'json',
@@ -779,12 +780,16 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
     await fs.writeFile(
       s3ValidateFile,
       JSON.stringify({
-        storage_type: 'S3',
-        namespace: '/seatunnel/imap/',
-        storage_endpoint: minio.endpoint,
-        storage_bucket: minio.imapBucket,
-        storage_access_key: minio.accessKey,
-        storage_secret_key: minio.secretKey,
+        host_ids: [host.id],
+        kind: 'imap',
+        imap: {
+          storage_type: 'S3',
+          namespace: '/seatunnel/imap/',
+          storage_endpoint: minio.endpoint,
+          storage_bucket: minio.imapBucket,
+          storage_access_key: minio.accessKey,
+          storage_secret_key: minio.secretKey,
+        },
       }),
       'utf8',
     );
@@ -794,11 +799,7 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
         'installer',
         'runtime-storage',
         'validate',
-        '--host-id',
-        String(host.id),
-        '--kind',
-        'imap',
-        '--imap-file',
+        '--request-file',
         s3ValidateFile,
         '--output',
         'json',
@@ -825,6 +826,12 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
     ]);
     expect(cliValidateCk.result?.data?.success).toBe(true);
 
+    const listReqFile = path.join(cliConfigHome, 'list-ck.json');
+    await fs.writeFile(
+      listReqFile,
+      JSON.stringify({recursive: true, limit: 200}),
+      'utf8',
+    );
     const cliListCk = await runStxCli<{items?: Array<{path?: string}>}>(
       cliConfigHome,
       [
@@ -833,26 +840,39 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
         'list',
         String(clusterId),
         'checkpoint',
-        '--recursive',
+        '--request-file',
+        listReqFile,
         '--output',
         'json',
       ],
     );
     expect((cliListCk.result?.data?.items ?? []).length).toBeGreaterThan(0);
 
+    const previewReqFile = path.join(cliConfigHome, 'preview-ck.json');
+    await fs.writeFile(
+      previewReqFile,
+      JSON.stringify({path: lastLocalCkPath, max_bytes: 65536}),
+      'utf8',
+    );
     const cliPreviewCk = await runStxCli<{size_bytes?: number}>(cliConfigHome, [
       'cluster',
       'runtime-storage',
       'preview',
       String(clusterId),
       'checkpoint',
-      '--path',
-      lastLocalCkPath,
+      '--request-file',
+      previewReqFile,
       '--output',
       'json',
     ]);
     expect(cliPreviewCk.result?.data?.size_bytes ?? 0).toBeGreaterThan(0);
 
+    const inspectCkReqFile = path.join(cliConfigHome, 'inspect-ck.json');
+    await fs.writeFile(
+      inspectCkReqFile,
+      JSON.stringify({path: lastLocalCkPath}),
+      'utf8',
+    );
     const cliInspectCk = await runStxCli<{
       completed_checkpoint?: Record<string, unknown>;
     }>(cliConfigHome, [
@@ -861,13 +881,19 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       'checkpoint',
       'inspect',
       String(clusterId),
-      '--path',
-      lastLocalCkPath,
+      '--request-file',
+      inspectCkReqFile,
       '--output',
       'json',
     ]);
     expect(cliInspectCk.result?.data?.completed_checkpoint).toBeTruthy();
 
+    const inspectImapReqFile = path.join(cliConfigHome, 'inspect-imap.json');
+    await fs.writeFile(
+      inspectImapReqFile,
+      JSON.stringify({path: lastLocalImapPath}),
+      'utf8',
+    );
     const cliInspectImap = await runStxCli<{entry_count?: number}>(
       cliConfigHome,
       [
@@ -876,8 +902,8 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
         'imap',
         'inspect',
         String(clusterId),
-        '--path',
-        lastLocalImapPath,
+        '--request-file',
+        inspectImapReqFile,
         '--output',
         'json',
       ],

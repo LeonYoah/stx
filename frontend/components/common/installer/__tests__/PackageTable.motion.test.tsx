@@ -217,7 +217,6 @@ describe('PackageTable download interactions', () => {
         viewMode='table'
         versions={['2.3.12', '2.3.11']}
         localPackages={localPackages}
-        recommendedVersion='2.3.12'
         downloads={downloads}
         onDownloadRequest={onDownloadRequest}
       />,
@@ -238,7 +237,6 @@ describe('PackageTable download interactions', () => {
         type='online'
         viewMode='table'
         versions={['2.3.12']}
-        recommendedVersion='2.3.12'
         loading={false}
       />,
     );
@@ -253,7 +251,6 @@ describe('PackageTable download interactions', () => {
         type='online'
         viewMode='table'
         versions={['2.3.12']}
-        recommendedVersion='2.3.12'
         loading
       />,
     );

@@ -21,7 +21,16 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
 import {SyncService, type SyncJobInstance, type SyncJobTimeseries} from '@/lib/services/sync';
 import {MetricsDialogContent} from '../StudioDialogs';
+import type {MetricUnitMode} from '../sync-studio-utils';
 import {clearJobTimeseriesCache} from '../job-detail/metric-timeseries';
+
+vi.mock('@/components/charts/sankey-chart', () => ({
+  SankeyChart: ({label}: {label: string}) => (
+    <section aria-label={label} data-testid='snapshot-sankey-chart'>
+      {label}
+    </section>
+  ),
+}));
 
 vi.mock('@/lib/services/sync', async () => {
   const actual = await vi.importActual<typeof import('@/lib/services/sync')>('@/lib/services/sync');
@@ -54,10 +63,18 @@ function job(partial: Partial<SyncJobInstance> = {}): SyncJobInstance {
   } as SyncJobInstance;
 }
 
-function renderSnapshot(instance: SyncJobInstance | null) {
+function renderSnapshot(
+  instance: SyncJobInstance | null,
+  opts?: {unit?: MetricUnitMode; onOpenTrend?: () => void; onOpenCheckpoint?: () => void},
+) {
   return render(
     <NextIntlClientProvider locale='zh' messages={zh} timeZone='Asia/Shanghai'>
-      <MetricsDialogContent job={instance} />
+      <MetricsDialogContent
+        job={instance}
+        unit={opts?.unit}
+        onOpenTrend={opts?.onOpenTrend}
+        onOpenCheckpoint={opts?.onOpenCheckpoint}
+      />
     </NextIntlClientProvider>,
   );
 }
@@ -250,5 +267,99 @@ describe('MetricsDialogContent', () => {
   it('keeps the empty state for jobs without metrics', () => {
     renderSnapshot(job());
     expect(screen.getByText(copy.noMetricsOutput)).toBeInTheDocument();
+  });
+
+  it('switches KPI, delivery bar, and per-table columns when unit is bytes', async () => {
+    const onOpenTrend = vi.fn();
+    renderSnapshot(
+      job({
+        status: 'running',
+        result_preview: {
+          metrics: {
+            SourceReceivedCount: 70,
+            SinkWriteCount: 70,
+            SinkCommittedCount: 62,
+            SourceReceivedBytes: 65536,
+            SinkWriteBytes: 65536,
+            SinkCommittedBytes: 49152,
+            SinkWriteBytesPerSeconds: 2048,
+            TableSourceReceivedCount: {'Source[0].db.a': 50, 'Source[1].db.b': 20},
+            TableSinkWriteCount: {'Sink[0].db.a': 50, 'Sink[1].db.b': 20},
+            TableSourceReceivedBytes: {'Source[0].db.a': 16384, 'Source[1].db.b': 49152},
+            TableSinkWriteBytes: {'Sink[0].db.a': 16384, 'Sink[1].db.b': 49152},
+            TableSinkCommittedBytes: {'Sink[0].db.a': 16384, 'Sink[1].db.b': 32768},
+          },
+        },
+      }),
+      {unit: 'bytes', onOpenTrend},
+    );
+    expect(screen.getByText(copy.metricFlowKpiReadBytes)).toBeInTheDocument();
+    expect(screen.getByText(copy.metricFlowKpiWriteBytes)).toBeInTheDocument();
+    expect(screen.getByText(copy.metricFlowKpiWriteThroughput)).toBeInTheDocument();
+    expect(screen.getByText(copy.metricFlowReadBytes)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(SyncService.getJobTimeseries).toHaveBeenCalledWith(26, {
+        range: '1h',
+        metrics: 'bytes_throughput',
+      }),
+    );
+
+    fireEvent.click(screen.getByRole('button', {name: /查看趋势/}));
+    expect(onOpenTrend).toHaveBeenCalledTimes(1);
+
+    // 多链路时可在逐表明细中就地切换至流向图。 / Multi-link jobs can switch per-table details to Sankey flow in place.
+    fireEvent.click(screen.getByRole('button', {name: copy.metricFlowDetailFlow}));
+    expect(screen.getByTestId('snapshot-sankey-chart')).toBeInTheDocument();
+  });
+
+  it('opens the delivery stages guide popover on click and jumps to checkpoint', () => {
+    const onOpenCheckpoint = vi.fn();
+    renderSnapshot(
+      job({
+        result_preview: {
+          metrics: {
+            SourceReceivedCount: 70,
+            SinkWriteCount: 70,
+            SinkCommittedCount: 62,
+          },
+        },
+      }),
+      {onOpenCheckpoint},
+    );
+    fireEvent.click(screen.getByRole('button', {name: copy.metricFlowGuideTrigger}));
+    expect(screen.getByText(copy.metricFlowGuideTitle)).toBeInTheDocument();
+    expect(screen.getByText(copy.metricFlowBarDesc_pendingCommit)).toBeInTheDocument();
+    expect(screen.getByText(copy.metricFlowBarDesc_backlog)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: /查看检查点/}));
+    expect(onOpenCheckpoint).toHaveBeenCalledTimes(1);
+  });
+
+  it('places pending/backlog badges in the share column and clips link cells against overflow', () => {
+    const {container} = renderSnapshot(
+      job({
+        status: 'running',
+        result_preview: {
+          metrics: {
+            SourceReceivedCount: 5000,
+            SinkWriteCount: 3620,
+            SinkCommittedCount: 3020,
+            TableSourceReceivedCount: {'Source[0].stx_e2e.user_events_src': 5000},
+            TableSinkWriteCount: {'Sink[0].stx_e2e.user_events_src': 3620},
+            TableSinkCommittedCount: {'Sink[0].stx_e2e.user_events_src': 3020},
+          },
+        },
+      }),
+    );
+    const table = container.querySelector('table');
+    expect(table?.className).toContain('min-w-');
+    const rowCells = container.querySelectorAll('tbody tr:first-child td');
+    expect(rowCells.length).toBe(5);
+    // 首列只承载链路标识并裁剪溢出，状态胶囊归属到第二列占比条下方避免窄屏越界遮挡。
+    // Column 1 holds only the link identity with overflow clipping; status badges live in column 2 under the bar.
+    expect(rowCells[0].className).toContain('overflow-hidden');
+    expect(rowCells[0].textContent).not.toContain('未写入');
+    expect(rowCells[0].textContent).not.toContain('未提交');
+    expect(rowCells[1].textContent).toContain('未提交');
+    expect(rowCells[1].textContent).toContain('未写入');
   });
 });

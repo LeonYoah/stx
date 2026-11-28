@@ -128,7 +128,7 @@ func (s *Service) CreateOfflineBundle(ctx context.Context, req *OfflineBundleCre
 		return nil, ErrInvalidPackageVersion
 	}
 	version := strings.TrimSpace(req.Version)
-	if version == "" {
+	if !packageVersionRegexp.MatchString(version) {
 		return nil, ErrInvalidPackageVersion
 	}
 	includePlugins := true
@@ -303,6 +303,10 @@ func (s *Service) ImportOfflineBundle(ctx context.Context, srcPath string) (*Off
 	if err != nil {
 		return nil, err
 	}
+	manifest.SeatunnelVersion = strings.TrimSpace(manifest.SeatunnelVersion)
+	if !packageVersionRegexp.MatchString(manifest.SeatunnelVersion) {
+		return nil, fmt.Errorf("%w: invalid seatunnel_version %q", ErrOfflineBundleInvalid, manifest.SeatunnelVersion)
+	}
 
 	packagesSrc := filepath.Join(root, "packages")
 	if err := os.MkdirAll(s.packageDir, 0o755); err != nil {
@@ -321,13 +325,20 @@ func (s *Service) ImportOfflineBundle(ctx context.Context, srcPath string) (*Off
 		return nil, fmt.Errorf("import plugins: %w", err)
 	}
 
-	// 导入后把包归档到 offline-bundles，便于再次下载。
-	// Archive imported file into offline-bundles for re-download.
+	packagePath := filepath.Join(s.packageDir, packageFileName(manifest.SeatunnelVersion))
+	if connectorCount, extractErr := s.extractBundledConnectors(manifest.SeatunnelVersion, packagePath); extractErr != nil {
+		logger.WarnF(ctx, "[Installer] offline bundle imported but bundled connectors were not extracted: version=%s error=%v", manifest.SeatunnelVersion, extractErr)
+	} else if connectorCount > 0 {
+		logger.InfoF(ctx, "[Installer] extracted %d bundled connectors while importing offline bundle version=%s", connectorCount, manifest.SeatunnelVersion)
+	}
+
+	// 导入后把包原子归档到 offline-bundles，避免中断残留半截压缩包。
+	// Atomically archive imported file into offline-bundles so partial writes never leave a corrupt archive.
 	bundlesDir := s.offlineBundlesDir()
 	_ = os.MkdirAll(bundlesDir, 0o755)
 	outName := offlineBundleFileName(manifest.SeatunnelVersion)
 	outPath := filepath.Join(bundlesDir, outName)
-	if err := copyFile(srcPath, outPath); err != nil {
+	if err := copyFileAtomic(srcPath, outPath); err != nil {
 		logger.WarnF(ctx, "[Installer] 导入成功但归档离线包失败: %v", err)
 	}
 
@@ -467,6 +478,44 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
+func copyFileAtomic(src, dst string) error {
+	dstDir := filepath.Dir(dst)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	tmp, err := os.CreateTemp(dstDir, "."+filepath.Base(dst)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanupTmp := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanupTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := io.Copy(tmp, in); err != nil {
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, dst); err != nil {
+		return err
+	}
+	cleanupTmp = false
+	return nil
+}
+
 func copyDirCollect(src, dst string) ([]OfflineBundlePluginEntry, error) {
 	entries := make([]OfflineBundlePluginEntry, 0)
 	info, err := os.Stat(src)
@@ -595,10 +644,13 @@ func extractTarGz(srcPath, destDir string) error {
 			return err
 		}
 		cleanName := filepath.Clean(hdr.Name)
-		if strings.HasPrefix(cleanName, "..") {
+		if filepath.IsAbs(cleanName) || cleanName == ".." || strings.HasPrefix(cleanName, ".."+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid path in archive: %s", hdr.Name)
 		}
-		target := filepath.Join(destDir, cleanName)
+		target, pathErr := normalizePathInDir(destDir, filepath.Join(destDir, cleanName))
+		if pathErr != nil {
+			return fmt.Errorf("invalid path in archive: %s", hdr.Name)
+		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {

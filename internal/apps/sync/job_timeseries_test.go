@@ -271,4 +271,74 @@ func TestTimeseriesPromQL_LongWindowStep(t *testing.T) {
 	if got := timeseriesPromQL("table", "9", true, 172800); !strings.Contains(got[0].query, `rate(stx_job_table_rows_total{job_id="9",direction="read"}[2d])`) {
 		t.Fatalf("table rate must use [2d]: %s", got[0].query)
 	}
+	for _, tpl := range timeseriesPromQL("bytes_throughput", "9", true, 172800) {
+		if !strings.Contains(tpl.query, "[2d]") || tpl.unit != "bytes/s" {
+			t.Fatalf("bytes_throughput rate must use [2d] and bytes/s: %+v", tpl)
+		}
+	}
+	if got := timeseriesPromQL("bytes", "9", false, 60); len(got) != 2 || got[0].key != "bytes_read" || got[1].key != "bytes_write" {
+		t.Fatalf("unexpected bytes templates: %+v", got)
+	}
+}
+
+// TestGetJobTimeseries_bytesFromEmbeddedTsdb 验证字节吞吐与累计字节时序能够从内嵌 tsdb 正常查询返回。
+// TestGetJobTimeseries_bytesFromEmbeddedTsdb verifies byte throughput and cumulative byte series resolve from the embedded tsdb.
+func TestGetJobTimeseries_bytesFromEmbeddedTsdb(t *testing.T) {
+	originalEnabled := config.Config.Observability.Enabled
+	dir := t.TempDir()
+	t.Cleanup(func() {
+		config.Config.Observability.Enabled = originalEnabled
+		_ = embedts.Close()
+	})
+	config.Config.Observability.Enabled = true
+	_ = embedts.Close()
+	ctx := context.Background()
+	if err := embedts.Start(ctx, embedts.Options{Dir: dir, QueryTimeout: 5 * time.Second, MaxSamples: 100000}); err != nil {
+		t.Fatalf("start tsdb: %v", err)
+	}
+	now := time.Now().UTC()
+	app := embedts.Appender(ctx)
+	if app == nil {
+		t.Fatal("appender is nil")
+	}
+	readBytes := labels.FromStrings(labels.MetricName, "stx_job_source_received_bytes_total", "job_id", "12")
+	writeBytes := labels.FromStrings(labels.MetricName, "stx_job_sink_write_bytes_total", "job_id", "12")
+	for i := 0; i < 20; i++ {
+		ts := now.Add(-time.Duration(20-i) * 15 * time.Second).UnixMilli()
+		if _, err := app.Append(0, readBytes, ts, float64((i+1)*4096)); err != nil {
+			t.Fatalf("append read bytes: %v", err)
+		}
+		if _, err := app.Append(0, writeBytes, ts, float64((i+1)*3072)); err != nil {
+			t.Fatalf("append write bytes: %v", err)
+		}
+	}
+	if err := app.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	svc := &Service{}
+	job := &JobInstance{ID: 12, TaskID: 1, Status: JobStatusRunning}
+	out, err := svc.getJobTimeseries(ctx, job, "15m", nil, "", 15)
+	if err != nil {
+		t.Fatalf("timeseries: %v", err)
+	}
+	if out.Source != "prometheus" {
+		t.Fatalf("source=%s reason=%s", out.Source, out.Reason)
+	}
+	units := map[string]string{}
+	for _, series := range out.Series {
+		if len(series.Points) > 0 {
+			units[series.Key] = series.Unit
+		}
+	}
+	for key, wantUnit := range map[string]string{
+		"bytes_throughput_read":  "bytes/s",
+		"bytes_throughput_write": "bytes/s",
+		"bytes_read":             "bytes",
+		"bytes_write":            "bytes",
+	} {
+		if units[key] != wantUnit {
+			t.Fatalf("series %s: unit=%q, want %q (all=%+v)", key, units[key], wantUnit, units)
+		}
+	}
 }

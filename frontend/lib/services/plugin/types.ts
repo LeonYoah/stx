@@ -109,7 +109,16 @@ export interface PluginDependency {
   version: string;
   target_dir: string; // connectors/ or lib/ or plugins/<mapping>
   source_type?: PluginDependencySource;
+  source_url?: string;
   original_file_name?: string;
+}
+
+export interface PluginDependencyFailure {
+  group_id: string;
+  artifact_id: string;
+  version: string;
+  target_dir: string;
+  error: string;
 }
 
 /**
@@ -131,6 +140,7 @@ export interface Plugin {
   dependency_count?: number;
   dependency_baseline_version?: string;
   dependency_resolution_mode?: DependencyResolutionMode;
+  requires_profile_selection?: boolean;
 }
 
 /**
@@ -302,6 +312,7 @@ export interface PluginDownloadProgress {
   connector_completed?: number;
   dependency_count?: number;
   dependency_completed?: number;
+  dependency_failures?: PluginDependencyFailure[];
   selected_profile_keys?: string[];
 }
 
@@ -333,6 +344,8 @@ export interface LocalPlugin {
   selected_profile_keys?: string[];
   attached_connectors?: string[];
   dependencies?: PluginDependency[];
+  dependency_failures?: PluginDependencyFailure[];
+  requires_profile_selection?: boolean;
 }
 
 /**

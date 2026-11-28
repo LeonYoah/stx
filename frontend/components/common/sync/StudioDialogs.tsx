@@ -28,6 +28,7 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
+  HelpCircle,
   Lightbulb,
   Search,
 } from 'lucide-react';
@@ -37,7 +38,9 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/arc/dialog/dialog';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Input} from '@/components/ui/input';
+import {SankeyChart} from '@/components/charts/sankey-chart';
 import {Sparkline} from '@/components/charts/sparkline';
 import {
   Table,
@@ -47,15 +50,26 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {cn} from '@/lib/utils';
 import {ExpandableTextPanel} from '@/components/common/layout';
 import type {SyncJobInstance, SyncValidateResult} from '@/lib/services/sync';
 import {
   buildMetricGroups,
   buildMetricFlowBar,
+  buildMetricFlowSankey,
   buildPairedMetricRows,
   buildPerTableMetricRows,
+  formatByteParts,
+  formatByteRateCompact,
+  formatByteRateParts,
+  formatBytesCompact,
   formatMetricCompactValue,
   formatMetricDisplayValue,
   formatMetricWithUnit,
@@ -64,15 +78,17 @@ import {
   getLogLineClass,
   getMetricValue,
   isZeroMetricValue,
+  resolveMetricByteTotals,
   summarizeMetricFlow,
   toObject,
   type MetricFlowBarSegmentKey,
   type MetricFlowTone,
+  type MetricUnitMode,
   type UserFacingErrorState,
 } from './sync-studio-utils';
 import {useWriteRateSparkline} from './job-detail/metric-timeseries';
-import {normalizeJobDag} from './job-detail/dag-model';
-import {buildMetricTableAlignment} from './metric-table-alignment';
+import {TREND_COLORS, colorByTable} from './job-detail/metrics-trend-data';
+import {buildMetricTableAlignment, extractAlignmentVerticesFromJobDag} from './metric-table-alignment';
 import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
@@ -412,58 +428,79 @@ const FLOW_TONE_COLOR: Record<MetricFlowTone, string> = {
   danger: 'var(--danger)',
 };
 
-/** 分段条与图例共用的段样式：已提交中性，待提交实心 warning，待写斜纹 warning。 / Segment styles shared by the flow bar and its legend: committed neutral, pending-commit solid warning, backlog hatched warning. */
+/** 分段条与图例共用的段样式：已提交/已写入用正向 success，已写未提交用冷静 info（等 Checkpoint 缓冲），已读未写用斜纹 warning（真积压）。 / Segment styles shared by the flow bar and legend: committed/written use success, written-uncommitted uses info (checkpoint buffer), read-unwritten uses hatched warning (backlog). */
 const FLOW_BAR_STYLE: Record<MetricFlowBarSegmentKey, CSSProperties> = {
-  committed: {background: 'var(--muted-foreground)'},
-  pendingCommit: {background: 'var(--warning)'},
+  committed: {background: 'var(--success)'},
+  written: {background: 'var(--success)'},
+  pendingCommit: {background: 'var(--info)'},
   backlog: {
     backgroundImage:
-      'repeating-linear-gradient(45deg, color-mix(in oklab, var(--warning) 40%, transparent) 0 3px, transparent 3px 7px)',
+      'repeating-linear-gradient(-45deg, color-mix(in oklab, var(--warning) 65%, transparent) 0 4px, color-mix(in oklab, var(--warning) 18%, transparent) 4px 8px)',
   },
 };
+
+function formatSharePercent(part: number, total: number): string {
+  if (!Number.isFinite(part) || !Number.isFinite(total) || total <= 0 || part <= 0) {
+    return '0%';
+  }
+  const value = (part / total) * 100;
+  if (value >= 99.95) {
+    return '100%';
+  }
+  if (value < 0.1) {
+    return '<0.1%';
+  }
+  return `${value.toFixed(1)}%`;
+}
 
 /** KPI 数字块：大数字 + 单位，悬停给出精确值与速率明细。 / KPI block: headline number + unit, hover for exact value and rate details. */
 function MetricFlowKpi({
   label,
+  labelAction,
   value,
   unit,
   tooltip,
   children,
 }: {
   label: string;
+  labelAction?: ReactNode;
   value: string;
   unit?: string;
   tooltip?: ReactNode;
   children?: ReactNode;
 }) {
-  const content = (
+  const headline = (
+    <span className='text-2xl font-medium leading-none tracking-tight tabular-nums text-foreground'>
+      {value}
+      {unit ? (
+        <small className='ml-1 text-xs font-normal text-muted-foreground'>
+          {unit}
+        </small>
+      ) : null}
+    </span>
+  );
+  return (
     <div className='flex flex-col gap-1'>
-      <span className='text-xs text-muted-foreground'>{label}</span>
-      <span className='inline-flex items-end gap-3'>
-        <span className='text-2xl font-medium leading-none tracking-tight tabular-nums text-foreground'>
-          {value}
-          {unit ? (
-            <small className='ml-1 text-xs font-normal text-muted-foreground'>
-              {unit}
-            </small>
-          ) : null}
-        </span>
+      <div className='flex items-center gap-2'>
+        <span className='text-xs text-muted-foreground'>{label}</span>
+        {labelAction}
+      </div>
+      <span className='inline-flex flex-wrap items-end gap-x-3 gap-y-1.5'>
+        {tooltip ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className='cursor-default'>{headline}</span>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' className='text-xs'>
+              {tooltip}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          headline
+        )}
         {children}
       </span>
     </div>
-  );
-  if (!tooltip) {
-    return content;
-  }
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div className='cursor-default'>{content}</div>
-      </TooltipTrigger>
-      <TooltipContent side='bottom' className='text-xs'>
-        {tooltip}
-      </TooltipContent>
-    </Tooltip>
   );
 }
 
@@ -473,40 +510,59 @@ function MetricFoldRow({
   hint,
   expanded,
   onToggle,
+  trailing,
   children,
 }: {
   title: string;
   hint?: string;
   expanded: boolean;
   onToggle: () => void;
+  trailing?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <div>
-      <button
-        type='button'
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className='flex w-full items-center gap-2 py-1 text-left'
-      >
-        {expanded ? (
-          <ChevronDown className='size-3.5 shrink-0 text-muted-foreground' />
-        ) : (
-          <ChevronRight className='size-3.5 shrink-0 text-muted-foreground' />
-        )}
-        <span className='text-sm font-medium text-foreground'>{title}</span>
-        {hint ? (
-          <span className='truncate text-xs text-muted-foreground'>{hint}</span>
+    <div className='border-t-[0.5px] border-border/80 pt-4'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
+        <button
+          type='button'
+          onClick={onToggle}
+          aria-expanded={expanded}
+          className='flex min-w-0 items-center gap-2 py-1 text-left'
+        >
+          {expanded ? (
+            <ChevronDown className='size-3.5 shrink-0 text-muted-foreground' />
+          ) : (
+            <ChevronRight className='size-3.5 shrink-0 text-muted-foreground' />
+          )}
+          <span className='text-sm font-medium text-foreground'>{title}</span>
+          {hint ? (
+            <span className='truncate text-xs text-muted-foreground'>{hint}</span>
+          ) : null}
+        </button>
+        {expanded && trailing ? (
+          <div className='flex flex-wrap items-center gap-2'>{trailing}</div>
         ) : null}
-      </button>
+      </div>
       {expanded ? <div className='mt-3'>{children}</div> : null}
     </div>
   );
 }
 
-export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
+export function MetricsDialogContent({
+  job,
+  unit = 'rows',
+  onOpenTrend,
+  onOpenCheckpoint,
+}: {
+  job: SyncJobInstance | null;
+  unit?: MetricUnitMode;
+  onOpenTrend?: () => void;
+  onOpenCheckpoint?: () => void;
+}) {
   const t = useTranslations('workbenchStudio');
+  const tMetrics = useTranslations('workbenchStudio.jobDetail.metricsView');
   const rawMetrics = toObject(job?.result_preview?.metrics);
+  const isBytes = unit === 'bytes';
   const allMetricGroups = buildMetricGroups(rawMetrics, t).filter(
     (group) => group.key !== 'read' && group.key !== 'write',
   );
@@ -518,47 +574,157 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
   const zeroMetricItems = allMetricGroups.flatMap((group) =>
     group.items.filter((item) => isZeroMetricValue(item.value)),
   );
-  const metricAlignment = useMemo(
+  const perTableRows = buildPerTableMetricRows(rawMetrics);
+  const metricTableAlignment = useMemo(
     () =>
       buildMetricTableAlignment(
-        normalizeJobDag(job?.result_preview?.job_dag).vertices,
-        job?.result_preview?.metrics,
+        extractAlignmentVerticesFromJobDag(job?.result_preview?.job_dag),
+        rawMetrics,
       ),
-    [job?.result_preview?.job_dag, job?.result_preview?.metrics],
-  );
-  const perTableRows = useMemo(
-    () => buildPerTableMetricRows(rawMetrics, metricAlignment),
-    [rawMetrics, metricAlignment],
+    [job?.result_preview?.job_dag, rawMetrics],
   );
   const pairedMetricRows = useMemo(
-    () => buildPairedMetricRows(rawMetrics, metricAlignment),
-    [rawMetrics, metricAlignment],
+    () => buildPairedMetricRows(rawMetrics, metricTableAlignment),
+    [rawMetrics, metricTableAlignment],
   );
   const [detailsExpanded, setDetailsExpanded] = useState(true);
   const [moreExpanded, setMoreExpanded] = useState(false);
   const [tableSearch, setTableSearch] = useState('');
-  const sparklinePoints = useWriteRateSparkline(job);
+  const [detailView, setDetailView] = useState<'table' | 'sankey'>('table');
+  const [sortByVolume, setSortByVolume] = useState(true);
+  const [onlyAnomaly, setOnlyAnomaly] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [activeSegment, setActiveSegment] = useState<MetricFlowBarSegmentKey | null>(null);
+  const sparklinePoints = useWriteRateSparkline(job, unit);
 
-  // 换作业时明细回到默认展开态、搜索清空。 / Per-table details reset to expanded and search clears when switching jobs.
+  // 换作业时明细回到默认展开态、搜索与筛选清空。 / Reset fold, search, and filters when switching jobs.
   useEffect(() => {
     setDetailsExpanded(true);
     setMoreExpanded(false);
     setTableSearch('');
+    setDetailView('table');
+    setOnlyAnomaly(false);
+    setGuideOpen(false);
+    setActiveSegment(null);
   }, [job?.id]);
 
+  // 切换行数/体积口径时清除已聚焦的分段高亮。 / Clear focused segment highlight when switching unit mode.
+  useEffect(() => {
+    setActiveSegment(null);
+  }, [unit]);
+
+  const tableCommitAvailable = useMemo(
+    () => !isBytes || pairedMetricRows.some((row) => row.hasCommittedBytes),
+    [isBytes, pairedMetricRows],
+  );
+  const showTableBps = useMemo(
+    () =>
+      isBytes &&
+      pairedMetricRows.some(
+        (row) => row.sinkBpsNum !== null || row.sourceBpsNum !== null,
+      ),
+    [isBytes, pairedMetricRows],
+  );
+
+  const enrichedPairedRows = useMemo(
+    () =>
+      pairedMetricRows.map((row) => {
+        const readVal = Math.max(0, isBytes ? row.sourceBytesNum : row.sourceCountNum);
+        const writeVal = Math.max(0, isBytes ? row.sinkBytesNum : row.sinkCountNum);
+        const committedVal = isBytes
+          ? tableCommitAvailable
+            ? Math.max(0, Math.min(row.committedBytesNum, writeVal))
+            : writeVal
+          : Math.max(0, Math.min(row.committedCountNum, writeVal));
+        const pendingVal = tableCommitAvailable
+          ? Math.max(0, writeVal - committedVal)
+          : 0;
+        const backlogVal = Math.max(0, readVal - writeVal);
+        return {
+          ...row,
+          readVal,
+          writeVal,
+          committedVal,
+          pendingVal,
+          backlogVal,
+          scaleVal: Math.max(readVal, writeVal),
+          hasAnomaly: pendingVal > 0 || backlogVal > 0,
+        };
+      }),
+    [isBytes, pairedMetricRows, tableCommitAvailable],
+  );
+
+  const anomalyCount = useMemo(
+    () => enrichedPairedRows.filter((row) => row.hasAnomaly).length,
+    [enrichedPairedRows],
+  );
+
   const filteredPairedRows = useMemo(() => {
-    if (!tableSearch.trim()) {
-      return pairedMetricRows;
+    let list = enrichedPairedRows;
+    if (onlyAnomaly && anomalyCount > 0) {
+      list = list.filter((row) => row.hasAnomaly);
     }
-    const q = tableSearch.trim().toLowerCase();
-    return pairedMetricRows.filter(
-      (r) =>
-        r.sourceTable.toLowerCase().includes(q) ||
-        r.sinkTable.toLowerCase().includes(q) ||
-        r.sourceNode.toLowerCase().includes(q) ||
-        r.sinkNode.toLowerCase().includes(q),
+    if (tableSearch.trim()) {
+      const q = tableSearch.trim().toLowerCase();
+      list = list.filter(
+        (r) =>
+          r.sourceTable.toLowerCase().includes(q) ||
+          r.sinkTable.toLowerCase().includes(q) ||
+          r.sourceNode.toLowerCase().includes(q) ||
+          r.sinkNode.toLowerCase().includes(q),
+      );
+    }
+    if (sortByVolume) {
+      return [...list].sort((a, b) => b.scaleVal - a.scaleVal);
+    }
+    return list;
+  }, [anomalyCount, enrichedPairedRows, onlyAnomaly, sortByVolume, tableSearch]);
+
+  const flowSankey = useMemo(() => {
+    const tableColors = colorByTable(
+      pairedMetricRows.map((row) => row.sinkTable || row.sinkNode),
     );
-  }, [pairedMetricRows, tableSearch]);
+    return buildMetricFlowSankey(rawMetrics, {
+      unit,
+      labels: {
+        committed: tMetrics('pipeline.committed'),
+        written: tMetrics('flow.written'),
+        pendingCommit: tMetrics('flow.pendingCommit'),
+        backlog: tMetrics('flow.backlog'),
+        otherSources: (count) => tMetrics('flow.otherSources', {count}),
+        otherSink: tMetrics('flow.otherSink'),
+      },
+      colors: {
+        table: ({sinkLabel, srcLabel}) =>
+          tableColors.get(sinkLabel) ?? tableColors.get(srcLabel) ?? 'var(--muted-foreground)',
+        outcome: TREND_COLORS.committed,
+        pending: 'var(--info)',
+        warning: 'var(--warning)',
+      },
+      maxLinks: 8,
+    });
+  }, [pairedMetricRows, rawMetrics, tMetrics, unit]);
+
+  const sankeyLabels = useMemo(
+    () => ({
+      label: tMetrics.raw('sankey.label'),
+      tableCaption: tMetrics.raw('sankey.tableCaption'),
+      flow: tMetrics.raw('sankey.flow'),
+      value: isBytes ? tMetrics.raw('sankey.valueBytes') : tMetrics.raw('sankey.value'),
+      shareOfSource: tMetrics.raw('sankey.shareOfSource'),
+      flowRow: tMetrics.raw('sankey.flowRow'),
+      nodes: tMetrics.raw('sankey.nodes'),
+      nodeFlows: tMetrics.raw('sankey.nodeFlows'),
+      tooltipFlows: tMetrics.raw('sankey.tooltipFlows'),
+      from: tMetrics.raw('sankey.from'),
+      to: tMetrics.raw('sankey.to'),
+      more: tMetrics.raw('sankey.more'),
+      linkShare: tMetrics.raw('sankey.linkShare'),
+      noFlows: tMetrics.raw('sankey.noFlows'),
+      empty: tMetrics.raw('sankey.empty'),
+    }),
+    [isBytes, tMetrics],
+  );
 
   if (!job) {
     return (
@@ -578,24 +744,54 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
   const status = String(job.status || '').toUpperCase();
   const flow = summarizeMetricFlow(rawMetrics, {
     failed: /FAILED|FAILING/.test(status),
+    unit,
   });
+  const barHasCommitSplit = !isBytes || flow.hasCommitMetric;
   const bar = buildMetricFlowBar(
     flow.readCount,
     flow.writeCount,
     flow.committedCount,
+    {hasCommitMetric: barHasCommitSplit},
   );
+  const formatAmount = (value: number) =>
+    isBytes ? formatBytesCompact(value) : formatMetricDisplayValue(value);
+  const formatAmountWithUnit = (value: number) =>
+    isBytes
+      ? formatBytesCompact(value)
+      : `${formatMetricDisplayValue(value)} ${t('metricFlowRowsUnit')}`;
   const conclusion = flow.segments
     .map((segment) => t(segment.key, segment.values))
     .join(' · ');
-  const toneColor = FLOW_TONE_COLOR[flow.tone];
+  const isHealthyNeutral =
+    flow.tone === 'neutral' &&
+    flow.countState === 'balanced' &&
+    flow.pendingCommitCount === 0 &&
+    flow.readCount > 0;
+  // 仅存在已写未提交且无积压/写速落后时，状态结论用冷静 info 色而非橙色告警，避免流任务等 Checkpoint 造成误判。
+  // When only written-uncommitted buffer exists (no backlog or write lag), keep the pill calm info rather than warning amber.
+  const isPendingCommitOnly =
+    flow.tone === 'warning' &&
+    flow.pendingCommitCount > 0 &&
+    flow.backlogCount === 0 &&
+    flow.countState !== 'behind' &&
+    flow.countState !== 'writeZero' &&
+    flow.speedState !== 'lag';
+  const toneColor = isHealthyNeutral
+    ? 'var(--success)'
+    : isPendingCommitOnly
+      ? 'var(--info)'
+      : FLOW_TONE_COLOR[flow.tone];
+  const hasAnyTableBacklog = enrichedPairedRows.some((row) => row.backlogVal > 0);
+  const anomalyChipColor = hasAnyTableBacklog ? 'var(--warning)' : 'var(--info)';
   const barAria = bar.segments
     .filter((segment) => segment.value > 0)
     .map(
       (segment) =>
-        `${t(`metricFlowBar_${segment.key}`)} ${formatMetricDisplayValue(segment.value)}`,
+        `${t(`metricFlowBar_${segment.key}`)} ${formatAmount(segment.value)}`,
     )
     .join(' · ');
 
+  const byteTotals = resolveMetricByteTotals(rawMetrics);
   const readRowsRaw = formatMetricDisplayValue(
     getMetricValue(rawMetrics, 'SourceReceivedCount'),
   );
@@ -617,6 +813,45 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
     getMetricValue(rawMetrics, 'SourceReceivedQPS'),
     'qps',
   );
+  const writeQpsRaw = formatMetricDisplayValue(
+    getMetricValue(rawMetrics, 'SinkWriteQPS'),
+  );
+
+  const readKpi = isBytes
+    ? formatByteParts(flow.readCount)
+    : {
+        value: formatMetricDisplayValue(flow.readCount),
+        unit: t('metricFlowRowsUnit'),
+      };
+  const writeKpi = isBytes
+    ? formatByteParts(flow.writeCount)
+    : {
+        value: formatMetricDisplayValue(flow.writeCount),
+        unit: t('metricFlowRowsUnit'),
+      };
+  const writeRateKpi = isBytes
+    ? byteTotals.writeBps !== null
+      ? formatByteRateParts(byteTotals.writeBps)
+      : {value: '-', unit: ''}
+    : {
+        value: formatRateDisplay(
+          getMetricValue(rawMetrics, 'SinkWriteQPS') as
+            | number
+            | string
+            | null
+            | undefined,
+        ),
+        unit: t('metricFlowRowsPerSecondUnit'),
+      };
+
+  const maxTableScale = Math.max(
+    1,
+    ...enrichedPairedRows.map((row) => row.scaleVal),
+  );
+  const totalTableScale = Math.max(
+    flow.readCount,
+    enrichedPairedRows.reduce((sum, row) => sum + row.scaleVal, 0),
+  );
 
   const moreHintParts: string[] = [];
   if (perTableRows.length > 0) {
@@ -632,229 +867,603 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
   }
 
   return (
-    <div className='space-y-5 overflow-auto pr-1 pt-3'>
-      {/* KPI 行：读 / 写 / 写速 + 一句状态结论。精确值、读写速率与 QPS 都收进悬停提示。 */}
-      {/* KPI row: read / written / write-rate plus a single-line conclusion. Exact values, rates and QPS live in tooltips. */}
+    <TooltipProvider delayDuration={500} skipDelayDuration={400}>
+    <div className='space-y-4 overflow-auto pr-1 pt-3'>
+      {/* KPI 行：读 / 写 / 写速（按行数或按体积联动）+ 一句语义状态结论。 */}
+      {/* KPI row: read / written / write rate (synced to rows or bytes) plus a single-line status pill. */}
       <div className='flex flex-wrap items-end gap-x-8 gap-y-3'>
         <MetricFlowKpi
-          label={t('metricFlowKpiRead')}
-          value={formatMetricDisplayValue(flow.readCount)}
-          unit={t('metricFlowRowsUnit')}
+          label={isBytes ? t('metricFlowKpiReadBytes') : t('metricFlowKpiRead')}
+          value={readKpi.value}
+          unit={readKpi.unit}
           tooltip={
-            <>
-              {t('metricFlowExact')}: {readRowsRaw} · {t('pipelineReadRate')}: {readSpeed} · QPS: {readQps}
-            </>
+            isBytes ? (
+              <>
+                {t('metricFlowExact')}: {formatMetricDisplayValue(flow.readCount)} B · {t('metricFlowKpiRead')}: {readRowsRaw} · {t('pipelineReadRate')}: {readSpeed}
+              </>
+            ) : (
+              <>
+                {t('metricFlowExact')}: {readRowsRaw}
+                {byteTotals.readBytes !== null ? ` · ${t('metricFlowKpiReadBytes')}: ${formatBytesCompact(byteTotals.readBytes)}` : ''}
+                {' · '}
+                {t('pipelineReadRate')}: {readSpeed} · QPS: {readQps}
+              </>
+            )
           }
         />
         <MetricFlowKpi
-          label={t('metricFlowKpiWrite')}
-          value={formatMetricDisplayValue(flow.writeCount)}
-          unit={t('metricFlowRowsUnit')}
+          label={isBytes ? t('metricFlowKpiWriteBytes') : t('metricFlowKpiWrite')}
+          value={writeKpi.value}
+          unit={writeKpi.unit}
           tooltip={
-            <>
-              {t('metricFlowExact')}: {writeRowsRaw} · {t('pipelineWriteRate')}: {writeSpeed} · {t('metricFlowCommitted')}: {committedRowsRaw}
-            </>
+            isBytes ? (
+              <>
+                {t('metricFlowExact')}: {formatMetricDisplayValue(flow.writeCount)} B · {t('metricFlowKpiWrite')}: {writeRowsRaw} · {t('pipelineWriteRate')}: {writeSpeed}
+              </>
+            ) : (
+              <>
+                {t('metricFlowExact')}: {writeRowsRaw}
+                {byteTotals.writeBytes !== null ? ` · ${t('metricFlowKpiWriteBytes')}: ${formatBytesCompact(byteTotals.writeBytes)}` : ''}
+                {' · '}
+                {t('pipelineWriteRate')}: {writeSpeed} · {t('metricFlowCommitted')}: {committedRowsRaw}
+              </>
+            )
           }
         />
-        {/* 速率主值用行/秒：与旁边 sparkline 的 throughput_write（records/s）同口径，字节速率进悬停提示。 */}
-        {/* The headline rate is rows/s to match the sparkline's throughput_write (records/s); bytes/s moves to the tooltip. */}
         <MetricFlowKpi
-          label={t('pipelineWriteRate')}
-          value={formatRateDisplay(getMetricValue(rawMetrics, 'SinkWriteQPS') as number | string | null | undefined)}
-          unit={t('metricFlowRowsPerSecondUnit')}
+          label={isBytes ? t('metricFlowKpiWriteThroughput') : t('pipelineWriteRate')}
+          labelAction={
+            onOpenTrend ? (
+              <button
+                type='button'
+                onClick={onOpenTrend}
+                className='text-xs font-medium text-muted-foreground transition-colors hover:text-foreground'
+              >
+                {tMetrics('viewTrend')} →
+              </button>
+            ) : null
+          }
+          value={writeRateKpi.value}
+          unit={writeRateKpi.unit}
           tooltip={
-            <>
-              {t('metricFlowExact')}: {formatMetricDisplayValue(getMetricValue(rawMetrics, 'SinkWriteQPS'))} · {t('pipelineWriteRate')}: {writeSpeed}
-            </>
+            isBytes ? (
+              <>
+                {t('pipelineWriteRate')}: {writeSpeed} · QPS: {writeQpsRaw}
+              </>
+            ) : (
+              <>
+                {t('metricFlowExact')}: {writeQpsRaw} · {t('pipelineWriteRate')}: {writeSpeed}
+              </>
+            )
           }
         >
           {sparklinePoints ? (
             <Sparkline
-              className='mb-0.5 w-28 shrink-0 text-foreground/80'
+              className='mb-0.5 w-32 shrink-0 text-foreground/80'
               data={sparklinePoints.map((point) => point[1])}
               labels={sparklinePoints.map((point) =>
                 new Date(point[0]).toLocaleTimeString(),
               )}
-              label={t('pipelineWriteRate')}
+              label={isBytes ? t('metricFlowKpiWriteThroughput') : t('pipelineWriteRate')}
               variant='area'
-              color='var(--muted-foreground)'
-              height={26}
+              color='var(--series-2)'
+              height={30}
               interactive
               formatValue={(value) =>
-                `${formatRateDisplay(value)} ${t('metricFlowRowsPerSecondUnit')}`
+                isBytes
+                  ? formatByteRateCompact(value)
+                  : `${formatRateDisplay(value)} ${t('metricFlowRowsPerSecondUnit')}`
               }
             />
           ) : null}
         </MetricFlowKpi>
-        <div className='ml-auto flex min-w-0 items-center gap-2 pb-0.5'>
+        <div
+          className='ml-auto inline-flex min-w-0 max-w-full items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium'
+          style={{
+            background: `color-mix(in oklab, ${toneColor} 12%, transparent)`,
+            color: toneColor,
+          }}
+        >
           <span
             aria-hidden
             className='size-1.5 shrink-0 rounded-full'
             style={{background: toneColor}}
           />
-          <span className='text-xs' style={{color: toneColor}}>
-            {conclusion}
-          </span>
+          <span className='truncate'>{conclusion}</span>
         </div>
       </div>
 
-      {/* 一根分段条替代原三端卡片：总长 = 读取量，写入拆成已提交 / 待提交，差额为待写；写超读时总长扩到写入量。 */}
-      {/* One segmented bar replaces the three endpoint cards: scale is the read count (extended to
-          write on overshoot), written rows split into committed / pending-commit, the gap is backlog. */}
-      <div className='space-y-2'>
+      {/* 数据交付构成条：14px 语义分段条 + 阶段说明 Popover + 悬停明细与图例聚焦联动。 */}
+      {/* Delivery breakdown bar: 14px semantic segments, stage guide Popover, hover details, and legend focus toggle. */}
+      <div className='space-y-2.5 border-t-[0.5px] border-border/80 pt-4'>
+        <div className='flex flex-wrap items-center justify-between gap-2 text-xs'>
+          <div className='inline-flex items-center gap-1.5'>
+            <span className='font-medium text-foreground'>{t('metricFlowBarTitle')}</span>
+            <Popover open={guideOpen} onOpenChange={setGuideOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type='button'
+                  aria-label={t('metricFlowGuideTrigger')}
+                  className='-m-1 inline-flex items-center rounded-sm p-1 text-muted-foreground/75 transition-colors hover:text-foreground'
+                >
+                  <HelpCircle className='size-3.5' />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align='start'
+                sideOffset={6}
+                className='arc-compact w-[min(20rem,calc(100vw-2rem))] space-y-3 rounded-[var(--radius-popover)] p-3.5 text-xs'
+              >
+                <div className='font-medium text-foreground'>
+                  {t('metricFlowGuideTitle')}
+                </div>
+                <ol className='space-y-2 text-muted-foreground'>
+                  <li className='flex items-start gap-2'>
+                    <span
+                      aria-hidden
+                      className='mt-1 size-2.5 shrink-0 rounded-[3px]'
+                      style={FLOW_BAR_STYLE.backlog}
+                    />
+                    <div className='min-w-0 leading-relaxed'>
+                      <span className='font-medium text-foreground'>
+                        {t('metricFlowBar_backlog')}
+                      </span>
+                      <span className='mx-1 text-muted-foreground/70'>
+                        ({t('metricFlowGuideFormulaBacklog')})
+                      </span>
+                      <p className='mt-0.5 text-muted-foreground'>
+                        {t('metricFlowBarDesc_backlog')}
+                      </p>
+                    </div>
+                  </li>
+                  <li className='flex items-start gap-2'>
+                    <span
+                      aria-hidden
+                      className='mt-1 size-2.5 shrink-0 rounded-[3px]'
+                      style={FLOW_BAR_STYLE.pendingCommit}
+                    />
+                    <div className='min-w-0 leading-relaxed'>
+                      <span className='font-medium text-foreground'>
+                        {t('metricFlowBar_pendingCommit')}
+                      </span>
+                      <span className='mx-1 text-muted-foreground/70'>
+                        ({t('metricFlowGuideFormulaPending')})
+                      </span>
+                      <p className='mt-0.5 text-muted-foreground'>
+                        {t('metricFlowBarDesc_pendingCommit')}
+                      </p>
+                    </div>
+                  </li>
+                  <li className='flex items-start gap-2'>
+                    <span
+                      aria-hidden
+                      className='mt-1 size-2.5 shrink-0 rounded-[3px]'
+                      style={FLOW_BAR_STYLE.committed}
+                    />
+                    <div className='min-w-0 leading-relaxed'>
+                      <span className='font-medium text-foreground'>
+                        {t('metricFlowBar_committed')}
+                      </span>
+                      <p className='mt-0.5 text-muted-foreground'>
+                        {t('metricFlowBarDesc_committed')}
+                      </p>
+                    </div>
+                  </li>
+                </ol>
+                {onOpenCheckpoint ? (
+                  <div className='flex items-center justify-between gap-2 border-t-[0.5px] border-border/80 pt-2.5'>
+                    <span className='text-muted-foreground'>
+                      {t('metricFlowGuideCheckpointHint')}
+                    </span>
+                    <button
+                      type='button'
+                      onClick={() => {
+                        setGuideOpen(false);
+                        onOpenCheckpoint();
+                      }}
+                      className='shrink-0 font-medium text-foreground hover:underline'
+                    >
+                      {t('metricFlowGuideOpenCheckpoint')} →
+                    </button>
+                  </div>
+                ) : null}
+              </PopoverContent>
+            </Popover>
+          </div>
+          {bar.total > 0 ? (
+            <span className='tabular-nums text-muted-foreground'>
+              {barHasCommitSplit
+                ? t('metricFlowBarCommitRate', {
+                    percent: formatSharePercent(flow.committedCount, bar.total),
+                  })
+                : t('metricFlowBarWriteRate', {
+                    percent: formatSharePercent(flow.writeCount, bar.total),
+                  })}
+              {' · '}
+              {t('metricFlowBarTotal', {value: formatAmountWithUnit(bar.total)})}
+            </span>
+          ) : null}
+        </div>
         <div
           role='img'
           aria-label={barAria}
-          className='flex h-2.5 w-full gap-[2px] overflow-hidden rounded-full bg-muted/60'
+          className='flex h-3.5 w-full gap-[2px] overflow-hidden rounded-full bg-muted/60 p-[1px]'
         >
-          {bar.segments.map((segment) =>
-            segment.value > 0 ? (
-              <div
-                key={segment.key}
-                className='h-full min-w-[2px] transition-[width] duration-500'
-                style={{
-                  width: `${segment.share * 100}%`,
-                  ...FLOW_BAR_STYLE[segment.key],
-                }}
-              />
-            ) : null,
-          )}
+          {bar.segments.map((segment) => {
+            if (segment.value <= 0) {
+              return null;
+            }
+            const dimmed = activeSegment !== null && activeSegment !== segment.key;
+            const shareText = formatSharePercent(segment.value, bar.total);
+            return (
+              <Tooltip key={segment.key}>
+                <TooltipTrigger asChild>
+                  <div
+                    onClick={() =>
+                      setActiveSegment((current) =>
+                        current === segment.key ? null : segment.key,
+                      )
+                    }
+                    className={cn(
+                      'h-full min-w-[4px] cursor-pointer first:rounded-l-full last:rounded-r-full transition-[width,opacity] duration-300',
+                      dimmed ? 'opacity-25' : 'opacity-100',
+                    )}
+                    style={{
+                      width: `${segment.share * 100}%`,
+                      ...FLOW_BAR_STYLE[segment.key],
+                    }}
+                  />
+                </TooltipTrigger>
+                <TooltipContent side='bottom' className='max-w-xs space-y-0.5 text-xs'>
+                  <div className='font-medium tabular-nums'>
+                    {t(`metricFlowBar_${segment.key}`)} · {formatAmountWithUnit(segment.value)} ({shareText})
+                  </div>
+                  <div className='opacity-85 leading-relaxed'>
+                    {t(`metricFlowBarDesc_${segment.key}`)}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
         </div>
-        <div className='flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground'>
-          {bar.segments.map((segment) =>
-            segment.value > 0 ? (
-              <span key={segment.key} className='inline-flex items-center gap-1.5'>
-                <span
-                  aria-hidden
-                  className='size-2 shrink-0 rounded-[2px]'
-                  style={FLOW_BAR_STYLE[segment.key]}
-                />
-                {t(`metricFlowBar_${segment.key}`)}
-                <span className='font-medium tabular-nums text-foreground'>
-                  {formatMetricDisplayValue(segment.value)}
-                </span>
-              </span>
-            ) : null,
-          )}
+        <div className='flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground'>
+          {bar.segments.map((segment) => {
+            if (segment.value <= 0) {
+              return null;
+            }
+            const selected = activeSegment === segment.key;
+            const shareText = formatSharePercent(segment.value, bar.total);
+            return (
+              <Tooltip key={segment.key}>
+                <TooltipTrigger asChild>
+                  <button
+                    type='button'
+                    aria-pressed={selected}
+                    onClick={() =>
+                      setActiveSegment((current) =>
+                        current === segment.key ? null : segment.key,
+                      )
+                    }
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-colors',
+                      selected
+                        ? 'bg-muted text-foreground'
+                        : 'hover:bg-muted/50 hover:text-foreground',
+                    )}
+                  >
+                    <span
+                      aria-hidden
+                      className='size-2.5 shrink-0 rounded-[3px]'
+                      style={FLOW_BAR_STYLE[segment.key]}
+                    />
+                    <span>{t(`metricFlowBar_${segment.key}`)}</span>
+                    <span className='font-medium tabular-nums text-foreground'>
+                      {formatAmount(segment.value)}
+                    </span>
+                    <span className='tabular-nums text-muted-foreground'>
+                      ({shareText})
+                    </span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side='bottom' className='max-w-xs text-xs leading-relaxed'>
+                  {t(`metricFlowBarDesc_${segment.key}`)}
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
           {bar.overWriteCount > 0 ? (
             <span>
-              {t('pipelineExtraWrite', {
-                count: formatMetricCompactValue(bar.overWriteCount),
-              })}
+              {isBytes
+                ? t('metricFlowExtraWriteBytes', {
+                    value: formatBytesCompact(bar.overWriteCount),
+                  })
+                : t('pipelineExtraWrite', {
+                    count: formatMetricCompactValue(bar.overWriteCount),
+                  })}
             </span>
           ) : null}
           {bar.total === 0 ? <span>{t('metricFlowEmpty')}</span> : null}
         </div>
       </div>
 
-      {/* 逐表明细：默认展开的配对链路表；来源/目标合并成一列「链路」，字节与提交量进悬停提示。 */}
-      {/* Per-table details: the paired link table expanded by default; source/sink merge into one
-          link column while bytes and committed counts move into a hover tooltip. */}
+      {/* 逐表明细：默认展开的配对分布表（带行内堆叠占比条），多链路时支持就地切流向图（Sankey）。 */}
+      {/* Per-table details: paired distribution table with inline stacked share bars and in-place Sankey flow toggle. */}
       {pairedMetricRows.length > 0 ? (
         <MetricFoldRow
           title={t('metricFlowPerTable')}
           hint={t('pipelineLinkCount', {count: pairedMetricRows.length})}
           expanded={detailsExpanded}
           onToggle={() => setDetailsExpanded((value) => !value)}
+          trailing={
+            <>
+              {anomalyCount > 0 && detailView === 'table' ? (
+                <button
+                  type='button'
+                  aria-pressed={onlyAnomaly}
+                  onClick={() => setOnlyAnomaly((value) => !value)}
+                  className='inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors'
+                  style={{
+                    background: `color-mix(in oklab, ${anomalyChipColor} ${onlyAnomaly ? '22%' : '12%'}, transparent)`,
+                    color: anomalyChipColor,
+                  }}
+                >
+                  {onlyAnomaly
+                    ? t('metricFlowOnlyAnomaly')
+                    : t('metricFlowAnomalyCount', {count: anomalyCount})}
+                </button>
+              ) : null}
+              {pairedMetricRows.length > 1 && detailView === 'table' ? (
+                <button
+                  type='button'
+                  aria-pressed={sortByVolume}
+                  onClick={() => setSortByVolume((value) => !value)}
+                  className='rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground'
+                >
+                  {sortByVolume
+                    ? t('metricFlowSortByVolume')
+                    : t('metricFlowSortDefault')}
+                </button>
+              ) : null}
+              {flowSankey.totalLinks >= 2 ? (
+                <SegmentedControl
+                  label={t('metricFlowDetailView')}
+                  value={detailView}
+                  onValueChange={(value) => setDetailView(value as 'table' | 'sankey')}
+                  options={[
+                    {value: 'table', label: t('metricFlowDetailTable')},
+                    {value: 'sankey', label: t('metricFlowDetailFlow')},
+                  ]}
+                />
+              ) : null}
+            </>
+          }
         >
-          {pairedMetricRows.length > 5 ? (
-            <div className='relative mb-2 w-56'>
-              <Search className='absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground' />
-              <Input
-                value={tableSearch}
-                onChange={(event) => setTableSearch(event.target.value)}
-                placeholder={t('pipelineSearchTable')}
-                className='h-7 pl-7 text-xs bg-background'
+          {detailView === 'sankey' && flowSankey.totalLinks >= 2 ? (
+            <div className='pt-1'>
+              <SankeyChart
+                nodes={flowSankey.nodes}
+                links={flowSankey.links}
+                label={tMetrics('charts.flow')}
+                formatValue={(value) =>
+                  isBytes
+                    ? formatBytesCompact(value)
+                    : Math.round(value).toLocaleString()
+                }
+                labels={sankeyLabels}
               />
             </div>
-          ) : null}
-          <div className='max-h-[320px] overflow-y-auto'>
-            <Table className='table-fixed'>
-              <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
-                <TableRow className='hover:bg-transparent border-border/50'>
-                  <TableHead className='h-8 py-1 px-2 text-xs font-medium text-muted-foreground'>
-                    {t('metricFlowLink')}
-                  </TableHead>
-                  <TableHead className='h-8 w-[88px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
-                    {t('metricFlowReadRows')}
-                  </TableHead>
-                  <TableHead className='h-8 w-[88px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
-                    {t('metricFlowWriteRows')}
-                  </TableHead>
-                  <TableHead className='h-8 w-[68px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
-                    QPS
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredPairedRows.length > 0 ? (
-                  filteredPairedRows.map((row) => (
-                    <TableRow key={row.key} className='border-border/40 hover:bg-muted/40'>
-                      <TableCell className='py-1.5 px-2'>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className='flex min-w-0 cursor-default items-center gap-1.5 text-xs'>
-                              <span className='shrink-0 text-muted-foreground'>
-                                {row.sourceNode}
-                              </span>
-                              <span className='truncate font-mono text-foreground'>
-                                {row.sourceTable}
-                              </span>
-                              <ArrowRight className='size-3 shrink-0 text-muted-foreground/60' />
-                              <span className='shrink-0 text-muted-foreground'>
-                                {row.sinkNode}
-                              </span>
-                              <span className='truncate font-mono text-foreground'>
-                                {row.sinkTable}
-                              </span>
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent className='max-w-[420px] text-xs'>
-                            <div className='space-y-1'>
-                              <div className='font-mono break-all'>
-                                {row.sourceNode} · {row.sourceTable} → {row.sinkNode} · {row.sinkTable}
+          ) : (
+            <>
+              {pairedMetricRows.length > 5 ? (
+                <div className='relative mb-2 w-56 max-w-full'>
+                  <Search className='absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground' />
+                  <Input
+                    value={tableSearch}
+                    onChange={(event) => setTableSearch(event.target.value)}
+                    placeholder={t('pipelineSearchTable')}
+                    className='h-7 pl-7 text-xs bg-background'
+                  />
+                </div>
+              ) : null}
+              {/* 单层双向滚动容器并放开内层 table-container，兼顾窄屏横向滚动与表头粘顶。 */}
+              {/* Single two-axis scroll container with inner table-container unwrapped so narrow viewports scroll horizontally while sticky headers work. */}
+              <div className='max-h-[320px] overflow-auto [&>[data-slot=table-container]]:overflow-visible'>
+                <Table className='min-w-[740px] table-fixed [&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
+                  <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
+                    <TableRow className='hover:bg-transparent'>
+                      <TableHead className='h-8 py-1 px-2 text-xs font-medium text-muted-foreground'>
+                        {t('metricFlowLink')}
+                      </TableHead>
+                      <TableHead className='h-8 w-[216px] py-1 px-2 text-xs font-medium text-muted-foreground'>
+                        {t('metricFlowShareCol')}
+                      </TableHead>
+                      <TableHead className='h-8 w-[92px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
+                        {isBytes ? t('metricFlowReadBytes') : t('metricFlowReadRows')}
+                      </TableHead>
+                      <TableHead className='h-8 w-[92px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
+                        {isBytes ? t('metricFlowWriteBytes') : t('metricFlowWriteRows')}
+                      </TableHead>
+                      <TableHead className='h-8 w-[84px] py-1 px-2 text-right text-xs font-medium text-muted-foreground'>
+                        {showTableBps ? t('metricFlowThroughputCol') : 'QPS'}
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredPairedRows.length > 0 ? (
+                      filteredPairedRows.map((row) => {
+                        const barWidthPct =
+                          row.scaleVal > 0
+                            ? Math.max(4, (row.scaleVal / maxTableScale) * 100)
+                            : 0;
+                        const rowScale = Math.max(1, row.scaleVal);
+                        const committedPct = (row.committedVal / rowScale) * 100;
+                        const pendingPct = (row.pendingVal / rowScale) * 100;
+                        const backlogPct = (row.backlogVal / rowScale) * 100;
+                        const shareText = formatSharePercent(
+                          row.scaleVal,
+                          totalTableScale,
+                        );
+                        const rateCell = showTableBps
+                          ? row.sinkBpsNum !== null
+                            ? formatByteRateCompact(row.sinkBpsNum)
+                            : row.sourceBpsNum !== null
+                              ? formatByteRateCompact(row.sourceBpsNum)
+                              : '-'
+                          : formatRateDisplay(
+                              row.sinkQps !== '-' ? row.sinkQps : row.sourceQps,
+                            );
+                        return (
+                          <TableRow key={row.key} className='hover:bg-muted/40'>
+                            <TableCell className='overflow-hidden py-1.5 px-2'>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className='flex min-w-0 cursor-default items-center gap-1.5 text-xs'>
+                                    <span className='shrink-0 text-muted-foreground'>
+                                      {row.sourceNode}
+                                    </span>
+                                    <span className='min-w-0 truncate font-mono text-foreground'>
+                                      {row.sourceTable}
+                                    </span>
+                                    <ArrowRight className='size-3 shrink-0 text-muted-foreground/60' />
+                                    <span className='shrink-0 text-muted-foreground'>
+                                      {row.sinkNode}
+                                    </span>
+                                    <span className='min-w-0 truncate font-mono text-foreground'>
+                                      {row.sinkTable}
+                                    </span>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent className='max-w-[420px] text-xs'>
+                                  <div className='space-y-1'>
+                                    <div className='font-mono'>
+                                      {row.sourceNode} · {row.sourceTable} → {row.sinkNode} · {row.sinkTable}
+                                    </div>
+                                    <div className='tabular-nums'>
+                                      {t('metricFlowReadRows')}: {row.sourceCount} · {t('metricFlowWriteRows')}: {row.sinkCount} · {t('metricFlowCommitted')}: {row.committedCount}
+                                    </div>
+                                    <div className='tabular-nums'>
+                                      {t('metricSourceBytes')}: {row.sourceBytesNum > 0 ? formatBytesCompact(row.sourceBytesNum) : row.sourceBytes} · {t('metricSinkBytes')}: {row.sinkBytesNum > 0 ? formatBytesCompact(row.sinkBytesNum) : row.sinkBytes}
+                                      {row.hasCommittedBytes
+                                        ? ` · ${t('metricFlowCommitted')}: ${formatBytesCompact(row.committedBytesNum)}`
+                                        : ''}
+                                      {row.countDiff !== null
+                                        ? ` · ${t('metricCountDiff')}: ${row.countDiff.toLocaleString()}`
+                                        : ''}
+                                    </div>
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TableCell>
+                            <TableCell className='whitespace-normal py-1.5 px-2'>
+                              <div className='flex items-center gap-2'>
+                                <div
+                                  aria-hidden='true'
+                                  className='h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted/60'
+                                >
+                                  {barWidthPct > 0 ? (
+                                    <div
+                                      className='flex h-full gap-[1px]'
+                                      style={{width: `${barWidthPct}%`}}
+                                    >
+                                      {row.committedVal > 0 ? (
+                                        <div
+                                          className='h-full first:rounded-l-full last:rounded-r-full'
+                                          style={{
+                                            width: `${committedPct}%`,
+                                            ...FLOW_BAR_STYLE.committed,
+                                          }}
+                                        />
+                                      ) : null}
+                                      {row.pendingVal > 0 ? (
+                                        <div
+                                          className='h-full first:rounded-l-full last:rounded-r-full'
+                                          style={{
+                                            width: `${pendingPct}%`,
+                                            ...FLOW_BAR_STYLE.pendingCommit,
+                                          }}
+                                        />
+                                      ) : null}
+                                      {row.backlogVal > 0 ? (
+                                        <div
+                                          className='h-full first:rounded-l-full last:rounded-r-full'
+                                          style={{
+                                            width: `${backlogPct}%`,
+                                            ...FLOW_BAR_STYLE.backlog,
+                                          }}
+                                        />
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+                                </div>
+                                <span className='w-11 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground'>
+                                  {shareText}
+                                </span>
                               </div>
-                              <div>
-                                {t('metricSourceBytes')}: {row.sourceBytes} · {t('metricSinkBytes')}: {row.sinkBytes}
-                              </div>
-                              <div>
-                                {t('metricFlowCommitted')}: {row.committedCount} ({row.committedBytes})
-                                {row.countDiff !== null
-                                  ? ` · ${t('metricCountDiff')}: ${row.countDiff.toLocaleString()}`
-                                  : ''}
-                              </div>
-                              {row.sourceRawTables.length > 0 || row.sinkRawTables.length > 0 ? (
-                                <div className='font-mono break-all'>
-                                  {t('metricFlowRawKeys')}: {Array.from(new Set([...row.sourceRawTables, ...row.sinkRawTables])).join(', ')}
+                              {row.pendingVal > 0 || row.backlogVal > 0 ? (
+                                <div className='mt-1 flex flex-wrap items-center gap-1'>
+                                  {row.pendingVal > 0 ? (
+                                    <span
+                                      className='rounded-full px-1.5 py-0.5 text-[11px] leading-none font-medium tabular-nums'
+                                      style={{
+                                        background:
+                                          'color-mix(in oklab, var(--info) 16%, transparent)',
+                                        color: 'var(--info)',
+                                      }}
+                                    >
+                                      {t('metricFlowPendingBadge', {
+                                        value: formatAmount(row.pendingVal),
+                                      })}
+                                    </span>
+                                  ) : null}
+                                  {row.backlogVal > 0 ? (
+                                    <span
+                                      className='rounded-full px-1.5 py-0.5 text-[11px] leading-none font-medium tabular-nums'
+                                      style={{
+                                        background:
+                                          'color-mix(in oklab, var(--warning) 16%, transparent)',
+                                        color: 'var(--warning)',
+                                      }}
+                                    >
+                                      {t('metricFlowBacklogBadge', {
+                                        value: formatAmount(row.backlogVal),
+                                      })}
+                                    </span>
+                                  ) : null}
                                 </div>
                               ) : null}
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TableCell>
-                      <TableCell className='py-1.5 px-2 text-right font-mono text-xs tabular-nums text-foreground'>
-                        {row.sourceCount}
-                      </TableCell>
-                      <TableCell className='py-1.5 px-2 text-right font-mono text-xs tabular-nums text-foreground'>
-                        {row.sinkCount}
-                      </TableCell>
-                      <TableCell className='py-1.5 px-2 text-right font-mono text-xs tabular-nums text-foreground'>
-                        {formatRateDisplay(
-                          row.sinkQps !== '-' ? row.sinkQps : row.sourceQps,
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={4} className='py-6 text-center text-xs text-muted-foreground'>
-                      {t('metricFlowSearchEmpty', {query: tableSearch})}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                            </TableCell>
+                            <TableCell className='py-1.5 px-2 text-right font-mono text-xs tabular-nums text-foreground'>
+                              {isBytes
+                                ? row.sourceBytes !== '-'
+                                  ? formatBytesCompact(row.sourceBytesNum)
+                                  : '-'
+                                : row.sourceCount}
+                            </TableCell>
+                            <TableCell className='py-1.5 px-2 text-right font-mono text-xs tabular-nums text-foreground'>
+                              {isBytes
+                                ? row.sinkBytes !== '-'
+                                  ? formatBytesCompact(row.sinkBytesNum)
+                                  : '-'
+                                : row.sinkCount}
+                            </TableCell>
+                            <TableCell className='py-1.5 px-2 text-right font-mono text-xs tabular-nums text-foreground'>
+                              {rateCell}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={5} className='py-6 text-center text-xs text-muted-foreground'>
+                          {t('metricFlowSearchEmpty', {query: tableSearch})}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
         </MetricFoldRow>
       ) : null}
 
@@ -878,8 +1487,8 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
                     {t('metricFlowEndpoints', {count: perTableRows.length})}
                   </span>
                 </div>
-                <div className='max-h-[280px] overflow-y-auto'>
-                  <Table className='table-fixed'>
+                <div className='max-h-[280px] overflow-auto [&>[data-slot=table-container]]:overflow-visible'>
+                  <Table className='min-w-[520px] table-fixed'>
                     <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
                       <TableRow className='hover:bg-transparent border-border/50'>
                         <TableHead className='h-8 py-1 px-2 text-xs font-medium text-muted-foreground'>
@@ -898,15 +1507,15 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
                     </TableHeader>
                     <TableBody>
                       {perTableRows.map((row) => (
-                        <TableRow key={`${row.rowTone}-${row.rawTable}`} className='border-border/40 hover:bg-muted/40'>
-                          <TableCell className='py-1.5 px-2'>
+                        <TableRow key={row.rawTable} className='border-border/40 hover:bg-muted/40'>
+                          <TableCell className='overflow-hidden py-1.5 px-2'>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <div className='flex min-w-0 cursor-default items-center gap-1.5 text-xs'>
                                   <span className='shrink-0 text-muted-foreground'>
                                     {row.nodeLabel}
                                   </span>
-                                  <span className='truncate font-mono text-foreground'>
+                                  <span className='min-w-0 truncate font-mono text-foreground'>
                                     {row.tablePath}
                                   </span>
                                 </div>
@@ -922,11 +1531,6 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
                                   <div>
                                     {t('metricFlowCommitted')}: {row.committedCount} ({row.committedBytes})
                                   </div>
-                                  {row.rawTables.length > 0 ? (
-                                    <div className='font-mono break-all'>
-                                      {t('metricFlowRawKeys')}: {row.rawTables.join(', ')}
-                                    </div>
-                                  ) : null}
                                 </div>
                               </TooltipContent>
                             </Tooltip>
@@ -1003,6 +1607,7 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
         </MetricFoldRow>
       ) : null}
     </div>
+    </TooltipProvider>
   );
 }
 

@@ -23,7 +23,7 @@ import {
   type SyncJobInstance,
   type SyncJobTimeseries,
 } from '@/lib/services/sync';
-import {getRealtimeEntry} from '../sync-studio-utils';
+import {getRealtimeEntry, type MetricUnitMode} from '../sync-studio-utils';
 import type {TrendPoint} from './metrics-trend-data';
 
 /** 快照 sparkline 与趋势视图共用的短 TTL 缓存：切视图回来不重复打时序接口，又不至于久到掩盖 30s 自动刷新的新数据。 */
@@ -85,53 +85,61 @@ export function clearJobTimeseriesCache() {
 }
 
 const SPARKLINE_RANGE = '1h';
-const SPARKLINE_MIN_POINTS = 10;
+const SPARKLINE_MIN_POINTS = 2;
 
 /**
- * 快照页「写入速率」旁 sparkline 的取数：仅运行中作业请求 timeseries，点不足 10 个返回 null。
- * 作业轮询换对象时重新检查，TTL 内直接命中缓存不会重复请求。
+ * 快照页「写入速率 / 吞吐」旁 sparkline 的取数：仅运行中作业请求 timeseries，点不足 2 个返回 null。
+ * 随指标口径在行速率（throughput_write）与字节吞吐（bytes_throughput_write）之间切换，TTL 内复用缓存。
  * Timeseries points for the write-rate sparkline next to the snapshot KPI: only running jobs issue
- * the request, fewer than 10 points yields null. Re-checks on each polled job object, while the
- * cache TTL prevents duplicate requests.
+ * the request, fewer than 2 points yields null. Switches between row rate (throughput_write) and
+ * byte rate (bytes_throughput_write) with the selected unit while sharing the TTL cache.
  */
 export function useWriteRateSparkline(
   job: SyncJobInstance | null,
+  unit: MetricUnitMode = 'rows',
 ): TrendPoint[] | null {
   const jobId = job?.id ?? null;
   const updatedAt = job?.updated_at ?? '';
   const running = Boolean(job) && getRealtimeEntry(job).running;
-  // 点位按 jobId 归属保存：切换作业时新请求未返回前不得显示上一个作业的曲线；同一作业轮询刷新时保留旧点位不闪烁。
-  // Points are stored with the jobId they belong to: after a job switch the previous job's series must not
-  // show while the new request is pending; refreshes of the same job keep the old points to avoid flicker.
-  const [state, setState] = useState<{jobId: number; points: TrendPoint[] | null} | null>(null);
+  // 点位按 (jobId, unit) 归属保存：切换作业或口径后新请求未返回前不展示旧曲线；同作业轮询刷新保留旧点位防闪烁。
+  // Points are keyed by (jobId, unit): switching jobs or unit hides stale series while loading,
+  // whereas polling refreshes of the same job and unit keep previous points to avoid flicker.
+  const [state, setState] = useState<{
+    jobId: number;
+    unit: MetricUnitMode;
+    points: TrendPoint[] | null;
+  } | null>(null);
   useEffect(() => {
     if (!jobId || !running) {
       setState(null);
       return;
     }
+    const metricGroup = unit === 'bytes' ? 'bytes_throughput' : 'throughput';
+    const seriesKey = unit === 'bytes' ? 'bytes_throughput_write' : 'throughput_write';
     let disposed = false;
     void fetchJobTimeseriesCached(jobId, {
       range: SPARKLINE_RANGE,
-      metrics: 'throughput',
+      metrics: metricGroup,
     })
       .then((timeseries) => {
         if (disposed) {
           return;
         }
         const write = (timeseries.series ?? []).find(
-          (item) => item.key === 'throughput_write',
+          (item) => item.key === seriesKey,
         );
-        setState({jobId, points: write?.points?.length ? write.points : null});
+        setState({jobId, unit, points: write?.points?.length ? write.points : null});
       })
       .catch(() => {
         if (!disposed) {
-          setState({jobId, points: null});
+          setState({jobId, unit, points: null});
         }
       });
     return () => {
       disposed = true;
     };
-  }, [jobId, running, updatedAt]);
-  const points = state && state.jobId === jobId ? state.points : null;
+  }, [jobId, running, unit, updatedAt]);
+  const points =
+    state && state.jobId === jobId && state.unit === unit ? state.points : null;
   return points && points.length >= SPARKLINE_MIN_POINTS ? points : null;
 }

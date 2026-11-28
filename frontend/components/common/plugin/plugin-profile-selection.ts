@@ -34,12 +34,15 @@ export function normalizeProfileKeys(keys?: string[] | null): string[] {
  * 该插件是否必须在下载前选择场景画像。
  */
 export function pluginRequiresProfileSelection(
-  plugin: Pick<Plugin, 'name' | 'artifact_id'> | null | undefined,
+  plugin: Pick<
+    Plugin,
+    'name' | 'artifact_id' | 'requires_profile_selection'
+  > | null | undefined,
 ): boolean {
   if (!plugin) {
     return false;
   }
-  return plugin.artifact_id === 'connector-jdbc' || plugin.name === 'jdbc';
+  return plugin.requires_profile_selection === true;
 }
 
 export type ResolveInstallProfileKeysInput = {

@@ -45,12 +45,7 @@ import type {CustomVariableItem} from './CustomVariableDialog';
 import type {TaskScheduleValue} from './TaskScheduleSidebarPanel';
 import {formatDateTimeTz} from '@/lib/timezone';
 import {isReservedBuiltinVariableKey} from './builtin-time-variables';
-import {
-  buildMetricTableAlignment,
-  extractAlignmentVerticesFromJobDag,
-  type MetricTableAlignment,
-  type MetricTableEndpointAlignment,
-} from './metric-table-alignment';
+import type {MetricTableAlignment} from './metric-table-alignment';
 
 // ==========================================
 // 状态与类型定义
@@ -3846,16 +3841,9 @@ export function extractJobMetricSummary(job: SyncJobInstance): {
     ...Object.keys(tableSinkCountMap),
     ...Object.keys(tableSinkCommittedMap),
   ]);
-  // 单链路命中对齐时将别名/兜底 key 收敛为 1 张逻辑表，避免误标为多表作业。
-  // Collapse single-link alias/fallback keys to 1 logical table so single-link jobs are not misclassified as multi-table.
-  const alignment = buildMetricTableAlignment(
-    extractAlignmentVerticesFromJobDag(job.result_preview?.job_dag),
-    metrics,
-  );
-  const tableCount =
-    alignment.source && alignment.sink && uniqueMetricKeys.size > 0
-      ? 1
-      : countLogicalTables(uniqueMetricKeys);
+  // 多表以逻辑表为准，避免 Source[0].t / Sink[0].t 被计成 2 张表。
+  // Multi-table uses logical tables so Source[0].t / Sink[0].t count as one.
+  const tableCount = countLogicalTables(uniqueMetricKeys);
 
   // 当全局读指标为空但存在表级指标时，汇总表级读取行数
   // When global read metrics are absent but table-level metrics exist, aggregate table read counts
@@ -4347,265 +4335,251 @@ export function toStringMetricMap(value: unknown): Record<string, string> {
   );
 }
 
-export interface PerTableMetricRow {
-  rawTable: string;
-  rawTables: string[];
-  nodeLabel: string;
-  rowTone: 'source' | 'sink' | 'neutral';
-  tablePath: string;
-  sourceCount: string;
-  sourceBytes: string;
-  sourceQps: string;
-  sinkCount: string;
-  sinkBytes: string;
-  sinkQps: string;
-  committedCount: string;
-  committedBytes: string;
+export type MetricUnitMode = 'rows' | 'bytes';
+
+const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
+
+/** 将字节数拆为等宽数值与自适应单位，供 KPI 标题与图表共享。 / Split bytes into formatted number + adaptive binary unit for KPIs and charts. */
+export function formatByteParts(bytes: number): {value: string; unit: string} {
+  if (!Number.isFinite(bytes)) {
+    return {value: '-', unit: ''};
+  }
+  const sign = bytes < 0 ? '-' : '';
+  let size = Math.abs(bytes);
+  let idx = 0;
+  while (size >= 1024 && idx < BYTE_UNITS.length - 1) {
+    size /= 1024;
+    idx += 1;
+  }
+  const num = idx === 0 ? Math.round(size).toLocaleString() : size.toFixed(1);
+  return {value: `${sign}${num}`, unit: BYTE_UNITS[idx]};
 }
 
-function aggregateMetricValues(metricMap: unknown, keys: Iterable<string>): string {
-  const root = toObject(metricMap);
-  let sum = 0;
-  let seen = false;
-  let fallback = '-';
-  for (const key of keys) {
-    if (!Object.prototype.hasOwnProperty.call(root, key)) {
-      continue;
-    }
-    const raw = root[key];
-    const numeric = parseMetricNumber(raw);
-    if (numeric === null) {
-      fallback = formatMetricDisplayValue(raw);
-      continue;
-    }
-    sum += numeric;
-    seen = true;
+/** 将字节速率（B/s）拆为数值与自适应单位（B/s、KB/s、MB/s）。 / Split byte rate (B/s) into formatted number + adaptive rate unit. */
+export function formatByteRateParts(bps: number): {value: string; unit: string} {
+  const parts = formatByteParts(bps);
+  if (!parts.unit) {
+    return parts;
   }
-  return seen ? formatMetricDisplayValue(sum) : fallback;
+  return {value: parts.value, unit: `${parts.unit}/s`};
 }
 
-function metricNodeLabelFromKey(metricKey: string, inferredTone: 'source' | 'sink' | 'neutral'): string {
-  const match = metricKey.match(/^(Source|Sink)\[(\d+)\]\.(.+)$/i);
-  if (match?.[1]) {
-    const nodeType = match[1][0].toUpperCase() + match[1].slice(1).toLowerCase();
-    return `${nodeType} #${Number(match[2]) + 1}`;
-  }
-  if (inferredTone === 'source') {
-    return 'Source';
-  }
-  if (inferredTone === 'sink') {
-    return 'Sink';
-  }
-  return 'Table';
+/** 格式化紧凑字节展示（如 14.2 KB）。 / Format bytes compactly (e.g. 14.2 KB). */
+export function formatBytesCompact(bytes: number): string {
+  const parts = formatByteParts(bytes);
+  return parts.unit ? `${parts.value} ${parts.unit}` : parts.value;
 }
 
-function raiseMetricFloor(tableDisplay: string, jobRaw: unknown): string {
-  const jobNum = parseMetricNumber(jobRaw);
-  if (jobNum === null) {
-    return tableDisplay;
-  }
-  const tableNum = tableDisplay === '-' ? null : parseMetricNumber(tableDisplay);
-  if (tableNum === null || jobNum > tableNum) {
-    return formatMetricDisplayValue(jobNum);
-  }
-  return tableDisplay;
+/** 格式化紧凑字节速率展示（如 1.2 MB/s）。 / Format byte rate compactly (e.g. 1.2 MB/s). */
+export function formatByteRateCompact(bps: number): string {
+  const parts = formatByteRateParts(bps);
+  return parts.unit ? `${parts.value} ${parts.unit}` : parts.value;
 }
 
-const PREFIXED_METRIC_ROW_KEY = /^(Source|Sink)\[\d+\]\./i;
-
-function pickPreferredPairingRows(rows: PerTableMetricRow[]): PerTableMetricRow[] {
-  if (rows.length <= 1) {
-    return rows;
+function sumNumericMetricMap(value: unknown): number | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
   }
-  // 非单链路多表场景下若混入同表名的无前缀残留 key，优先保留带 Source[n]./Sink[n]. 前缀的正式行，避免原有配对消失。
-  // In non-single-link multi-table jobs, prefer prefixed Source[n]./Sink[n]. rows if a stray unprefixed key collides on the same leaf name.
-  const prefixed = rows.filter((row) => PREFIXED_METRIC_ROW_KEY.test(row.rawTable));
-  return prefixed.length === 1 ? prefixed : rows;
+  let found = false;
+  let total = 0;
+  for (const item of Object.values(value as Record<string, unknown>)) {
+    const parsed = parseMetricNumber(item);
+    if (parsed !== null) {
+      found = true;
+      total += Math.max(0, parsed);
+    }
+  }
+  return found ? total : null;
 }
 
-export function buildPerTableMetricRows(
-  metrics: Record<string, unknown>,
-  alignment: MetricTableAlignment = {},
-): PerTableMetricRow[] {
-  const sourceMetricMaps = [
-    metrics.TableSourceReceivedCount,
-    metrics.TableSourceReceivedBytes,
-    metrics.TableSourceReceivedQPS,
-  ];
-  const sinkMetricMaps = [
-    metrics.TableSinkWriteCount,
-    metrics.TableSinkWriteBytes,
-    metrics.TableSinkWriteQPS,
-    metrics.TableSinkCommittedCount,
-    metrics.TableSinkCommittedBytes,
-  ];
-
-  interface KeyGroup {
-    id: string;
-    endpoint?: MetricTableEndpointAlignment;
-    rawKeys: Set<string>;
-    sourceKeys: Set<string>;
-    sinkKeys: Set<string>;
-  }
-  const groups = new Map<string, KeyGroup>();
-  const ensureGroup = (id: string, endpoint?: MetricTableEndpointAlignment): KeyGroup => {
-    let group = groups.get(id);
-    if (!group) {
-      group = {
-        id,
-        endpoint,
-        rawKeys: new Set<string>(),
-        sourceKeys: new Set<string>(),
-        sinkKeys: new Set<string>(),
-      };
-      groups.set(id, group);
-    }
-    return group;
-  };
-  const addKeys = (metricMap: unknown, side: 'source' | 'sink') => {
-    for (const key of Object.keys(toObject(metricMap))) {
-      const endpoint = side === 'source' ? alignment.source : alignment.sink;
-      const id = endpoint ? `aligned-${side}` : key;
-      const group = ensureGroup(id, endpoint);
-      group.rawKeys.add(key);
-      if (side === 'source') {
-        group.sourceKeys.add(key);
-      } else {
-        group.sinkKeys.add(key);
-      }
-    }
-  };
-  sourceMetricMaps.forEach((metricMap) => addKeys(metricMap, 'source'));
-  sinkMetricMaps.forEach((metricMap) => addKeys(metricMap, 'sink'));
-
-  // 单链路作业若已存在表级指标但某侧表级映射被引擎丢弃（如 SQL/JsonPath 后仅保留作业级计数），补齐该侧分组以便正常配对与展示。
-  // On single-link jobs that emit table metrics, ensure both aligned endpoints exist when one side's Table* map was dropped while job-level totals are present.
-  const isSingleLink = Boolean(alignment.source && alignment.sink);
-  if (isSingleLink && groups.size > 0) {
-    if (alignment.source && parseMetricNumber(metrics.SourceReceivedCount) !== null) {
-      ensureGroup('aligned-source', alignment.source);
-    }
-    if (
-      alignment.sink &&
-      (parseMetricNumber(metrics.SinkWriteCount) !== null ||
-        parseMetricNumber(metrics.SinkCommittedCount) !== null)
-    ) {
-      ensureGroup('aligned-sink', alignment.sink);
-    }
-  }
-
-  return Array.from(groups.values())
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .map((group) => {
-      const rawTable = group.endpoint?.canonicalKey || group.id;
-      const prefixed = rawTable.match(/^(Source|Sink)\[(\d+)\]\.(.+)$/i);
-      const hasSourceValues = group.sourceKeys.size > 0;
-      const hasSinkValues = group.sinkKeys.size > 0;
-      const rowTone: PerTableMetricRow['rowTone'] = group.endpoint
-        ? group.endpoint.type
-        : prefixed?.[1]
-          ? (prefixed[1].toLowerCase() as 'source' | 'sink')
-          : hasSourceValues && !hasSinkValues
-            ? 'source'
-            : hasSinkValues && !hasSourceValues
-              ? 'sink'
-              : 'neutral';
-      const tablePath = group.endpoint?.tablePath || extractMetricTablePath(rawTable) || rawTable;
-      let sourceCount = aggregateMetricValues(metrics.TableSourceReceivedCount, group.sourceKeys);
-      let sourceBytes = aggregateMetricValues(metrics.TableSourceReceivedBytes, group.sourceKeys);
-      let sourceQps = aggregateMetricValues(metrics.TableSourceReceivedQPS, group.sourceKeys);
-      let sinkCount = aggregateMetricValues(metrics.TableSinkWriteCount, group.sinkKeys);
-      let sinkBytes = aggregateMetricValues(metrics.TableSinkWriteBytes, group.sinkKeys);
-      let sinkQps = aggregateMetricValues(metrics.TableSinkWriteQPS, group.sinkKeys);
-      let committedCount = aggregateMetricValues(metrics.TableSinkCommittedCount, group.sinkKeys);
-      let committedBytes = aggregateMetricValues(metrics.TableSinkCommittedBytes, group.sinkKeys);
-
-      // 与 dag-model.ts 口径一致：单链路对齐命中时，若表级计数为 0 或低于作业级总量，用作业级指标抬高下限。
-      // Align with dag-model.ts: when single-link alignment is active, raise zero or lower table-level counters to job-level totals.
-      if (isSingleLink && group.endpoint?.type === 'source') {
-        const nextCount = raiseMetricFloor(sourceCount, metrics.SourceReceivedCount);
-        if (nextCount !== sourceCount) {
-          sourceCount = nextCount;
-          sourceBytes = raiseMetricFloor(sourceBytes, metrics.SourceReceivedBytes);
-          sourceQps = raiseMetricFloor(sourceQps, metrics.SourceReceivedQPS);
-        }
-      } else if (isSingleLink && group.endpoint?.type === 'sink') {
-        const jobWrite =
-          parseMetricNumber(metrics.SinkWriteCount) !== null
-            ? metrics.SinkWriteCount
-            : metrics.SinkCommittedCount;
-        const nextCount = raiseMetricFloor(sinkCount, jobWrite);
-        if (nextCount !== sinkCount) {
-          sinkCount = nextCount;
-          sinkBytes = raiseMetricFloor(sinkBytes, metrics.SinkWriteBytes);
-          sinkQps = raiseMetricFloor(sinkQps, metrics.SinkWriteQPS);
-        }
-        committedCount = raiseMetricFloor(committedCount, metrics.SinkCommittedCount);
-        committedBytes = raiseMetricFloor(committedBytes, metrics.SinkCommittedBytes);
-      }
-
-      return {
-        rawTable,
-        rawTables: Array.from(group.rawKeys).sort(),
-        nodeLabel: group.endpoint?.nodeLabel || metricNodeLabelFromKey(rawTable, rowTone),
-        rowTone,
-        tablePath,
-        sourceCount,
-        sourceBytes,
-        sourceQps,
-        sinkCount,
-        sinkBytes,
-        sinkQps,
-        committedCount,
-        committedBytes,
-      };
-    });
+/**
+ * 汇总作业字节总量：优先读取全局字节指标，缺失时从表级字节映射累加兜底。
+ * Resolve job-level byte totals: prefer global byte metrics and fall back to summing per-table maps when absent.
+ */
+export function resolveMetricByteTotals(metrics: Record<string, unknown>): {
+  readBytes: number | null;
+  writeBytes: number | null;
+  committedBytes: number | null;
+  readBps: number | null;
+  writeBps: number | null;
+} {
+  const readBytes =
+    parseMetricNumber(metrics.SourceReceivedBytes) ??
+    sumNumericMetricMap(metrics.TableSourceReceivedBytes);
+  const writeBytes =
+    parseMetricNumber(metrics.SinkWriteBytes) ??
+    sumNumericMetricMap(metrics.TableSinkWriteBytes);
+  const committedBytes =
+    parseMetricNumber(metrics.SinkCommittedBytes) ??
+    sumNumericMetricMap(metrics.TableSinkCommittedBytes);
+  const readBps =
+    parseMetricNumber(metrics.SourceReceivedBytesPerSeconds) ??
+    sumNumericMetricMap(metrics.TableSourceReceivedBytesPerSeconds);
+  const writeBps =
+    parseMetricNumber(metrics.SinkWriteBytesPerSeconds) ??
+    sumNumericMetricMap(metrics.TableSinkWriteBytesPerSeconds);
+  return {readBytes, writeBytes, committedBytes, readBps, writeBps};
 }
 
-function buildPairedMetricRow(key: string, source: PerTableMetricRow, sink: PerTableMetricRow) {
-  const parseMetricNum = (value: string): number | null => {
-    if (!value || value === '-') {
-      return null;
-    }
-    const num = Number(value.replace(/,/g, ''));
-    return Number.isNaN(num) ? null : num;
-  };
-  const srcNum = parseMetricNum(source.sourceCount);
-  const sinkNum = parseMetricNum(sink.sinkCount);
-  const countDiff = srcNum !== null && sinkNum !== null ? sinkNum - srcNum : null;
-  return {
-    key,
-    sourceNode: source.nodeLabel,
-    sourceTable: source.tablePath,
-    sourceRawTables: source.rawTables,
-    sinkNode: sink.nodeLabel,
-    sinkTable: sink.tablePath,
-    sinkRawTables: sink.rawTables,
-    sourceCount: source.sourceCount,
-    sourceBytes: source.sourceBytes,
-    sourceQps: source.sourceQps,
-    sinkCount: sink.sinkCount,
-    sinkBytes: sink.sinkBytes,
-    sinkQps: sink.sinkQps,
-    countDiff,
-    committedCount: sink.committedCount,
-    committedBytes: sink.committedBytes,
-  };
+/**
+ * 判断快照是否具备可切换的字节体积指标；缺失时前端收敛隐藏「按体积」入口，避免空切。
+ * Check whether snapshot metrics contain usable byte volume data so the UI hides the volume toggle when absent.
+ */
+export function hasMetricByteData(metrics: Record<string, unknown>): boolean {
+  const totals = resolveMetricByteTotals(metrics);
+  return (
+    totals.readBytes !== null ||
+    totals.writeBytes !== null ||
+    totals.committedBytes !== null
+  );
+}
+
+export function buildPerTableMetricRows(metrics: Record<string, unknown>) {
+  const sourceCount = toStringMetricMap(metrics.TableSourceReceivedCount);
+  const sourceBytes = toStringMetricMap(metrics.TableSourceReceivedBytes);
+  const sourceQps = toStringMetricMap(metrics.TableSourceReceivedQPS);
+  const sourceBps = toStringMetricMap(metrics.TableSourceReceivedBytesPerSeconds);
+  const sinkCount = toStringMetricMap(metrics.TableSinkWriteCount);
+  const sinkBytes = toStringMetricMap(metrics.TableSinkWriteBytes);
+  const sinkQps = toStringMetricMap(metrics.TableSinkWriteQPS);
+  const sinkBps = toStringMetricMap(metrics.TableSinkWriteBytesPerSeconds);
+  const committedCount = toStringMetricMap(metrics.TableSinkCommittedCount);
+  const committedBytes = toStringMetricMap(metrics.TableSinkCommittedBytes);
+
+  const allTables = Array.from(
+    new Set([
+      ...Object.keys(sourceCount),
+      ...Object.keys(sourceBytes),
+      ...Object.keys(sourceQps),
+      ...Object.keys(sourceBps),
+      ...Object.keys(sinkCount),
+      ...Object.keys(sinkBytes),
+      ...Object.keys(sinkQps),
+      ...Object.keys(sinkBps),
+      ...Object.keys(committedCount),
+      ...Object.keys(committedBytes),
+    ]),
+  ).sort();
+
+  return allTables.map((table) => {
+    const path = extractMetricTablePath(table);
+    const match = table.match(/^(Source|Sink)\[(\d+)\]\.(.+)$/i);
+    const nodeType = match?.[1]
+      ? match[1][0].toUpperCase() + match[1].slice(1).toLowerCase()
+      : 'Table';
+    const nodeIndex = match?.[2] ? Number(match[2]) + 1 : null;
+    const tablePath = path || table;
+    return {
+      rawTable: table,
+      nodeLabel: nodeIndex !== null ? `${nodeType} #${nodeIndex}` : nodeType,
+      rowTone:
+        nodeType === 'Source'
+          ? 'source'
+          : nodeType === 'Sink'
+            ? 'sink'
+            : 'neutral',
+      tablePath,
+      sourceCount: sourceCount[table] || '-',
+      sourceBytes: sourceBytes[table] || '-',
+      sourceQps: sourceQps[table] || '-',
+      sourceBps: sourceBps[table] || '-',
+      sinkCount: sinkCount[table] || '-',
+      sinkBytes: sinkBytes[table] || '-',
+      sinkQps: sinkQps[table] || '-',
+      sinkBps: sinkBps[table] || '-',
+      committedCount: committedCount[table] || '-',
+      committedBytes: committedBytes[table] || '-',
+    };
+  });
 }
 
 export function buildPairedMetricRows(
   metrics: Record<string, unknown>,
   alignment: MetricTableAlignment = {},
 ) {
-  const perTableRows = buildPerTableMetricRows(metrics, alignment);
   if (alignment.source && alignment.sink) {
-    const alignedSourceRows = perTableRows.filter((row) => row.rowTone === 'source');
-    const alignedSinkRows = perTableRows.filter((row) => row.rowTone === 'sink');
-    if (alignedSourceRows.length === 1 && alignedSinkRows.length === 1) {
-      return [buildPairedMetricRow('link', alignedSourceRows[0], alignedSinkRows[0])];
+    const sourceKeys = new Set([
+      ...Object.keys(toObject(metrics.TableSourceReceivedCount)),
+      ...Object.keys(toObject(metrics.TableSourceReceivedBytes)),
+      ...Object.keys(toObject(metrics.TableSourceReceivedQPS)),
+      ...Object.keys(toObject(metrics.TableSourceReceivedBytesPerSeconds)),
+    ]);
+    const sinkKeys = new Set([
+      ...Object.keys(toObject(metrics.TableSinkWriteCount)),
+      ...Object.keys(toObject(metrics.TableSinkWriteBytes)),
+      ...Object.keys(toObject(metrics.TableSinkWriteQPS)),
+      ...Object.keys(toObject(metrics.TableSinkWriteBytesPerSeconds)),
+      ...Object.keys(toObject(metrics.TableSinkCommittedCount)),
+      ...Object.keys(toObject(metrics.TableSinkCommittedBytes)),
+    ]);
+    if (sourceKeys.size > 0 || sinkKeys.size > 0) {
+      const sumMap = (value: unknown, keys: Set<string>): number | null => {
+        const map = toNumericMetricMap(value);
+        let total = 0;
+        let found = false;
+        keys.forEach((key) => {
+          if (map[key] !== undefined) {
+            total += map[key];
+            found = true;
+          }
+        });
+        return found ? total : null;
+      };
+      const display = (value: number | null): string =>
+        value === null ? '-' : formatMetricDisplayValue(value);
+      const floor = (value: number | null, jobValue: unknown): number | null => {
+        const jobNum = parseMetricNumber(jobValue);
+        if (jobNum === null) {
+          return value;
+        }
+        return Math.max(value ?? 0, jobNum);
+      };
+      const sourceCountNum = floor(sumMap(metrics.TableSourceReceivedCount, sourceKeys), metrics.SourceReceivedCount);
+      const sinkCountNum = floor(sumMap(metrics.TableSinkWriteCount, sinkKeys), metrics.SinkWriteCount ?? metrics.SinkCommittedCount);
+      const committedCountNum = floor(sumMap(metrics.TableSinkCommittedCount, sinkKeys), metrics.SinkCommittedCount);
+      const sourceBytesNum = floor(sumMap(metrics.TableSourceReceivedBytes, sourceKeys), metrics.SourceReceivedBytes);
+      const sinkBytesNum = floor(sumMap(metrics.TableSinkWriteBytes, sinkKeys), metrics.SinkWriteBytes);
+      const committedBytesNum = floor(sumMap(metrics.TableSinkCommittedBytes, sinkKeys), metrics.SinkCommittedBytes);
+      const sourceQpsNum = floor(sumMap(metrics.TableSourceReceivedQPS, sourceKeys), metrics.SourceReceivedQPS);
+      const sinkQpsNum = floor(sumMap(metrics.TableSinkWriteQPS, sinkKeys), metrics.SinkWriteQPS);
+      const sourceBpsNum = floor(sumMap(metrics.TableSourceReceivedBytesPerSeconds, sourceKeys), metrics.SourceReceivedBytesPerSeconds);
+      const sinkBpsNum = floor(sumMap(metrics.TableSinkWriteBytesPerSeconds, sinkKeys), metrics.SinkWriteBytesPerSeconds);
+      return [{
+        key: 'link',
+        sourceNode: alignment.source.nodeLabel,
+        sourceTable: alignment.source.tablePath,
+        sourceRawTables: Array.from(sourceKeys).sort(),
+        sinkNode: alignment.sink.nodeLabel,
+        sinkTable: alignment.sink.tablePath,
+        sinkRawTables: Array.from(sinkKeys).sort(),
+        sourceCount: display(sourceCountNum),
+        sourceBytes: display(sourceBytesNum),
+        sourceQps: display(sourceQpsNum),
+        sourceBps: display(sourceBpsNum),
+        sinkCount: display(sinkCountNum),
+        sinkBytes: display(sinkBytesNum),
+        sinkQps: display(sinkQpsNum),
+        sinkBps: display(sinkBpsNum),
+        countDiff:
+          sourceCountNum !== null && sinkCountNum !== null
+            ? sinkCountNum - sourceCountNum
+            : null,
+        committedCount: display(committedCountNum),
+        committedBytes: display(committedBytesNum),
+        sourceCountNum: sourceCountNum ?? 0,
+        sinkCountNum: sinkCountNum ?? 0,
+        committedCountNum: committedCountNum ?? 0,
+        hasCommittedCount: committedCountNum !== null,
+        sourceBytesNum: sourceBytesNum ?? 0,
+        sinkBytesNum: sinkBytesNum ?? 0,
+        committedBytesNum: committedBytesNum ?? 0,
+        hasCommittedBytes: committedBytesNum !== null,
+        sourceBpsNum,
+        sinkBpsNum,
+      }];
     }
   }
-
+  const perTableRows = buildPerTableMetricRows(metrics);
   const sourceBuckets = new Map<string, typeof perTableRows>();
   const sinkBuckets = new Map<string, typeof perTableRows>();
   for (const row of perTableRows) {
@@ -4628,10 +4602,56 @@ export function buildPairedMetricRows(
   ).sort();
   return keys
     .map((key) => {
-      const sourceRows = pickPreferredPairingRows(sourceBuckets.get(key) || []);
-      const sinkRows = pickPreferredPairingRows(sinkBuckets.get(key) || []);
+      const sourceRows = sourceBuckets.get(key) || [];
+      const sinkRows = sinkBuckets.get(key) || [];
       if (sourceRows.length === 1 && sinkRows.length === 1) {
-        return buildPairedMetricRow(key, sourceRows[0], sinkRows[0]);
+        const source = sourceRows[0];
+        const sink = sinkRows[0];
+        // 解析数值以计算条数差额、行内占比条与字节口径指标 / Parse numbers for disparity, inline share bars, and byte mode
+        const parseMetricNum = (v: string): number | null => {
+          if (!v || v === '-') {return null;}
+          const num = Number(v.replace(/,/g, ''));
+          return isNaN(num) ? null : num;
+        };
+        const srcNum = parseMetricNum(source.sourceCount);
+        const sinkNum = parseMetricNum(sink.sinkCount);
+        const committedCountNum = parseMetricNum(sink.committedCount);
+        const sourceBytesNum = parseMetricNum(source.sourceBytes);
+        const sinkBytesNum = parseMetricNum(sink.sinkBytes);
+        const committedBytesNum = parseMetricNum(sink.committedBytes);
+        const sourceBpsNum = parseMetricNum(source.sourceBps);
+        const sinkBpsNum = parseMetricNum(sink.sinkBps);
+        const countDiff =
+          srcNum !== null && sinkNum !== null ? sinkNum - srcNum : null;
+
+        return {
+          key,
+          sourceNode: source.nodeLabel,
+          sourceTable: source.tablePath,
+          sinkNode: sink.nodeLabel,
+          sinkTable: sink.tablePath,
+          sourceCount: source.sourceCount,
+          sourceBytes: source.sourceBytes,
+          sourceQps: source.sourceQps,
+          sourceBps: source.sourceBps,
+          sinkCount: sink.sinkCount,
+          sinkBytes: sink.sinkBytes,
+          sinkQps: sink.sinkQps,
+          sinkBps: sink.sinkBps,
+          countDiff,
+          committedCount: sink.committedCount,
+          committedBytes: sink.committedBytes,
+          sourceCountNum: srcNum ?? 0,
+          sinkCountNum: sinkNum ?? 0,
+          committedCountNum: committedCountNum ?? 0,
+          hasCommittedCount: committedCountNum !== null,
+          sourceBytesNum: sourceBytesNum ?? 0,
+          sinkBytesNum: sinkBytesNum ?? 0,
+          committedBytesNum: committedBytesNum ?? 0,
+          hasCommittedBytes: committedBytesNum !== null,
+          sourceBpsNum,
+          sinkBpsNum,
+        };
       }
       return null;
     })
@@ -4680,20 +4700,36 @@ export interface MetricFlowSummary {
  */
 export function summarizeMetricFlow(
   metrics: Record<string, unknown>,
-  opts?: {failed?: boolean},
+  opts?: {failed?: boolean; unit?: MetricUnitMode},
 ): MetricFlowSummary {
+  const unit: MetricUnitMode = opts?.unit ?? 'rows';
+  const isBytes = unit === 'bytes';
+  const byteTotals = isBytes ? resolveMetricByteTotals(metrics) : null;
   const readCount = Math.max(
     0,
-    parseMetricNumber(metrics.SourceReceivedCount) ?? 0,
+    isBytes
+      ? (byteTotals?.readBytes ?? 0)
+      : (parseMetricNumber(metrics.SourceReceivedCount) ?? 0),
   );
-  const writeCount = Math.max(0, parseMetricNumber(metrics.SinkWriteCount) ?? 0);
-  const committedRaw = parseMetricNumber(metrics.SinkCommittedCount);
+  const writeCount = Math.max(
+    0,
+    isBytes
+      ? (byteTotals?.writeBytes ?? 0)
+      : (parseMetricNumber(metrics.SinkWriteCount) ?? 0),
+  );
+  const committedRaw = isBytes
+    ? (byteTotals?.committedBytes ?? null)
+    : parseMetricNumber(metrics.SinkCommittedCount);
   const hasCommitMetric = committedRaw !== null;
   // 提交量锚定写入侧：写超读时多写的行也算在已提交里，读侧不再截断。
-  // Committed rows anchor on the write side: rows written beyond the read still
-  // count as committed, so the read side does not clip them.
-  const committedCount = Math.max(0, Math.min(committedRaw ?? 0, writeCount));
-  const pendingCommitCount = Math.max(0, writeCount - committedCount);
+  // 体积口径下若连接器未上报 SinkCommittedBytes，不伪造待提交告警（分段条退化为已写入 / 待写）。
+  // Committed rows anchor on the write side so overshoot writes stay committed without being clipped by reads.
+  // In byte mode, when SinkCommittedBytes is absent, avoid fabricating a pending-commit warning (the bar degrades to written / backlog).
+  const committedCount = hasCommitMetric
+    ? Math.max(0, Math.min(committedRaw, writeCount))
+    : 0;
+  const pendingCommitCount =
+    isBytes && !hasCommitMetric ? 0 : Math.max(0, writeCount - committedCount);
   const backlogCount = Math.max(0, readCount - writeCount);
   const overWriteCount = Math.max(0, writeCount - readCount);
 
@@ -4739,12 +4775,21 @@ export function summarizeMetricFlow(
       values: {percent: Math.round((writeCount / readCount) * 100)},
     });
   } else if (countState === 'ahead') {
-    segments.push({
-      key: 'pipelineExtraWrite',
-      values: {count: formatMetricCompactValue(overWriteCount)},
-    });
+    segments.push(
+      isBytes
+        ? {
+            key: 'metricFlowExtraWriteBytes',
+            values: {value: formatBytesCompact(overWriteCount)},
+          }
+        : {
+            key: 'pipelineExtraWrite',
+            values: {count: formatMetricCompactValue(overWriteCount)},
+          },
+    );
   } else {
-    segments.push({key: 'metricFlowBalanced'});
+    segments.push({
+      key: isBytes ? 'metricFlowVolumeBalanced' : 'metricFlowBalanced',
+    });
   }
   // 写速落后独立成段：数量已追平但速率仍落后时也要提示。
   // Lagging write speed is its own segment so it still warns when counts already caught up.
@@ -4762,10 +4807,17 @@ export function summarizeMetricFlow(
   }
   if (writeCount > 0) {
     if (pendingCommitCount > 0) {
-      segments.push({
-        key: 'metricFlowPendingCommitCount',
-        values: {count: formatMetricCompactValue(pendingCommitCount)},
-      });
+      segments.push(
+        isBytes
+          ? {
+              key: 'metricFlowPendingCommitBytes',
+              values: {value: formatBytesCompact(pendingCommitCount)},
+            }
+          : {
+              key: 'metricFlowPendingCommitCount',
+              values: {count: formatMetricCompactValue(pendingCommitCount)},
+            },
+      );
     } else if (hasCommitMetric && committedCount >= writeCount) {
       segments.push({key: 'metricFlowAllCommitted'});
     }
@@ -4798,6 +4850,7 @@ export function summarizeMetricFlow(
 
 export type MetricFlowBarSegmentKey =
   | 'committed'
+  | 'written'
   | 'pendingCommit'
   | 'backlog';
 
@@ -4818,27 +4871,39 @@ export interface MetricFlowBar {
 
 /**
  * 分段条的数值：以读取量为总长，把写入拆成「已提交 / 待提交」两段、差额补「待写」段；
- * 写超读时总刻度扩到写入量。三段互斥且总和不超 1。
+ * 写超读时总刻度扩到写入量。无提交指标（如部分连接器的字节指标）时退化为「已写入 / 待写」两段。
  * Segment values for the flow bar: the read count is the full scale, written rows split into
- * committed / pending-commit, and the read-vs-write gap becomes the backlog segment; when write
- * overshoots read the scale extends to write. Segments are exclusive and their shares never exceed 1.
+ * committed / pending-commit, and the read-vs-write gap becomes backlog; when write overshoots read
+ * the scale extends to write. When commit metrics are unavailable (e.g. byte mode without committed bytes),
+ * it degrades to a two-segment written / backlog bar.
  */
 export function buildMetricFlowBar(
   readCount: number,
   writeCount: number,
   committedCount: number,
+  opts?: {hasCommitMetric?: boolean},
 ): MetricFlowBar {
   const read = Math.max(0, readCount);
   const write = Math.max(0, writeCount);
+  const backlog = Math.max(0, read - write);
+  const overWrite = Math.max(0, write - read);
+  const total = Math.max(read, write);
+  const share = (value: number) => (total > 0 ? value / total : 0);
+  if (opts?.hasCommitMetric === false) {
+    return {
+      total,
+      segments: [
+        {key: 'written', value: write, share: share(write)},
+        {key: 'backlog', value: backlog, share: share(backlog)},
+      ],
+      overWriteCount: overWrite,
+    };
+  }
   // 与 summarizeMetricFlow 同口径：提交量锚定写入侧，多写的行不进待提交。
   // Same contract as summarizeMetricFlow: committed anchors on write; overshoot
   // rows are reported separately, never as pending commit.
   const committed = Math.max(0, Math.min(committedCount, write));
   const pendingCommit = Math.max(0, write - committed);
-  const backlog = Math.max(0, read - write);
-  const overWrite = Math.max(0, write - read);
-  const total = Math.max(read, write);
-  const share = (value: number) => (total > 0 ? value / total : 0);
   return {
     total,
     segments: [
@@ -4852,6 +4917,7 @@ export function buildMetricFlowBar(
 
 export interface MetricFlowSankeyLabels {
   committed: string;
+  written?: string;
   pendingCommit: string;
   backlog: string;
   otherSources: (count: number) => string;
@@ -4864,7 +4930,9 @@ export interface MetricFlowSankeyColors {
   table: string | ((pair: {srcLabel: string; sinkLabel: string}) => string);
   /** 已提交节点颜色。 / Committed node color. */
   outcome: string;
-  /** 待提交与待写节点的异常提示色。 / Pending-commit and backlog nodes (warning). */
+  /** 已写未提交节点颜色；缺省回退到 warning 以保持调用方兼容。 / Written-uncommitted node color; falls back to warning for caller compatibility. */
+  pending?: string;
+  /** 已读未写（积压）节点的异常提示色。 / Backlog (read, unwritten) node warning color. */
   warning: string;
 }
 
@@ -4892,12 +4960,12 @@ export interface MetricFlowSankey {
 
 /**
  * 按表指标 → 桑基图「源表 → 目标表 → 提交状态」三段流向：源到目标的带宽是写入量，
- * 已读未写挂到「待写」，写入再分流到「已提交 / 待提交」。链路超过 Top-N 时其余合成
- * 「其它 N 张表」一对节点；为零的分支不出节点。配对用 buildPairedMetricRows 的同一份数据。
+ * 已读未写挂到「待写」，写入再分流到「已提交 / 待提交」。支持按行数或字节体积构图；
+ * 字节口径缺失表级已提交字节时，写入侧归入「已写入」节点而非误判为待提交。
  * Per-table metrics to a "source table → sink table → commit state" Sankey: the source-to-sink
- * band is the write count, read-but-unwritten rows go to a backlog node, and writes split into
- * committed / pending-commit. Links past Top-N merge into one "other N tables" pair; zero-value
- * branches emit no node. Pairing reuses buildPairedMetricRows.
+ * band is the write amount, read-but-unwritten goes to backlog, and writes split into committed /
+ * pending-commit. Supports rows or bytes; in byte mode without per-table committed bytes, writes
+ * land on a written outcome node instead of being misreported as pending.
  */
 export function buildMetricFlowSankey(
   metrics: Record<string, unknown>,
@@ -4905,20 +4973,30 @@ export function buildMetricFlowSankey(
     labels: MetricFlowSankeyLabels;
     colors: MetricFlowSankeyColors;
     maxLinks?: number;
-    alignment?: MetricTableAlignment;
+    unit?: MetricUnitMode;
   },
 ): MetricFlowSankey {
   const {labels, colors} = opts;
+  const unit: MetricUnitMode = opts.unit ?? 'rows';
+  const isBytes = unit === 'bytes';
   const maxLinks = Math.max(1, Math.floor(opts.maxLinks ?? 8));
-  const numbered = buildPairedMetricRows(metrics, opts.alignment)
+  const paired = buildPairedMetricRows(metrics);
+  const byteCommitAvailable =
+    !isBytes || paired.some((row) => row.hasCommittedBytes);
+  const numbered = paired
     .map((row) => {
-      const committedRaw = parseMetricNumber(row.committedCount) ?? 0;
-      const write = Math.max(0, parseMetricNumber(row.sinkCount) ?? 0);
+      const read = Math.max(0, isBytes ? row.sourceBytesNum : row.sourceCountNum);
+      const write = Math.max(0, isBytes ? row.sinkBytesNum : row.sinkCountNum);
+      const committedRaw = isBytes
+        ? byteCommitAvailable
+          ? row.committedBytesNum
+          : write
+        : row.committedCountNum;
       return {
         key: row.key,
         sourceTable: row.sourceTable || row.sourceNode,
         sinkTable: row.sinkTable || row.sinkNode,
-        read: Math.max(0, parseMetricNumber(row.sourceCount) ?? 0),
+        read,
         write,
         committed: Math.max(0, Math.min(committedRaw, Math.max(write, committedRaw))),
       };
@@ -4962,12 +5040,16 @@ export function buildMetricFlowSankey(
 
   const links: MetricFlowSankeyLink[] = [];
   const nodes: MetricFlowSankeyNode[] = [];
+  const outcomeId = byteCommitAvailable ? 'o:committed' : 'o:written';
+  const outcomeLabel = byteCommitAvailable
+    ? labels.committed
+    : (labels.written ?? labels.committed);
   let hasCommitted = false;
   let hasPending = false;
   let hasBacklog = false;
   for (const pair of pairs) {
     const committed = Math.min(pair.committed, pair.write);
-    const pending = Math.max(0, pair.write - committed);
+    const pending = byteCommitAvailable ? Math.max(0, pair.write - committed) : 0;
     const backlog = Math.max(0, pair.read - pair.write);
     const pairColor =
       typeof colors.table === 'function'
@@ -4978,7 +5060,7 @@ export function buildMetricFlowSankey(
       nodes.push({id: pair.sinkId, label: pair.sinkLabel, color: pairColor});
       links.push({source: pair.srcId, target: pair.sinkId, value: pair.write});
       if (committed > 0) {
-        links.push({source: pair.sinkId, target: 'o:committed', value: committed});
+        links.push({source: pair.sinkId, target: outcomeId, value: committed});
         hasCommitted = true;
       }
       if (pending > 0) {
@@ -4994,10 +5076,14 @@ export function buildMetricFlowSankey(
   // 结果节点放最后，保证列顺序是 源表 → 目标表 → 提交状态。
   // Outcome nodes go last so columns order as source tables → sink tables → commit state.
   if (hasCommitted) {
-    nodes.push({id: 'o:committed', label: labels.committed, color: colors.outcome});
+    nodes.push({id: outcomeId, label: outcomeLabel, color: colors.outcome});
   }
   if (hasPending) {
-    nodes.push({id: 'o:pending', label: labels.pendingCommit, color: colors.warning});
+    nodes.push({
+      id: 'o:pending',
+      label: labels.pendingCommit,
+      color: colors.pending ?? colors.warning,
+    });
   }
   if (hasBacklog) {
     nodes.push({id: 'o:backlog', label: labels.backlog, color: colors.warning});

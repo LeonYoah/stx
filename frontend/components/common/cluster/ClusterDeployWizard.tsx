@@ -120,7 +120,11 @@ export function ClusterDeployWizard({
   const [deploySteps, setDeploySteps] = useState<DeployStepItem[]>([]);
 
   // Packages hook / 安装包 hook
-  const {packages, loading: packagesLoading} = usePackages();
+  const {
+    packages,
+    loading: packagesLoading,
+    refresh: refreshPackages,
+  } = usePackages();
 
   // Precheck state / 预检查状态
   const [precheckResults, setPrecheckResults] = useState<HostPrecheckResult[]>(
@@ -159,12 +163,14 @@ export function ClusterDeployWizard({
     }
   }, [config.deploymentMode]);
 
-  // Load hosts when dialog opens / 对话框打开时加载主机
+  // Load hosts and refresh packages when dialog opens so newly uploaded local packages appear immediately.
+  // 对话框打开时同步加载主机并刷新安装包列表，确保刚上传的本地安装包立即可选。
   useEffect(() => {
     if (open) {
       loadHosts();
+      void refreshPackages();
     }
-  }, [open, loadHosts]);
+  }, [open, loadHosts, refreshPackages]);
 
   // Current step / 当前步骤
   const currentStep = WIZARD_STEPS[currentStepIndex];
@@ -194,7 +200,7 @@ export function ClusterDeployWizard({
     [packages?.local_packages],
   );
 
-  const resolvedRecommendedVersion = useMemo(
+  const resolvedDefaultVersion = useMemo(
     () => resolveSeatunnelVersion(packages),
     [packages],
   );
@@ -211,15 +217,21 @@ export function ClusterDeployWizard({
   // 用户手动改过事件通道之后，切换仍支持的版本不再把默认值盖回去。
   // After the user toggles the event channel, later supported versions keep that choice.
   const eventChannelUserSet = useRef(false);
+  // 用户手动选过版本后，重新刷新安装包列表时不再覆盖其选择。
+  // Once the user picks a version manually, package refreshes must not overwrite it.
+  const versionUserTouchedRef = useRef(false);
 
   useEffect(() => {
-    if (!open || !resolvedRecommendedVersion || config.version) {
+    if (!open || !resolvedDefaultVersion || versionUserTouchedRef.current) {
       return;
     }
 
-    // 仅在仍是默认安装路径时随推荐版本写入；用户已改成 /tmp/... 等自定义路径时不得覆盖。
+    // 仅在仍是默认安装路径时随默认版本写入；用户已改成 /tmp/... 等自定义路径时不得覆盖。
     // Only seed installDir when it still looks like the default; never overwrite a user-edited path such as /tmp/...
     setConfig((prev) => {
+      if (prev.version === resolvedDefaultVersion) {
+        return prev;
+      }
       const defaultTemplate = buildSeatunnelInstallDir();
       const shouldResetInstallDir =
         !prev.installDir ||
@@ -228,13 +240,13 @@ export function ClusterDeployWizard({
 
       return {
         ...prev,
-        version: resolvedRecommendedVersion,
+        version: resolvedDefaultVersion,
         installDir: shouldResetInstallDir
-          ? buildSeatunnelInstallDir(resolvedRecommendedVersion)
+          ? buildSeatunnelInstallDir(resolvedDefaultVersion)
           : prev.installDir,
       };
     });
-  }, [open, resolvedRecommendedVersion, config.version]);
+  }, [open, resolvedDefaultVersion]);
 
   useEffect(() => {
     if (!versionCapabilities) {
@@ -408,6 +420,9 @@ export function ClusterDeployWizard({
 
   // Update config / 更新配置
   const updateConfig = useCallback((updates: Partial<ClusterDeployConfig>) => {
+    if (updates.version !== undefined) {
+      versionUserTouchedRef.current = true;
+    }
     setConfig((prev) => {
       if (
         updates.deploymentMode !== undefined &&
@@ -955,6 +970,7 @@ export function ClusterDeployWizard({
 
   /** Reset everything and actually close / 复位全部状态并真正关闭弹窗 */
   const closeNow = useCallback(() => {
+    versionUserTouchedRef.current = false;
     setCurrentStepIndex(0);
     setConfig(defaultClusterDeployConfig);
     setHostsWithRole([]);
@@ -1005,7 +1021,7 @@ export function ClusterDeployWizard({
             packages={packages}
             localPackages={localPackages}
             packagesLoading={packagesLoading}
-            resolvedRecommendedVersion={resolvedRecommendedVersion}
+            defaultVersion={resolvedDefaultVersion}
           />
         );
       case 'hosts':

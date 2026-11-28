@@ -59,7 +59,7 @@ STX 控制台为 **Next.js 15**（App Router）应用，使用 **React 19**、**
 - **外壳与布局**：页面放在 `app/(main)/...` 下，根容器挂 `.arc-compact`；严禁单页再套自带 `max-w-*` 居中或大 padding 的外层 `container`；新业务组件置于 `components/common/<domain>/`。
 - **页面头部与图标**：统一使用 `<WorkspaceHeader />`，图标与 Dock 对齐；换/加图标前先在 `lucide-react`、`@tabler/icons-react` 按实际尺寸列出至少 3 个候选并经确认（详见 [UI 约定](./ui-conventions.md) 第 1 节）。
 - **列表页标准**：单行工具栏（Arc `SegmentedControl` + Arc `SearchField`，无冗余「搜索」按钮）+ `TableCard` + 底部分页；支持 URL 参数同步、筛选重置 `page=1` 与请求序号竞态保护；表/卡切换用 `ViewToggle` + `useViewMorph`；常驻详情用 `DetailHost`；多选批量条用底部浮动 `BatchBar`。
-- **详情与弹窗标准**：单层画布 + `0.5px` 细线压平；Arc `Dialog` / `Drawer` Portal 内容节点必挂 `.arc-compact`；编辑态离开接入 `DirtyCloseDialog`。
+- **详情与弹窗标准**：单层画布 + `0.5px` 细线压平；Arc `Dialog` / `Drawer` Portal 内容节点必挂 `.arc-compact`；编辑态离开接入 `DirtyCloseDialog`。`Tooltip` 仅放纯文本并共享 500ms/400ms 悬停组（禁止单点 `delayDuration={0}`），多段说明或含操作走点击触发 `Popover`；`table-fixed` 表格必须带 `min-w-*` 与截断列 `overflow-hidden`，避免窄屏跨列覆盖（详见 [UI 约定](./ui-conventions.md) §3–§4）。
 - **接口与服务**：仅通过 `lib/services/` 调用后端；数组字段在边界做好 `null` 兜底（`?? []`）。Dolphin 工作流的 `tasks`/`relations`/`recent_jobs` 同样必须归一成数组，成环预检不能用假边。
 - **CLI 令牌管理**：仅管理员可访问；与用户管理同页双 Tab。签发时展示原文一次，列表只显示前缀加掩码。有效期预设为 7 天 / 30 天 / 90 天 / 永久，并允许自定义 1–3650 天。审计日志必须展示令牌列（名称或前缀；Web 会话显示「会话」）。Dolphin Worker 的 `STX_TOKEN` 使用这里签发的 `stx_` 登录令牌，不再单独签发调度令牌。
 - **推送不绑定 STX 登录令牌**：任务侧栏和推送弹窗只负责把 SHELL 节点推到 Dolphin，不得放「打开令牌管理」或任何签发/绑定 `stx_` 的入口。Worker 令牌由用户在令牌管理页签发后，自行 `stx login --token` 或写入 Worker 环境。
@@ -81,6 +81,7 @@ STX 控制台为 **Next.js 15**（App Router）应用，使用 **React 19**、**
   - 执行前不要再额外运行 `pnpm run pack:standalone`，除非正在单独排查 standalone 构建。
 - TypeScript 类型检查默认复用增量缓存：`frontend/tsconfig.json` 已启用 `"incremental": true`，常规检查运行 `cd frontend && pnpm exec tsc --noEmit`。
 - 单元测试运行 `cd frontend && pnpm test`；改动语言包后运行 `cd frontend && pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts`；涉及用户操作流程时运行对应 Playwright 用例。
+- **页面与复杂面板自审查（长期约束）**：每新增或大幅改版一个前端页面、弹窗或复杂面板，提交前必须执行一次 `kubai-design-tips` skill 自审查（覆盖浮层分工、悬停时机、控件语义、加载/空态与多宽度响应式验证），确认无列溢出、控件裁切或交互噪音后再提交。
 
 ---
 

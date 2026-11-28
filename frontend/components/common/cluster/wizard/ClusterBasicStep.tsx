@@ -35,7 +35,10 @@ import {Download, Server, Layers} from 'lucide-react';
 import {HelpHint} from '@/components/common/HelpHint';
 import {DeploymentMode} from '@/lib/services/cluster/types';
 import {ClusterDeployConfig} from './types';
-import {buildSeatunnelInstallDir} from '@/lib/seatunnel-version';
+import {
+  buildSeatunnelInstallDir,
+  resolveSelectableSeatunnelVersions,
+} from '@/lib/seatunnel-version';
 import {isValidClusterCode, recommendClusterCode} from '@/lib/cluster-code';
 import type {PackageInfo, AvailableVersions} from '@/lib/services/installer/types';
 
@@ -50,8 +53,8 @@ interface ClusterBasicStepProps {
   localPackages: PackageInfo[];
   /** Packages loading status / 安装包加载状态 */
   packagesLoading: boolean;
-  /** Recommended version / 推荐版本号 */
-  resolvedRecommendedVersion: string;
+  /** 默认预选版本号 / Default preselected version */
+  defaultVersion: string;
 }
 
 export function ClusterBasicStep({
@@ -60,7 +63,7 @@ export function ClusterBasicStep({
   packages,
   localPackages,
   packagesLoading,
-  resolvedRecommendedVersion,
+  defaultVersion,
 }: ClusterBasicStepProps) {
   const t = useTranslations();
   const [codeTouched, setCodeTouched] = React.useState(Boolean(config.clusterCode));
@@ -68,11 +71,19 @@ export function ClusterBasicStep({
   const clusterCodeInvalid =
     config.clusterCode.length > 0 && !isValidClusterCode(config.clusterCode);
 
-  const selectedVersionIsLocal = localPackages.some(
-    (pkg) => pkg.version === config.version,
+  const localVersionSet = React.useMemo(
+    () => new Set(localPackages.map((pkg) => pkg.version)),
+    [localPackages],
   );
-  const selectedVersionIsRecommended =
-    Boolean(config.version) && config.version === packages?.recommended_version;
+  const selectableVersions = React.useMemo(
+    () =>
+      resolveSelectableSeatunnelVersions(packages, [
+        config.version,
+        defaultVersion,
+      ]),
+    [packages, config.version, defaultVersion],
+  );
+  const selectedVersionIsLocal = localVersionSet.has(config.version);
 
   return (
     <div className='h-full flex flex-col overflow-hidden'>
@@ -181,30 +192,26 @@ export function ClusterBasicStep({
           <div className='grid grid-cols-1 items-start md:grid-cols-2 gap-4 pt-4 border-t-[0.5px] border-border/80'>
             <div className='space-y-1.5'>
               <Select
+                data-testid='cluster-wizard-version-select'
                 label={t('installer.version')}
                 value={config.version}
+                displayValue={config.version || undefined}
                 onValueChange={(value) => updateConfig({version: value})}
                 disabled={packagesLoading}
-                options={(
-                  packages?.versions ||
-                  (resolvedRecommendedVersion ? [resolvedRecommendedVersion] : [])
-                ).map((version: string) => ({
+                options={selectableVersions.map((version: string) => ({
                   value: version,
-                  label: version,
+                  label: localVersionSet.has(version)
+                    ? `${version} · ${t('cluster.wizard.localReady')}`
+                    : version,
                 }))}
               />
-              {/* 当前版本的语义指示：推荐版 / 本地已就绪 / Status chips for the chosen version */}
-              {(selectedVersionIsRecommended || selectedVersionIsLocal) && (
+              {/* 本地已就绪指示 / Status chip when the chosen version is cached locally */}
+              {selectedVersionIsLocal && (
                 <div className='flex flex-wrap items-center gap-1.5'>
-                  {selectedVersionIsRecommended && (
-                    <NeutralChip>{t('installer.recommended')}</NeutralChip>
-                  )}
-                  {selectedVersionIsLocal && (
-                    <SoftChip tone='emerald'>
-                      <Download className='h-3 w-3' aria-hidden />
-                      {t('cluster.wizard.localReady')}
-                    </SoftChip>
-                  )}
+                  <SoftChip tone='emerald'>
+                    <Download className='h-3 w-3' aria-hidden />
+                    {t('cluster.wizard.localReady')}
+                  </SoftChip>
                 </div>
               )}
             </div>
@@ -214,7 +221,7 @@ export function ClusterBasicStep({
               label={t('installer.installDirLabel')}
               value={config.installDir}
               onChange={(e) => updateConfig({installDir: e.target.value})}
-              placeholder={buildSeatunnelInstallDir(config.version || resolvedRecommendedVersion)}
+              placeholder={buildSeatunnelInstallDir(config.version || defaultVersion)}
               className='font-mono text-xs'
             />
           </div>

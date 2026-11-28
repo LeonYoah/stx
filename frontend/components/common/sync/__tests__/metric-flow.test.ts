@@ -19,13 +19,10 @@ import {describe, expect, it} from 'vitest';
 import {
   buildMetricFlowBar,
   buildMetricFlowSankey,
-  buildPairedMetricRows,
-  buildPerTableMetricRows,
-  extractJobMetricSummary,
+  hasMetricByteData,
+  resolveMetricByteTotals,
   summarizeMetricFlow,
 } from '../sync-studio-utils';
-import type {SyncJobInstance} from '@/lib/services/sync';
-import {buildMetricTableAlignment} from '../metric-table-alignment';
 
 const flowMetrics = (over: Record<string, unknown> = {}) => ({
   SourceReceivedCount: 1000,
@@ -215,178 +212,6 @@ const tableMetrics = (
   return metrics;
 };
 
-
-const aliasedMetrics = {
-  TableSourceReceivedCount: {
-    'Source[0].wcan-common-tbox1-r1p24': '0',
-    'Optional[wcan-common-tbox1-r1p24]': '233132',
-  },
-  TableSinkWriteCount: {
-    'Sink[0].ah1110.ods_wcan_common_tbox1_json': '0',
-    'default.default.default': '233132',
-  },
-  TableSinkCommittedCount: {
-    'Sink[0].ah1110.ods_wcan_common_tbox1_json': '0',
-    'default.default.default': '232832',
-  },
-};
-
-const singleLinkVertices = [
-  {type: 'source', metricPrefix: 'Source[0]', tablePaths: ['wcan-common-tbox1-r1p24']},
-  {type: 'transform', metricPrefix: 'Transform[0]', tablePaths: []},
-  {type: 'sink', metricPrefix: 'Sink[0]', tablePaths: ['ah1110.ods_wcan_common_tbox1_json']},
-];
-
-describe('metric table alignment', () => {
-  it('merges alias and fallback keys into the only source and sink tables while preserving raw keys', () => {
-    const alignment = buildMetricTableAlignment(singleLinkVertices);
-    const rows = buildPerTableMetricRows(aliasedMetrics, alignment);
-    expect(rows).toHaveLength(2);
-    const source = rows.find((row) => row.rowTone === 'source');
-    const sink = rows.find((row) => row.rowTone === 'sink');
-    expect(source).toMatchObject({
-      nodeLabel: 'Source #1',
-      tablePath: 'wcan-common-tbox1-r1p24',
-      sourceCount: '233,132',
-      sinkCount: '-',
-    });
-    expect(sink).toMatchObject({
-      nodeLabel: 'Sink #1',
-      tablePath: 'ah1110.ods_wcan_common_tbox1_json',
-      sourceCount: '-',
-      sinkCount: '233,132',
-      committedCount: '232,832',
-    });
-    expect(source?.rawTables).toEqual([
-      'Optional[wcan-common-tbox1-r1p24]',
-      'Source[0].wcan-common-tbox1-r1p24',
-    ]);
-    expect(sink?.rawTables).toEqual([
-      'Sink[0].ah1110.ods_wcan_common_tbox1_json',
-      'default.default.default',
-    ]);
-  });
-
-  it('pairs different source and sink table names when the single link is unambiguous', () => {
-    const alignment = buildMetricTableAlignment(singleLinkVertices);
-    const paired = buildPairedMetricRows(aliasedMetrics, alignment);
-    expect(paired).toHaveLength(1);
-    expect(paired[0]).toMatchObject({
-      sourceNode: 'Source #1',
-      sourceTable: 'wcan-common-tbox1-r1p24',
-      sinkNode: 'Sink #1',
-      sinkTable: 'ah1110.ods_wcan_common_tbox1_json',
-      sourceCount: '233,132',
-      sinkCount: '233,132',
-      committedCount: '232,832',
-    });
-  });
-
-  it('falls back to raw keys when the topology does not identify a single link', () => {
-    const rows = buildPerTableMetricRows(aliasedMetrics);
-    expect(rows).toHaveLength(4);
-    expect(rows.find((row) => row.rawTable === 'Optional[wcan-common-tbox1-r1p24]')?.rowTone).toBe('source');
-    expect(rows.find((row) => row.rawTable === 'default.default.default')?.rowTone).toBe('sink');
-    const paired = buildPairedMetricRows(aliasedMetrics);
-    expect(paired).toHaveLength(0);
-  });
-
-  it('does not align when either endpoint has several logical tables', () => {
-    const alignment = buildMetricTableAlignment([
-      {type: 'source', metricPrefix: 'Source[0]', tablePaths: ['topic-a', 'topic-b']},
-      {type: 'sink', metricPrefix: 'Sink[0]', tablePaths: ['db.t']},
-    ]);
-    expect(alignment.source).toBeUndefined();
-    expect(alignment.sink).toBeUndefined();
-    const rows = buildPerTableMetricRows(
-      {TableSourceReceivedCount: {'Optional[topic-a]': '100'}},
-      alignment,
-    );
-    expect(rows[0].rawTable).toBe('Optional[topic-a]');
-  });
-
-  it('disables single-link alignment when metrics report dynamic multi-table keys or template DAG paths', () => {
-    const dynamicMetrics = {
-      TableSourceReceivedCount: {
-        'Source[0].db.orders_1': '100',
-        'Source[0].db.orders_2': '200',
-      },
-      TableSinkWriteCount: {
-        'Sink[0].ods.orders_1': '100',
-        'Sink[0].ods.orders_2': '200',
-      },
-    };
-    const alignment = buildMetricTableAlignment(
-      [
-        {type: 'source', metricPrefix: 'Source[0]', tablePaths: ['db.orders_1']},
-        {type: 'sink', metricPrefix: 'Sink[0]', tablePaths: ['ods.orders_1']},
-      ],
-      dynamicMetrics,
-    );
-    expect(alignment.source).toBeUndefined();
-    expect(alignment.sink).toBeUndefined();
-    const paired = buildPairedMetricRows(dynamicMetrics, alignment);
-    expect(paired).toHaveLength(2);
-
-    const templateAlignment = buildMetricTableAlignment([
-      {type: 'source', metricPrefix: 'Source[0]', tablePaths: ['orders_.*']},
-      {type: 'sink', metricPrefix: 'Sink[0]', tablePaths: ['ods.${table_name}']},
-    ]);
-    expect(templateAlignment.source).toBeUndefined();
-    expect(templateAlignment.sink).toBeUndefined();
-  });
-
-  it('preserves prefixed multi-table pairing when a stray unprefixed key shares the same leaf name', () => {
-    const paired = buildPairedMetricRows({
-      TableSourceReceivedCount: {
-        'Source[0].db.orders': '100',
-        'Source[0].db.users': '200',
-      },
-      TableSinkWriteCount: {
-        'Sink[0].ods.orders': '100',
-        'Sink[0].ods.users': '200',
-        'ods.orders': '0',
-      },
-    });
-    expect(paired).toHaveLength(2);
-    expect(paired.map((row) => row.key)).toEqual(['orders', 'users']);
-  });
-
-  it('raises zero per-table counters to job-level totals on an unambiguous single-link job', () => {
-    const metrics = {
-      SourceReceivedCount: '300',
-      SinkWriteCount: '300',
-      SinkCommittedCount: '300',
-      TableSourceReceivedCount: {'Source[0].wcan-common-tbox1-r1p24': '0'},
-      TableSinkWriteCount: {'Sink[0].ah1110.ods_wcan_common_tbox1_json': '0'},
-    };
-    const alignment = buildMetricTableAlignment(singleLinkVertices, metrics);
-    const paired = buildPairedMetricRows(metrics, alignment);
-    expect(paired).toHaveLength(1);
-    expect(paired[0]).toMatchObject({
-      sourceCount: '300',
-      sinkCount: '300',
-      committedCount: '300',
-    });
-  });
-
-  it('counts an aligned single-link aliased job as 1 logical table in extractJobMetricSummary', () => {
-    const summary = extractJobMetricSummary({
-      result_preview: {
-        job_dag: {
-          vertexInfoMap: [
-            {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-Kafka]', tablePaths: ['wcan-common-tbox1-r1p24']},
-            {vertexId: 2, type: 'sink', vertexName: 'pipeline-1 [Sink[0]-ClickHouse]', tablePaths: ['ah1110.ods_wcan_common_tbox1_json']},
-          ],
-        },
-        metrics: aliasedMetrics,
-      },
-    } as unknown as SyncJobInstance);
-    expect(summary.tableCount).toBe(1);
-    expect(summary.isMultiTable).toBe(false);
-  });
-});
-
 describe('buildMetricFlowSankey', () => {
   it('builds source → sink → commit-state links plus a backlog branch', () => {
     const sankey = buildMetricFlowSankey(
@@ -497,5 +322,92 @@ describe('buildMetricFlowSankey', () => {
     expect(colors['o:committed']).toBe('outcome-color');
     expect(colors['o:pending']).toBe('warn-color');
     expect(colors['o:backlog']).toBe('warn-color');
+
+    const withPendingColor = buildMetricFlowSankey(
+      tableMetrics([
+        {read: 500, write: 400, committed: 300},
+        {read: 300, write: 300, committed: 300},
+      ]),
+      {
+        ...sankeyOpts,
+        colors: {...sankeyOpts.colors, pending: 'info-color'},
+      },
+    );
+    const pendingColors = Object.fromEntries(
+      withPendingColor.nodes.map((node) => [node.id, node.color]),
+    );
+    expect(pendingColors['o:pending']).toBe('info-color');
+    expect(pendingColors['o:backlog']).toBe('warn-color');
+  });
+
+  it('switches Sankey flow weights and fallback outcome node in bytes mode', () => {
+    const metrics = {
+      TableSourceReceivedCount: {'Source[0].db.small': 500, 'Source[1].db.wide': 20},
+      TableSinkWriteCount: {'Sink[0].db.small': 500, 'Sink[1].db.wide': 20},
+      TableSourceReceivedBytes: {'Source[0].db.small': 4096, 'Source[1].db.wide': 65536},
+      TableSinkWriteBytes: {'Sink[0].db.small': 4096, 'Sink[1].db.wide': 49152},
+    };
+    const sankey = buildMetricFlowSankey(metrics, {
+      ...sankeyOpts,
+      labels: {...sankeyOpts.labels, written: '已写入'},
+      unit: 'bytes',
+    });
+    // 体积口径按字节降序排序：db.wide（64 KB）排在 db.small（4 KB）之前；缺少表级提交字节时落到 o:written。
+    // Byte mode sorts by byte volume descending (db.wide before db.small) and routes writes to o:written when TableSinkCommittedBytes is absent.
+    expect(sankey.nodes[0].id).toBe('s:wide');
+    expect(sankey.nodes.some((node) => node.id === 'o:written')).toBe(true);
+    expect(sankey.nodes.some((node) => node.id === 'o:pending')).toBe(false);
+    const backlog = sankey.links.find((link) => link.source === 's:wide' && link.target === 'o:backlog');
+    expect(backlog?.value).toBe(16384);
+  });
+});
+
+describe('metric byte mode helpers', () => {
+  it('detects byte availability from global or per-table byte maps', () => {
+    expect(hasMetricByteData({SourceReceivedCount: 100, SinkWriteCount: 100})).toBe(false);
+    expect(hasMetricByteData({SourceReceivedBytes: 2048, SinkWriteBytes: 2048})).toBe(true);
+    expect(
+      hasMetricByteData({
+        TableSourceReceivedBytes: {'Source[0].db.a': 1024, 'Source[1].db.b': 2048},
+      }),
+    ).toBe(true);
+    expect(
+      resolveMetricByteTotals({
+        TableSourceReceivedBytes: {'Source[0].db.a': 1024, 'Source[1].db.b': 2048},
+      }).readBytes,
+    ).toBe(3072);
+  });
+
+  it('degrades cleanly without false pending warning when SinkCommittedBytes is missing', () => {
+    const flow = summarizeMetricFlow(
+      {SourceReceivedBytes: 10240, SinkWriteBytes: 10240},
+      {unit: 'bytes'},
+    );
+    expect(flow.hasCommitMetric).toBe(false);
+    expect(flow.pendingCommitCount).toBe(0);
+    expect(flow.tone).toBe('neutral');
+    expect(flow.segments.map((item) => item.key)).toEqual(['metricFlowVolumeBalanced']);
+
+    const bar = buildMetricFlowBar(flow.readCount, flow.writeCount, flow.committedCount, {
+      hasCommitMetric: flow.hasCommitMetric,
+    });
+    expect(bar.segments).toEqual([
+      {key: 'written', value: 10240, share: 1},
+      {key: 'backlog', value: 0, share: 0},
+    ]);
+  });
+
+  it('reports pending commit bytes when SinkCommittedBytes is present', () => {
+    const flow = summarizeMetricFlow(
+      {SourceReceivedBytes: 10240, SinkWriteBytes: 10240, SinkCommittedBytes: 8192},
+      {unit: 'bytes'},
+    );
+    expect(flow.hasCommitMetric).toBe(true);
+    expect(flow.pendingCommitCount).toBe(2048);
+    expect(flow.tone).toBe('warning');
+    expect(flow.segments.map((item) => item.key)).toEqual([
+      'metricFlowVolumeBalanced',
+      'metricFlowPendingCommitBytes',
+    ]);
   });
 });

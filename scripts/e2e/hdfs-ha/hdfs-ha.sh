@@ -39,12 +39,16 @@ WAIT_TIMEOUT_SECONDS="${E2E_HDFS_HA_WAIT_TIMEOUT:-180}"
 
 pick_port() {
   local start_port="$1"
-  python3 - "$start_port" <<'PY'
+  shift || true
+  python3 - "$start_port" "$@" <<'PY'
 import socket
 import sys
 
 start = int(sys.argv[1])
+excluded = {int(v) for v in sys.argv[2:] if v}
 for port in range(start, start + 200):
+    if port in excluded:
+        continue
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
@@ -155,6 +159,10 @@ write_hdfs_site_xml() {
     <value>false</value>
   </property>
   <property>
+    <name>dfs.client.use.datanode.hostname</name>
+    <value>false</value>
+  </property>
+  <property>
     <name>dfs.namenode.safemode.min.datanodes</name>
     <value>1</value>
   </property>
@@ -206,18 +214,30 @@ EOF
 render_configs() {
   mkdir -p "${CONF_DIR}/client" "${CONF_DIR}/nn-alpha" "${CONF_DIR}/nn-beta"
 
-  HDFS_ZK_PORT="${E2E_HDFS_ZK_PORT:-$(pick_port 12181)}"
-  HDFS_JN_RPC_PORT="${E2E_HDFS_JN_RPC_PORT:-$(pick_port 18485)}"
-  HDFS_JN_HTTP_PORT="${E2E_HDFS_JN_HTTP_PORT:-$(pick_port 18480)}"
-  HDFS_NN_ALPHA_RPC_PORT="${E2E_HDFS_NN_ALPHA_RPC_PORT:-$(pick_port 18020)}"
-  HDFS_NN_BETA_RPC_PORT="${E2E_HDFS_NN_BETA_RPC_PORT:-$(pick_port 28020)}"
-  HDFS_NN_ALPHA_HTTP_PORT="${E2E_HDFS_NN_ALPHA_HTTP_PORT:-$(pick_port 19870)}"
-  HDFS_NN_BETA_HTTP_PORT="${E2E_HDFS_NN_BETA_HTTP_PORT:-$(pick_port 29870)}"
-  HDFS_ZKFC_ALPHA_PORT="${E2E_HDFS_ZKFC_ALPHA_PORT:-$(pick_port 18019)}"
-  HDFS_ZKFC_BETA_PORT="${E2E_HDFS_ZKFC_BETA_PORT:-$(pick_port 28019)}"
-  HDFS_DN_XFER_PORT="${E2E_HDFS_DN_XFER_PORT:-$(pick_port 19866)}"
-  HDFS_DN_IPC_PORT="${E2E_HDFS_DN_IPC_PORT:-$(pick_port 19867)}"
-  HDFS_DN_HTTP_PORT="${E2E_HDFS_DN_HTTP_PORT:-$(pick_port 19864)}"
+  # 容器内独占端口位于隔离的 service:zk 网络命名空间内，无需在宿主机探测；默认使用标准 2181。
+  # Internal-only ports live inside the isolated service:zk netns and need no host probing; default ZK to 2181.
+  HDFS_ZK_PORT="${E2E_HDFS_ZK_PORT:-2181}"
+  HDFS_JN_RPC_PORT="${E2E_HDFS_JN_RPC_PORT:-18485}"
+  HDFS_JN_HTTP_PORT="${E2E_HDFS_JN_HTTP_PORT:-18480}"
+  HDFS_ZKFC_ALPHA_PORT="${E2E_HDFS_ZKFC_ALPHA_PORT:-18019}"
+  HDFS_ZKFC_BETA_PORT="${E2E_HDFS_ZKFC_BETA_PORT:-28019}"
+
+  # 宿主机发布端口按排除列表依次挑选，防止连续端口彼此撞车。
+  # Host-published ports are picked sequentially with an exclusion list so ports never collide.
+  local used_ports=("${HDFS_ZK_PORT}" "${HDFS_JN_RPC_PORT}" "${HDFS_JN_HTTP_PORT}" "${HDFS_ZKFC_ALPHA_PORT}" "${HDFS_ZKFC_BETA_PORT}")
+  HDFS_NN_ALPHA_RPC_PORT="${E2E_HDFS_NN_ALPHA_RPC_PORT:-$(pick_port 18020 "${used_ports[@]}")}"
+  used_ports+=("${HDFS_NN_ALPHA_RPC_PORT}")
+  HDFS_NN_BETA_RPC_PORT="${E2E_HDFS_NN_BETA_RPC_PORT:-$(pick_port 28020 "${used_ports[@]}")}"
+  used_ports+=("${HDFS_NN_BETA_RPC_PORT}")
+  HDFS_NN_ALPHA_HTTP_PORT="${E2E_HDFS_NN_ALPHA_HTTP_PORT:-$(pick_port 19870 "${used_ports[@]}")}"
+  used_ports+=("${HDFS_NN_ALPHA_HTTP_PORT}")
+  HDFS_NN_BETA_HTTP_PORT="${E2E_HDFS_NN_BETA_HTTP_PORT:-$(pick_port 29870 "${used_ports[@]}")}"
+  used_ports+=("${HDFS_NN_BETA_HTTP_PORT}")
+  HDFS_DN_XFER_PORT="${E2E_HDFS_DN_XFER_PORT:-$(pick_port 19866 "${used_ports[@]}")}"
+  used_ports+=("${HDFS_DN_XFER_PORT}")
+  HDFS_DN_IPC_PORT="${E2E_HDFS_DN_IPC_PORT:-$(pick_port 19867 "${used_ports[@]}")}"
+  used_ports+=("${HDFS_DN_IPC_PORT}")
+  HDFS_DN_HTTP_PORT="${E2E_HDFS_DN_HTTP_PORT:-$(pick_port 19864 "${used_ports[@]}")}"
 
   cat > "${ENV_FILE}" <<EOF
 E2E_HDFS_HADOOP_IMAGE=${HADOOP_IMAGE}
@@ -301,7 +321,11 @@ wait_ready() {
   done
   if [[ -z "${active_http}" ]]; then
     echo "[hdfs-ha] timed out waiting for Active/Standby NameNodes" >&2
-    compose_cmd logs --tail=80 >&2 || true
+    compose_cmd ps -a >&2 || true
+    for svc in zk jn nn-alpha nn-beta dn; do
+      echo "===== [hdfs-ha] logs: ${svc} =====" >&2
+      compose_cmd logs --no-color --tail=60 "${svc}" >&2 || true
+    done
     return 1
   fi
   echo "[hdfs-ha] HA pair ready (active HTTP port=${active_http}); waiting for DataNode + SafeMode exit..."
@@ -319,12 +343,16 @@ wait_ready() {
   done
   if [[ "${ready_dn}" -ne 1 ]]; then
     echo "[hdfs-ha] timed out waiting for live DataNode or SafeMode exit" >&2
-    compose_cmd logs --tail=80 >&2 || true
+    compose_cmd ps -a >&2 || true
+    for svc in zk jn nn-alpha nn-beta dn; do
+      echo "===== [hdfs-ha] logs: ${svc} =====" >&2
+      compose_cmd logs --no-color --tail=60 "${svc}" >&2 || true
+    done
     return 1
   fi
 
   echo "[hdfs-ha] initializing /seatunnel/checkpoint and /seatunnel/imap directories and verifying write/read..."
-  compose_cmd exec -T nn-alpha bash -lc 'set -euo pipefail; hdfs dfs -mkdir -p /seatunnel/checkpoint /seatunnel/imap; hdfs dfs -chmod -R 777 /seatunnel; printf "ok\n" | hdfs dfs -put -f - /seatunnel/_ready; test "$(hdfs dfs -cat /seatunnel/_ready)" = "ok"'
+  compose_cmd exec -T nn-alpha bash -lc 'set -euo pipefail; hdfs dfsadmin -report | grep -E "Live datanodes|Name:|Hostname:" || true; hdfs dfs -mkdir -p /seatunnel/checkpoint /seatunnel/imap; hdfs dfs -chmod -R 777 /seatunnel; printf "ok\n" | hdfs dfs -put -f - /seatunnel/_ready; test "$(hdfs dfs -cat /seatunnel/_ready)" = "ok"'
   echo "[hdfs-ha] ready: hdfs://${NAMESERVICE} (${NAMENODE_ALPHA}=${E2E_HDFS_HA_RPC_1}, ${NAMENODE_BETA}=${E2E_HDFS_HA_RPC_2}, site=${E2E_HDFS_HA_SITE_XML})"
 }
 

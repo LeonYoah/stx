@@ -46,6 +46,7 @@ import {
   previewRuntimeStorageApi,
   readHdfsHaFixture,
   readMinioFixture,
+  replaceYamlPluginConfigBlock,
   runStreamingJobForCheckpoint,
   runStxCli,
   setCheckboxChecked,
@@ -250,19 +251,18 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       .click();
     // 选中在线主机进入配置步 / Select online host and advance to config step
     const hostRow = dialog.getByText(host.name).first();
-    if ((await hostRow.count()) > 0 && (await hostRow.isVisible())) {
-      await hostRow.click();
-    }
+    await expect(hostRow).toBeVisible({timeout: 30000});
+    await hostRow.click();
     await dialog
       .getByRole('button', {name: /下一步|Next/i})
       .first()
       .click();
 
-    const ckHdfsRadio = dialog
-      .getByRole('radio', {name: /^HDFS$/i})
-      .first();
-    await expect(ckHdfsRadio).toBeVisible({timeout: 30000});
-    await ckHdfsRadio.click();
+    // ClusterConfigStep 使用 Arc SegmentedControl（button[data-value="HDFS"]）。
+    // ClusterConfigStep uses Arc SegmentedControl (button[data-value="HDFS"]).
+    const ckHdfsSegment = dialog.locator('button[data-value="HDFS"]').first();
+    await expect(ckHdfsSegment).toBeVisible({timeout: 30000});
+    await ckHdfsSegment.click();
     await setCheckboxChecked(page, 'cluster-wizard-checkpoint-hdfs-ha', true);
     await page
       .getByTestId('cluster-wizard-checkpoint-hdfs-nameservices')
@@ -280,7 +280,9 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       .getByTestId('cluster-wizard-checkpoint-hdfs-site-path')
       .fill(hdfsHa.siteXmlPath);
 
-    await dialog.locator('#imap-external-toggle').click();
+    const imapToggle = dialog.locator('#imap-external-toggle');
+    await expect(imapToggle).toBeVisible({timeout: 30000});
+    await imapToggle.click();
     await page.getByTestId('cluster-wizard-apply-checkpoint-to-imap').click();
 
     await expect(
@@ -423,11 +425,16 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       ConfigType.SEATUNNEL,
       () => true,
     );
-    const siteOnlyContent = seatunnelTemplate.content.replace(
-      /plugin-config:[\s\S]*$/,
-      `plugin-config:\n          namespace: /seatunnel/checkpoint/\n          hdfs_site_path: ${hdfsHa.siteXmlPath}\n          disable.cache: "true"\n`,
+    const siteOnlyContent = replaceYamlPluginConfigBlock(
+      seatunnelTemplate.content,
+      [
+        'namespace: /seatunnel/checkpoint/',
+        `hdfs_site_path: ${hdfsHa.siteXmlPath}`,
+        'disable.cache: "true"',
+      ],
     );
     expect(siteOnlyContent).toContain(`hdfs_site_path: ${hdfsHa.siteXmlPath}`);
+    expect(siteOnlyContent).toContain('enable-http: true');
     expect(siteOnlyContent).not.toContain('seatunnel.hadoop.dfs.nameservices');
 
     await updateClusterConfig(

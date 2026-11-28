@@ -20,7 +20,9 @@ services:
   zk:
     image: ${E2E_HDFS_ZK_IMAGE:-zookeeper:3.9.2}
     environment:
-      ZOO_PORT: ${HDFS_ZK_PORT:-12181}
+      # 官方 zookeeper:3.9.2 忽略 ZOO_PORT，需通过 ZOO_CFG_EXTRA 指定 clientPort 并关闭 8080 AdminServer。
+      # Official zookeeper:3.9.2 ignores ZOO_PORT; configure clientPort and disable AdminServer via ZOO_CFG_EXTRA.
+      ZOO_CFG_EXTRA: "clientPort=${HDFS_ZK_PORT:-2181} admin.enableServer=false"
       JVMFLAGS: "-Xms64m -Xmx128m"
     ports:
       - "127.0.0.1:${HDFS_NN_ALPHA_RPC_PORT:-18020}:${HDFS_NN_ALPHA_RPC_PORT:-18020}"
@@ -59,7 +61,7 @@ services:
     environment:
       HADOOP_HEAPSIZE_MAX: "384m"
       HADOOP_HEAPSIZE_MIN: "128m"
-      HDFS_ZK_PORT: "${HDFS_ZK_PORT:-12181}"
+      HDFS_ZK_PORT: "${HDFS_ZK_PORT:-2181}"
       HDFS_JN_RPC_PORT: "${HDFS_JN_RPC_PORT:-18485}"
     volumes:
       - "${HDFS_HA_CONF_DIR}/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro"
@@ -70,17 +72,34 @@ services:
       - |
         set -euo pipefail
         for port in "$${HDFS_ZK_PORT}" "$${HDFS_JN_RPC_PORT}"; do
+          ready=0
           for _ in $$(seq 1 90); do
             if (echo > "/dev/tcp/127.0.0.1/$${port}") >/dev/null 2>&1; then
+              ready=1
               break
             fi
             sleep 1
           done
+          if [[ "$${ready}" -ne 1 ]]; then
+            echo "[nn-alpha] timed out waiting for 127.0.0.1:$${port}" >&2
+            exit 1
+          fi
         done
         sleep 2
         mkdir -p /tmp/hadoop-nn
         if [[ ! -f /tmp/hadoop-nn/current/VERSION ]]; then
-          hdfs zkfc -formatZK -force -nonInteractive
+          zk_formatted=0
+          for _ in $$(seq 1 5); do
+            if hdfs zkfc -formatZK -force -nonInteractive; then
+              zk_formatted=1
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$${zk_formatted}" -ne 1 ]]; then
+            echo "[nn-alpha] hdfs zkfc -formatZK failed" >&2
+            exit 1
+          fi
           hdfs namenode -format -clusterId stx-e2e-ha-cid -force -nonInteractive
         fi
         hdfs zkfc &
@@ -107,21 +126,33 @@ services:
       - |
         set -euo pipefail
         for port in "$${HDFS_NN_ALPHA_RPC_PORT}" "$${HDFS_NN_ALPHA_HTTP_PORT}"; do
+          ready=0
           for _ in $$(seq 1 120); do
             if (echo > "/dev/tcp/127.0.0.1/$${port}") >/dev/null 2>&1; then
+              ready=1
               break
             fi
             sleep 1
           done
+          if [[ "$${ready}" -ne 1 ]]; then
+            echo "[nn-beta] timed out waiting for nn-alpha 127.0.0.1:$${port}" >&2
+            exit 1
+          fi
         done
         mkdir -p /tmp/hadoop-nn
         if [[ ! -f /tmp/hadoop-nn/current/VERSION ]]; then
-          for attempt in $$(seq 1 20); do
+          bootstrapped=0
+          for _ in $$(seq 1 30); do
             if hdfs namenode -bootstrapStandby -force -nonInteractive; then
+              bootstrapped=1
               break
             fi
             sleep 2
           done
+          if [[ "$${bootstrapped}" -ne 1 ]]; then
+            echo "[nn-beta] hdfs namenode -bootstrapStandby failed" >&2
+            exit 1
+          fi
         fi
         hdfs zkfc &
         exec hdfs namenode
@@ -144,11 +175,17 @@ services:
       - -lc
       - |
         set -euo pipefail
+        ready=0
         for _ in $$(seq 1 120); do
           if (echo > "/dev/tcp/127.0.0.1/$${HDFS_NN_ALPHA_RPC_PORT}") >/dev/null 2>&1; then
+            ready=1
             break
           fi
           sleep 1
         done
+        if [[ "$${ready}" -ne 1 ]]; then
+          echo "[dn] timed out waiting for nn-alpha RPC 127.0.0.1:$${HDFS_NN_ALPHA_RPC_PORT}" >&2
+          exit 1
+        fi
         mkdir -p /tmp/hadoop-dn
         exec hdfs datanode

@@ -181,20 +181,58 @@ export async function openClusterRuntimeStorageView(
   const panel = page.getByTestId('cluster-runtime-panel');
   await expect(panel).toBeVisible({timeout: 120000});
 
-  const targetRadio = panel
-    .getByRole('radio', {
-      name: kind === 'checkpoint' ? /Checkpoint|检查点/i : /IMAP/i,
-    })
-    .first();
-  if ((await targetRadio.count()) > 0 && (await targetRadio.isVisible())) {
-    const checked = await targetRadio.getAttribute('aria-checked');
-    if (checked !== 'true') {
-      await targetRadio.click();
+  // Arc SegmentedControl 使用带 data-value 与 aria-pressed 的 button 渲染选项。
+  // Arc SegmentedControl renders options as buttons with data-value and aria-pressed.
+  const targetSegment = panel.locator(`button[data-value="${kind}"]`).first();
+  if ((await targetSegment.count()) > 0 && (await targetSegment.isVisible())) {
+    const pressed = await targetSegment.getAttribute('aria-pressed');
+    if (pressed !== 'true') {
+      await targetSegment.click();
     }
   }
   await expect(page.getByTestId(`runtime-storage-${kind}-editor`)).toBeVisible({
     timeout: 60000,
   });
+}
+
+// 仅替换 YAML 中的 plugin-config 缩进块，保留后续 http/telemetry 等配置段不被截断。
+// Replace only the indented plugin-config block in YAML so subsequent sections (http/telemetry) stay intact.
+export function replaceYamlPluginConfigBlock(
+  yamlContent: string,
+  entries: string[],
+): string {
+  const lines = yamlContent.split('\n');
+  const headerIndex = lines.findIndex((line) =>
+    /^\s*plugin-config:\s*$/.test(line),
+  );
+  if (headerIndex < 0) {
+    throw new Error('plugin-config block not found in seatunnel.yaml');
+  }
+  const baseIndent = lines[headerIndex].match(/^(\s*)/)?.[1].length ?? 0;
+  let endIndex = headerIndex + 1;
+  while (endIndex < lines.length) {
+    const line = lines[endIndex];
+    const trimmed = line.trim();
+    if (trimmed === '' || trimmed.startsWith('#')) {
+      endIndex += 1;
+      continue;
+    }
+    const indent = line.match(/^(\s*)/)?.[1].length ?? 0;
+    if (indent <= baseIndent) {
+      break;
+    }
+    endIndex += 1;
+  }
+  const childIndent = ' '.repeat(baseIndent + 2);
+  const replacementLines = [
+    lines[headerIndex],
+    ...entries.map((entry) => `${childIndent}${entry}`),
+  ];
+  return [
+    ...lines.slice(0, headerIndex),
+    ...replacementLines,
+    ...lines.slice(endIndex),
+  ].join('\n');
 }
 
 // 统一操作 Arc Checkbox / Radix Checkbox，按期望状态决定是否点击。

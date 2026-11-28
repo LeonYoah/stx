@@ -77,7 +77,10 @@ const username = process.env.E2E_USERNAME ?? 'admin';
 const password = process.env.E2E_PASSWORD ?? 'admin123';
 
 test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
-  test.setTimeout(25 * 60 * 1000);
+  // 限制单动作超时与重试次数，防止缺省动作超时沿用整段测试超时拖慢云端 CI。
+  // Bound per-action timeout and retries so a blocked locator fails fast instead of hanging CI.
+  test.describe.configure({retries: 0, timeout: 10 * 60 * 1000});
+  test.use({actionTimeout: 30_000});
 
   let host: OnlineHostFixture;
   let clusterId = 0;
@@ -249,14 +252,30 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       .getByRole('button', {name: /下一步|Next/i})
       .first()
       .click();
-    // 选中在线主机进入配置步 / Select online host and advance to config step
+    // 选中在线主机并在分离模式下补勾 Master 角色，避免「下一步」按钮保持禁用。
+    // Select the online host and check Master in separated mode so the Next button becomes enabled.
     const hostRow = dialog.getByText(host.name).first();
     await expect(hostRow).toBeVisible({timeout: 30000});
     await hostRow.click();
-    await dialog
+    const masterRoleCheckbox = dialog
+      .getByRole('checkbox', {name: /^Master$/i})
+      .first();
+    if (
+      (await masterRoleCheckbox.count()) > 0 &&
+      (await masterRoleCheckbox.isVisible())
+    ) {
+      const checked =
+        (await masterRoleCheckbox.getAttribute('aria-checked')) === 'true' ||
+        (await masterRoleCheckbox.getAttribute('data-state')) === 'checked';
+      if (!checked) {
+        await masterRoleCheckbox.click();
+      }
+    }
+    const hostsNextBtn = dialog
       .getByRole('button', {name: /下一步|Next/i})
-      .first()
-      .click();
+      .first();
+    await expect(hostsNextBtn).toBeEnabled({timeout: 30000});
+    await hostsNextBtn.click();
 
     // ClusterConfigStep 使用 Arc SegmentedControl（button[data-value="HDFS"]）。
     // ClusterConfigStep uses Arc SegmentedControl (button[data-value="HDFS"]).

@@ -31,6 +31,7 @@ import type {
   SyncRealtimeVertex,
   SyncSinkSaveModePreviewTable,
 } from '@/lib/services/sync';
+import {buildMetricTableAlignment} from '../metric-table-alignment';
 
 export type DagVertexType = 'source' | 'transform' | 'sink' | string;
 
@@ -304,22 +305,27 @@ export function buildMetricIndex(metrics: unknown, vertices: DagVertex[] = []): 
   const root = toObject(metrics);
   const tables = new Map<string, Map<string, TableStats>>();
   const totals = new Map<string, TableStats>();
+  const alignment = buildMetricTableAlignment(vertices, root);
   for (const [metricKey, field] of TABLE_METRIC_FIELDS) {
+    const endpoint = metricKey.startsWith('TableSource') ? alignment.source : alignment.sink;
     for (const [rawKey, rawValue] of Object.entries(toObject(root[metricKey]))) {
       const match = TABLE_METRIC_KEY.exec(rawKey);
       const value = toNumber(rawValue);
-      if (!match || value === undefined) {
+      if (!match && !endpoint?.metricPrefix) {
         continue;
       }
-      const prefix = match[1];
-      const table = match[2];
+      if (value === undefined) {
+        continue;
+      }
+      const prefix = endpoint?.metricPrefix || (match?.[1] as string);
+      const table = endpoint?.tablePath || (match?.[2] as string);
       let byTable = tables.get(prefix);
       if (!byTable) {
         byTable = new Map();
         tables.set(prefix, byTable);
       }
       const stats = byTable.get(table) ?? {};
-      stats[field] = value;
+      addStat(stats, field, value);
       byTable.set(table, stats);
       const total = totals.get(prefix) ?? {};
       addStat(total, field, value);
@@ -328,8 +334,8 @@ export function buildMetricIndex(metrics: unknown, vertices: DagVertex[] = []): 
   }
 
   for (const type of ['source', 'sink'] as const) {
-    const ofType = vertices.filter((vertex) => vertex.type === type && vertex.metricPrefix);
-    if (ofType.length !== 1 || totals.has(ofType[0].metricPrefix as string)) {
+    const ofType = vertices.filter((vertex) => vertex.type === type);
+    if (ofType.length !== 1 || !ofType[0].metricPrefix) {
       continue;
     }
     const fallback: TableStats = {};
@@ -343,8 +349,35 @@ export function buildMetricIndex(metrics: unknown, vertices: DagVertex[] = []): 
         fallback[field] = value;
       }
     }
-    if (Object.keys(fallback).length > 0) {
-      totals.set(ofType[0].metricPrefix as string, fallback);
+    if (Object.keys(fallback).length === 0) {
+      continue;
+    }
+    const prefix = ofType[0].metricPrefix as string;
+    const existing = totals.get(prefix);
+    if (!existing) {
+      totals.set(prefix, fallback);
+      if (ofType[0].tablePaths.length === 1) {
+        let byTable = tables.get(prefix);
+        if (!byTable) {
+          byTable = new Map();
+          tables.set(prefix, byTable);
+        }
+        byTable.set(ofType[0].tablePaths[0], {...fallback});
+      }
+      continue;
+    }
+    const countField = type === 'source' ? 'readCount' : 'writeCount';
+    if ((fallback[countField] ?? 0) > (existing[countField] ?? 0)) {
+      totals.set(prefix, {...existing, ...fallback});
+      // 仅当 DAG 明确声明该节点为单表时才用作业总量覆盖表行；多表或未声明 tablePaths 的节点只更新节点总计。
+      // Only overwrite a table row with job totals when the DAG explicitly declares a single tablePath; multi-table or unknown-table vertices update vertex totals only.
+      const byTable = tables.get(prefix);
+      if (ofType[0].tablePaths.length === 1 && byTable?.size === 1) {
+        const [table, tableStats] = [...byTable.entries()][0];
+        if ((fallback[countField] ?? 0) > (tableStats[countField] ?? 0)) {
+          byTable.set(table, {...tableStats, ...fallback});
+        }
+      }
     }
   }
   return {tables, vertices: totals};

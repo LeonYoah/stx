@@ -909,10 +909,13 @@ func checkpointConfigFromParams(params map[string]string) (*installer.Checkpoint
 		HDFSNamenodeRPCAddress1:   params["hdfs_namenode_rpc_address_1"],
 		HDFSNamenodeRPCAddress2:   params["hdfs_namenode_rpc_address_2"],
 		HDFSFailoverProxyProvider: params["hdfs_failover_proxy_provider"],
+		HdfsSitePath:              params["hdfs_site_path"],
+		DisableCache:              parseOptionalParamBool(params["disable_cache"]),
 		StorageEndpoint:           params["storage_endpoint"],
 		StorageAccessKey:          params["storage_access_key"],
 		StorageSecretKey:          params["storage_secret_key"],
 		StorageBucket:             params["storage_bucket"],
+		S3CredentialsProvider:     params["s3_credentials_provider"],
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -935,15 +938,27 @@ func imapConfigFromParams(params map[string]string) (*installer.IMAPConfig, erro
 		HDFSNamenodeRPCAddress1:   params["hdfs_namenode_rpc_address_1"],
 		HDFSNamenodeRPCAddress2:   params["hdfs_namenode_rpc_address_2"],
 		HDFSFailoverProxyProvider: params["hdfs_failover_proxy_provider"],
+		HdfsSitePath:              params["hdfs_site_path"],
+		DisableCache:              parseOptionalParamBool(params["disable_cache"]),
 		StorageEndpoint:           params["storage_endpoint"],
 		StorageAccessKey:          params["storage_access_key"],
 		StorageSecretKey:          params["storage_secret_key"],
 		StorageBucket:             params["storage_bucket"],
+		S3CredentialsProvider:     params["s3_credentials_provider"],
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func parseOptionalParamBool(raw string) *bool {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	value := parseParamBool(trimmed)
+	return &value
 }
 
 func parseParamInt(raw string) int {

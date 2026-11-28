@@ -88,6 +88,7 @@ import {
 } from './sync-studio-utils';
 import {useWriteRateSparkline} from './job-detail/metric-timeseries';
 import {TREND_COLORS, colorByTable} from './job-detail/metrics-trend-data';
+import {buildMetricTableAlignment, extractAlignmentVerticesFromJobDag} from './metric-table-alignment';
 import {CopyButton} from '@/components/arc/copy-button/copy-button';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
@@ -574,9 +575,17 @@ export function MetricsDialogContent({
     group.items.filter((item) => isZeroMetricValue(item.value)),
   );
   const perTableRows = buildPerTableMetricRows(rawMetrics);
+  const metricTableAlignment = useMemo(
+    () =>
+      buildMetricTableAlignment(
+        extractAlignmentVerticesFromJobDag(job?.result_preview?.job_dag),
+        rawMetrics,
+      ),
+    [job?.result_preview?.job_dag, rawMetrics],
+  );
   const pairedMetricRows = useMemo(
-    () => buildPairedMetricRows(rawMetrics),
-    [rawMetrics],
+    () => buildPairedMetricRows(rawMetrics, metricTableAlignment),
+    [rawMetrics, metricTableAlignment],
   );
   const [detailsExpanded, setDetailsExpanded] = useState(true);
   const [moreExpanded, setMoreExpanded] = useState(false);

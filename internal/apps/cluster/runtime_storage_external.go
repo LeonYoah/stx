@@ -33,13 +33,26 @@ import (
 )
 
 type runtimeStorageResolvedConfig struct {
-	Kind        string
-	StorageType string
-	Namespace   string
-	Endpoint    string
-	Bucket      string
-	AccessKey   string
-	SecretKey   string
+	Kind                      string
+	StorageType               string
+	Namespace                 string
+	Endpoint                  string
+	Bucket                    string
+	AccessKey                 string
+	SecretKey                 string
+	HDFSNameNodeHost          string
+	HDFSNameNodePort          int
+	KerberosPrincipal         string
+	KerberosKeytabFilePath    string
+	HDFSHAEnabled             bool
+	HDFSNameServices          string
+	HDFSHANamenodes           string
+	HDFSNamenodeRPCAddress1   string
+	HDFSNamenodeRPCAddress2   string
+	HDFSFailoverProxyProvider string
+	HdfsSitePath              string
+	DisableCache              *bool
+	S3CredentialsProvider     string
 }
 
 func (s *Service) ValidateRuntimeStorage(
@@ -308,10 +321,13 @@ func checkpointValidationConfigFromCluster(raw map[string]interface{}) *installe
 		HDFSNamenodeRPCAddress1:   asString(raw["hdfs_namenode_rpc_address_1"]),
 		HDFSNamenodeRPCAddress2:   asString(raw["hdfs_namenode_rpc_address_2"]),
 		HDFSFailoverProxyProvider: asString(raw["hdfs_failover_proxy_provider"]),
+		HdfsSitePath:              asString(raw["hdfs_site_path"]),
+		DisableCache:              optionalBoolPtr(raw["disable_cache"]),
 		StorageEndpoint:           asString(raw["storage_endpoint"]),
 		StorageAccessKey:          asString(raw["storage_access_key"]),
 		StorageSecretKey:          asString(raw["storage_secret_key"]),
 		StorageBucket:             asString(raw["storage_bucket"]),
+		S3CredentialsProvider:     asString(raw["s3_credentials_provider"]),
 	}
 }
 
@@ -333,10 +349,13 @@ func imapValidationConfigFromCluster(raw map[string]interface{}) *installerapp.I
 		HDFSNamenodeRPCAddress1:   asString(raw["hdfs_namenode_rpc_address_1"]),
 		HDFSNamenodeRPCAddress2:   asString(raw["hdfs_namenode_rpc_address_2"]),
 		HDFSFailoverProxyProvider: asString(raw["hdfs_failover_proxy_provider"]),
+		HdfsSitePath:              asString(raw["hdfs_site_path"]),
+		DisableCache:              optionalBoolPtr(raw["disable_cache"]),
 		StorageEndpoint:           asString(raw["storage_endpoint"]),
 		StorageAccessKey:          asString(raw["storage_access_key"]),
 		StorageSecretKey:          asString(raw["storage_secret_key"]),
 		StorageBucket:             asString(raw["storage_bucket"]),
+		S3CredentialsProvider:     asString(raw["s3_credentials_provider"]),
 	}
 }
 
@@ -346,12 +365,25 @@ func parseCheckpointValidationConfigFromYAML(content string) *installerapp.Check
 		return nil
 	}
 	return &installerapp.CheckpointConfig{
-		StorageType:      installerapp.CheckpointStorageType(strings.ToUpper(resolved.StorageType)),
-		Namespace:        resolved.Namespace,
-		StorageEndpoint:  resolved.Endpoint,
-		StorageBucket:    resolved.Bucket,
-		StorageAccessKey: resolved.AccessKey,
-		StorageSecretKey: resolved.SecretKey,
+		StorageType:               installerapp.CheckpointStorageType(strings.ToUpper(resolved.StorageType)),
+		Namespace:                 resolved.Namespace,
+		HDFSNameNodeHost:          resolved.HDFSNameNodeHost,
+		HDFSNameNodePort:          resolved.HDFSNameNodePort,
+		KerberosPrincipal:         resolved.KerberosPrincipal,
+		KerberosKeytabFilePath:    resolved.KerberosKeytabFilePath,
+		HDFSHAEnabled:             resolved.HDFSHAEnabled,
+		HDFSNameServices:          resolved.HDFSNameServices,
+		HDFSHANamenodes:           resolved.HDFSHANamenodes,
+		HDFSNamenodeRPCAddress1:   resolved.HDFSNamenodeRPCAddress1,
+		HDFSNamenodeRPCAddress2:   resolved.HDFSNamenodeRPCAddress2,
+		HDFSFailoverProxyProvider: resolved.HDFSFailoverProxyProvider,
+		HdfsSitePath:              resolved.HdfsSitePath,
+		DisableCache:              resolved.DisableCache,
+		StorageEndpoint:           resolved.Endpoint,
+		StorageBucket:             resolved.Bucket,
+		StorageAccessKey:          resolved.AccessKey,
+		StorageSecretKey:          resolved.SecretKey,
+		S3CredentialsProvider:     resolved.S3CredentialsProvider,
 	}
 }
 
@@ -361,12 +393,25 @@ func parseIMAPValidationConfigFromYAML(content string) *installerapp.IMAPConfig 
 		return nil
 	}
 	return &installerapp.IMAPConfig{
-		StorageType:      installerapp.IMAPStorageType(strings.ToUpper(resolved.StorageType)),
-		Namespace:        resolved.Namespace,
-		StorageEndpoint:  resolved.Endpoint,
-		StorageBucket:    resolved.Bucket,
-		StorageAccessKey: resolved.AccessKey,
-		StorageSecretKey: resolved.SecretKey,
+		StorageType:               installerapp.IMAPStorageType(strings.ToUpper(resolved.StorageType)),
+		Namespace:                 resolved.Namespace,
+		HDFSNameNodeHost:          resolved.HDFSNameNodeHost,
+		HDFSNameNodePort:          resolved.HDFSNameNodePort,
+		KerberosPrincipal:         resolved.KerberosPrincipal,
+		KerberosKeytabFilePath:    resolved.KerberosKeytabFilePath,
+		HDFSHAEnabled:             resolved.HDFSHAEnabled,
+		HDFSNameServices:          resolved.HDFSNameServices,
+		HDFSHANamenodes:           resolved.HDFSHANamenodes,
+		HDFSNamenodeRPCAddress1:   resolved.HDFSNamenodeRPCAddress1,
+		HDFSNamenodeRPCAddress2:   resolved.HDFSNamenodeRPCAddress2,
+		HDFSFailoverProxyProvider: resolved.HDFSFailoverProxyProvider,
+		HdfsSitePath:              resolved.HdfsSitePath,
+		DisableCache:              resolved.DisableCache,
+		StorageEndpoint:           resolved.Endpoint,
+		StorageBucket:             resolved.Bucket,
+		StorageAccessKey:          resolved.AccessKey,
+		StorageSecretKey:          resolved.SecretKey,
+		S3CredentialsProvider:     resolved.S3CredentialsProvider,
 	}
 }
 
@@ -416,6 +461,10 @@ func resolvedConfigFromPluginConfig(kind string, pluginConfig map[string]interfa
 	if storageType == "" {
 		if fsDefault := asString(pluginConfig["fs.defaultFS"]); strings.HasPrefix(fsDefault, "file:///") {
 			storageType = "LOCAL_FILE"
+		} else {
+			// 与 runtimeSpecFromPluginConfig 一致：未显式声明 storage.type 且非 file:/// 时默认按 HDFS 解析。
+			// Match runtimeSpecFromPluginConfig: default omitted non-file storage.type to HDFS.
+			storageType = "HDFS"
 		}
 	}
 	cfg := &runtimeStorageResolvedConfig{
@@ -429,6 +478,7 @@ func resolvedConfigFromPluginConfig(kind string, pluginConfig map[string]interfa
 		cfg.Bucket = runtimeStorageFirstNonEmpty(asString(pluginConfig["s3.bucket"]), asString(pluginConfig["fs.defaultFS"]))
 		cfg.AccessKey = asString(pluginConfig["fs.s3a.access.key"])
 		cfg.SecretKey = asString(pluginConfig["fs.s3a.secret.key"])
+		cfg.S3CredentialsProvider = asString(pluginConfig["fs.s3a.aws.credentials.provider"])
 	case "OSS":
 		cfg.Endpoint = asString(pluginConfig["fs.oss.endpoint"])
 		cfg.Bucket = asString(pluginConfig["oss.bucket"])
@@ -440,6 +490,7 @@ func resolvedConfigFromPluginConfig(kind string, pluginConfig map[string]interfa
 			cfg.Endpoint = fsDefault
 		} else {
 			cfg.Endpoint = asString(pluginConfig["fs.defaultFS"])
+			applyResolvedHDFSConfig(cfg, pluginConfig)
 		}
 	default:
 		if fsDefault := asString(pluginConfig["fs.defaultFS"]); strings.HasPrefix(fsDefault, "file:///") {
@@ -448,6 +499,54 @@ func resolvedConfigFromPluginConfig(kind string, pluginConfig map[string]interfa
 		}
 	}
 	return cfg
+}
+
+func applyResolvedHDFSConfig(cfg *runtimeStorageResolvedConfig, pluginConfig map[string]interface{}) {
+	cfg.KerberosPrincipal = asString(pluginConfig["kerberosPrincipal"])
+	cfg.KerberosKeytabFilePath = asString(pluginConfig["kerberosKeytabFilePath"])
+	cfg.HdfsSitePath = asString(pluginConfig["hdfs_site_path"])
+	if rawCache := strings.TrimSpace(asString(pluginConfig["disable.cache"])); rawCache != "" {
+		disabled := strings.EqualFold(rawCache, "true")
+		cfg.DisableCache = &disabled
+	}
+	if nameServices := asString(pluginConfig["seatunnel.hadoop.dfs.nameservices"]); nameServices != "" {
+		cfg.HDFSHAEnabled = true
+		cfg.HDFSNameServices = nameServices
+		cfg.HDFSHANamenodes = asString(pluginConfig["seatunnel.hadoop.dfs.ha.namenodes."+nameServices])
+		namenodes := splitHDFSNameNodes(cfg.HDFSHANamenodes)
+		cfg.HDFSNamenodeRPCAddress1 = hdfsNamenodeRPCAddress(pluginConfig, nameServices, namenodes, 0)
+		cfg.HDFSNamenodeRPCAddress2 = hdfsNamenodeRPCAddress(pluginConfig, nameServices, namenodes, 1)
+		cfg.HDFSFailoverProxyProvider = asString(pluginConfig["seatunnel.hadoop.dfs.client.failover.proxy.provider."+nameServices])
+		return
+	}
+	if host, port, ok := splitHostPort(strings.TrimPrefix(cfg.Endpoint, "hdfs://")); strings.HasPrefix(cfg.Endpoint, "hdfs://") && ok {
+		cfg.HDFSNameNodeHost = host
+		cfg.HDFSNameNodePort = port
+	}
+}
+
+func splitHDFSNameNodes(raw string) []string {
+	parts := strings.Split(raw, ",")
+	names := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if name := strings.TrimSpace(part); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func hdfsNamenodeRPCAddress(pluginConfig map[string]interface{}, nameServices string, namenodes []string, index int) string {
+	if index < len(namenodes) {
+		if value := asString(pluginConfig["seatunnel.hadoop.dfs.namenode.rpc-address."+nameServices+"."+namenodes[index]]); value != "" {
+			return value
+		}
+	}
+	legacy := "nn2"
+	if index == 0 {
+		legacy = "nn1"
+	}
+	return asString(pluginConfig["seatunnel.hadoop.dfs.namenode.rpc-address."+nameServices+"."+legacy])
 }
 
 func (s *Service) runRuntimeStorageProbeOnHost(
@@ -589,11 +688,11 @@ func runtimeStorageProxyParams(
 	switch kind {
 	case installerapp.RuntimeStorageValidationCheckpoint:
 		if checkpoint != nil {
-			fillRuntimeStorageProxyParams(params, string(checkpoint.StorageType), checkpoint.Namespace, checkpoint.HDFSNameNodeHost, checkpoint.HDFSNameNodePort, checkpoint.KerberosPrincipal, checkpoint.KerberosKeytabFilePath, checkpoint.HDFSHAEnabled, checkpoint.HDFSNameServices, checkpoint.HDFSHANamenodes, checkpoint.HDFSNamenodeRPCAddress1, checkpoint.HDFSNamenodeRPCAddress2, checkpoint.HDFSFailoverProxyProvider, checkpoint.StorageEndpoint, checkpoint.StorageAccessKey, checkpoint.StorageSecretKey, checkpoint.StorageBucket)
+			fillRuntimeStorageProxyParams(params, string(checkpoint.StorageType), checkpoint.Namespace, checkpoint.HDFSNameNodeHost, checkpoint.HDFSNameNodePort, checkpoint.KerberosPrincipal, checkpoint.KerberosKeytabFilePath, checkpoint.HDFSHAEnabled, checkpoint.HDFSNameServices, checkpoint.HDFSHANamenodes, checkpoint.HDFSNamenodeRPCAddress1, checkpoint.HDFSNamenodeRPCAddress2, checkpoint.HDFSFailoverProxyProvider, checkpoint.HdfsSitePath, checkpoint.DisableCache, checkpoint.StorageEndpoint, checkpoint.S3CredentialsProvider, checkpoint.StorageAccessKey, checkpoint.StorageSecretKey, checkpoint.StorageBucket)
 		}
 	case installerapp.RuntimeStorageValidationIMAP:
 		if imap != nil {
-			fillRuntimeStorageProxyParams(params, string(imap.StorageType), imap.Namespace, imap.HDFSNameNodeHost, imap.HDFSNameNodePort, imap.KerberosPrincipal, imap.KerberosKeytabFilePath, imap.HDFSHAEnabled, imap.HDFSNameServices, imap.HDFSHANamenodes, imap.HDFSNamenodeRPCAddress1, imap.HDFSNamenodeRPCAddress2, imap.HDFSFailoverProxyProvider, imap.StorageEndpoint, imap.StorageAccessKey, imap.StorageSecretKey, imap.StorageBucket)
+			fillRuntimeStorageProxyParams(params, string(imap.StorageType), imap.Namespace, imap.HDFSNameNodeHost, imap.HDFSNameNodePort, imap.KerberosPrincipal, imap.KerberosKeytabFilePath, imap.HDFSHAEnabled, imap.HDFSNameServices, imap.HDFSHANamenodes, imap.HDFSNamenodeRPCAddress1, imap.HDFSNamenodeRPCAddress2, imap.HDFSFailoverProxyProvider, imap.HdfsSitePath, imap.DisableCache, imap.StorageEndpoint, imap.S3CredentialsProvider, imap.StorageAccessKey, imap.StorageSecretKey, imap.StorageBucket)
 		}
 	}
 	attachClusterJavaProxyPort(params, cluster)
@@ -625,7 +724,10 @@ func fillRuntimeStorageProxyParams(
 	hdfsRPC1 string,
 	hdfsRPC2 string,
 	hdfsFailover string,
+	hdfsSitePath string,
+	disableCache *bool,
 	storageEndpoint string,
+	s3CredentialsProvider string,
 	storageAccessKey string,
 	storageSecretKey string,
 	storageBucket string,
@@ -642,7 +744,12 @@ func fillRuntimeStorageProxyParams(
 	params["hdfs_namenode_rpc_address_1"] = hdfsRPC1
 	params["hdfs_namenode_rpc_address_2"] = hdfsRPC2
 	params["hdfs_failover_proxy_provider"] = hdfsFailover
+	params["hdfs_site_path"] = hdfsSitePath
+	if disableCache != nil {
+		params["disable_cache"] = strconv.FormatBool(*disableCache)
+	}
 	params["storage_endpoint"] = storageEndpoint
+	params["s3_credentials_provider"] = s3CredentialsProvider
 	params["storage_access_key"] = storageAccessKey
 	params["storage_secret_key"] = storageSecretKey
 	params["storage_bucket"] = storageBucket
@@ -705,6 +812,17 @@ func asInt(value interface{}) int {
 	default:
 		return 0
 	}
+}
+
+func optionalBoolPtr(value interface{}) *bool {
+	if value == nil {
+		return nil
+	}
+	if raw, ok := value.(string); ok && strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parsed := asBool(value)
+	return &parsed
 }
 
 func asBool(value interface{}) bool {

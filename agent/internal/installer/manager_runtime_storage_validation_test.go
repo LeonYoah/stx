@@ -64,3 +64,33 @@ func TestIMAPConfigValidateRejectsIncompleteHDFSHA(t *testing.T) {
 		t.Fatal("expected incomplete HA IMAP config to be rejected")
 	}
 }
+
+func TestBuildCheckpointPluginConfigUsesCustomHDFSHANamenodeAliases(t *testing.T) {
+	disableCache := true
+	cfg := &CheckpointConfig{
+		StorageType:               CheckpointStorageHDFS,
+		Namespace:                 "/seatunnel/checkpoint/",
+		HDFSHAEnabled:             true,
+		HDFSNameServices:          "ns2",
+		HDFSHANamenodes:           "namenode326,namenode129",
+		HDFSNamenodeRPCAddress1:   "nn-a.example:8020",
+		HDFSNamenodeRPCAddress2:   "nn-b.example:8020",
+		HDFSFailoverProxyProvider: "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+		HdfsSitePath:              "/etc/hadoop/conf/hdfs-site.xml",
+		DisableCache:              &disableCache,
+	}
+
+	pluginConfig, err := buildCheckpointPluginConfig(cfg)
+	if err != nil {
+		t.Fatalf("buildCheckpointPluginConfig returned error: %v", err)
+	}
+	if pluginConfig["seatunnel.hadoop.dfs.namenode.rpc-address.ns2.namenode326"] != "nn-a.example:8020" {
+		t.Fatalf("first custom namenode RPC address missing: %#v", pluginConfig)
+	}
+	if pluginConfig["seatunnel.hadoop.dfs.namenode.rpc-address.ns2.namenode129"] != "nn-b.example:8020" {
+		t.Fatalf("second custom namenode RPC address missing: %#v", pluginConfig)
+	}
+	if pluginConfig["hdfs_site_path"] != "/etc/hadoop/conf/hdfs-site.xml" || pluginConfig["disable.cache"] != "true" {
+		t.Fatalf("HDFS advanced options missing: %#v", pluginConfig)
+	}
+}

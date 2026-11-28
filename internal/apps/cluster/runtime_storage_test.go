@@ -78,6 +78,140 @@ seatunnel:
 	}
 }
 
+func TestParseCheckpointValidationConfigFromYAMLHDFSACustomNamenodes(t *testing.T) {
+	content := `
+seatunnel:
+  engine:
+    checkpoint:
+      storage:
+        plugin-config:
+          namespace: /seatunnel/checkpoint/
+          storage.type: hdfs
+          fs.defaultFS: hdfs://hpcluster
+          hdfs_site_path: /etc/hadoop/conf/hdfs-site.xml
+          disable.cache: true
+          kerberosPrincipal: hive/_HOST@EXAMPLE.COM
+          kerberosKeytabFilePath: /etc/security/keytabs/hdfs.keytab
+          seatunnel.hadoop.dfs.nameservices: hpcluster
+          seatunnel.hadoop.dfs.ha.namenodes.hpcluster: namenode326,namenode129
+          seatunnel.hadoop.dfs.namenode.rpc-address.hpcluster.namenode326: nn1.example.com:8020
+          seatunnel.hadoop.dfs.namenode.rpc-address.hpcluster.namenode129: nn2.example.com:8020
+          seatunnel.hadoop.dfs.client.failover.proxy.provider.hpcluster: org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+`
+
+	cfg := parseCheckpointValidationConfigFromYAML(content)
+	if cfg == nil {
+		t.Fatal("expected checkpoint validation config")
+	}
+	if !cfg.HDFSHAEnabled || cfg.HDFSNameServices != "hpcluster" || cfg.HDFSHANamenodes != "namenode326,namenode129" {
+		t.Fatalf("HDFS HA config was not preserved: %#v", cfg)
+	}
+	if cfg.HDFSNamenodeRPCAddress1 != "nn1.example.com:8020" || cfg.HDFSNamenodeRPCAddress2 != "nn2.example.com:8020" {
+		t.Fatalf("custom namenode RPC addresses parsed incorrectly: %#v", cfg)
+	}
+	if cfg.HdfsSitePath != "/etc/hadoop/conf/hdfs-site.xml" || cfg.KerberosPrincipal == "" || cfg.KerberosKeytabFilePath == "" {
+		t.Fatalf("HDFS advanced config was not preserved: %#v", cfg)
+	}
+	if cfg.DisableCache == nil || !*cfg.DisableCache {
+		t.Fatalf("disable.cache was not preserved: %#v", cfg)
+	}
+}
+
+func TestParseCheckpointValidationConfigFromYAMLDefaultHDFSHAWithoutStorageType(t *testing.T) {
+	content := `
+seatunnel:
+  engine:
+    checkpoint:
+      storage:
+        plugin-config:
+          namespace: /seatunnel/checkpoint/
+          fs.defaultFS: hdfs://hpcluster
+          seatunnel.hadoop.dfs.nameservices: hpcluster
+          seatunnel.hadoop.dfs.ha.namenodes.hpcluster: namenode326,namenode129
+          seatunnel.hadoop.dfs.namenode.rpc-address.hpcluster.namenode326: nn1.example.com:8020
+          seatunnel.hadoop.dfs.namenode.rpc-address.hpcluster.namenode129: nn2.example.com:8020
+`
+	cfg := parseCheckpointValidationConfigFromYAML(content)
+	if cfg == nil {
+		t.Fatal("expected checkpoint validation config")
+	}
+	if cfg.StorageType != installerapp.CheckpointStorageHDFS || !cfg.HDFSHAEnabled {
+		t.Fatalf("omitted storage.type should default to HDFS HA: %#v", cfg)
+	}
+	if cfg.HDFSNamenodeRPCAddress1 != "nn1.example.com:8020" || cfg.HDFSNamenodeRPCAddress2 != "nn2.example.com:8020" {
+		t.Fatalf("custom namenode RPC addresses missing when storage.type omitted: %#v", cfg)
+	}
+}
+
+func TestOptionalBoolPtrEmptyStringReturnsNil(t *testing.T) {
+	if got := optionalBoolPtr(""); got != nil {
+		t.Fatalf("expected nil for empty string, got %v", *got)
+	}
+	if got := optionalBoolPtr("   "); got != nil {
+		t.Fatalf("expected nil for whitespace string, got %v", *got)
+	}
+	spec := runtimeSpecFromClusterConfig("checkpoint", map[string]interface{}{
+		"storage_type":  "HDFS",
+		"disable_cache": "",
+	})
+	if spec.DisableCache != nil {
+		t.Fatalf("empty disable_cache must stay nil, got %v", *spec.DisableCache)
+	}
+}
+
+func TestRuntimeSpecFromPluginConfigHDFSACustomNamenodes(t *testing.T) {
+	spec := runtimeSpecFromPluginConfig("checkpoint", map[string]interface{}{
+		"namespace":                         "/seatunnel/checkpoint/",
+		"storage.type":                      "hdfs",
+		"fs.defaultFS":                      "hdfs://hpcluster",
+		"seatunnel.hadoop.dfs.nameservices": "hpcluster",
+		"seatunnel.hadoop.dfs.ha.namenodes.hpcluster":                     "namenode326,namenode129",
+		"seatunnel.hadoop.dfs.namenode.rpc-address.hpcluster.namenode326": "nn1.example.com:8020",
+		"seatunnel.hadoop.dfs.namenode.rpc-address.hpcluster.namenode129": "nn2.example.com:8020",
+	})
+	if spec == nil {
+		t.Fatal("expected runtime storage spec")
+	}
+	if spec.HDFSNamenodeRPCAddress1 != "nn1.example.com:8020" || spec.HDFSNamenodeRPCAddress2 != "nn2.example.com:8020" {
+		t.Fatalf("custom namenode RPC addresses parsed incorrectly: %#v", spec)
+	}
+}
+
+func TestRuntimeStorageProxyParamsPreserveHDFSHA(t *testing.T) {
+	checkpoint := parseCheckpointValidationConfigFromYAML(`
+seatunnel:
+  engine:
+    checkpoint:
+      storage:
+        plugin-config:
+          namespace: /seatunnel/checkpoint/
+          storage.type: hdfs
+          fs.defaultFS: hdfs://hpcluster
+          hdfs_site_path: /etc/hadoop/conf/hdfs-site.xml
+          disable.cache: true
+          seatunnel.hadoop.dfs.nameservices: hpcluster
+          seatunnel.hadoop.dfs.ha.namenodes.hpcluster: namenode326,namenode129
+          seatunnel.hadoop.dfs.namenode.rpc-address.hpcluster.namenode326: nn1.example.com:8020
+          seatunnel.hadoop.dfs.namenode.rpc-address.hpcluster.namenode129: nn2.example.com:8020
+          seatunnel.hadoop.dfs.client.failover.proxy.provider.hpcluster: org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+`)
+	params := runtimeStorageProxyParams("", "", installerapp.RuntimeStorageValidationCheckpoint, checkpoint, nil, nil)
+	for key, want := range map[string]string{
+		"hdfs_ha_enabled":              "true",
+		"hdfs_name_services":           "hpcluster",
+		"hdfs_ha_namenodes":            "namenode326,namenode129",
+		"hdfs_namenode_rpc_address_1":  "nn1.example.com:8020",
+		"hdfs_namenode_rpc_address_2":  "nn2.example.com:8020",
+		"hdfs_failover_proxy_provider": "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+		"hdfs_site_path":               "/etc/hadoop/conf/hdfs-site.xml",
+		"disable_cache":                "true",
+	} {
+		if params[key] != want {
+			t.Fatalf("%s mismatch: got %q want %q (params=%#v)", key, params[key], want, params)
+		}
+	}
+}
+
 func TestParseIMAPStorageFromYAMLDisabled(t *testing.T) {
 	content := `
 map:

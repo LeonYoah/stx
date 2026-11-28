@@ -186,12 +186,14 @@ CLI：`stx sync job timeseries <id> [--range 1h] [--start <RFC3339|unix>] [--end
 - 自定义窗口的 step 在 `timeseriesStepCandidates` 里挑第一个能让每条序列 ≤ 240 点的（最细 10s）。显式 `step` 仍然生效。
 - 响应总带 `start_ms` / `end_ms`（实际查询的窗口），自定义窗口 `range` 为 `"custom"`；前端「作业全程」用它回显选择器。
 - `metrics` 默认含 `table`：`stx_job_table_rows_total{direction,table}` 按 `sum by (table)` 出 4 组序列（`table_throughput_read|write`、`table_rows_read|write`），序列 label 即表名，超上限的聚合桶 `other` 由前端本地化；表级指标来自作业指标采集而非引擎观测注入，不受 `engine_observability_enabled` 约束。
+- 表级序列写入前使用与前端一致的单链路对齐：运行时 `job_dag` 恰好 1 个 Source 与 1 个 Sink、且各自只有 1 个具体（非 `default.default.default`、不含模板/通配符）逻辑表，且运行时指标任一侧未出现 ≥2 张不同真实表时，读侧所有 `TableSource*` key 归并到该 Source 表，写侧所有 `TableSink*` key 归并到该 Sink 表（作业列表 `table_count` 同步收敛为 1，并按作业级总量补齐下限）；否则保留原始 key，不按相似表名猜测。写侧归并时 `TableSinkWriteCount` 是主值，`TableSinkCommittedCount` 只在它超过已见写入值时补齐下限，避免预创建的 0 值占位 key 覆盖真实提交量；且仅为实际存在读/写数据的方向写入 counter。
 - 事件标注（`annotations`）按同一个窗口取。
 
 ### 4. 必须有的测试
 - `ParseJobTimeseriesWindow`：RFC3339 带时区、毫秒、秒、缺省 end、只给 end、非法字符串、`end <= start`、超过 366 天。
 - `autoTimeseriesStep`：25 分钟 → 10s，2 小时 → 30s，24 小时 → 600s，31 天 → 14400s，一年 → 172800s。
 - 传入窗口时 `range=custom`、`start_ms` / `end_ms` 与 step 正确（observability 关闭也要带上）。
+- `job_prometheus_test.go`：单链路 `Optional[...]` / `default.default.default` 别名归并到 DAG 表名，多 Source 等歧义场景保留原始 key。
 
 ### 5. 错误与正确示例
 - 错误：已结束的作业只能用相对当前的 `1h` 看，一小时后图就空了。

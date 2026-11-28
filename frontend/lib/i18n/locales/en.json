@@ -6153,6 +6153,7 @@
     "metricFlowZeroTitle": "All-zero metrics",
     "metricFlowItemCount": "{count} items",
     "metricFlowEndpoints": "{count} endpoints",
+    "metricFlowRawKeys": "Raw metric keys",
     "metricFlowSearchEmpty": "No links match \"{query}\"",
     "copyCheckpoint": "Copy checkpoint",
     "copyError": "Copy error"

@@ -484,8 +484,9 @@ func runtimeSpecFromPluginConfig(kind string, pluginConfig map[string]interface{
 			spec.HDFSHAEnabled = true
 			spec.HDFSNameServices = nameServices
 			spec.HDFSHANamenodes = asString(pluginConfig["seatunnel.hadoop.dfs.ha.namenodes."+nameServices])
-			spec.HDFSNamenodeRPCAddress1 = asString(pluginConfig["seatunnel.hadoop.dfs.namenode.rpc-address."+nameServices+".nn1"])
-			spec.HDFSNamenodeRPCAddress2 = asString(pluginConfig["seatunnel.hadoop.dfs.namenode.rpc-address."+nameServices+".nn2"])
+			namenodes := splitHDFSNameNodes(spec.HDFSHANamenodes)
+			spec.HDFSNamenodeRPCAddress1 = hdfsNamenodeRPCAddress(pluginConfig, nameServices, namenodes, 0)
+			spec.HDFSNamenodeRPCAddress2 = hdfsNamenodeRPCAddress(pluginConfig, nameServices, namenodes, 1)
 			spec.HDFSFailoverProxyProvider = asString(pluginConfig["seatunnel.hadoop.dfs.client.failover.proxy.provider."+nameServices])
 		} else if fs := spec.Endpoint; strings.HasPrefix(fs, "hdfs://") {
 			hostPort := strings.TrimPrefix(fs, "hdfs://")
@@ -536,6 +537,19 @@ func runtimeSpecFromClusterConfig(kind string, raw map[string]interface{}) *Runt
 	}
 	spec.Endpoint = asString(raw["storage_endpoint"])
 	spec.Bucket = asString(raw["storage_bucket"])
+	spec.HDFSNameNodeHost = asString(raw["hdfs_namenode_host"])
+	spec.HDFSNameNodePort = asInt(raw["hdfs_namenode_port"])
+	spec.KerberosPrincipal = asString(raw["kerberos_principal"])
+	spec.KerberosKeytabFilePath = asString(raw["kerberos_keytab_file_path"])
+	spec.HDFSHAEnabled = asBool(raw["hdfs_ha_enabled"])
+	spec.HDFSNameServices = asString(raw["hdfs_name_services"])
+	spec.HDFSHANamenodes = asString(raw["hdfs_ha_namenodes"])
+	spec.HDFSNamenodeRPCAddress1 = asString(raw["hdfs_namenode_rpc_address_1"])
+	spec.HDFSNamenodeRPCAddress2 = asString(raw["hdfs_namenode_rpc_address_2"])
+	spec.HDFSFailoverProxyProvider = asString(raw["hdfs_failover_proxy_provider"])
+	spec.HdfsSitePath = asString(raw["hdfs_site_path"])
+	spec.DisableCache = optionalBoolPtr(raw["disable_cache"])
+	spec.S3CredentialsProvider = asString(raw["s3_credentials_provider"])
 	return spec
 }
 

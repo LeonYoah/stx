@@ -45,6 +45,7 @@ import type {CustomVariableItem} from './CustomVariableDialog';
 import type {TaskScheduleValue} from './TaskScheduleSidebarPanel';
 import {formatDateTimeTz} from '@/lib/timezone';
 import {isReservedBuiltinVariableKey} from './builtin-time-variables';
+import type {MetricTableAlignment} from './metric-table-alignment';
 
 // ==========================================
 // 状态与类型定义
@@ -4492,7 +4493,92 @@ export function buildPerTableMetricRows(metrics: Record<string, unknown>) {
   });
 }
 
-export function buildPairedMetricRows(metrics: Record<string, unknown>) {
+export function buildPairedMetricRows(
+  metrics: Record<string, unknown>,
+  alignment: MetricTableAlignment = {},
+) {
+  if (alignment.source && alignment.sink) {
+    const sourceKeys = new Set([
+      ...Object.keys(toObject(metrics.TableSourceReceivedCount)),
+      ...Object.keys(toObject(metrics.TableSourceReceivedBytes)),
+      ...Object.keys(toObject(metrics.TableSourceReceivedQPS)),
+      ...Object.keys(toObject(metrics.TableSourceReceivedBytesPerSeconds)),
+    ]);
+    const sinkKeys = new Set([
+      ...Object.keys(toObject(metrics.TableSinkWriteCount)),
+      ...Object.keys(toObject(metrics.TableSinkWriteBytes)),
+      ...Object.keys(toObject(metrics.TableSinkWriteQPS)),
+      ...Object.keys(toObject(metrics.TableSinkWriteBytesPerSeconds)),
+      ...Object.keys(toObject(metrics.TableSinkCommittedCount)),
+      ...Object.keys(toObject(metrics.TableSinkCommittedBytes)),
+    ]);
+    if (sourceKeys.size > 0 || sinkKeys.size > 0) {
+      const sumMap = (value: unknown, keys: Set<string>): number | null => {
+        const map = toNumericMetricMap(value);
+        let total = 0;
+        let found = false;
+        keys.forEach((key) => {
+          if (map[key] !== undefined) {
+            total += map[key];
+            found = true;
+          }
+        });
+        return found ? total : null;
+      };
+      const display = (value: number | null): string =>
+        value === null ? '-' : formatMetricDisplayValue(value);
+      const floor = (value: number | null, jobValue: unknown): number | null => {
+        const jobNum = parseMetricNumber(jobValue);
+        if (jobNum === null) {
+          return value;
+        }
+        return Math.max(value ?? 0, jobNum);
+      };
+      const sourceCountNum = floor(sumMap(metrics.TableSourceReceivedCount, sourceKeys), metrics.SourceReceivedCount);
+      const sinkCountNum = floor(sumMap(metrics.TableSinkWriteCount, sinkKeys), metrics.SinkWriteCount ?? metrics.SinkCommittedCount);
+      const committedCountNum = floor(sumMap(metrics.TableSinkCommittedCount, sinkKeys), metrics.SinkCommittedCount);
+      const sourceBytesNum = floor(sumMap(metrics.TableSourceReceivedBytes, sourceKeys), metrics.SourceReceivedBytes);
+      const sinkBytesNum = floor(sumMap(metrics.TableSinkWriteBytes, sinkKeys), metrics.SinkWriteBytes);
+      const committedBytesNum = floor(sumMap(metrics.TableSinkCommittedBytes, sinkKeys), metrics.SinkCommittedBytes);
+      const sourceQpsNum = floor(sumMap(metrics.TableSourceReceivedQPS, sourceKeys), metrics.SourceReceivedQPS);
+      const sinkQpsNum = floor(sumMap(metrics.TableSinkWriteQPS, sinkKeys), metrics.SinkWriteQPS);
+      const sourceBpsNum = floor(sumMap(metrics.TableSourceReceivedBytesPerSeconds, sourceKeys), metrics.SourceReceivedBytesPerSeconds);
+      const sinkBpsNum = floor(sumMap(metrics.TableSinkWriteBytesPerSeconds, sinkKeys), metrics.SinkWriteBytesPerSeconds);
+      return [{
+        key: 'link',
+        sourceNode: alignment.source.nodeLabel,
+        sourceTable: alignment.source.tablePath,
+        sourceRawTables: Array.from(sourceKeys).sort(),
+        sinkNode: alignment.sink.nodeLabel,
+        sinkTable: alignment.sink.tablePath,
+        sinkRawTables: Array.from(sinkKeys).sort(),
+        sourceCount: display(sourceCountNum),
+        sourceBytes: display(sourceBytesNum),
+        sourceQps: display(sourceQpsNum),
+        sourceBps: display(sourceBpsNum),
+        sinkCount: display(sinkCountNum),
+        sinkBytes: display(sinkBytesNum),
+        sinkQps: display(sinkQpsNum),
+        sinkBps: display(sinkBpsNum),
+        countDiff:
+          sourceCountNum !== null && sinkCountNum !== null
+            ? sinkCountNum - sourceCountNum
+            : null,
+        committedCount: display(committedCountNum),
+        committedBytes: display(committedBytesNum),
+        sourceCountNum: sourceCountNum ?? 0,
+        sinkCountNum: sinkCountNum ?? 0,
+        committedCountNum: committedCountNum ?? 0,
+        hasCommittedCount: committedCountNum !== null,
+        sourceBytesNum: sourceBytesNum ?? 0,
+        sinkBytesNum: sinkBytesNum ?? 0,
+        committedBytesNum: committedBytesNum ?? 0,
+        hasCommittedBytes: committedBytesNum !== null,
+        sourceBpsNum,
+        sinkBpsNum,
+      }];
+    }
+  }
   const perTableRows = buildPerTableMetricRows(metrics);
   const sourceBuckets = new Map<string, typeof perTableRows>();
   const sinkBuckets = new Map<string, typeof perTableRows>();

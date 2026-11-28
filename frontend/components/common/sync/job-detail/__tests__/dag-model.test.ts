@@ -186,6 +186,164 @@ describe('buildMetricIndex', () => {
     const index = buildMetricIndex({SourceReceivedCount: '12', SinkWriteCount: '10'}, graph.vertices);
     expect(index.vertices.get('Source[0]')?.readCount).toBe(12);
     expect(index.vertices.get('Sink[0]')?.writeCount).toBe(10);
+    expect(index.tables.get('Source[0]')?.get('seatunnel_test.public.cdc_orders')?.readCount).toBe(12);
+  });
+  it('prefers job-level totals when zero per-table rows contradict a flowing single-vertex job', () => {
+    const graph = normalizeJobDag(runtimeJob26);
+    const index = buildMetricIndex(
+      {
+        SourceReceivedCount: '500',
+        SourceReceivedBytes: '38056',
+        SourceReceivedQPS: '25.3',
+        SinkWriteCount: '500',
+        SinkWriteBytes: '31000',
+        SinkWriteQPS: '25.3',
+        SinkCommittedCount: '500',
+        TableSourceReceivedCount: {'Source[0].orders': '0'},
+        TableSourceReceivedBytes: {'Source[0].orders': '0'},
+        TableSourceReceivedQPS: {'Source[0].orders': '0'},
+        TableSinkWriteCount: {'Sink[0].lakehouse.orders': '0'},
+        TableSinkWriteBytes: {'Sink[0].lakehouse.orders': '0'},
+        TableSinkWriteQPS: {'Sink[0].lakehouse.orders': '0'},
+        TableSinkCommittedCount: {'Sink[0].lakehouse.orders': '0'},
+      },
+      graph.vertices,
+    );
+    expect(index.vertices.get('Source[0]')).toMatchObject({readCount: 500, readBytes: 38056});
+    expect(index.vertices.get('Sink[0]')).toMatchObject({writeCount: 500, writeBytes: 31000, committedCount: 500});
+    expect(index.tables.get('Source[0]')?.get('seatunnel_test.public.cdc_orders')).toMatchObject({readCount: 500, readBytes: 38056});
+    expect(index.tables.get('Sink[0]')?.get('seatunnel_test.public.cdc_orders')).toMatchObject({writeCount: 500, writeBytes: 31000});
+  });
+
+
+  it('aligns alias and fallback table metric keys for a single-link job', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [
+        {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-Kafka]', tablePaths: ['wcan-common-tbox1-r1p24']},
+        {vertexId: 2, type: 'transform', vertexName: 'pipeline-1 [Transform[0]-Sql]'},
+        {vertexId: 3, type: 'sink', vertexName: 'pipeline-1 [Sink[0]-ClickHouse]', tablePaths: ['ah1110.ods_wcan_common_tbox1_json']},
+      ],
+    });
+    const index = buildMetricIndex(
+      {
+        TableSourceReceivedCount: {
+          'Source[0].wcan-common-tbox1-r1p24': '0',
+          'Optional[wcan-common-tbox1-r1p24]': '233132',
+        },
+        TableSinkWriteCount: {
+          'Sink[0].ah1110.ods_wcan_common_tbox1_json': '0',
+          'default.default.default': '233132',
+        },
+      },
+      graph.vertices,
+    );
+    expect(index.tables.get('Source[0]')?.get('wcan-common-tbox1-r1p24')?.readCount).toBe(233132);
+    expect(index.tables.get('Sink[0]')?.get('ah1110.ods_wcan_common_tbox1_json')?.writeCount).toBe(233132);
+    expect(index.tables.get('Source[0]')?.size).toBe(1);
+    expect(index.tables.get('Sink[0]')?.size).toBe(1);
+  });
+
+  it('does not align ambiguous table metric keys when the job is not single-link', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [
+        {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-Kafka]', tablePaths: ['topic-a']},
+        {vertexId: 2, type: 'source', vertexName: 'pipeline-1 [Source[1]-Kafka]', tablePaths: ['topic-b']},
+      ],
+    });
+    const index = buildMetricIndex(
+      {TableSourceReceivedCount: {'Optional[topic-a]': '100'}},
+      graph.vertices,
+    );
+    expect(index.vertices.size).toBe(0);
+  });
+
+  it('uses the job total for a single multi-table vertex without inventing per-table attribution', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [{vertexId: 1, type: 'sink', vertexName: 'pipeline-1 [Sink[0]-ClickHouse]', tablePaths: ['db.t1', 'db.t2']}],
+    });
+    const index = buildMetricIndex(
+      {
+        SinkWriteCount: '300',
+        TableSinkWriteCount: {'Sink[0].db.t1': '100', 'Sink[0].db.t2': '0'},
+      },
+      graph.vertices,
+    );
+    expect(index.vertices.get('Sink[0]')?.writeCount).toBe(300);
+    expect(index.tables.get('Sink[0]')?.get('db.t1')?.writeCount).toBe(100);
+    expect(index.tables.get('Sink[0]')?.get('db.t2')?.writeCount).toBe(0);
+  });
+
+  it('does not overwrite a lone reported table on a multi-table vertex with job totals', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [{vertexId: 1, type: 'sink', vertexName: 'pipeline-1 [Sink[0]-ClickHouse]', tablePaths: ['db.t1', 'db.t2']}],
+    });
+    const index = buildMetricIndex(
+      {
+        SinkWriteCount: '300',
+        TableSinkWriteCount: {'Sink[0].db.t1': '100'},
+      },
+      graph.vertices,
+    );
+    expect(index.vertices.get('Sink[0]')?.writeCount).toBe(300);
+    expect(index.tables.get('Sink[0]')?.get('db.t1')?.writeCount).toBe(100);
+    expect(index.tables.get('Sink[0]')?.has('db.t2')).toBe(false);
+  });
+
+  it('does not overwrite a lone reported table when vertex tablePaths are omitted', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [{vertexId: 1, type: 'sink', vertexName: 'pipeline-1 [Sink[0]-MultiTableSink]', tablePaths: []}],
+    });
+    const index = buildMetricIndex(
+      {
+        SinkWriteCount: '300',
+        TableSinkWriteCount: {'Sink[0].db.t1': '100'},
+      },
+      graph.vertices,
+    );
+    expect(index.vertices.get('Sink[0]')?.writeCount).toBe(300);
+    expect(index.tables.get('Sink[0]')?.get('db.t1')?.writeCount).toBe(100);
+  });
+
+  it('keeps dynamic multi-table metrics separate even if static DAG lists one tablePath', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [
+        {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-MySQL-CDC]', tablePaths: ['db.orders_1']},
+        {vertexId: 2, type: 'sink', vertexName: 'pipeline-1 [Sink[0]-Iceberg]', tablePaths: ['ods.orders_1']},
+      ],
+    });
+    const index = buildMetricIndex(
+      {
+        TableSourceReceivedCount: {'Source[0].db.orders_1': '100', 'Source[0].db.orders_2': '200'},
+        TableSinkWriteCount: {'Sink[0].ods.orders_1': '100', 'Sink[0].ods.orders_2': '200'},
+      },
+      graph.vertices,
+    );
+    expect(index.tables.get('Source[0]')?.get('db.orders_1')?.readCount).toBe(100);
+    expect(index.tables.get('Source[0]')?.get('db.orders_2')?.readCount).toBe(200);
+    expect(index.tables.get('Sink[0]')?.get('ods.orders_1')?.writeCount).toBe(100);
+    expect(index.tables.get('Sink[0]')?.get('ods.orders_2')?.writeCount).toBe(200);
+  });
+
+  it('does not assign job-level totals when several vertices of the same type exist', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [
+        {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-Kafka]'},
+        {vertexId: 2, type: 'source', vertexName: 'pipeline-1 [Source[1]-Kafka]'},
+      ],
+    });
+    const index = buildMetricIndex({SourceReceivedCount: '500'}, graph.vertices);
+    expect(index.vertices.size).toBe(0);
+  });
+
+  it('does not assign job-level totals when a sibling vertex of the same type lacks metricPrefix', () => {
+    const graph = normalizeJobDag({
+      vertexInfoMap: [
+        {vertexId: 1, type: 'source', vertexName: 'pipeline-1 [Source[0]-Kafka]'},
+        {vertexId: 2, type: 'source', vertexName: 'CustomSource'},
+      ],
+    });
+    const index = buildMetricIndex({SourceReceivedCount: '500'}, graph.vertices);
+    expect(index.vertices.size).toBe(0);
   });
 });
 

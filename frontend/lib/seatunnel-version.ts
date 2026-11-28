@@ -176,6 +176,14 @@ export function isSeatunnelVersionAtLeast(version: string | undefined, baseline:
 }
 
 /**
+ * 仅对 SeaTunnel 2.3.13 返回 true，用于展示官方 #10570 的 IMAP 临时规避提示。
+ * Returns true only for SeaTunnel 2.3.13 to surface the temporary IMAP workaround notice for upstream #10570.
+ */
+export function needsImapCheckpointMonitorWorkaround(version?: string | null): boolean {
+  return String(version || '').trim().replace(/^v/i, '') === '2.3.13';
+}
+
+/**
  * 安装向导里事件通道勾选的下一个值。
  * 版本不支持时关掉；用户没动过开关时，支持的版本默认开启。
  * Next event-channel checkbox value in the install wizard.

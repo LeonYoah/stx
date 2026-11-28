@@ -83,6 +83,7 @@ type ApplyRuntimeStorageResult struct {
 	Saved           bool                                         `json:"saved"`
 	RestartRequired bool                                         `json:"restart_required"`
 	Message         string                                       `json:"message"`
+	Warning         string                                       `json:"warning,omitempty"`
 	Versions        []ApplyRuntimeStorageVersion                 `json:"versions,omitempty"`
 	Validation      *installerapp.RuntimeStorageValidationResult `json:"validation,omitempty"`
 }
@@ -152,7 +153,7 @@ func (s *Service) ApplyRuntimeStorage(
 
 	versions := make([]ApplyRuntimeStorageVersion, 0, len(targets))
 	for _, target := range targets {
-		next, patchErr := patchRuntimeStorageYAML(target.Content, kind, req)
+		next, patchErr := patchRuntimeStorageYAML(target.Content, kind, req, clusterObj.Version)
 		if patchErr != nil {
 			return nil, patchErr
 		}
@@ -173,6 +174,12 @@ func (s *Service) ApplyRuntimeStorage(
 	result.RestartRequired = true
 	result.Versions = versions
 	result.Message = "runtime storage saved"
+	if kind == installerapp.RuntimeStorageValidationIMAP &&
+		req.Enabled &&
+		req.StorageType != string(installerapp.IMAPStorageDisabled) &&
+		seatunnel.NeedsIMAPCheckpointMonitorWorkaround(clusterObj.Version) {
+		result.Warning = seatunnel.IMAPCheckpointMonitorWorkaroundWarning
+	}
 	return result, nil
 }
 
@@ -340,7 +347,7 @@ func runtimeStorageConfigTargets(
 	return fallbackTargets
 }
 
-func patchRuntimeStorageYAML(content string, kind installerapp.RuntimeStorageValidationKind, req *ApplyRuntimeStorageRequest) (string, error) {
+func patchRuntimeStorageYAML(content string, kind installerapp.RuntimeStorageValidationKind, req *ApplyRuntimeStorageRequest, seatunnelVersion string) (string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
 		return "", err
@@ -367,20 +374,19 @@ func patchRuntimeStorageYAML(content string, kind installerapp.RuntimeStorageVal
 				setMappingChild(mapStore, "properties", properties)
 			}
 			replaceMapping(properties, runtimeStoragePluginValues(kind, req, content))
-			// 规避 Apache SeaTunnel #10570：排除 engine_checkpoint_monitor 的 EAGER MapStore，防止 SeaTunnel 2.3.13 启动期 NPE 阻断 Jetty REST v2。
-			// Work around Apache SeaTunnel #10570: exclude engine_checkpoint_monitor from EAGER MapStore so SeaTunnel 2.3.13 Jetty REST v2 starts cleanly.
-			monitorMapStore := findOrCreateMapping(mapNode, "engine_checkpoint_monitor", "map-store")
-			setMappingChild(monitorMapStore, "enabled", boolNode(false))
+			// 仅对 SeaTunnel 2.3.13 启用临时规避（Apache SeaTunnel #10570）：排除 engine_checkpoint_monitor 的 EAGER MapStore；非 2.3.13 版本清理该覆盖项。
+			// Apply temporary workaround only on SeaTunnel 2.3.13 (Apache SeaTunnel #10570): exclude engine_checkpoint_monitor from EAGER MapStore; remove override on other versions.
+			if seatunnel.NeedsIMAPCheckpointMonitorWorkaround(seatunnelVersion) {
+				monitorMapStore := findOrCreateMapping(mapNode, "engine_checkpoint_monitor", "map-store")
+				setMappingChild(monitorMapStore, "enabled", boolNode(false))
+			} else {
+				clearCheckpointMonitorOverride(mapNode)
+			}
 		} else {
 			removeMappingChild(mapStore, "initial-mode")
 			removeMappingChild(mapStore, "factory-class-name")
 			removeMappingChild(mapStore, "properties")
-			if monitorNode := mappingChild(mapNode, "engine_checkpoint_monitor"); monitorNode != nil && monitorNode.Kind == yaml.MappingNode {
-				removeMappingChild(monitorNode, "map-store")
-				if len(monitorNode.Content) == 0 {
-					removeMappingChild(mapNode, "engine_checkpoint_monitor")
-				}
-			}
+			clearCheckpointMonitorOverride(mapNode)
 		}
 	}
 	out, err := yaml.Marshal(&doc)
@@ -388,6 +394,15 @@ func patchRuntimeStorageYAML(content string, kind installerapp.RuntimeStorageVal
 		return "", err
 	}
 	return string(out), nil
+}
+
+func clearCheckpointMonitorOverride(mapNode *yaml.Node) {
+	if monitorNode := mappingChild(mapNode, "engine_checkpoint_monitor"); monitorNode != nil && monitorNode.Kind == yaml.MappingNode {
+		removeMappingChild(monitorNode, "map-store")
+		if len(monitorNode.Content) == 0 {
+			removeMappingChild(mapNode, "engine_checkpoint_monitor")
+		}
+	}
 }
 
 func runtimeStoragePluginValues(kind installerapp.RuntimeStorageValidationKind, req *ApplyRuntimeStorageRequest, currentContent string) map[string]string {

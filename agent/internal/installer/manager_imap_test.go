@@ -53,6 +53,7 @@ func TestConfigureIMAPStorageKeepsHazelcastTopLevelSections(t *testing.T) {
 
 	manager := NewInstallerManager()
 	params := &InstallParams{
+		Version:        "2.3.13",
 		InstallDir:     installDir,
 		DeploymentMode: DeploymentModeHybrid,
 		IMAP: &IMAPConfig{
@@ -189,6 +190,7 @@ func TestConfigureIMAPStorageSeparatedOnlyUpdatesMasterConfig(t *testing.T) {
 
 	manager := NewInstallerManager()
 	params := &InstallParams{
+		Version:        "3.0.0",
 		InstallDir:     installDir,
 		DeploymentMode: DeploymentModeSeparated,
 		IMAP: &IMAPConfig{
@@ -219,9 +221,8 @@ func TestConfigureIMAPStorageSeparatedOnlyUpdatesMasterConfig(t *testing.T) {
 	if masterMapStore["enabled"] != true {
 		t.Fatalf("expected master map-store enabled=true, got %#v", masterMapStore["enabled"])
 	}
-	masterMonitorMapStore := mustMap(t, mustMap(t, masterMapNode["engine_checkpoint_monitor"])["map-store"])
-	if masterMonitorMapStore["enabled"] != false {
-		t.Fatalf("expected master engine_checkpoint_monitor map-store enabled=false, got %#v", masterMonitorMapStore["enabled"])
+	if _, exists := masterMapNode["engine_checkpoint_monitor"]; exists {
+		t.Fatalf("expected non-2.3.13 version not to inject engine_checkpoint_monitor workaround, got %#v", masterMapNode)
 	}
 
 	workerBytes, err := os.ReadFile(filepath.Join(configDir, "hazelcast-worker.yaml"))

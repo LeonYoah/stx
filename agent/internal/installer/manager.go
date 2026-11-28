@@ -1800,11 +1800,21 @@ func (m *InstallerManager) executeStepConfigureIMAP(ctx context.Context, params 
 	if err := m.configureIMAPStorage(params); err != nil {
 		return err
 	}
+	workaroundApplied := params.IMAP.StorageType != IMAPStorageDisabled &&
+		seatunnelmeta.NeedsIMAPCheckpointMonitorWorkaround(params.Version)
 	if warningMessage != "" {
+		msg := fmt.Sprintf("Warning: IMAP runtime probe issue: %s; configuration applied", warningMessage)
+		if workaroundApplied {
+			msg = fmt.Sprintf("%s (%s)", msg, seatunnelmeta.IMAPCheckpointMonitorWorkaroundWarning)
+		}
+		reporter.Report(InstallStepConfigureIMAP, 100, msg)
+		return nil
+	}
+	if workaroundApplied {
 		reporter.Report(
 			InstallStepConfigureIMAP,
 			100,
-			fmt.Sprintf("Warning: IMAP runtime probe issue: %s; configuration applied", warningMessage),
+			fmt.Sprintf("IMAP persistence configured (%s)", seatunnelmeta.IMAPCheckpointMonitorWorkaroundWarning),
 		)
 		return nil
 	}
@@ -2091,12 +2101,13 @@ func (m *InstallerManager) configureIMAPStorage(params *InstallParams) error {
 			propertiesNode.Kind = yaml.MappingNode
 			propertiesNode.Tag = "!!map"
 			propertiesNode.Content = buildStringMapNodeContent(properties)
-			// 规避 Apache SeaTunnel #10570：CheckpointMonitorService 在 SeaTunnelServer.init() 中过早读取
-			// engine_checkpoint_monitor，命中 engine* 的 EAGER MapStore 会抛出 NPE 并阻断 Jetty REST v2 启动。
-			// Work around Apache SeaTunnel #10570: CheckpointMonitorService eagerly accesses
-			// engine_checkpoint_monitor during SeaTunnelServer.init(); matching engine* EAGER MapStore
-			// throws an NPE before PartitionService is ready and prevents Jetty REST v2 from starting.
-			ensureCheckpointMonitorMapStoreDisabled(mapNode)
+			// 仅对 SeaTunnel 2.3.13 启用临时规避（Apache SeaTunnel #10570）：排除 engine_checkpoint_monitor 的 EAGER MapStore，避免阻塞 Jetty REST v2 启动；其余版本清理该覆盖项。
+			// Apply temporary workaround only on SeaTunnel 2.3.13 (Apache SeaTunnel #10570): exclude engine_checkpoint_monitor from EAGER MapStore so Jetty REST v2 starts; remove override on other versions.
+			if seatunnelmeta.NeedsIMAPCheckpointMonitorWorkaround(params.Version) {
+				ensureCheckpointMonitorMapStoreDisabled(mapNode)
+			} else {
+				clearCheckpointMonitorMapStoreOverride(mapNode)
+			}
 		}
 
 		output, err := yaml.Marshal(&root)

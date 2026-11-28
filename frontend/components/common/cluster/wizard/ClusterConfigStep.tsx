@@ -43,6 +43,7 @@ import {
   Sliders,
 } from 'lucide-react';
 import {DeploymentMode} from '@/lib/services/cluster/types';
+import {needsImapCheckpointMonitorWorkaround} from '@/lib/seatunnel-version';
 import {RuntimeAdvancedConfigCard} from '@/components/common/installer/RuntimeAdvancedConfigCard';
 import {HelpHint} from '@/components/common/HelpHint';
 import {JavaHomePicker} from '@/components/common/java/JavaHomePicker';
@@ -895,6 +896,18 @@ export function ClusterConfigStep({
                       tone='warning'
                       title={t('installer.runtimeStorage.checkpointLocalWarning')}
                     />
+                  )}
+
+                {imapExternalEnabled &&
+                  needsImapCheckpointMonitorWorkaround(config.version) && (
+                    <div data-testid='cluster-wizard-imap-2313-workaround'>
+                      <Alert
+                        tone='warning'
+                        title={t(
+                          'cluster.runtimeStorage.imapCheckpointMonitorWorkaroundNotice',
+                        )}
+                      />
+                    </div>
                   )}
 
                 <div className='space-y-2'>

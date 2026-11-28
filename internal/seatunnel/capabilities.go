@@ -280,3 +280,14 @@ func parseVersionPart(part string) (int, string) {
 	fmt.Sscanf(part[:idx], "%d", &num)
 	return num, part[idx:]
 }
+
+// IMAPCheckpointMonitorWorkaroundWarning 告知用户 SeaTunnel 2.3.13 启用 IMAP 时的临时规避策略。
+// IMAPCheckpointMonitorWorkaroundWarning informs callers about the temporary SeaTunnel 2.3.13 IMAP workaround.
+const IMAPCheckpointMonitorWorkaroundWarning = "Temporary workaround for SeaTunnel 2.3.13 (apache/seatunnel#10570): engine_checkpoint_monitor MapStore persistence is automatically disabled so Jetty REST v2 can start; upgrade to 3.0.0+ to remove this workaround."
+
+// NeedsIMAPCheckpointMonitorWorkaround 仅对 SeaTunnel 2.3.13 返回 true，用于临时规避官方 #10570 启动期 NPE（3.0.0+ 已修复，2.3.12 及以下无此 IMap）。
+// NeedsIMAPCheckpointMonitorWorkaround returns true only for SeaTunnel 2.3.13 to temporarily work around upstream #10570 startup NPE (fixed in 3.0.0+, absent in <=2.3.12).
+func NeedsIMAPCheckpointMonitorWorkaround(seatunnelVersion string) bool {
+	normalized := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(seatunnelVersion)), "v")
+	return normalized == "2.3.13"
+}

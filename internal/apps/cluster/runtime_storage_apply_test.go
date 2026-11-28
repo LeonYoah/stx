@@ -44,7 +44,7 @@ seatunnel:
 		Bucket:      "bucket",
 		AccessKey:   "ak",
 		SecretKey:   "sk",
-	})
+	}, "2.3.13")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ seatunnel:
 		KerberosKeytabFilePath:  "/etc/security/hdfs.keytab",
 		HdfsSitePath:            "/etc/hadoop/hdfs-site.xml",
 		DisableCache:            &cacheEnabled,
-	})
+	}, "2.3.13")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ hazelcast:
 	next, err := patchRuntimeStorageYAML(content, installerapp.RuntimeStorageValidationIMAP, &ApplyRuntimeStorageRequest{
 		Enabled:     false,
 		StorageType: "DISABLED",
-	})
+	}, "2.3.13")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,9 +133,9 @@ hazelcast:
 }
 
 // TestPatchIMAPYAMLEnablesFactoryClassName 验证启用 IMAP 时自动注入 SeaTunnel FileMapStoreFactory 与 initial-mode，
-// 并排除 engine_checkpoint_monitor 的 EAGER MapStore。
+// 且仅对 SeaTunnel 2.3.13 临时排除 engine_checkpoint_monitor 的 EAGER MapStore。
 // TestPatchIMAPYAMLEnablesFactoryClassName verifies SeaTunnel FileMapStoreFactory and initial-mode are injected
-// and engine_checkpoint_monitor MapStore is disabled when enabling IMAP.
+// and engine_checkpoint_monitor MapStore is temporarily disabled only for SeaTunnel 2.3.13.
 func TestPatchIMAPYAMLEnablesFactoryClassName(t *testing.T) {
 	content := `
 hazelcast:
@@ -148,7 +148,7 @@ hazelcast:
 		Enabled:     true,
 		StorageType: "HDFS",
 		Namespace:   "/tmp/imap/",
-	})
+	}, "2.3.13")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,13 +162,27 @@ hazelcast:
 		t.Fatalf("expected enabled: true in output:\n%s", next)
 	}
 	if !strings.Contains(next, "engine_checkpoint_monitor:") || !strings.Contains(next, "enabled: false") {
-		t.Fatalf("expected engine_checkpoint_monitor map-store disabled override in output:\n%s", next)
+		t.Fatalf("expected engine_checkpoint_monitor map-store disabled override on 2.3.13:\n%s", next)
 	}
 	if !strings.Contains(next, "type: hdfs") {
 		t.Fatalf("expected type: hdfs in output:\n%s", next)
 	}
 	if !strings.Contains(next, "clusterName: seatunnel") {
 		t.Fatalf("expected fallback clusterName: seatunnel in output:\n%s", next)
+	}
+
+	// 升级或切换到 3.0.0 时不得写入且应清理旧的 2.3.13 临时规避覆盖项。
+	// On 3.0.0, the temporary 2.3.13 workaround must not be written and any stale override must be removed.
+	nextV3, err := patchRuntimeStorageYAML(next, installerapp.RuntimeStorageValidationIMAP, &ApplyRuntimeStorageRequest{
+		Enabled:     true,
+		StorageType: "HDFS",
+		Namespace:   "/tmp/imap/",
+	}, "3.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(nextV3, "engine_checkpoint_monitor") {
+		t.Fatalf("expected engine_checkpoint_monitor override to be omitted on 3.0.0:\n%s", nextV3)
 	}
 }
 
@@ -187,7 +201,7 @@ hazelcast:
 		Enabled:     true,
 		StorageType: "HDFS",
 		Namespace:   "/tmp/imap/",
-	})
+	}, "3.0.0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +215,7 @@ hazelcast:
 		Enabled:     true,
 		StorageType: "HDFS",
 		Namespace:   "/tmp/imap-v2/",
-	})
+	}, "3.0.0")
 	if err != nil {
 		t.Fatal(err)
 	}

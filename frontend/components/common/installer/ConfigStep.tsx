@@ -98,6 +98,7 @@ import {
 } from '@/components/ui/tooltip';
 import {
   buildSeatunnelInstallDir,
+  needsImapCheckpointMonitorWorkaround,
   nextEventChannelEnabled,
   resolveSelectableSeatunnelVersions,
   resolveSeatunnelVersionCapabilities,
@@ -1434,6 +1435,23 @@ export function ConfigStep({
                 ? t('installer.runtimeStorage.imapBatchSuggestion')
                 : t('installer.runtimeStorage.imapStreamingSuggestion')}
             </p>
+
+            {imapExternalEnabled &&
+              needsImapCheckpointMonitorWorkaround(config.version) && (
+                <div
+                  className='rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100'
+                  data-testid='install-imap-2313-workaround'
+                >
+                  <div className='flex items-start gap-2'>
+                    <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0' />
+                    <div>
+                      {t(
+                        'cluster.runtimeStorage.imapCheckpointMonitorWorkaroundNotice',
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
             <div className='space-y-2'>
               <div className='flex items-center gap-2'>

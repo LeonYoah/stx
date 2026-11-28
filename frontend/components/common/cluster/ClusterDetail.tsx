@@ -2231,6 +2231,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                       <div className='space-y-5 border-t-[0.5px] border-border/80 pt-5'>
                         <RuntimeStorageEditor
                           clusterId={clusterId}
+                          clusterVersion={cluster.version}
                           kind={runtimeView}
                           spec={
                             runtimeView === 'checkpoint'

@@ -26,11 +26,13 @@ import {Input} from '@/components/arc/input/input';
 import {Select} from '@/components/arc/select/select';
 import {Switch} from '@/components/arc/switch/switch';
 import {toast} from '@/lib/toast';
+import {needsImapCheckpointMonitorWorkaround} from '@/lib/seatunnel-version';
 import services from '@/lib/services';
 import type {RuntimeStorageSpec} from '@/lib/services/cluster/types';
 
 interface RuntimeStorageEditorProps {
   clusterId: number;
+  clusterVersion?: string;
   kind: 'checkpoint' | 'imap';
   spec?: RuntimeStorageSpec;
   onApplied?: () => void;
@@ -51,6 +53,7 @@ const S3_INSTANCE = 'org.apache.hadoop.fs.s3a.InstanceProfileCredentialsProvider
  */
 export function RuntimeStorageEditor({
   clusterId,
+  clusterVersion,
   kind,
   spec,
   onApplied,
@@ -233,6 +236,19 @@ export function RuntimeStorageEditor({
           />
         ) : null}
       </div>
+
+      {kind === 'imap' &&
+      enabled &&
+      needsImapCheckpointMonitorWorkaround(clusterVersion) ? (
+        <div data-testid='runtime-storage-imap-2313-workaround'>
+          <ArcAlert
+            tone='warning'
+            title={t(
+              'cluster.runtimeStorage.imapCheckpointMonitorWorkaroundNotice',
+            )}
+          />
+        </div>
+      ) : null}
 
       {kind === 'checkpoint' || enabled ? (
         <div className='grid gap-4 md:grid-cols-2'>

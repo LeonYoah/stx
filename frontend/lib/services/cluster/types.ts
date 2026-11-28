@@ -349,6 +349,7 @@ export interface ApplyRuntimeStorageResult {
   saved: boolean;
   restart_required: boolean;
   message: string;
+  warning?: string;
   versions?: ApplyRuntimeStorageVersion[];
   validation?: RuntimeStorageValidationResult;
 }

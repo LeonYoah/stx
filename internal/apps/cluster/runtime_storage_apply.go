@@ -83,6 +83,7 @@ type ApplyRuntimeStorageResult struct {
 	Saved           bool                                         `json:"saved"`
 	RestartRequired bool                                         `json:"restart_required"`
 	Message         string                                       `json:"message"`
+	Warning         string                                       `json:"warning,omitempty"`
 	Versions        []ApplyRuntimeStorageVersion                 `json:"versions,omitempty"`
 	Validation      *installerapp.RuntimeStorageValidationResult `json:"validation,omitempty"`
 }
@@ -132,7 +133,7 @@ func (s *Service) ApplyRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
-	targets := runtimeStorageConfigTargets(configs, kind)
+	targets := runtimeStorageConfigTargets(configs, kind, clusterObj.DeploymentMode)
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("config template not found")
 	}
@@ -152,7 +153,7 @@ func (s *Service) ApplyRuntimeStorage(
 
 	versions := make([]ApplyRuntimeStorageVersion, 0, len(targets))
 	for _, target := range targets {
-		next, patchErr := patchRuntimeStorageYAML(target.Content, kind, req)
+		next, patchErr := patchRuntimeStorageYAML(target.Content, kind, req, clusterObj.Version)
 		if patchErr != nil {
 			return nil, patchErr
 		}
@@ -173,6 +174,12 @@ func (s *Service) ApplyRuntimeStorage(
 	result.RestartRequired = true
 	result.Versions = versions
 	result.Message = "runtime storage saved"
+	if kind == installerapp.RuntimeStorageValidationIMAP &&
+		req.Enabled &&
+		req.StorageType != string(installerapp.IMAPStorageDisabled) &&
+		seatunnel.NeedsIMAPCheckpointMonitorWorkaround(clusterObj.Version) {
+		result.Warning = seatunnel.IMAPCheckpointMonitorWorkaroundWarning
+	}
 	return result, nil
 }
 
@@ -295,27 +302,52 @@ func draftRuntimeStorageConfigs(kind installerapp.RuntimeStorageValidationKind, 
 	}
 }
 
-func runtimeStorageConfigTargets(configs []*appconfig.ConfigInfo, kind installerapp.RuntimeStorageValidationKind) []*appconfig.ConfigInfo {
-	wanted := map[appconfig.ConfigType]struct{}{}
+// runtimeStorageConfigTargets 按部署模式选取运行时存储配置模板：
+// 混合模式优先 hazelcast.yaml，分离模式优先 hazelcast-master.yaml，避免误读未使用的另一套模板导致 IMAP 状态错乱。
+// runtimeStorageConfigTargets selects runtime storage config templates by deployment mode:
+// hybrid prefers hazelcast.yaml and separated prefers hazelcast-master.yaml so unused templates cannot shadow IMAP state.
+func runtimeStorageConfigTargets(
+	configs []*appconfig.ConfigInfo,
+	kind installerapp.RuntimeStorageValidationKind,
+	deploymentMode DeploymentMode,
+) []*appconfig.ConfigInfo {
 	if kind == installerapp.RuntimeStorageValidationCheckpoint {
-		wanted[appconfig.ConfigTypeSeatunnel] = struct{}{}
-	} else {
-		wanted[appconfig.ConfigTypeHazelcast] = struct{}{}
-		wanted[appconfig.ConfigTypeHazelcastMaster] = struct{}{}
+		targets := make([]*appconfig.ConfigInfo, 0, 1)
+		for _, cfg := range configs {
+			if cfg != nil && cfg.IsTemplate && cfg.ConfigType == appconfig.ConfigTypeSeatunnel {
+				targets = append(targets, cfg)
+			}
+		}
+		return targets
 	}
-	targets := make([]*appconfig.ConfigInfo, 0)
+
+	preferred := appconfig.ConfigTypeHazelcast
+	fallback := appconfig.ConfigTypeHazelcastMaster
+	if deploymentMode == DeploymentModeSeparated {
+		preferred = appconfig.ConfigTypeHazelcastMaster
+		fallback = appconfig.ConfigTypeHazelcast
+	}
+
+	preferredTargets := make([]*appconfig.ConfigInfo, 0, 1)
+	fallbackTargets := make([]*appconfig.ConfigInfo, 0, 1)
 	for _, cfg := range configs {
 		if cfg == nil || !cfg.IsTemplate {
 			continue
 		}
-		if _, ok := wanted[cfg.ConfigType]; ok {
-			targets = append(targets, cfg)
+		switch cfg.ConfigType {
+		case preferred:
+			preferredTargets = append(preferredTargets, cfg)
+		case fallback:
+			fallbackTargets = append(fallbackTargets, cfg)
 		}
 	}
-	return targets
+	if len(preferredTargets) > 0 {
+		return preferredTargets
+	}
+	return fallbackTargets
 }
 
-func patchRuntimeStorageYAML(content string, kind installerapp.RuntimeStorageValidationKind, req *ApplyRuntimeStorageRequest) (string, error) {
+func patchRuntimeStorageYAML(content string, kind installerapp.RuntimeStorageValidationKind, req *ApplyRuntimeStorageRequest, seatunnelVersion string) (string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
 		return "", err
@@ -328,12 +360,7 @@ func patchRuntimeStorageYAML(content string, kind installerapp.RuntimeStorageVal
 		plugin := findOrCreateMapping(root, "seatunnel", "engine", "checkpoint", "storage", "plugin-config")
 		replaceMapping(plugin, runtimeStoragePluginValues(kind, req, content))
 	} else {
-		mapStore := findIMAPMapStore(root)
-		if mapStore == nil {
-			parent := findOrCreateMapping(root, "hazelcast", "map", "engine*")
-			mapStore = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-			setMappingChild(parent, "map-store", mapStore)
-		}
+		mapNode, mapStore := findOrCreateIMAPMapStore(root)
 		isEnabled := req.Enabled && req.StorageType != string(installerapp.IMAPStorageDisabled)
 		setMappingChild(mapStore, "enabled", boolNode(isEnabled))
 		if isEnabled {
@@ -347,10 +374,19 @@ func patchRuntimeStorageYAML(content string, kind installerapp.RuntimeStorageVal
 				setMappingChild(mapStore, "properties", properties)
 			}
 			replaceMapping(properties, runtimeStoragePluginValues(kind, req, content))
+			// 仅对 SeaTunnel 2.3.13 启用临时规避（Apache SeaTunnel #10570）：排除 engine_checkpoint_monitor 的 EAGER MapStore；非 2.3.13 版本清理该覆盖项。
+			// Apply temporary workaround only on SeaTunnel 2.3.13 (Apache SeaTunnel #10570): exclude engine_checkpoint_monitor from EAGER MapStore; remove override on other versions.
+			if seatunnel.NeedsIMAPCheckpointMonitorWorkaround(seatunnelVersion) {
+				monitorMapStore := findOrCreateMapping(mapNode, "engine_checkpoint_monitor", "map-store")
+				setMappingChild(monitorMapStore, "enabled", boolNode(false))
+			} else {
+				clearCheckpointMonitorOverride(mapNode)
+			}
 		} else {
 			removeMappingChild(mapStore, "initial-mode")
 			removeMappingChild(mapStore, "factory-class-name")
 			removeMappingChild(mapStore, "properties")
+			clearCheckpointMonitorOverride(mapNode)
 		}
 	}
 	out, err := yaml.Marshal(&doc)
@@ -358,6 +394,15 @@ func patchRuntimeStorageYAML(content string, kind installerapp.RuntimeStorageVal
 		return "", err
 	}
 	return string(out), nil
+}
+
+func clearCheckpointMonitorOverride(mapNode *yaml.Node) {
+	if monitorNode := mappingChild(mapNode, "engine_checkpoint_monitor"); monitorNode != nil && monitorNode.Kind == yaml.MappingNode {
+		removeMappingChild(monitorNode, "map-store")
+		if len(monitorNode.Content) == 0 {
+			removeMappingChild(mapNode, "engine_checkpoint_monitor")
+		}
+	}
 }
 
 func runtimeStoragePluginValues(kind installerapp.RuntimeStorageValidationKind, req *ApplyRuntimeStorageRequest, currentContent string) map[string]string {
@@ -500,6 +545,10 @@ func checkpointPluginValues(cfg *installerapp.CheckpointConfig) map[string]strin
 			}
 		} else if host := strings.TrimSpace(cfg.HDFSNameNodeHost); host != "" && cfg.HDFSNameNodePort > 0 {
 			values["fs.defaultFS"] = fmt.Sprintf("hdfs://%s:%d", host, cfg.HDFSNameNodePort)
+		} else if endpoint := strings.TrimSpace(cfg.StorageEndpoint); strings.HasPrefix(endpoint, "hdfs://") {
+			// 通过 hdfs_site_path 提供 HA 拓扑时，保留原始 fs.defaultFS（如 hdfs://<nameservice>）。
+			// Preserve raw fs.defaultFS (e.g. hdfs://<nameservice>) when HA topology is supplied via hdfs_site_path.
+			values["fs.defaultFS"] = endpoint
 		}
 		if principal := strings.TrimSpace(cfg.KerberosPrincipal); principal != "" {
 			values["kerberosPrincipal"] = principal
@@ -520,11 +569,12 @@ func checkpointPluginValues(cfg *installerapp.CheckpointConfig) map[string]strin
 	return values
 }
 
-func findIMAPMapStore(root *yaml.Node) *yaml.Node {
-	if store := findMapping(root, "map", "engine*", "map-store"); store != nil {
-		return store
+func findOrCreateIMAPMapStore(root *yaml.Node) (*yaml.Node, *yaml.Node) {
+	if mapNode := findMapping(root, "map"); mapNode != nil && findMapping(mapNode, "engine*") != nil {
+		return mapNode, findOrCreateMapping(mapNode, "engine*", "map-store")
 	}
-	return findMapping(root, "hazelcast", "map", "engine*", "map-store")
+	mapNode := findOrCreateMapping(root, "hazelcast", "map")
+	return mapNode, findOrCreateMapping(mapNode, "engine*", "map-store")
 }
 
 func findOrCreateMapping(root *yaml.Node, keys ...string) *yaml.Node {
@@ -638,7 +688,7 @@ func replaceMapping(parent *yaml.Node, values map[string]string) {
 	}
 }
 
-func (s *Service) loadConfiguredRuntimeStorage(ctx context.Context, clusterID uint) (*RuntimeStorageSpec, *RuntimeStorageSpec) {
+func (s *Service) loadConfiguredRuntimeStorage(ctx context.Context, clusterID uint, deploymentMode DeploymentMode) (*RuntimeStorageSpec, *RuntimeStorageSpec) {
 	if s == nil || s.runtimeConfigStore == nil {
 		return nil, nil
 	}
@@ -648,11 +698,11 @@ func (s *Service) loadConfiguredRuntimeStorage(ctx context.Context, clusterID ui
 	}
 	var checkpoint *RuntimeStorageSpec
 	var imap *RuntimeStorageSpec
-	for _, cfg := range runtimeStorageConfigTargets(configs, installerapp.RuntimeStorageValidationCheckpoint) {
+	for _, cfg := range runtimeStorageConfigTargets(configs, installerapp.RuntimeStorageValidationCheckpoint, deploymentMode) {
 		checkpoint = parseCheckpointStorageFromYAML(cfg.Content)
 		break
 	}
-	for _, cfg := range runtimeStorageConfigTargets(configs, installerapp.RuntimeStorageValidationIMAP) {
+	for _, cfg := range runtimeStorageConfigTargets(configs, installerapp.RuntimeStorageValidationIMAP, deploymentMode) {
 		imap = parseIMAPStorageFromYAML(cfg.Content)
 		break
 	}

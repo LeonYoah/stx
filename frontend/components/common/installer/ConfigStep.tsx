@@ -98,6 +98,7 @@ import {
 } from '@/components/ui/tooltip';
 import {
   buildSeatunnelInstallDir,
+  needsImapCheckpointMonitorWorkaround,
   nextEventChannelEnabled,
   resolveSelectableSeatunnelVersions,
   resolveSeatunnelVersionCapabilities,
@@ -336,10 +337,13 @@ export function ConfigStep({
       hdfs_namenode_rpc_address_1: config.imap.hdfs_namenode_rpc_address_1,
       hdfs_namenode_rpc_address_2: config.imap.hdfs_namenode_rpc_address_2,
       hdfs_failover_proxy_provider: config.imap.hdfs_failover_proxy_provider,
+      hdfs_site_path: config.imap.hdfs_site_path,
+      disable_cache: config.imap.disable_cache,
       storage_endpoint: config.imap.storage_endpoint,
       storage_access_key: config.imap.storage_access_key,
       storage_secret_key: config.imap.storage_secret_key,
       storage_bucket: config.imap.storage_bucket,
+      s3_credentials_provider: config.imap.s3_credentials_provider,
     };
     onConfigChange({checkpoint: nextCheckpoint});
     setStorageValidation((prev) => ({...prev, checkpoint: undefined}));
@@ -934,6 +938,7 @@ export function ConfigStep({
                 </CardTitle>
               </div>
               <Button
+                data-testid='install-checkpoint-apply-to-imap'
                 variant='outline'
                 size='sm'
                 onClick={applyCheckpointToImap}
@@ -1011,6 +1016,7 @@ export function ConfigStep({
                 <div className='flex items-center space-x-2'>
                   <Checkbox
                     id='checkpoint-hdfs-ha-enabled'
+                    data-testid='install-checkpoint-hdfs-ha-enabled'
                     checked={config.checkpoint.hdfs_ha_enabled || false}
                     onCheckedChange={(checked) =>
                       handleCheckpointChange(
@@ -1028,6 +1034,7 @@ export function ConfigStep({
                     <div className='space-y-2'>
                       <Label>{t('installer.hdfsNameNodeHost')}</Label>
                       <Input
+                        data-testid='install-checkpoint-hdfs-host'
                         value={config.checkpoint.hdfs_namenode_host || ''}
                         onChange={(e) =>
                           handleCheckpointChange(
@@ -1041,6 +1048,7 @@ export function ConfigStep({
                     <div className='space-y-2'>
                       <Label>{t('installer.hdfsNameNodePort')}</Label>
                       <Input
+                        data-testid='install-checkpoint-hdfs-port'
                         type='number'
                         value={config.checkpoint.hdfs_namenode_port || ''}
                         onChange={(e) =>
@@ -1060,6 +1068,7 @@ export function ConfigStep({
                       <div className='space-y-2'>
                         <Label>{t('installer.hdfsNameServices')}</Label>
                         <Input
+                          data-testid='install-checkpoint-hdfs-nameservices'
                           value={config.checkpoint.hdfs_name_services || ''}
                           onChange={(e) =>
                             handleCheckpointChange(
@@ -1073,6 +1082,7 @@ export function ConfigStep({
                       <div className='space-y-2'>
                         <Label>{t('installer.hdfsHANamenodes')}</Label>
                         <Input
+                          data-testid='install-checkpoint-hdfs-ha-namenodes'
                           value={config.checkpoint.hdfs_ha_namenodes || ''}
                           onChange={(e) =>
                             handleCheckpointChange(
@@ -1088,6 +1098,7 @@ export function ConfigStep({
                       <div className='space-y-2'>
                         <Label>{t('installer.hdfsNamenodeRPCAddress1')}</Label>
                         <Input
+                          data-testid='install-checkpoint-hdfs-rpc-1'
                           value={
                             config.checkpoint.hdfs_namenode_rpc_address_1 || ''
                           }
@@ -1103,6 +1114,7 @@ export function ConfigStep({
                       <div className='space-y-2'>
                         <Label>{t('installer.hdfsNamenodeRPCAddress2')}</Label>
                         <Input
+                          data-testid='install-checkpoint-hdfs-rpc-2'
                           value={
                             config.checkpoint.hdfs_namenode_rpc_address_2 || ''
                           }
@@ -1185,6 +1197,7 @@ export function ConfigStep({
                 <div className='space-y-2'>
                   <Label>{t('installer.hdfsSitePath')}</Label>
                   <Input
+                    data-testid='install-checkpoint-hdfs-site-path'
                     value={config.checkpoint.hdfs_site_path || ''}
                     onChange={(e) =>
                       handleCheckpointChange('hdfs_site_path', e.target.value)
@@ -1423,6 +1436,23 @@ export function ConfigStep({
                 : t('installer.runtimeStorage.imapStreamingSuggestion')}
             </p>
 
+            {imapExternalEnabled &&
+              needsImapCheckpointMonitorWorkaround(config.version) && (
+                <div
+                  className='rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100'
+                  data-testid='install-imap-2313-workaround'
+                >
+                  <div className='flex items-start gap-2'>
+                    <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0' />
+                    <div>
+                      {t(
+                        'cluster.runtimeStorage.imapCheckpointMonitorWorkaroundNotice',
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
             <div className='space-y-2'>
               <div className='flex items-center gap-2'>
                 <Label>{t('installer.storageType')}</Label>
@@ -1531,6 +1561,7 @@ export function ConfigStep({
                           <div className='space-y-2'>
                             <Label>{t('installer.hdfsNameServices')}</Label>
                             <Input
+                              data-testid='install-imap-hdfs-nameservices'
                               value={config.imap.hdfs_name_services || ''}
                               onChange={(e) =>
                                 handleImapChange(
@@ -1544,6 +1575,7 @@ export function ConfigStep({
                           <div className='space-y-2'>
                             <Label>{t('installer.hdfsHANamenodes')}</Label>
                             <Input
+                              data-testid='install-imap-hdfs-ha-namenodes'
                               value={config.imap.hdfs_ha_namenodes || ''}
                               onChange={(e) =>
                                 handleImapChange(
@@ -1561,6 +1593,7 @@ export function ConfigStep({
                               {t('installer.hdfsNamenodeRPCAddress1')}
                             </Label>
                             <Input
+                              data-testid='install-imap-hdfs-rpc-1'
                               value={
                                 config.imap.hdfs_namenode_rpc_address_1 || ''
                               }
@@ -1578,6 +1611,7 @@ export function ConfigStep({
                               {t('installer.hdfsNamenodeRPCAddress2')}
                             </Label>
                             <Input
+                              data-testid='install-imap-hdfs-rpc-2'
                               value={
                                 config.imap.hdfs_namenode_rpc_address_2 || ''
                               }

@@ -126,36 +126,31 @@ public class RuntimeStoragePreviewService {
             ClassLoader originalClassLoader = currentThread.getContextClassLoader();
             currentThread.setContextClassLoader(runtimeClassLoader);
             try {
-                Configuration conf = new Configuration(false);
-                for (Map.Entry<String, String> entry : config.entrySet()) {
-                    String key = entry.getKey();
-                    String value = entry.getValue();
-                    if (value == null || value.trim().isEmpty()) {
-                        continue;
+                Configuration conf = StorageProbeConfigSupport.buildHadoopConfiguration(config);
+                Path targetPath =
+                        StorageProbeConfigSupport.resolveTargetPath(
+                                conf, config, storageType, namespace, requestedPath, "preview");
+                // 按次创建独立 FileSystem 并及时关闭，避免常驻 proxy 跨配置/跨凭证复用旧连接缓存。
+                // Create an isolated FileSystem per call and close it to avoid stale
+                // cross-credential cache hits in the long-lived proxy.
+                try (FileSystem fs = FileSystem.newInstance(targetPath.toUri(), conf)) {
+                    if (!fs.exists(targetPath)) {
+                        throw new ProxyException(
+                                404, "Runtime storage file does not exist: " + targetPath);
                     }
-                    conf.set(key, value);
-                    if (key.startsWith("seatunnel.hadoop.")) {
-                        conf.set(key.substring("seatunnel.hadoop.".length()), value);
+                    FileStatus status = fs.getFileStatus(targetPath);
+                    if (status.isDirectory()) {
+                        throw new ProxyException(
+                                400, "Runtime storage preview requires a file path: " + targetPath);
                     }
-                }
-                Path targetPath = buildTargetPath(config, storageType, namespace, requestedPath);
-                FileSystem fs = targetPath.getFileSystem(conf);
-                if (!fs.exists(targetPath)) {
-                    throw new ProxyException(
-                            404, "Runtime storage file does not exist: " + targetPath);
-                }
-                FileStatus status = fs.getFileStatus(targetPath);
-                if (status.isDirectory()) {
-                    throw new ProxyException(
-                            400, "Runtime storage preview requires a file path: " + targetPath);
-                }
-                try (FSDataInputStream in = fs.open(targetPath)) {
-                    byte[] bytes = readAtMost(in, maxBytes);
-                    return new FileReadResult(
-                            bytes,
-                            status.getLen(),
-                            targetPath.toString(),
-                            status.getPath().getName());
+                    try (FSDataInputStream in = fs.open(targetPath)) {
+                        byte[] bytes = readAtMost(in, maxBytes);
+                        return new FileReadResult(
+                                bytes,
+                                status.getLen(),
+                                targetPath.toString(),
+                                status.getPath().getName());
+                    }
                 }
             } finally {
                 currentThread.setContextClassLoader(originalClassLoader);
@@ -262,55 +257,6 @@ public class RuntimeStoragePreviewService {
             builder.append(" …");
         }
         return builder.toString();
-    }
-
-    private Path buildTargetPath(
-            Map<String, String> config,
-            String storageType,
-            String namespace,
-            String requestedPath) {
-        String effectivePath = firstNonBlank(requestedPath, namespace);
-        String normalizedPath = effectivePath == null ? namespace.trim() : effectivePath.trim();
-        if ("s3".equals(storageType)) {
-            String bucket = firstNonBlank(config.get("s3.bucket"), config.get("fs.defaultFS"));
-            if (bucket == null) {
-                throw new ProxyException(400, "S3 preview requires s3.bucket or fs.defaultFS");
-            }
-            return new Path(
-                    joinBucketAndNamespace(normalizeBucket(bucket, "s3a://"), normalizedPath));
-        }
-        if ("oss".equals(storageType)) {
-            String bucket = firstNonBlank(config.get("oss.bucket"), config.get("fs.defaultFS"));
-            if (bucket == null) {
-                throw new ProxyException(400, "OSS preview requires oss.bucket or fs.defaultFS");
-            }
-            return new Path(
-                    joinBucketAndNamespace(normalizeBucket(bucket, "oss://"), normalizedPath));
-        }
-        String defaultFS =
-                firstNonBlank(
-                        config.get("fs.defaultFS"), config.get("seatunnel.hadoop.fs.defaultFS"));
-        if (defaultFS != null) {
-            return new Path(new Path(defaultFS), normalizedPath);
-        }
-        return new Path(normalizedPath);
-    }
-
-    private String normalizeBucket(String bucket, String scheme) {
-        String trimmed = bucket.trim();
-        if (trimmed.contains("://")) {
-            return trimmed;
-        }
-        return scheme + trimmed.replaceFirst("^/+", "");
-    }
-
-    private String joinBucketAndNamespace(String bucket, String namespace) {
-        String normalizedBucket = bucket.replaceAll("/+$", "");
-        String normalizedNamespace = namespace.replaceFirst("^/+", "");
-        if (normalizedNamespace.isEmpty()) {
-            return normalizedBucket;
-        }
-        return normalizedBucket + "/" + normalizedNamespace;
     }
 
     private String firstNonBlank(String... values) {

@@ -1105,6 +1105,7 @@ func (c *CheckpointConfig) Validate() error {
 			c.HDFSHANamenodes,
 			c.HDFSNamenodeRPCAddress1,
 			c.HDFSNamenodeRPCAddress2,
+			c.HdfsSitePath,
 		); err != nil {
 			return err
 		}
@@ -1150,6 +1151,7 @@ func (c *IMAPConfig) Validate() error {
 			c.HDFSHANamenodes,
 			c.HDFSNamenodeRPCAddress1,
 			c.HDFSNamenodeRPCAddress2,
+			c.HdfsSitePath,
 		); err != nil {
 			return err
 		}
@@ -1184,6 +1186,7 @@ func validateHDFSStorageConfig(
 	haNamenodes string,
 	rpcAddress1 string,
 	rpcAddress2 string,
+	hdfsSitePath string,
 ) error {
 	if strings.TrimSpace(namespace) == "" {
 		return errors.New("namespace is required for HDFS storage")
@@ -1198,6 +1201,11 @@ func validateHDFSStorageConfig(
 			rpcAddress2,
 		)
 		return err
+	}
+	// 仅配置 hdfs_site_path 时由 XML 提供 nameservice/NameNode 地址，无需强填单 NameNode 主机与端口。
+	// When hdfs_site_path supplies cluster endpoints, single NameNode host/port are optional.
+	if strings.TrimSpace(hdfsSitePath) != "" && strings.TrimSpace(host) == "" && port == 0 {
+		return nil
 	}
 	if strings.TrimSpace(host) == "" {
 		return errors.New("hdfs_namenode_host is required for HDFS storage")
@@ -1792,11 +1800,21 @@ func (m *InstallerManager) executeStepConfigureIMAP(ctx context.Context, params 
 	if err := m.configureIMAPStorage(params); err != nil {
 		return err
 	}
+	workaroundApplied := params.IMAP.StorageType != IMAPStorageDisabled &&
+		seatunnelmeta.NeedsIMAPCheckpointMonitorWorkaround(params.Version)
 	if warningMessage != "" {
+		msg := fmt.Sprintf("Warning: IMAP runtime probe issue: %s; configuration applied", warningMessage)
+		if workaroundApplied {
+			msg = fmt.Sprintf("%s (%s)", msg, seatunnelmeta.IMAPCheckpointMonitorWorkaroundWarning)
+		}
+		reporter.Report(InstallStepConfigureIMAP, 100, msg)
+		return nil
+	}
+	if workaroundApplied {
 		reporter.Report(
 			InstallStepConfigureIMAP,
 			100,
-			fmt.Sprintf("Warning: IMAP runtime probe issue: %s; configuration applied", warningMessage),
+			fmt.Sprintf("IMAP persistence configured (%s)", seatunnelmeta.IMAPCheckpointMonitorWorkaroundWarning),
 		)
 		return nil
 	}
@@ -2047,7 +2065,7 @@ func (m *InstallerManager) configureIMAPStorage(params *InstallParams) error {
 			return fmt.Errorf("%w: failed to parse %s: %v", ErrConfigGenerationFailed, filepath.Base(configFile), err)
 		}
 
-		hazelcastNode, mapStoreNode, err := ensureHazelcastMapStoreNode(&root)
+		hazelcastNode, mapNode, mapStoreNode, err := ensureHazelcastMapStoreNode(&root)
 		if err != nil {
 			return fmt.Errorf("%w: failed to prepare hazelcast map-store: %v", ErrConfigGenerationFailed, err)
 		}
@@ -2065,6 +2083,7 @@ func (m *InstallerManager) configureIMAPStorage(params *InstallParams) error {
 			removeMappingKey(mapStoreNode, "initial-mode")
 			removeMappingKey(mapStoreNode, "factory-class-name")
 			removeMappingKey(mapStoreNode, "properties")
+			clearCheckpointMonitorMapStoreOverride(mapNode)
 		} else {
 			namespace := strings.TrimSpace(params.IMAP.Namespace)
 			if namespace != "" && !strings.HasSuffix(namespace, "/") {
@@ -2082,6 +2101,13 @@ func (m *InstallerManager) configureIMAPStorage(params *InstallParams) error {
 			propertiesNode.Kind = yaml.MappingNode
 			propertiesNode.Tag = "!!map"
 			propertiesNode.Content = buildStringMapNodeContent(properties)
+			// 仅对 SeaTunnel 2.3.13 启用临时规避（Apache SeaTunnel #10570）：排除 engine_checkpoint_monitor 的 EAGER MapStore，避免阻塞 Jetty REST v2 启动；其余版本清理该覆盖项。
+			// Apply temporary workaround only on SeaTunnel 2.3.13 (Apache SeaTunnel #10570): exclude engine_checkpoint_monitor from EAGER MapStore so Jetty REST v2 starts; remove override on other versions.
+			if seatunnelmeta.NeedsIMAPCheckpointMonitorWorkaround(params.Version) {
+				ensureCheckpointMonitorMapStoreDisabled(mapNode)
+			} else {
+				clearCheckpointMonitorMapStoreOverride(mapNode)
+			}
 		}
 
 		output, err := yaml.Marshal(&root)
@@ -2096,9 +2122,9 @@ func (m *InstallerManager) configureIMAPStorage(params *InstallParams) error {
 	return nil
 }
 
-func ensureHazelcastMapStoreNode(root *yaml.Node) (*yaml.Node, *yaml.Node, error) {
+func ensureHazelcastMapStoreNode(root *yaml.Node) (*yaml.Node, *yaml.Node, *yaml.Node, error) {
 	if root == nil {
-		return nil, nil, fmt.Errorf("root is nil")
+		return nil, nil, nil, fmt.Errorf("root is nil")
 	}
 
 	documentRoot := ensureDocumentMappingNode(root)
@@ -2126,7 +2152,29 @@ func ensureHazelcastMapStoreNode(root *yaml.Node) (*yaml.Node, *yaml.Node, error
 	mapStoreNode.Kind = yaml.MappingNode
 	mapStoreNode.Tag = "!!map"
 
-	return hazelcastNode, mapStoreNode, nil
+	return hazelcastNode, mapNode, mapStoreNode, nil
+}
+
+func ensureCheckpointMonitorMapStoreDisabled(mapNode *yaml.Node) {
+	monitorNode := ensureMappingChildNode(mapNode, "engine_checkpoint_monitor")
+	monitorNode.Kind = yaml.MappingNode
+	monitorNode.Tag = "!!map"
+
+	monitorMapStore := ensureMappingChildNode(monitorNode, "map-store")
+	monitorMapStore.Kind = yaml.MappingNode
+	monitorMapStore.Tag = "!!map"
+	setMappingScalarValue(monitorMapStore, "enabled", false)
+}
+
+func clearCheckpointMonitorMapStoreOverride(mapNode *yaml.Node) {
+	monitorNode := findMappingChildNode(mapNode, "engine_checkpoint_monitor")
+	if monitorNode == nil || monitorNode.Kind != yaml.MappingNode {
+		return
+	}
+	removeMappingKey(monitorNode, "map-store")
+	if len(monitorNode.Content) == 0 {
+		removeMappingKey(mapNode, "engine_checkpoint_monitor")
+	}
 }
 
 func buildIMAPProperties(cfg *IMAPConfig, namespace string, clusterName string) (map[string]string, error) {
@@ -2167,6 +2215,10 @@ func buildIMAPProperties(cfg *IMAPConfig, namespace string, clusterName string) 
 			properties[fmt.Sprintf("seatunnel.hadoop.dfs.client.failover.proxy.provider.%s", cfg.HDFSNameServices)] = failoverProvider
 		} else if cfg.HDFSNameNodeHost != "" && cfg.HDFSNameNodePort > 0 {
 			properties["fs.defaultFS"] = fmt.Sprintf("hdfs://%s:%d", cfg.HDFSNameNodeHost, cfg.HDFSNameNodePort)
+		} else if endpoint := strings.TrimSpace(cfg.StorageEndpoint); strings.HasPrefix(endpoint, "hdfs://") {
+			// 通过 hdfs_site_path 提供 HA 拓扑时，保留原始 fs.defaultFS（如 hdfs://<nameservice>）。
+			// Preserve raw fs.defaultFS (e.g. hdfs://<nameservice>) when HA topology is supplied via hdfs_site_path.
+			properties["fs.defaultFS"] = endpoint
 		}
 		if cfg.KerberosPrincipal != "" {
 			properties["kerberosPrincipal"] = cfg.KerberosPrincipal

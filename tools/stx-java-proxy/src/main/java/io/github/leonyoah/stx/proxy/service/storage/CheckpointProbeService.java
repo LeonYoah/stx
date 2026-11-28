@@ -27,6 +27,9 @@ import io.github.leonyoah.stx.proxy.service.support.ProbeExecutionUtils;
 import io.github.leonyoah.stx.proxy.service.support.ProxyException;
 import io.github.leonyoah.stx.proxy.service.support.ProxyRequestUtils;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
@@ -35,6 +38,9 @@ import java.util.Map;
 import java.util.UUID;
 
 public class CheckpointProbeService {
+
+    private static final String HDFS_STORAGE_CLASS_NAME =
+            "org.apache.seatunnel.engine.checkpoint.storage.hdfs.HdfsStorage";
 
     public Map<String, Object> probe(Map<String, Object> request) {
         return ProbeExecutionUtils.runWithTimeout(
@@ -141,17 +147,60 @@ public class CheckpointProbeService {
             currentThread.setContextClassLoader(probeClassLoader);
             try {
                 CheckpointStorage storage =
-                        FactoryUtil.discoverFactory(
-                                        probeClassLoader, CheckpointStorageFactory.class, plugin)
-                                .create(config);
+                        instantiateCheckpointStorage(probeClassLoader, plugin, config);
                 return new StorageHandle<>(storage, urlClassLoader);
             } finally {
                 currentThread.setContextClassLoader(originalClassLoader);
             }
+        } catch (InvocationTargetException e) {
+            PluginClassLoaderUtils.closeQuietly(urlClassLoader);
+            Throwable cause = e.getTargetException() != null ? e.getTargetException() : e;
+            throw new ProxyException(
+                    500, "Failed to initialize checkpoint storage: " + cause.getMessage(), cause);
         } catch (Exception e) {
             PluginClassLoaderUtils.closeQuietly(urlClassLoader);
             throw new ProxyException(
                     500, "Failed to initialize checkpoint storage: " + e.getMessage(), e);
+        }
+    }
+
+    // SeaTunnel 的 HdfsStorageFactory 内部使用 JVM 级静态单例 HdfsFileStorageInstance，
+    // 在常驻 stx-java-proxy 中会导致后续探测始终复用首次配置；直接构造新的 HdfsStorage 实例以按次隔离。
+    // SeaTunnel's HdfsStorageFactory caches a JVM-wide singleton via HdfsFileStorageInstance,
+    // which causes subsequent probes in a long-lived stx-java-proxy to reuse the first config;
+    // instantiate HdfsStorage directly so every probe validates its own configuration.
+    private CheckpointStorage instantiateCheckpointStorage(
+            ClassLoader probeClassLoader, String plugin, Map<String, String> config)
+            throws Exception {
+        if ("hdfs".equalsIgnoreCase(plugin)) {
+            try {
+                Class<?> storageClass =
+                        Class.forName(HDFS_STORAGE_CLASS_NAME, true, probeClassLoader);
+                if (CheckpointStorage.class.isAssignableFrom(storageClass)) {
+                    Constructor<?> constructor = storageClass.getConstructor(Map.class);
+                    return (CheckpointStorage) constructor.newInstance(new LinkedHashMap<>(config));
+                }
+            } catch (ClassNotFoundException ignored) {
+                // Fall back to SPI discovery when a custom checkpoint storage implementation is
+                // provided.
+            }
+        }
+        return FactoryUtil.discoverFactory(probeClassLoader, CheckpointStorageFactory.class, plugin)
+                .create(new LinkedHashMap<>(config));
+    }
+
+    private static void closeStorageFileSystemQuietly(Object storage) {
+        if (storage == null) {
+            return;
+        }
+        try {
+            Field fsField = storage.getClass().getField("fs");
+            Object fs = fsField.get(storage);
+            if (fs instanceof AutoCloseable) {
+                ((AutoCloseable) fs).close();
+            }
+        } catch (Exception ignored) {
+            // ignore cleanup exceptions for probe handle
         }
     }
 
@@ -169,6 +218,7 @@ public class CheckpointProbeService {
         }
 
         private void close() {
+            closeStorageFileSystemQuietly(storage);
             PluginClassLoaderUtils.closeQuietly(classLoader);
         }
     }

@@ -183,6 +183,14 @@ export interface RuntimeStorageFileExplorerProps {
  * 运行时存储文件与目录资源管理器组件
  * Desktop-like file explorer for runtime storage inspection & navigation
  */
+// SeaTunnel 2.3.x 真实 IMAP WAL 文件名为 wal.txt，同时兼容历史 *_wal.txt 命名。
+// SeaTunnel 2.3.x writes IMAP WAL files named wal.txt; also support legacy *_wal.txt naming.
+function isImapWalPath(filePath: string): boolean {
+  const normalized = filePath.replace(/\/+$/, '');
+  const baseName = (normalized.split('/').pop() || normalized).toLowerCase();
+  return baseName === 'wal.txt' || baseName.endsWith('_wal.txt');
+}
+
 export function RuntimeStorageFileExplorer({
   kind,
   spec,
@@ -297,7 +305,7 @@ export function RuntimeStorageFileExplorer({
         onInspectCheckpoint(itemPath);
         return;
       }
-      if (kind === 'imap' && itemPath.endsWith('_wal.txt') && onInspectIMAPWAL) {
+      if (kind === 'imap' && isImapWalPath(itemPath) && onInspectIMAPWAL) {
         onInspectIMAPWAL(itemPath);
         return;
       }
@@ -433,6 +441,7 @@ export function RuntimeStorageFileExplorer({
                 size='sm'
                 iconOnly
                 disabled={loading}
+                data-testid={`runtime-storage-explorer-${kind}-refresh`}
                 onClick={onRefresh}
                 aria-label={tCommon('refresh')}
               >
@@ -488,7 +497,7 @@ export function RuntimeStorageFileExplorer({
               const isInspectingWal = inspectIMAPWALLoadingPath === itemPath;
 
               const isSerCheckpoint = kind === 'checkpoint' && itemPath.endsWith('.ser');
-              const isImapWal = kind === 'imap' && itemPath.endsWith('_wal.txt');
+              const isImapWal = kind === 'imap' && isImapWalPath(itemPath);
               const isCodeFile =
                 itemPath.endsWith('.conf') ||
                 itemPath.endsWith('.json') ||
@@ -500,6 +509,9 @@ export function RuntimeStorageFileExplorer({
               return (
                 <TableRow
                   key={`${kind}-item-${itemPath}`}
+                  data-testid={`runtime-storage-explorer-${kind}-row`}
+                  data-item-name={itemName}
+                  data-item-path={itemPath}
                   className='group cursor-pointer border-border/40 hover:bg-muted/50 transition-colors'
                   onClick={() => handleItemClick(item)}
                 >
@@ -574,6 +586,7 @@ export function RuntimeStorageFileExplorer({
                           type='button'
                           variant='ghost'
                           size='sm'
+                          data-testid='runtime-storage-explorer-open-dir'
                           onClick={() => onNavigate(itemPath)}
                         >
                           {t('open')}
@@ -585,6 +598,7 @@ export function RuntimeStorageFileExplorer({
                             type='button'
                             variant='secondary'
                             size='sm'
+                            data-testid='runtime-storage-explorer-inspect-checkpoint'
                             loading={isInspecting}
                             onClick={() => onInspectCheckpoint?.(itemPath)}
                           >
@@ -598,6 +612,7 @@ export function RuntimeStorageFileExplorer({
                                 variant='ghost'
                                 size='sm'
                                 iconOnly
+                                data-testid='runtime-storage-explorer-preview'
                                 loading={isPreviewing}
                                 onClick={() => onPreviewFile(itemPath)}
                                 aria-label={t('preview')}
@@ -614,6 +629,7 @@ export function RuntimeStorageFileExplorer({
                             type='button'
                             variant='secondary'
                             size='sm'
+                            data-testid='runtime-storage-explorer-inspect-imap'
                             loading={isInspectingWal}
                             onClick={() => onInspectIMAPWAL?.(itemPath)}
                           >
@@ -627,6 +643,7 @@ export function RuntimeStorageFileExplorer({
                                 variant='ghost'
                                 size='sm'
                                 iconOnly
+                                data-testid='runtime-storage-explorer-preview'
                                 loading={isPreviewing}
                                 onClick={() => onPreviewFile(itemPath)}
                                 aria-label={t('preview')}
@@ -642,6 +659,7 @@ export function RuntimeStorageFileExplorer({
                           type='button'
                           variant='ghost'
                           size='sm'
+                          data-testid='runtime-storage-explorer-preview'
                           loading={isPreviewing}
                           onClick={() => onPreviewFile(itemPath)}
                         >

@@ -34,6 +34,7 @@
     - `frontend/e2e/upgrade-prepare-template.spec.ts`
     - `frontend/e2e/upgrade-prepare-negative.spec.ts`
     - `frontend/e2e/install-wizard-real.spec.ts`
+    - `frontend/e2e/runtime-storage-real.spec.ts`
     - `frontend/e2e/config-real.spec.ts`
     - `frontend/e2e/upgrade-real.spec.ts`
     - `frontend/e2e/plugin-real.spec.ts`
@@ -175,7 +176,8 @@
     - 离线资产导入导出
     - 升级准备（正向 + 阻断态）
     - 登录 / Dashboard
-- 真实环境 E2E（例如 installer-real / config-real / upgrade-real / plugin-real / observability-real）不进入 smoke 选择器，改由统一 `E2E` workflow 的 suite 级 path filter 决定是否运行
+- 真实环境 E2E（例如 installer-real / runtime-storage-real / config-real / upgrade-real / plugin-real / observability-real）不进入 smoke 选择器，改由统一 `E2E` workflow 的 suite 级 path filter 决定是否运行
+- 运行时存储真实套件（`runtime-storage-real`）通过 `pnpm run test:e2e:runtime-storage-real` 启动，使用共享 loopback 的 Hadoop HDFS HA（自定义 NameNode 别名 `nn-alpha,nn-beta` + 宿主机 `hdfs-site.xml`）+ MinIO S3 + Local 三后端，覆盖安装向导、集群部署向导、运行时存储编辑器、文件浏览器与反序列化、配置页往返、工作台作业 CK/IMAP 与 `dist/stx` CLI 闭环。
 - Dashboard smoke 覆盖 7 张指标卡（含数据量）和四个页签（集群 / 作业 / 主机 / 作业列表）；集群趋势在可观测关闭时断言 `home-trend-empty`，开启时断言 `home-availability`
 - CLI / UI installer-real 在安装 `success` 之后还要等到 `cluster.status=running` 且 master `process_pid>0`
 - 工作台真实套件使用 `frontend/e2e/workbench-real.spec.ts` 与 `frontend/e2e/helpers/workbench-real.ts`，通过 `pnpm run test:e2e:workbench-real` 启动。

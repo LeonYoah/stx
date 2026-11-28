@@ -26,11 +26,13 @@ import {Input} from '@/components/arc/input/input';
 import {Select} from '@/components/arc/select/select';
 import {Switch} from '@/components/arc/switch/switch';
 import {toast} from '@/lib/toast';
+import {needsImapCheckpointMonitorWorkaround} from '@/lib/seatunnel-version';
 import services from '@/lib/services';
 import type {RuntimeStorageSpec} from '@/lib/services/cluster/types';
 
 interface RuntimeStorageEditorProps {
   clusterId: number;
+  clusterVersion?: string;
   kind: 'checkpoint' | 'imap';
   spec?: RuntimeStorageSpec;
   onApplied?: () => void;
@@ -51,6 +53,7 @@ const S3_INSTANCE = 'org.apache.hadoop.fs.s3a.InstanceProfileCredentialsProvider
  */
 export function RuntimeStorageEditor({
   clusterId,
+  clusterVersion,
   kind,
   spec,
   onApplied,
@@ -70,10 +73,14 @@ export function RuntimeStorageEditor({
   const [haNamenodes, setHaNamenodes] = useState('nn1,nn2');
   const [rpc1, setRpc1] = useState('');
   const [rpc2, setRpc2] = useState('');
+  const [failoverProxyProvider, setFailoverProxyProvider] = useState('');
   const [kerberos, setKerberos] = useState(false);
   const [principal, setPrincipal] = useState('');
   const [keytab, setKeytab] = useState('');
   const [hdfsSitePath, setHdfsSitePath] = useState('');
+  const [disableCache, setDisableCache] = useState<boolean | undefined>(
+    undefined,
+  );
   const [s3Provider, setS3Provider] = useState(S3_SIMPLE);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
@@ -105,12 +112,14 @@ export function RuntimeStorageEditor({
     setHaNamenodes(spec?.hdfs_ha_namenodes || 'nn1,nn2');
     setRpc1(spec?.hdfs_namenode_rpc_address_1 || '');
     setRpc2(spec?.hdfs_namenode_rpc_address_2 || '');
+    setFailoverProxyProvider(spec?.hdfs_failover_proxy_provider || '');
     setKerberos(
       Boolean(spec?.kerberos_principal || spec?.kerberos_keytab_file_path),
     );
     setPrincipal(spec?.kerberos_principal || '');
     setKeytab(spec?.kerberos_keytab_file_path || '');
     setHdfsSitePath(spec?.hdfs_site_path || '');
+    setDisableCache(spec?.disable_cache);
     setS3Provider(spec?.s3_credentials_provider || S3_SIMPLE);
     if (preserveNoticeRef.current) {
       preserveNoticeRef.current = false;
@@ -159,11 +168,16 @@ export function RuntimeStorageEditor({
           storageType === 'HDFS' && haEnabled ? rpc1 : undefined,
         hdfs_namenode_rpc_address_2:
           storageType === 'HDFS' && haEnabled ? rpc2 : undefined,
+        hdfs_failover_proxy_provider:
+          storageType === 'HDFS' && haEnabled
+            ? failoverProxyProvider
+            : undefined,
         kerberos_principal:
           storageType === 'HDFS' && kerberos ? principal : undefined,
         kerberos_keytab_file_path:
           storageType === 'HDFS' && kerberos ? keytab : undefined,
         hdfs_site_path: storageType === 'HDFS' ? hdfsSitePath : undefined,
+        disable_cache: storageType === 'HDFS' ? disableCache : undefined,
         s3_credentials_provider:
           storageType === 'S3' ? s3Provider : undefined,
       },
@@ -202,7 +216,7 @@ export function RuntimeStorageEditor({
   };
 
   return (
-    <div className='space-y-4'>
+    <div className='space-y-4' data-testid={`runtime-storage-${kind}-editor`}>
       <div className='flex flex-wrap items-center justify-between gap-2'>
         <div>
           <div className='text-sm font-semibold text-foreground'>
@@ -215,6 +229,7 @@ export function RuntimeStorageEditor({
         {kind === 'imap' ? (
           <Switch
             id={`${kind}-enabled`}
+            data-testid={`runtime-storage-${kind}-enabled`}
             label={t('cluster.runtimeStorage.enabled')}
             checked={enabled}
             onCheckedChange={setEnabled}
@@ -222,16 +237,31 @@ export function RuntimeStorageEditor({
         ) : null}
       </div>
 
+      {kind === 'imap' &&
+      enabled &&
+      needsImapCheckpointMonitorWorkaround(clusterVersion) ? (
+        <div data-testid='runtime-storage-imap-2313-workaround'>
+          <ArcAlert
+            tone='warning'
+            title={t(
+              'cluster.runtimeStorage.imapCheckpointMonitorWorkaroundNotice',
+            )}
+          />
+        </div>
+      ) : null}
+
       {kind === 'checkpoint' || enabled ? (
         <div className='grid gap-4 md:grid-cols-2'>
           <Select
             label={t('cluster.runtimeStorage.storageType')}
+            data-testid={`runtime-storage-${kind}-storage-type`}
             value={storageType}
             onValueChange={setStorageType}
             options={STORAGE_TYPE_OPTIONS}
           />
           <Input
             label={t('cluster.runtimeStorage.path')}
+            data-testid={`runtime-storage-${kind}-namespace`}
             value={namespace}
             onChange={(event) => setNamespace(event.target.value)}
             className='font-mono text-xs'
@@ -240,6 +270,7 @@ export function RuntimeStorageEditor({
           {storageType === 'HDFS' ? (
             <div className='space-y-3 md:col-span-2'>
               <Checkbox
+                data-testid={`runtime-storage-${kind}-hdfs-ha`}
                 label={t('installer.hdfsHAMode')}
                 checked={haEnabled}
                 onCheckedChange={(checked) => setHaEnabled(checked === true)}
@@ -248,12 +279,14 @@ export function RuntimeStorageEditor({
                 <div className='grid gap-4 md:grid-cols-2'>
                   <Field
                     label={t('installer.hdfsNameNodeHost')}
+                    testId={`runtime-storage-${kind}-hdfs-host`}
                     value={nameNodeHost}
                     onChange={setNameNodeHost}
                     placeholder='namenode.example.com'
                   />
                   <Field
                     label={t('installer.hdfsNameNodePort')}
+                    testId={`runtime-storage-${kind}-hdfs-port`}
                     value={nameNodePort}
                     onChange={setNameNodePort}
                     placeholder='8020'
@@ -263,31 +296,45 @@ export function RuntimeStorageEditor({
                 <div className='grid gap-4 md:grid-cols-2'>
                   <Field
                     label={t('installer.hdfsNameServices')}
+                    testId={`runtime-storage-${kind}-hdfs-nameservices`}
                     value={nameServices}
                     onChange={setNameServices}
                     placeholder='usdp-bing'
                   />
                   <Field
                     label={t('installer.hdfsHANamenodes')}
+                    testId={`runtime-storage-${kind}-hdfs-ha-namenodes`}
                     value={haNamenodes}
                     onChange={setHaNamenodes}
                     placeholder='nn1,nn2'
                   />
                   <Field
                     label={t('installer.hdfsNamenodeRPCAddress1')}
+                    testId={`runtime-storage-${kind}-hdfs-rpc-1`}
                     value={rpc1}
                     onChange={setRpc1}
                     placeholder='nn1-host:8020'
                   />
                   <Field
                     label={t('installer.hdfsNamenodeRPCAddress2')}
+                    testId={`runtime-storage-${kind}-hdfs-rpc-2`}
                     value={rpc2}
                     onChange={setRpc2}
                     placeholder='nn2-host:8020'
                   />
+                  <div className='md:col-span-2'>
+                    <Field
+                      label={t('installer.hdfsFailoverProxyProvider')}
+                      testId={`runtime-storage-${kind}-hdfs-failover-provider`}
+                      value={failoverProxyProvider}
+                      onChange={setFailoverProxyProvider}
+                      placeholder='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+                    />
+                  </div>
                 </div>
               )}
               <Checkbox
+                data-testid={`runtime-storage-${kind}-hdfs-kerberos`}
                 label={t('installer.hdfsKerberos')}
                 checked={kerberos}
                 onCheckedChange={(checked) => setKerberos(checked === true)}
@@ -296,12 +343,14 @@ export function RuntimeStorageEditor({
                 <div className='grid gap-4 md:grid-cols-2'>
                   <Field
                     label={t('installer.kerberosPrincipal')}
+                    testId={`runtime-storage-${kind}-hdfs-principal`}
                     value={principal}
                     onChange={setPrincipal}
                     placeholder='hdfs/nn@EXAMPLE.COM'
                   />
                   <Field
                     label={t('installer.kerberosKeytabPath')}
+                    testId={`runtime-storage-${kind}-hdfs-keytab`}
                     value={keytab}
                     onChange={setKeytab}
                     placeholder='/etc/security/keytabs/hdfs.keytab'
@@ -310,9 +359,24 @@ export function RuntimeStorageEditor({
               ) : null}
               <Field
                 label={t('installer.hdfsSitePath')}
+                testId={`runtime-storage-${kind}-hdfs-site-path`}
                 value={hdfsSitePath}
                 onChange={setHdfsSitePath}
                 placeholder='/etc/hadoop/conf/hdfs-site.xml'
+              />
+              <Checkbox
+                data-testid={`runtime-storage-${kind}-hdfs-disable-cache`}
+                label={t('installer.disableCache')}
+                checked={Boolean(disableCache)}
+                onCheckedChange={(checked) =>
+                  setDisableCache(
+                    checked === true
+                      ? true
+                      : disableCache !== undefined
+                        ? false
+                        : undefined,
+                  )
+                }
               />
             </div>
           ) : null}
@@ -321,18 +385,21 @@ export function RuntimeStorageEditor({
             <>
               <Field
                 label={t('installer.endpoint')}
+                testId={`runtime-storage-${kind}-oss-endpoint`}
                 value={endpoint}
                 onChange={setEndpoint}
                 placeholder='oss-cn-hangzhou.aliyuncs.com'
               />
               <Field
                 label={t('installer.bucket')}
+                testId={`runtime-storage-${kind}-oss-bucket`}
                 value={bucket}
                 onChange={setBucket}
                 placeholder='your-bucket'
               />
               <Field
                 label='fs.oss.accessKeyId'
+                testId={`runtime-storage-${kind}-oss-access-key`}
                 value={accessKey}
                 onChange={setAccessKey}
                 placeholder={t('cluster.runtimeStorage.keepSecret')}
@@ -340,6 +407,7 @@ export function RuntimeStorageEditor({
               />
               <Field
                 label='fs.oss.accessKeySecret'
+                testId={`runtime-storage-${kind}-oss-secret-key`}
                 value={secretKey}
                 onChange={setSecretKey}
                 placeholder={t('cluster.runtimeStorage.keepSecret')}
@@ -352,6 +420,7 @@ export function RuntimeStorageEditor({
             <>
               <Select
                 label={t('installer.s3CredentialsProvider')}
+                data-testid={`runtime-storage-${kind}-s3-credentials-provider`}
                 value={s3Provider}
                 onValueChange={setS3Provider}
                 options={[
@@ -361,12 +430,14 @@ export function RuntimeStorageEditor({
               />
               <Field
                 label={t('installer.bucket')}
+                testId={`runtime-storage-${kind}-s3-bucket`}
                 value={bucket}
                 onChange={setBucket}
                 placeholder='s3a://bucket'
               />
               <Field
                 label={t('installer.endpoint')}
+                testId={`runtime-storage-${kind}-s3-endpoint`}
                 value={endpoint}
                 onChange={setEndpoint}
                 placeholder='http://127.0.0.1:9000'
@@ -375,6 +446,7 @@ export function RuntimeStorageEditor({
                 <>
                   <Field
                     label='fs.s3a.access.key'
+                    testId={`runtime-storage-${kind}-s3-access-key`}
                     value={accessKey}
                     onChange={setAccessKey}
                     placeholder={t('cluster.runtimeStorage.keepSecret')}
@@ -382,6 +454,7 @@ export function RuntimeStorageEditor({
                   />
                   <Field
                     label='fs.s3a.secret.key'
+                    testId={`runtime-storage-${kind}-s3-secret-key`}
                     value={secretKey}
                     onChange={setSecretKey}
                     placeholder={t('cluster.runtimeStorage.keepSecret')}
@@ -394,12 +467,21 @@ export function RuntimeStorageEditor({
         </div>
       ) : null}
 
-      {error ? <ArcAlert tone='danger' title={error} /> : null}
-      {notice ? <ArcAlert tone='success' title={notice} /> : null}
+      {error ? (
+        <div data-testid={`runtime-storage-${kind}-error`}>
+          <ArcAlert tone='danger' title={error} />
+        </div>
+      ) : null}
+      {notice ? (
+        <div data-testid={`runtime-storage-${kind}-notice`}>
+          <ArcAlert tone='success' title={notice} />
+        </div>
+      ) : null}
       <div className='flex justify-end'>
         <Button
           type='button'
           size='sm'
+          data-testid={`runtime-storage-${kind}-save`}
           onClick={() => void handleSave()}
           loading={saving}
         >
@@ -412,12 +494,14 @@ export function RuntimeStorageEditor({
 
 function Field({
   label,
+  testId,
   value,
   onChange,
   placeholder,
   secret,
 }: {
   label: string;
+  testId?: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -427,6 +511,7 @@ function Field({
     <Input
       type={secret ? 'password' : 'text'}
       label={label}
+      data-testid={testId}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}

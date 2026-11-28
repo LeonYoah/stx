@@ -100,7 +100,8 @@ jobs:
           scripts=(install/*.sh install/bin/*.sh scripts/check-release-asset-globs.sh
             scripts/test-release-download-lib.sh scripts/test-yaml-set-differential.sh scripts/release-deps-publish.sh
             scripts/test-release-deps.sh scripts/ci-install-smoke.sh scripts/test-offline-bundle.sh
-            scripts/smoke-offline-bundle.sh scripts/e2e/run-seatunnel-metrics-real.sh)
+            scripts/smoke-offline-bundle.sh scripts/e2e/run-seatunnel-metrics-real.sh
+            scripts/e2e/hdfs-ha/hdfs-ha.sh frontend/scripts/e2e/run-real-runtime-storage.sh)
           for f in "${scripts[@]}"; do
             bash -n "$f"
           done

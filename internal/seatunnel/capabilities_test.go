@@ -228,3 +228,23 @@ func TestRealtimeAndEventCapabilities(t *testing.T) {
 		})
 	}
 }
+
+func TestNeedsIMAPCheckpointMonitorWorkaround(t *testing.T) {
+	cases := []struct {
+		version string
+		want    bool
+	}{
+		{version: "2.3.13", want: true},
+		{version: "v2.3.13", want: true},
+		{version: " 2.3.13 ", want: true},
+		{version: "2.3.12", want: false},
+		{version: "2.3.14", want: false},
+		{version: "3.0.0", want: false},
+		{version: "", want: false},
+	}
+	for _, tc := range cases {
+		if got := NeedsIMAPCheckpointMonitorWorkaround(tc.version); got != tc.want {
+			t.Fatalf("NeedsIMAPCheckpointMonitorWorkaround(%q) = %v, want %v", tc.version, got, tc.want)
+		}
+	}
+}

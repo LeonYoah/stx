@@ -94,3 +94,33 @@ func TestBuildCheckpointPluginConfigUsesCustomHDFSHANamenodeAliases(t *testing.T
 		t.Fatalf("HDFS advanced options missing: %#v", pluginConfig)
 	}
 }
+
+func TestCheckpointAndIMAPConfigAllowHdfsSitePathOnlyMode(t *testing.T) {
+	ckCfg := &CheckpointConfig{
+		StorageType:  CheckpointStorageHDFS,
+		Namespace:    "/seatunnel/checkpoint/",
+		HdfsSitePath: "/etc/hadoop/conf/hdfs-site.xml",
+	}
+	if err := ckCfg.Validate(); err != nil {
+		t.Fatalf("expected hdfs_site_path-only checkpoint config to validate, got: %v", err)
+	}
+	pluginConfig, err := buildCheckpointPluginConfig(ckCfg)
+	if err != nil {
+		t.Fatalf("buildCheckpointPluginConfig failed: %v", err)
+	}
+	if _, hasDefaultFS := pluginConfig["fs.defaultFS"]; hasDefaultFS {
+		t.Fatalf("expected fs.defaultFS omitted in hdfs_site_path-only mode, got %q", pluginConfig["fs.defaultFS"])
+	}
+	if pluginConfig["hdfs_site_path"] != "/etc/hadoop/conf/hdfs-site.xml" {
+		t.Fatalf("expected hdfs_site_path preserved, got %#v", pluginConfig)
+	}
+
+	imapCfg := &IMAPConfig{
+		StorageType:  IMAPStorageHDFS,
+		Namespace:    "/seatunnel/imap/",
+		HdfsSitePath: "/etc/hadoop/conf/hdfs-site.xml",
+	}
+	if err := imapCfg.Validate(); err != nil {
+		t.Fatalf("expected hdfs_site_path-only IMAP config to validate, got: %v", err)
+	}
+}

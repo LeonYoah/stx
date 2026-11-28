@@ -26,6 +26,7 @@ import io.github.leonyoah.stx.proxy.service.support.ProbeExecutionUtils;
 import io.github.leonyoah.stx.proxy.service.support.ProxyException;
 import io.github.leonyoah.stx.proxy.service.support.ProxyRequestUtils;
 
+import java.lang.reflect.Field;
 import java.net.URLClassLoader;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -164,6 +165,22 @@ public class IMapProbeService {
         }
     }
 
+    private static void closeStorageFileSystemQuietly(Object storage) {
+        if (storage == null) {
+            return;
+        }
+        try {
+            Field fsField = storage.getClass().getDeclaredField("fs");
+            fsField.setAccessible(true);
+            Object fs = fsField.get(storage);
+            if (fs instanceof AutoCloseable) {
+                ((AutoCloseable) fs).close();
+            }
+        } catch (Exception ignored) {
+            // ignore cleanup exceptions for probe handle
+        }
+    }
+
     private static final class StorageHandle<T> {
         private final T storage;
         private final URLClassLoader classLoader;
@@ -178,6 +195,7 @@ public class IMapProbeService {
         }
 
         private void close() {
+            closeStorageFileSystemQuietly(storage);
             PluginClassLoaderUtils.closeQuietly(classLoader);
         }
     }

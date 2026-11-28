@@ -132,7 +132,7 @@ func (s *Service) ApplyRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
-	targets := runtimeStorageConfigTargets(configs, kind)
+	targets := runtimeStorageConfigTargets(configs, kind, clusterObj.DeploymentMode)
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("config template not found")
 	}
@@ -295,24 +295,49 @@ func draftRuntimeStorageConfigs(kind installerapp.RuntimeStorageValidationKind, 
 	}
 }
 
-func runtimeStorageConfigTargets(configs []*appconfig.ConfigInfo, kind installerapp.RuntimeStorageValidationKind) []*appconfig.ConfigInfo {
-	wanted := map[appconfig.ConfigType]struct{}{}
+// runtimeStorageConfigTargets 按部署模式选取运行时存储配置模板：
+// 混合模式优先 hazelcast.yaml，分离模式优先 hazelcast-master.yaml，避免误读未使用的另一套模板导致 IMAP 状态错乱。
+// runtimeStorageConfigTargets selects runtime storage config templates by deployment mode:
+// hybrid prefers hazelcast.yaml and separated prefers hazelcast-master.yaml so unused templates cannot shadow IMAP state.
+func runtimeStorageConfigTargets(
+	configs []*appconfig.ConfigInfo,
+	kind installerapp.RuntimeStorageValidationKind,
+	deploymentMode DeploymentMode,
+) []*appconfig.ConfigInfo {
 	if kind == installerapp.RuntimeStorageValidationCheckpoint {
-		wanted[appconfig.ConfigTypeSeatunnel] = struct{}{}
-	} else {
-		wanted[appconfig.ConfigTypeHazelcast] = struct{}{}
-		wanted[appconfig.ConfigTypeHazelcastMaster] = struct{}{}
+		targets := make([]*appconfig.ConfigInfo, 0, 1)
+		for _, cfg := range configs {
+			if cfg != nil && cfg.IsTemplate && cfg.ConfigType == appconfig.ConfigTypeSeatunnel {
+				targets = append(targets, cfg)
+			}
+		}
+		return targets
 	}
-	targets := make([]*appconfig.ConfigInfo, 0)
+
+	preferred := appconfig.ConfigTypeHazelcast
+	fallback := appconfig.ConfigTypeHazelcastMaster
+	if deploymentMode == DeploymentModeSeparated {
+		preferred = appconfig.ConfigTypeHazelcastMaster
+		fallback = appconfig.ConfigTypeHazelcast
+	}
+
+	preferredTargets := make([]*appconfig.ConfigInfo, 0, 1)
+	fallbackTargets := make([]*appconfig.ConfigInfo, 0, 1)
 	for _, cfg := range configs {
 		if cfg == nil || !cfg.IsTemplate {
 			continue
 		}
-		if _, ok := wanted[cfg.ConfigType]; ok {
-			targets = append(targets, cfg)
+		switch cfg.ConfigType {
+		case preferred:
+			preferredTargets = append(preferredTargets, cfg)
+		case fallback:
+			fallbackTargets = append(fallbackTargets, cfg)
 		}
 	}
-	return targets
+	if len(preferredTargets) > 0 {
+		return preferredTargets
+	}
+	return fallbackTargets
 }
 
 func patchRuntimeStorageYAML(content string, kind installerapp.RuntimeStorageValidationKind, req *ApplyRuntimeStorageRequest) (string, error) {
@@ -648,7 +673,7 @@ func replaceMapping(parent *yaml.Node, values map[string]string) {
 	}
 }
 
-func (s *Service) loadConfiguredRuntimeStorage(ctx context.Context, clusterID uint) (*RuntimeStorageSpec, *RuntimeStorageSpec) {
+func (s *Service) loadConfiguredRuntimeStorage(ctx context.Context, clusterID uint, deploymentMode DeploymentMode) (*RuntimeStorageSpec, *RuntimeStorageSpec) {
 	if s == nil || s.runtimeConfigStore == nil {
 		return nil, nil
 	}
@@ -658,11 +683,11 @@ func (s *Service) loadConfiguredRuntimeStorage(ctx context.Context, clusterID ui
 	}
 	var checkpoint *RuntimeStorageSpec
 	var imap *RuntimeStorageSpec
-	for _, cfg := range runtimeStorageConfigTargets(configs, installerapp.RuntimeStorageValidationCheckpoint) {
+	for _, cfg := range runtimeStorageConfigTargets(configs, installerapp.RuntimeStorageValidationCheckpoint, deploymentMode) {
 		checkpoint = parseCheckpointStorageFromYAML(cfg.Content)
 		break
 	}
-	for _, cfg := range runtimeStorageConfigTargets(configs, installerapp.RuntimeStorageValidationIMAP) {
+	for _, cfg := range runtimeStorageConfigTargets(configs, installerapp.RuntimeStorageValidationIMAP, deploymentMode) {
 		imap = parseIMAPStorageFromYAML(cfg.Content)
 		break
 	}

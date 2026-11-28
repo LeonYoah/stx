@@ -148,7 +148,7 @@ func (s *Service) GetRuntimeStorageDetails(ctx context.Context, clusterID uint) 
 	}
 	details.Checkpoint = checkpoint
 	details.IMAP = imap
-	if configuredCheckpoint, configuredIMAP := s.loadConfiguredRuntimeStorage(ctx, clusterID); configuredCheckpoint != nil || configuredIMAP != nil {
+	if configuredCheckpoint, configuredIMAP := s.loadConfiguredRuntimeStorage(ctx, clusterID, clusterObj.DeploymentMode); configuredCheckpoint != nil || configuredIMAP != nil {
 		details.ConfiguredCheckpoint = configuredCheckpoint
 		details.ConfiguredIMAP = configuredIMAP
 	}

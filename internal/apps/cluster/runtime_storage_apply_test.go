@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 )
 
@@ -209,5 +210,28 @@ hazelcast:
 	}
 	if !strings.Contains(reapply, "namespace: /tmp/imap-v2/") {
 		t.Fatalf("expected updated namespace in output:\n%s", reapply)
+	}
+}
+
+func TestRuntimeStorageConfigTargetsRespectsDeploymentMode(t *testing.T) {
+	configs := []*appconfig.ConfigInfo{
+		{ID: 1, ConfigType: appconfig.ConfigTypeHazelcastMaster, IsTemplate: true},
+		{ID: 2, ConfigType: appconfig.ConfigTypeHazelcast, IsTemplate: true},
+		{ID: 3, ConfigType: appconfig.ConfigTypeSeatunnel, IsTemplate: true},
+	}
+
+	hybridTargets := runtimeStorageConfigTargets(configs, installerapp.RuntimeStorageValidationIMAP, DeploymentModeHybrid)
+	if len(hybridTargets) != 1 || hybridTargets[0].ConfigType != appconfig.ConfigTypeHazelcast {
+		t.Fatalf("expected hybrid IMAP target hazelcast.yaml, got %+v", hybridTargets)
+	}
+
+	separatedTargets := runtimeStorageConfigTargets(configs, installerapp.RuntimeStorageValidationIMAP, DeploymentModeSeparated)
+	if len(separatedTargets) != 1 || separatedTargets[0].ConfigType != appconfig.ConfigTypeHazelcastMaster {
+		t.Fatalf("expected separated IMAP target hazelcast-master.yaml, got %+v", separatedTargets)
+	}
+
+	fallbackTargets := runtimeStorageConfigTargets(configs[:1], installerapp.RuntimeStorageValidationIMAP, DeploymentModeHybrid)
+	if len(fallbackTargets) != 1 || fallbackTargets[0].ConfigType != appconfig.ConfigTypeHazelcastMaster {
+		t.Fatalf("expected fallback to hazelcast-master.yaml when hazelcast.yaml is absent, got %+v", fallbackTargets)
 	}
 }

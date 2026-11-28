@@ -71,6 +71,16 @@ public class StorageProbeConfigSupportTest {
                 StorageProbeConfigSupport.resolveTargetPath(
                         conf, config, "hdfs", "/seatunnel/checkpoint/", null, "list");
         Assertions.assertEquals("hdfs://stx-ha/seatunnel/checkpoint", resolved.toString());
+
+        StorageProbeConfigSupport.applyCheckpointFastFailDefaults(config);
+        Assertions.assertEquals("hdfs://stx-ha", config.get("fs.defaultFS"));
+
+        Map<String, Object> imapConfig = new LinkedHashMap<>();
+        imapConfig.put("storage.type", "hdfs");
+        imapConfig.put("namespace", "/seatunnel/imap/");
+        imapConfig.put("hdfs_site_path", siteXml.toString());
+        StorageProbeConfigSupport.applyIMapFastFailDefaults(imapConfig, 5000L);
+        Assertions.assertEquals("hdfs://stx-ha", imapConfig.get("fs.defaultFS"));
     }
 
     @Test

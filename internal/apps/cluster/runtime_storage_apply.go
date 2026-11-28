@@ -328,12 +328,7 @@ func patchRuntimeStorageYAML(content string, kind installerapp.RuntimeStorageVal
 		plugin := findOrCreateMapping(root, "seatunnel", "engine", "checkpoint", "storage", "plugin-config")
 		replaceMapping(plugin, runtimeStoragePluginValues(kind, req, content))
 	} else {
-		mapStore := findIMAPMapStore(root)
-		if mapStore == nil {
-			parent := findOrCreateMapping(root, "hazelcast", "map", "engine*")
-			mapStore = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-			setMappingChild(parent, "map-store", mapStore)
-		}
+		mapNode, mapStore := findOrCreateIMAPMapStore(root)
 		isEnabled := req.Enabled && req.StorageType != string(installerapp.IMAPStorageDisabled)
 		setMappingChild(mapStore, "enabled", boolNode(isEnabled))
 		if isEnabled {
@@ -347,10 +342,20 @@ func patchRuntimeStorageYAML(content string, kind installerapp.RuntimeStorageVal
 				setMappingChild(mapStore, "properties", properties)
 			}
 			replaceMapping(properties, runtimeStoragePluginValues(kind, req, content))
+			// 规避 Apache SeaTunnel #10570：排除 engine_checkpoint_monitor 的 EAGER MapStore，防止 SeaTunnel 2.3.13 启动期 NPE 阻断 Jetty REST v2。
+			// Work around Apache SeaTunnel #10570: exclude engine_checkpoint_monitor from EAGER MapStore so SeaTunnel 2.3.13 Jetty REST v2 starts cleanly.
+			monitorMapStore := findOrCreateMapping(mapNode, "engine_checkpoint_monitor", "map-store")
+			setMappingChild(monitorMapStore, "enabled", boolNode(false))
 		} else {
 			removeMappingChild(mapStore, "initial-mode")
 			removeMappingChild(mapStore, "factory-class-name")
 			removeMappingChild(mapStore, "properties")
+			if monitorNode := mappingChild(mapNode, "engine_checkpoint_monitor"); monitorNode != nil && monitorNode.Kind == yaml.MappingNode {
+				removeMappingChild(monitorNode, "map-store")
+				if len(monitorNode.Content) == 0 {
+					removeMappingChild(mapNode, "engine_checkpoint_monitor")
+				}
+			}
 		}
 	}
 	out, err := yaml.Marshal(&doc)
@@ -500,6 +505,10 @@ func checkpointPluginValues(cfg *installerapp.CheckpointConfig) map[string]strin
 			}
 		} else if host := strings.TrimSpace(cfg.HDFSNameNodeHost); host != "" && cfg.HDFSNameNodePort > 0 {
 			values["fs.defaultFS"] = fmt.Sprintf("hdfs://%s:%d", host, cfg.HDFSNameNodePort)
+		} else if endpoint := strings.TrimSpace(cfg.StorageEndpoint); strings.HasPrefix(endpoint, "hdfs://") {
+			// 通过 hdfs_site_path 提供 HA 拓扑时，保留原始 fs.defaultFS（如 hdfs://<nameservice>）。
+			// Preserve raw fs.defaultFS (e.g. hdfs://<nameservice>) when HA topology is supplied via hdfs_site_path.
+			values["fs.defaultFS"] = endpoint
 		}
 		if principal := strings.TrimSpace(cfg.KerberosPrincipal); principal != "" {
 			values["kerberosPrincipal"] = principal
@@ -520,11 +529,12 @@ func checkpointPluginValues(cfg *installerapp.CheckpointConfig) map[string]strin
 	return values
 }
 
-func findIMAPMapStore(root *yaml.Node) *yaml.Node {
-	if store := findMapping(root, "map", "engine*", "map-store"); store != nil {
-		return store
+func findOrCreateIMAPMapStore(root *yaml.Node) (*yaml.Node, *yaml.Node) {
+	if mapNode := findMapping(root, "map"); mapNode != nil && findMapping(mapNode, "engine*") != nil {
+		return mapNode, findOrCreateMapping(mapNode, "engine*", "map-store")
 	}
-	return findMapping(root, "hazelcast", "map", "engine*", "map-store")
+	mapNode := findOrCreateMapping(root, "hazelcast", "map")
+	return mapNode, findOrCreateMapping(mapNode, "engine*", "map-store")
 }
 
 func findOrCreateMapping(root *yaml.Node, keys ...string) *yaml.Node {

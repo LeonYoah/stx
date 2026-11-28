@@ -2055,7 +2055,7 @@ func (m *InstallerManager) configureIMAPStorage(params *InstallParams) error {
 			return fmt.Errorf("%w: failed to parse %s: %v", ErrConfigGenerationFailed, filepath.Base(configFile), err)
 		}
 
-		hazelcastNode, mapStoreNode, err := ensureHazelcastMapStoreNode(&root)
+		hazelcastNode, mapNode, mapStoreNode, err := ensureHazelcastMapStoreNode(&root)
 		if err != nil {
 			return fmt.Errorf("%w: failed to prepare hazelcast map-store: %v", ErrConfigGenerationFailed, err)
 		}
@@ -2073,6 +2073,7 @@ func (m *InstallerManager) configureIMAPStorage(params *InstallParams) error {
 			removeMappingKey(mapStoreNode, "initial-mode")
 			removeMappingKey(mapStoreNode, "factory-class-name")
 			removeMappingKey(mapStoreNode, "properties")
+			clearCheckpointMonitorMapStoreOverride(mapNode)
 		} else {
 			namespace := strings.TrimSpace(params.IMAP.Namespace)
 			if namespace != "" && !strings.HasSuffix(namespace, "/") {
@@ -2090,6 +2091,12 @@ func (m *InstallerManager) configureIMAPStorage(params *InstallParams) error {
 			propertiesNode.Kind = yaml.MappingNode
 			propertiesNode.Tag = "!!map"
 			propertiesNode.Content = buildStringMapNodeContent(properties)
+			// 规避 Apache SeaTunnel #10570：CheckpointMonitorService 在 SeaTunnelServer.init() 中过早读取
+			// engine_checkpoint_monitor，命中 engine* 的 EAGER MapStore 会抛出 NPE 并阻断 Jetty REST v2 启动。
+			// Work around Apache SeaTunnel #10570: CheckpointMonitorService eagerly accesses
+			// engine_checkpoint_monitor during SeaTunnelServer.init(); matching engine* EAGER MapStore
+			// throws an NPE before PartitionService is ready and prevents Jetty REST v2 from starting.
+			ensureCheckpointMonitorMapStoreDisabled(mapNode)
 		}
 
 		output, err := yaml.Marshal(&root)
@@ -2104,9 +2111,9 @@ func (m *InstallerManager) configureIMAPStorage(params *InstallParams) error {
 	return nil
 }
 
-func ensureHazelcastMapStoreNode(root *yaml.Node) (*yaml.Node, *yaml.Node, error) {
+func ensureHazelcastMapStoreNode(root *yaml.Node) (*yaml.Node, *yaml.Node, *yaml.Node, error) {
 	if root == nil {
-		return nil, nil, fmt.Errorf("root is nil")
+		return nil, nil, nil, fmt.Errorf("root is nil")
 	}
 
 	documentRoot := ensureDocumentMappingNode(root)
@@ -2134,7 +2141,29 @@ func ensureHazelcastMapStoreNode(root *yaml.Node) (*yaml.Node, *yaml.Node, error
 	mapStoreNode.Kind = yaml.MappingNode
 	mapStoreNode.Tag = "!!map"
 
-	return hazelcastNode, mapStoreNode, nil
+	return hazelcastNode, mapNode, mapStoreNode, nil
+}
+
+func ensureCheckpointMonitorMapStoreDisabled(mapNode *yaml.Node) {
+	monitorNode := ensureMappingChildNode(mapNode, "engine_checkpoint_monitor")
+	monitorNode.Kind = yaml.MappingNode
+	monitorNode.Tag = "!!map"
+
+	monitorMapStore := ensureMappingChildNode(monitorNode, "map-store")
+	monitorMapStore.Kind = yaml.MappingNode
+	monitorMapStore.Tag = "!!map"
+	setMappingScalarValue(monitorMapStore, "enabled", false)
+}
+
+func clearCheckpointMonitorMapStoreOverride(mapNode *yaml.Node) {
+	monitorNode := findMappingChildNode(mapNode, "engine_checkpoint_monitor")
+	if monitorNode == nil || monitorNode.Kind != yaml.MappingNode {
+		return
+	}
+	removeMappingKey(monitorNode, "map-store")
+	if len(monitorNode.Content) == 0 {
+		removeMappingKey(mapNode, "engine_checkpoint_monitor")
+	}
 }
 
 func buildIMAPProperties(cfg *IMAPConfig, namespace string, clusterName string) (map[string]string, error) {
@@ -2175,6 +2204,10 @@ func buildIMAPProperties(cfg *IMAPConfig, namespace string, clusterName string) 
 			properties[fmt.Sprintf("seatunnel.hadoop.dfs.client.failover.proxy.provider.%s", cfg.HDFSNameServices)] = failoverProvider
 		} else if cfg.HDFSNameNodeHost != "" && cfg.HDFSNameNodePort > 0 {
 			properties["fs.defaultFS"] = fmt.Sprintf("hdfs://%s:%d", cfg.HDFSNameNodeHost, cfg.HDFSNameNodePort)
+		} else if endpoint := strings.TrimSpace(cfg.StorageEndpoint); strings.HasPrefix(endpoint, "hdfs://") {
+			// 通过 hdfs_site_path 提供 HA 拓扑时，保留原始 fs.defaultFS（如 hdfs://<nameservice>）。
+			// Preserve raw fs.defaultFS (e.g. hdfs://<nameservice>) when HA topology is supplied via hdfs_site_path.
+			properties["fs.defaultFS"] = endpoint
 		}
 		if cfg.KerberosPrincipal != "" {
 			properties["kerberosPrincipal"] = cfg.KerberosPrincipal

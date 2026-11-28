@@ -228,6 +228,10 @@ func buildCheckpointPluginConfig(cfg *CheckpointConfig) (map[string]string, erro
 			pluginConfig[fmt.Sprintf("seatunnel.hadoop.dfs.client.failover.proxy.provider.%s", cfg.HDFSNameServices)] = failoverProvider
 		} else if strings.TrimSpace(cfg.HDFSNameNodeHost) != "" && cfg.HDFSNameNodePort > 0 {
 			pluginConfig["fs.defaultFS"] = fmt.Sprintf("hdfs://%s:%d", cfg.HDFSNameNodeHost, cfg.HDFSNameNodePort)
+		} else if endpoint := strings.TrimSpace(cfg.StorageEndpoint); strings.HasPrefix(endpoint, "hdfs://") {
+			// 通过 hdfs_site_path 提供 HA 拓扑时，保留原始 fs.defaultFS（如 hdfs://<nameservice>）。
+			// Preserve raw fs.defaultFS (e.g. hdfs://<nameservice>) when HA topology is supplied via hdfs_site_path.
+			pluginConfig["fs.defaultFS"] = endpoint
 		}
 		if cfg.KerberosPrincipal != "" {
 			pluginConfig["kerberosPrincipal"] = cfg.KerberosPrincipal

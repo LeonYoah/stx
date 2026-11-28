@@ -93,6 +93,11 @@ func TestConfigureIMAPStorageKeepsHazelcastTopLevelSections(t *testing.T) {
 	if mapStore["enabled"] != true {
 		t.Fatalf("expected map-store enabled=true, got %#v", mapStore["enabled"])
 	}
+	monitorNode := mustMap(t, mapNode["engine_checkpoint_monitor"])
+	monitorMapStore := mustMap(t, monitorNode["map-store"])
+	if monitorMapStore["enabled"] != false {
+		t.Fatalf("expected engine_checkpoint_monitor map-store enabled=false, got %#v", monitorMapStore["enabled"])
+	}
 }
 
 func TestConfigureIMAPStorageNormalizesMalformedHazelcastMapLayout(t *testing.T) {
@@ -107,6 +112,9 @@ func TestConfigureIMAPStorageNormalizesMalformedHazelcastMapLayout(t *testing.T)
     engine*:
       map-store:
         enabled: true
+    engine_checkpoint_monitor:
+      map-store:
+        enabled: false
     cluster-name: seatunnel
     network:
       join:
@@ -153,6 +161,9 @@ func TestConfigureIMAPStorageNormalizesMalformedHazelcastMapLayout(t *testing.T)
 	mapStore := mustMap(t, mustMap(t, mapNode["engine*"])["map-store"])
 	if mapStore["enabled"] != false {
 		t.Fatalf("expected map-store enabled=false, got %#v", mapStore["enabled"])
+	}
+	if _, exists := mapNode["engine_checkpoint_monitor"]; exists {
+		t.Fatalf("expected engine_checkpoint_monitor override to be removed when IMAP is disabled, got %#v", mapNode)
 	}
 }
 
@@ -203,9 +214,14 @@ func TestConfigureIMAPStorageSeparatedOnlyUpdatesMasterConfig(t *testing.T) {
 		t.Fatalf("failed to parse output master yaml: %v", err)
 	}
 	masterHazelcast := mustMap(t, masterParsed["hazelcast"])
-	masterMapStore := mustMap(t, mustMap(t, mustMap(t, masterHazelcast["map"])["engine*"])["map-store"])
+	masterMapNode := mustMap(t, masterHazelcast["map"])
+	masterMapStore := mustMap(t, mustMap(t, masterMapNode["engine*"])["map-store"])
 	if masterMapStore["enabled"] != true {
 		t.Fatalf("expected master map-store enabled=true, got %#v", masterMapStore["enabled"])
+	}
+	masterMonitorMapStore := mustMap(t, mustMap(t, masterMapNode["engine_checkpoint_monitor"])["map-store"])
+	if masterMonitorMapStore["enabled"] != false {
+		t.Fatalf("expected master engine_checkpoint_monitor map-store enabled=false, got %#v", masterMonitorMapStore["enabled"])
 	}
 
 	workerBytes, err := os.ReadFile(filepath.Join(configDir, "hazelcast-worker.yaml"))

@@ -111,6 +111,9 @@ hazelcast:
           storage.type: hdfs
           namespace: /tmp/imap
           fs.defaultFS: file:///
+    engine_checkpoint_monitor:
+      map-store:
+        enabled: false
 `
 	next, err := patchRuntimeStorageYAML(content, installerapp.RuntimeStorageValidationIMAP, &ApplyRuntimeStorageRequest{
 		Enabled:     false,
@@ -123,13 +126,15 @@ hazelcast:
 	if spec == nil || spec.Enabled || !strings.EqualFold(spec.StorageType, "DISABLED") {
 		t.Fatalf("unexpected imap spec: %+v\n%s", spec, next)
 	}
-	if strings.Contains(next, "factory-class-name") || strings.Contains(next, "initial-mode") || strings.Contains(next, "properties:") {
+	if strings.Contains(next, "factory-class-name") || strings.Contains(next, "initial-mode") || strings.Contains(next, "properties:") || strings.Contains(next, "engine_checkpoint_monitor") {
 		t.Fatalf("disabled imap yaml leaked map-store attributes:\n%s", next)
 	}
 }
 
-// TestPatchIMAPYAMLEnablesFactoryClassName 验证启用 IMAP 时自动注入 SeaTunnel FileMapStoreFactory 与 initial-mode。
-// TestPatchIMAPYAMLEnablesFactoryClassName verifies SeaTunnel FileMapStoreFactory and initial-mode are automatically injected when enabling IMAP.
+// TestPatchIMAPYAMLEnablesFactoryClassName 验证启用 IMAP 时自动注入 SeaTunnel FileMapStoreFactory 与 initial-mode，
+// 并排除 engine_checkpoint_monitor 的 EAGER MapStore。
+// TestPatchIMAPYAMLEnablesFactoryClassName verifies SeaTunnel FileMapStoreFactory and initial-mode are injected
+// and engine_checkpoint_monitor MapStore is disabled when enabling IMAP.
 func TestPatchIMAPYAMLEnablesFactoryClassName(t *testing.T) {
 	content := `
 hazelcast:
@@ -154,6 +159,9 @@ hazelcast:
 	}
 	if !strings.Contains(next, "enabled: true") {
 		t.Fatalf("expected enabled: true in output:\n%s", next)
+	}
+	if !strings.Contains(next, "engine_checkpoint_monitor:") || !strings.Contains(next, "enabled: false") {
+		t.Fatalf("expected engine_checkpoint_monitor map-store disabled override in output:\n%s", next)
 	}
 	if !strings.Contains(next, "type: hdfs") {
 		t.Fatalf("expected type: hdfs in output:\n%s", next)

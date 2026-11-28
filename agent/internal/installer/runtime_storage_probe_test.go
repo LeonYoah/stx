@@ -115,6 +115,37 @@ func TestBuildCheckpointRuntimeProbeRequestNormalizesNamespace(t *testing.T) {
 	}
 }
 
+func TestBuildHDFSRuntimeConfigPreservesDefaultFSWithHdfsSitePath(t *testing.T) {
+	ckConfig, err := buildCheckpointPluginConfig(&CheckpointConfig{
+		StorageType:     CheckpointStorageHDFS,
+		Namespace:       "/seatunnel/checkpoint",
+		StorageEndpoint: "hdfs://stx-ha",
+		HdfsSitePath:    "/etc/hadoop/conf/hdfs-site.xml",
+	})
+	if err != nil {
+		t.Fatalf("buildCheckpointPluginConfig returned error: %v", err)
+	}
+	if ckConfig["fs.defaultFS"] != "hdfs://stx-ha" {
+		t.Fatalf("expected fs.defaultFS=hdfs://stx-ha, got %#v", ckConfig)
+	}
+	if ckConfig["hdfs_site_path"] != "/etc/hadoop/conf/hdfs-site.xml" {
+		t.Fatalf("expected hdfs_site_path to be preserved, got %#v", ckConfig)
+	}
+
+	imapProps, err := buildIMAPProperties(&IMAPConfig{
+		StorageType:     IMAPStorageHDFS,
+		Namespace:       "/seatunnel/imap/",
+		StorageEndpoint: "hdfs://stx-ha",
+		HdfsSitePath:    "/etc/hadoop/conf/hdfs-site.xml",
+	}, "/seatunnel/imap/", "seatunnel")
+	if err != nil {
+		t.Fatalf("buildIMAPProperties returned error: %v", err)
+	}
+	if imapProps["fs.defaultFS"] != "hdfs://stx-ha" {
+		t.Fatalf("expected imap fs.defaultFS=hdfs://stx-ha, got %#v", imapProps)
+	}
+}
+
 func TestBuildIMAPRuntimeProbeRequestIncludesBusinessAndClusterName(t *testing.T) {
 	installDir := t.TempDir()
 	configDir := filepath.Join(installDir, "config")

@@ -186,6 +186,10 @@ public final class StorageProbeConfigSupport {
 
     public static void applyCheckpointFastFailDefaults(Map<String, String> config) {
         String storageType = stringValue(config.get("storage.type"));
+        if (HDFS_STORAGE.equalsIgnoreCase(storageType)) {
+            fillDefaultFSFromHdfsSiteIfMissing(config);
+            return;
+        }
         if (!S3_STORAGE.equalsIgnoreCase(storageType)) {
             return;
         }
@@ -201,6 +205,9 @@ public final class StorageProbeConfigSupport {
 
     public static void applyIMapFastFailDefaults(Map<String, Object> config, long timeoutMs) {
         String storageType = stringValue(config.get("storage.type"));
+        if (HDFS_STORAGE.equalsIgnoreCase(storageType)) {
+            fillDefaultFSFromHdfsSiteIfMissingObjectMap(config);
+        }
         if (S3_STORAGE.equalsIgnoreCase(storageType)) {
             config.putIfAbsent("fs.s3a.connection.establish.timeout", "5000");
             config.putIfAbsent("fs.s3a.connection.timeout", "10000");
@@ -209,6 +216,72 @@ public final class StorageProbeConfigSupport {
             config.putIfAbsent("fs.s3a.impl.disable.cache", "true");
         }
         config.putIfAbsent("writeDataTimeoutMilliseconds", Math.max(1000L, timeoutMs));
+    }
+
+    // 仅提供 hdfs_site_path 而未显式传 fs.defaultFS 时，从 XML 中推导 fs.defaultFS 满足 SeaTunnel HdfsConfiguration
+    // 校验。
+    // When hdfs_site_path is given without an explicit fs.defaultFS, derive fs.defaultFS from the
+    // XML
+    // so SeaTunnel's HdfsConfiguration checkConfiguration("fs.defaultFS") succeeds.
+    private static void fillDefaultFSFromHdfsSiteIfMissing(Map<String, String> config) {
+        if (firstNonBlank(config.get("fs.defaultFS"), config.get("seatunnel.hadoop.fs.defaultFS"))
+                != null) {
+            return;
+        }
+        if (firstNonBlank(
+                        config.get("hdfs_site_path"), config.get("seatunnel.hadoop.hdfs_site_path"))
+                == null) {
+            return;
+        }
+        Configuration conf = buildHadoopConfiguration(config);
+        String resolved = resolveDefaultFSFromHadoopConf(conf);
+        if (resolved != null) {
+            config.put("fs.defaultFS", resolved);
+        }
+    }
+
+    private static void fillDefaultFSFromHdfsSiteIfMissingObjectMap(Map<String, Object> config) {
+        if (firstNonBlank(
+                        stringValue(config.get("fs.defaultFS")),
+                        stringValue(config.get("seatunnel.hadoop.fs.defaultFS")))
+                != null) {
+            return;
+        }
+        if (firstNonBlank(
+                        stringValue(config.get("hdfs_site_path")),
+                        stringValue(config.get("seatunnel.hadoop.hdfs_site_path")))
+                == null) {
+            return;
+        }
+        Map<String, String> stringMap = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : config.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null) {
+                stringMap.put(entry.getKey(), String.valueOf(entry.getValue()));
+            }
+        }
+        Configuration conf = buildHadoopConfiguration(stringMap);
+        String resolved = resolveDefaultFSFromHadoopConf(conf);
+        if (resolved != null) {
+            config.put("fs.defaultFS", resolved);
+        }
+    }
+
+    private static String resolveDefaultFSFromHadoopConf(Configuration conf) {
+        if (conf == null) {
+            return null;
+        }
+        String defaultFS = firstNonBlank(conf.get("fs.defaultFS"));
+        if (defaultFS != null) {
+            return defaultFS;
+        }
+        String nameServices = firstNonBlank(conf.get("dfs.nameservices"));
+        if (nameServices != null) {
+            String primaryService = nameServices.split(",")[0].trim();
+            if (!primaryService.isEmpty()) {
+                return "hdfs://" + primaryService;
+            }
+        }
+        return null;
     }
 
     public static String checkpointTimeoutHint() {

@@ -27,6 +27,7 @@
 import type {ToastStackApi, ToastType} from '@/components/arc/toast-stack/toast-stack';
 
 export interface ToastCompatOptions {
+  id?: string;
   description?: string;
   duration?: number;
 }
@@ -47,7 +48,7 @@ function enqueue(fn: (api: ToastStackApi) => void) {
 let seq = 0;
 
 function show(type: ToastType, title: string, opts?: ToastCompatOptions): string {
-  const id = `arc-toast-${++seq}`;
+  const id = opts?.id ?? `arc-toast-${++seq}`;
   enqueue((api) =>
     api.toast({
       id,

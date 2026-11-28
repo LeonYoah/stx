@@ -19,12 +19,15 @@ import {afterEach, describe, expect, it, vi} from 'vitest';
 import apiClient from '../../core/api-client';
 import {
   cancelDownload,
+  createOfflineBundle,
   deletePackage,
+  downloadOfflineBundle,
   fetchSourcePackage,
+  importOfflineBundle,
   uploadPackage,
   uploadSourcePackage,
 } from '../installer.service';
-import type {DownloadTask, PackageInfo} from '../types';
+import type {DownloadTask, OfflineBundleInfo, PackageInfo} from '../types';
 
 const packageInfo: PackageInfo = {
   version: '2.3.13',
@@ -56,6 +59,17 @@ const downloadTask: DownloadTask = {
   speed: 0,
   start_time: '2026-09-20T00:00:00Z',
   source_requested: true,
+};
+
+const offlineBundleInfo: OfflineBundleInfo = {
+  name: 'stx-seatunnel-offline-3.1.0',
+  file_name: 'stx-seatunnel-offline-3.1.0.tar.gz',
+  seatunnel_version: '3.1.0',
+  file_size: 1024,
+  created_at: '2026-11-27T00:00:00Z',
+  include_plugins: true,
+  plugin_count: 1,
+  download_path: '/api/v1/packages/offline-bundles/stx-seatunnel-offline-3.1.0.tar.gz/download',
 };
 
 function expectR1Headers(headers: unknown): void {
@@ -162,5 +176,52 @@ describe('installer service shared execution headers', () => {
     expect(firstHeaders['Idempotency-Key']).not.toBe(
       secondHeaders['Idempotency-Key'],
     );
+  });
+
+  it('创建离线资产包时禁用默认请求超时', async () => {
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue({
+      data: {error_msg: '', data: offlineBundleInfo},
+    });
+
+    await expect(
+      createOfflineBundle({version: '3.1.0', include_plugins: true}),
+    ).resolves.toEqual(offlineBundleInfo);
+
+    expect(post.mock.calls[0][2]?.timeout).toBe(0);
+  });
+
+  it('导入离线资产包时禁用默认请求超时', async () => {
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue({
+      data: {error_msg: '', data: offlineBundleInfo},
+    });
+
+    await expect(
+      importOfflineBundle(
+        new File(['bundle'], 'stx-seatunnel-offline-3.1.0.tar.gz'),
+      ),
+    ).resolves.toEqual(offlineBundleInfo);
+
+    expect(post.mock.calls[0][2]?.timeout).toBe(0);
+  });
+
+  it('下载离线资产包走浏览器原生下载而不是 axios blob', async () => {
+    const get = vi.spyOn(apiClient, 'get');
+    let clickedHref = '';
+    let clickedDownload = '';
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
+      function click(this: HTMLAnchorElement) {
+        clickedHref = this.href;
+        clickedDownload = this.download;
+      },
+    );
+
+    await downloadOfflineBundle('stx-seatunnel-offline-3.1.0.tar.gz');
+
+    expect(get).not.toHaveBeenCalled();
+    expect(clickedHref).toContain(
+      '/api/v1/packages/offline-bundles/stx-seatunnel-offline-3.1.0.tar.gz/download',
+    );
+    expect(clickedDownload).toBe('stx-seatunnel-offline-3.1.0.tar.gz');
+    expect(document.querySelector('a')).toBeNull();
   });
 });

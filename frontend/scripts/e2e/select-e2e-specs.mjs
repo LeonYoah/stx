@@ -30,6 +30,7 @@ const allSpecs = [
   'e2e/plugin-dependency-template.spec.ts',
   'e2e/install-wizard-template.spec.ts',
   'e2e/install-wizard-negative.spec.ts',
+  'e2e/offline-assets.spec.ts',
   'e2e/upgrade-prepare-template.spec.ts',
   'e2e/upgrade-prepare-negative.spec.ts',
 ];
@@ -84,10 +85,12 @@ const groups = [
       /^frontend\/e2e\/install-wizard-template\.spec\.ts$/,
       /^frontend\/e2e\/install-wizard-negative\.spec\.ts$/,
       /^frontend\/e2e\/helpers\/install-wizard-template\.ts$/,
+      /^frontend\/e2e\/offline-assets\.spec\.ts$/,
     ],
     specs: [
       'e2e/install-wizard-template.spec.ts',
       'e2e/install-wizard-negative.spec.ts',
+      'e2e/offline-assets.spec.ts',
     ],
   },
   {

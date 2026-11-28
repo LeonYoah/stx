@@ -72,7 +72,10 @@ import {
 } from '@/components/common/layout';
 import {PluginService} from '@/lib/services/plugin';
 import {usePackages} from '@/hooks/use-installer';
-import {resolveSeatunnelVersion} from '@/lib/seatunnel-version';
+import {
+  resolveSeatunnelVersion,
+  resolveSelectableSeatunnelVersions,
+} from '@/lib/seatunnel-version';
 import {resolvePreferredClusterId} from '@/lib/cluster-preference';
 import {ClusterService} from '@/lib/services/cluster';
 import type {
@@ -105,6 +108,7 @@ import {
   resolveInstallProfileKeys,
 } from './plugin-profile-selection';
 import {shouldRefreshAfterInstallDialogClose} from './install-dialog-session';
+import {shouldShowSeedCatalogNotice} from './plugin-catalog-notice';
 import {Pagination} from '@/components/ui/pagination';
 import {
   AlertDialog,
@@ -208,8 +212,10 @@ export function PluginMain() {
   // After a manual version pick, do not overwrite with cluster / packages defaults.
   const userOverrideVersionRef = useRef(false);
   const {packages, loading: packagesLoading} = usePackages();
-  const availableVersions = packages?.versions || [];
-  const recommendedVersion = resolveSeatunnelVersion(packages);
+  const defaultPackageVersion = useMemo(
+    () => resolveSeatunnelVersion(packages),
+    [packages],
+  );
   // 用于解析默认版本的集群列表（含偏好 / 唯一默认集群）。
   // Cluster list used to resolve default version (preferred / sole default).
   const [preferenceClusters, setPreferenceClusters] = useState<ClusterInfo[]>(
@@ -299,6 +305,7 @@ export function PluginMain() {
   // 已提示过的失败下载，避免轮询重复 toast。
   // Already-notified failed downloads to avoid toast spam while polling.
   const notifiedFailedDownloadsRef = useRef<Set<string>>(new Set());
+  const notifiedDependencyFailuresRef = useRef<Set<string>>(new Set());
 
   // Plugin installation status per cluster / 每个集群的插件安装状态
   // Map: pluginName:version -> { clusterId -> InstalledPlugin }
@@ -318,25 +325,21 @@ export function PluginMain() {
     return String(cluster?.version || '').trim();
   }, [preferenceClusters]);
 
-  // 版本优先级：默认集群版本 > packages 最新推荐。
-  // Version priority: preferred cluster version > packages recommended.
+  // 版本优先级：默认集群版本 > 最新本地安装包 > 最新可用版本。
+  // Version priority: preferred cluster version > newest local package > newest catalog version.
   const resolvedDefaultVersion =
-    preferredClusterVersion || recommendedVersion || '';
+    preferredClusterVersion || defaultPackageVersion || '';
 
-  // 下拉选项需包含当前选中版本（集群版本可能不在 packages 列表中）。
-  // Version options must include the current selection (cluster version may be absent from packages).
-  const versionOptions = useMemo(() => {
-    const base =
-      availableVersions.length > 0
-        ? availableVersions
-        : recommendedVersion
-          ? [recommendedVersion]
-          : [];
-    if (selectedVersion && !base.includes(selectedVersion)) {
-      return [selectedVersion, ...base];
-    }
-    return base;
-  }, [availableVersions, recommendedVersion, selectedVersion]);
+  // 下拉选项合并本地安装包、目录版本与当前选中/集群版本。
+  // Merge local packages, catalog versions, and active cluster/selection versions into dropdown options.
+  const versionOptions = useMemo(
+    () =>
+      resolveSelectableSeatunnelVersions(packages, [
+        selectedVersion,
+        preferredClusterVersion,
+      ]),
+    [packages, selectedVersion, preferredClusterVersion],
+  );
 
   /**
    * Load available plugins
@@ -422,8 +425,12 @@ export function PluginMain() {
         // 不再用响应 version 覆盖选中项，避免后端兜底抢跑覆盖推荐 / 集群版本。
         // Do not overwrite selection from response.version (avoids backend fallback racing defaults).
 
-        if (result.source === 'seed' && (result.total || 0) > 0) {
+        if (
+          shouldShowSeedCatalogNotice(result.source) &&
+          (result.total || 0) > 0
+        ) {
           toast.warning(t('plugin.catalogFromSeedTitle'), {
+            id: `plugin-catalog-seed-${requestVersion}-${selectedMirror}`,
             description: t('plugin.catalogFromSeedDesc'),
             duration: 8000,
           });
@@ -504,6 +511,43 @@ export function PluginMain() {
     [],
   );
 
+  const notifyDependencyFailures = useCallback(
+    (items: LocalPlugin[]) => {
+      for (const item of items) {
+        const failures = item.dependency_failures || [];
+        if (failures.length === 0) {
+          continue;
+        }
+        const fingerprint = `${item.name}:${item.version}:${failures
+          .map((failure) => `${failure.artifact_id}:${failure.version}`)
+          .sort()
+          .join('|')}`;
+        if (notifiedDependencyFailuresRef.current.has(fingerprint)) {
+          continue;
+        }
+        notifiedDependencyFailuresRef.current.add(fingerprint);
+        const artifacts = failures
+          .map((failure) => failure.artifact_id)
+          .slice(0, 3)
+          .join(', ');
+        toast.warning(
+          t('plugin.dependencyDownloadPartialFailed', {
+            name: item.name,
+            version: item.version,
+            count: failures.length,
+          }),
+          {
+            description: t('plugin.dependencyDownloadPartialFailedDesc', {
+              artifacts,
+            }),
+            duration: 10000,
+          },
+        );
+      }
+    },
+    [t],
+  );
+
   /**
    * 轻量轮询：只拉活动下载与本地落盘，不打集群安装态、不闪 loading。
    * Lightweight poll: active downloads + local disk only; skip cluster status and loading flash.
@@ -529,6 +573,7 @@ export function PluginMain() {
         }
         return downloadedKeys;
       });
+      notifyDependencyFailures(localResult || []);
       setLocalPlugins((prev) => {
         const next = localResult || [];
         if (
@@ -591,7 +636,7 @@ export function PluginMain() {
     } catch (err) {
       console.error('Failed to poll active downloads:', err);
     }
-  }, [mergeDownloadingPlugins, t]);
+  }, [mergeDownloadingPlugins, notifyDependencyFailures, t]);
 
   /**
    * Load local downloaded plugins and their cluster installation status
@@ -608,6 +653,7 @@ export function PluginMain() {
       ]);
 
       setLocalPlugins(localResult || []);
+      notifyDependencyFailures(localResult || []);
       // 用已下载产物上的画像覆盖会话映射，保证安装预填与下载时选择一致。
       // Overlay in-memory profiles with artifact metadata so install prefills match download-time picks.
       setSelectedProfileKeysByPlugin((prev) =>
@@ -687,7 +733,7 @@ export function PluginMain() {
     } finally {
       setLocalPluginsLoading(false);
     }
-  }, [mergeDownloadingPlugins, t]);
+  }, [mergeDownloadingPlugins, notifyDependencyFailures, t]);
 
   const getSelectedProfileKeysForPlugin = useCallback(
     (pluginName: string) => selectedProfileKeysByPlugin[pluginName] || [],
@@ -784,7 +830,7 @@ export function PluginMain() {
     async (selectedProfiles?: Record<string, string[]>) => {
       try {
         setIsDownloadingAll(true);
-        if (catalogSource === 'seed') {
+        if (shouldShowSeedCatalogNotice(catalogSource)) {
           toast.warning(t('plugin.downloadOnSeedWarning'), {
             description: t('plugin.downloadOnSeedWarningDesc'),
             duration: 6000,
@@ -1129,8 +1175,9 @@ export function PluginMain() {
           lastLoadedAvailableQueryRef.current = buildAvailableQueryKey(
             result.version || requestVersion,
           );
-          if (result.source === 'seed') {
+          if (shouldShowSeedCatalogNotice(result.source)) {
             toast.warning(t('plugin.catalogFromSeedTitle'), {
+              id: `plugin-catalog-seed-${requestVersion}-${selectedMirror}`,
               description: t('plugin.catalogFromSeedDesc'),
               duration: 8000,
             });
@@ -1668,16 +1715,22 @@ export function PluginMain() {
   const getSelectedPluginsForBatchInstall = (): Plugin[] => {
     return localPlugins
       .filter((p) => selectedLocalPlugins.has(`${p.name}:${p.version}`))
-      .map((p) => ({
-        name: p.name,
-        display_name: p.name,
-        category: p.category,
-        version: p.version,
-        description: '',
-        group_id: 'org.apache.seatunnel',
-        artifact_id: p.artifact_id || `connector-${p.name}`,
-        dependencies: p.dependencies || [],
-      }));
+      .map((p) => {
+        const catalogPlugin = plugins.find((item) => item.name === p.name);
+        return {
+          name: p.name,
+          display_name: p.name,
+          category: p.category,
+          version: p.version,
+          description: '',
+          group_id: 'org.apache.seatunnel',
+          artifact_id: p.artifact_id || `connector-${p.name}`,
+          dependencies: p.dependencies || [],
+          requires_profile_selection:
+            p.requires_profile_selection ??
+            catalogPlugin?.requires_profile_selection,
+        };
+      });
   };
 
   /**
@@ -1759,7 +1812,7 @@ export function PluginMain() {
 
     // seed 目录只是内置清单，Maven 可能尚无构件；先警告再继续入队。
     // Seed catalog is a bundled list only — Maven may lack artifacts; warn then queue.
-    if (catalogSource === 'seed') {
+    if (shouldShowSeedCatalogNotice(catalogSource)) {
       toast.warning(t('plugin.downloadOnSeedWarning'), {
         description: t('plugin.downloadOnSeedWarningDesc'),
         duration: 6000,
@@ -1966,6 +2019,7 @@ export function PluginMain() {
         const IconComponent = semanticIcon.icon;
         // AC12：本地卡片可点标题/眼睛打开详情（与可用列表一致）。
         // AC12: local cards open detail via title/Eye like the available list.
+        const catalogPlugin = plugins.find((item) => item.name === plugin.name);
         const pluginForDetail: Plugin = {
           name: plugin.name,
           display_name: plugin.name,
@@ -1975,6 +2029,9 @@ export function PluginMain() {
           group_id: 'org.apache.seatunnel',
           artifact_id: plugin.artifact_id || `connector-${plugin.name}`,
           dependencies: plugin.dependencies || [],
+          requires_profile_selection:
+            plugin.requires_profile_selection ??
+            catalogPlugin?.requires_profile_selection,
         };
         return {
           id: key,
@@ -2100,6 +2157,7 @@ export function PluginMain() {
     handleViewDetail,
     openDeleteLocalPluginDialog,
     openInstallDialog,
+    plugins,
     t,
   ]);
 
@@ -2175,22 +2233,6 @@ export function PluginMain() {
         <Card className='border-destructive bg-destructive/5'>
           <CardContent className='p-3 text-sm text-destructive'>
             {error}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* seed 目录：官方 Maven 尚无该版本构件时的回退清单提示。
-          Seed catalog banner: bundled fallback when official Maven lacks this version. */}
-      {catalogSource === 'seed' && activeTab === 'available' && !error && (
-        <Card className='border-amber-500/40 bg-amber-500/5'>
-          <CardContent className='flex gap-2.5 p-3 text-sm text-amber-900 dark:text-amber-200'>
-            <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0' />
-            <div className='space-y-0.5'>
-              <div className='font-medium'>{t('plugin.catalogFromSeedTitle')}</div>
-              <p className='text-xs leading-relaxed text-amber-800/90 dark:text-amber-200/80'>
-                {t('plugin.catalogFromSeedDesc')}
-              </p>
-            </div>
           </CardContent>
         </Card>
       )}

@@ -30,6 +30,7 @@
     - `frontend/e2e/plugin-dependency-template.spec.ts`
     - `frontend/e2e/install-wizard-template.spec.ts`
     - `frontend/e2e/install-wizard-negative.spec.ts`
+    - `frontend/e2e/offline-assets.spec.ts`
     - `frontend/e2e/upgrade-prepare-template.spec.ts`
     - `frontend/e2e/upgrade-prepare-negative.spec.ts`
     - `frontend/e2e/install-wizard-real.spec.ts`
@@ -75,6 +76,9 @@
 - 登录、路由守卫、主布局等公共链路尽量保持真实
 - 如果组件只有弹窗、没有稳定页面入口，可增加一个**不进导航**的 `e2e-lab` 内部挂载页承载真实组件
 - 对 real suites，优先把“创建资源 / 触发同步 / 回滚”等**易抖的收尾动作**沉到 API helper，再用页面去验证用户可见结果，避免因为弹窗按钮、toast 消失时机或 banner 轮询导致死循环
+- 清理与模式隔离契约：
+    - 对会向真实后端写入临时文件或资源的 E2E 用例，清理逻辑必须包在 `try ... finally` 中，确保中途断言失败时也不残留脏数据影响后续运行
+    - 强依赖真实后端接口（尚未在 `mock-api-server.mjs` 实现）的用例，须显式检查 `E2E_API_MODE === 'mock'` 并 `test.skip`，避免本地 `test:e2e:mock` 误报失败
 
 ### 4. Validation & Error Matrix
 
@@ -168,6 +172,7 @@
 - 当前映射域：
     - 插件依赖
     - 安装向导（正向 + 失败态）
+    - 离线资产导入导出
     - 升级准备（正向 + 阻断态）
     - 登录 / Dashboard
 - 真实环境 E2E（例如 installer-real / config-real / upgrade-real / plugin-real / observability-real）不进入 smoke 选择器，改由统一 `E2E` workflow 的 suite 级 path filter 决定是否运行

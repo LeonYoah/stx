@@ -33,12 +33,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
@@ -256,6 +258,10 @@ type Service struct {
 	// tempDir is the directory for temporary files (downloads in progress)
 	// tempDir 是临时文件目录（下载中的文件）
 	tempDir string
+
+	// renameFunc 允许单测在不修改包级全局状态的情况下注入跨卷重命名行为。
+	// renameFunc lets unit tests inject rename behavior (e.g. EXDEV) without mutating package-level globals.
+	renameFunc func(oldPath, newPath string) error
 
 	// installations tracks ongoing installations by host ID
 	// installations 按主机 ID 跟踪正在进行的安装
@@ -736,6 +742,20 @@ func (s *Service) ListAvailableVersions(ctx context.Context) (*AvailableVersions
 		}
 	}
 
+	// 按版本号降序排列本地安装包，避免 ReadDir 字典序把 2.3.9 排在 2.3.12 之前。
+	// Sort local packages by descending version so ReadDir lexicographical order cannot place 2.3.9 ahead of 2.3.12.
+	sort.Slice(result.LocalPackages, func(i, j int) bool {
+		if cmp := compareVersions(result.LocalPackages[i].Version, result.LocalPackages[j].Version); cmp != 0 {
+			return cmp > 0
+		}
+		return result.LocalPackages[i].FileName < result.LocalPackages[j].FileName
+	})
+	if len(result.LocalPackages) > 0 && result.LocalPackages[0].Version != "" {
+		// 兼容仍读取 recommended_version 的旧调用方：存在本地包时优先返回最新本地包版本。
+		// Compatibility for callers still reading recommended_version: prefer the newest local package when present.
+		result.RecommendedVersion = result.LocalPackages[0].Version
+	}
+
 	return result, nil
 }
 
@@ -1022,7 +1042,12 @@ func (s *Service) savePackageFromReader(ctx context.Context, version, fileName s
 		return nil, ErrPackageAlreadyExists
 	}
 
-	tempFile, err := os.CreateTemp(s.tempDir, "package-upload-*.tmp")
+	if err := os.MkdirAll(s.packageDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create package directory: %w", err)
+	}
+	// 临时文件建在目标安装包同目录下，避免 Docker / 分盘挂载下跨设备 rename 报 EXDEV 且省去二次大文件拷贝。
+	// Create the staging temp file inside packageDir to avoid cross-device EXDEV on Docker bind mounts and avoid copying large archives twice.
+	tempFile, err := os.CreateTemp(s.packageDir, ".package-upload-*.tmp")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp package file: %w", err)
 	}
@@ -1043,8 +1068,14 @@ func (s *Service) savePackageFromReader(ctx context.Context, version, fileName s
 		return nil, fmt.Errorf("failed to close package file: %w", err)
 	}
 
-	if err := os.Rename(tempPath, destPath); err != nil {
+	if err := s.moveFileAtomic(tempPath, destPath); err != nil {
 		return nil, fmt.Errorf("failed to move package file: %w", err)
+	}
+
+	if connectorCount, extractErr := s.extractBundledConnectors(version, destPath); extractErr != nil {
+		logger.WarnF(ctx, "[Installer] package saved but bundled connectors were not imported: version=%s error=%v", version, extractErr)
+	} else if connectorCount > 0 {
+		logger.InfoF(ctx, "[Installer] imported %d bundled connectors from package version=%s", connectorCount, version)
 	}
 
 	fileInfo, err := os.Stat(destPath)
@@ -1068,6 +1099,117 @@ func (s *Service) savePackageFromReader(ctx context.Context, version, fileName s
 	}, nil
 }
 
+const (
+	// 单连接器 jar 与单次安装包解压的字节上限，防止恶意构造的 tar.gz 解压炸弹耗尽磁盘。
+	// Per-jar and per-archive byte caps when extracting bundled connectors to prevent decompression bombs.
+	maxBundledConnectorJarBytes   int64 = 512 << 20
+	maxBundledConnectorsTotalBytes int64 = 4 << 30
+)
+
+func directConnectorJarInArchive(name string) (string, bool) {
+	clean := path.Clean(strings.TrimPrefix(strings.ReplaceAll(name, "\\", "/"), "./"))
+	parts := strings.Split(strings.Trim(clean, "/"), "/")
+	var base string
+	// 仅允许顶层 connectors/<jar> 或单层发布根目录 <root>/connectors/<jar>，拒绝任意深度的嵌套目录。
+	// Only accept top-level connectors/<jar> or single-root <root>/connectors/<jar>; reject arbitrary nesting.
+	switch {
+	case len(parts) == 2 && parts[0] == "connectors":
+		base = parts[1]
+	case len(parts) == 3 && parts[1] == "connectors":
+		base = parts[2]
+	default:
+		return "", false
+	}
+	if strings.HasPrefix(base, "connector-") && strings.HasSuffix(base, ".jar") {
+		return base, true
+	}
+	return "", false
+}
+
+func (s *Service) extractBundledConnectors(version, packagePath string) (int, error) {
+	return s.extractBundledConnectorsWithLimits(version, packagePath, maxBundledConnectorJarBytes, maxBundledConnectorsTotalBytes)
+}
+
+func (s *Service) extractBundledConnectorsWithLimits(version, packagePath string, maxPerJar, maxTotal int64) (int, error) {
+	if !packageVersionRegexp.MatchString(strings.TrimSpace(version)) {
+		return 0, ErrInvalidPackageVersion
+	}
+	file, err := os.Open(packagePath)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return 0, err
+	}
+	defer gzipReader.Close()
+
+	targetDir := filepath.Join(s.pluginsDir(), version, "connectors")
+	reader := tar.NewReader(gzipReader)
+	count := 0
+	var totalBytes int64
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return count, nil
+		}
+		if err != nil {
+			return count, err
+		}
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
+		base, ok := directConnectorJarInArchive(header.Name)
+		if !ok {
+			continue
+		}
+		if err := os.MkdirAll(targetDir, 0o755); err != nil {
+			return count, err
+		}
+		targetPath := filepath.Join(targetDir, base)
+		if _, err := os.Stat(targetPath); err == nil {
+			continue
+		}
+		tempFile, err := os.CreateTemp(targetDir, ".connector-import-*")
+		if err != nil {
+			return count, err
+		}
+		tempPath := tempFile.Name()
+		var written int64
+		var copyErr error
+		if maxPerJar > 0 {
+			written, copyErr = io.Copy(tempFile, io.LimitReader(reader, maxPerJar+1))
+			if copyErr == nil && written > maxPerJar {
+				copyErr = fmt.Errorf("bundled connector %s exceeds maximum allowed size (%d bytes)", base, maxPerJar)
+			}
+		} else {
+			written, copyErr = io.Copy(tempFile, reader)
+		}
+		if copyErr == nil && maxTotal > 0 && totalBytes+written > maxTotal {
+			copyErr = fmt.Errorf("bundled connectors exceed total allowed size (%d bytes)", maxTotal)
+		}
+		closeErr := tempFile.Close()
+		if copyErr != nil || closeErr != nil {
+			_ = os.Remove(tempPath)
+			if copyErr != nil {
+				return count, copyErr
+			}
+			return count, closeErr
+		}
+		if err := os.Chmod(tempPath, 0o644); err != nil {
+			_ = os.Remove(tempPath)
+			return count, err
+		}
+		if err := os.Rename(tempPath, targetPath); err != nil {
+			_ = os.Remove(tempPath)
+			return count, err
+		}
+		totalBytes += written
+		count++
+	}
+}
+
 // saveSourceFromReader validates a gzip/tar source archive before replacing the stored source atomically.
 // saveSourceFromReader 在原子替换源码包前校验 gzip/tar 内容。
 func (s *Service) saveSourceFromReader(ctx context.Context, version string, fileSize int64, src io.Reader) error {
@@ -1078,7 +1220,10 @@ func (s *Service) saveSourceFromReader(ctx context.Context, version string, file
 	if maxPackageSize > 0 && fileSize > maxPackageSize {
 		return ErrPackageTooLarge
 	}
-	tempFile, err := os.CreateTemp(s.tempDir, "source-upload-*.tar.gz")
+	if err := os.MkdirAll(s.packageDir, 0o755); err != nil {
+		return fmt.Errorf("create package dir: %w", err)
+	}
+	tempFile, err := os.CreateTemp(s.packageDir, ".source-upload-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create source temp file: %w", err)
 	}
@@ -1101,7 +1246,7 @@ func (s *Service) saveSourceFromReader(ctx context.Context, version string, file
 	if err != nil {
 		return ErrInvalidPackagePath
 	}
-	if err := os.Rename(tempPath, destPath); err != nil {
+	if err := moveFileAtomic(tempPath, destPath); err != nil {
 		return fmt.Errorf("store source package: %w", err)
 	}
 	logger.InfoF(ctx, "[Installer] source package saved: version=%s path=%s", version, destPath)
@@ -1434,7 +1579,19 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	s.downloadsMu.Unlock()
 
 	fileName := packageFileName(task.Version)
-	tempPath, err := normalizePathInDir(s.tempDir, filepath.Join(s.tempDir, fileName+".tmp"))
+	if err := os.MkdirAll(s.packageDir, 0o755); err != nil {
+		logger.ErrorF(ctx, "Failed to create package directory: version=%s, error=%v", task.Version, err)
+		s.downloadsMu.Lock()
+		now := time.Now()
+		task.Status = DownloadStatusFailed
+		task.Error = locale.Pick(ctx, fmt.Sprintf("创建安装包目录失败: %v", err), fmt.Sprintf("Failed to create package directory: %v", err))
+		task.EndTime = &now
+		s.downloadsMu.Unlock()
+		return
+	}
+	// 下载临时文件放在 packageDir 下（隐藏 .tmp），与最终文件同挂载卷，避免 Docker 下跨设备 rename 失败。
+	// Stage the download temp file in packageDir (hidden .tmp) on the same mount as finalPath to avoid Docker EXDEV on rename.
+	tempPath, err := normalizePathInDir(s.packageDir, filepath.Join(s.packageDir, "."+fileName+".tmp"))
 	if err != nil {
 		logger.ErrorF(ctx, "Invalid temp download path: version=%s, error=%v", task.Version, err)
 		s.downloadsMu.Lock()
@@ -1586,9 +1743,15 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		s.markDownloadCancelled(task, tempPath)
 		return
 	}
-	if err := os.Rename(tempPath, finalPath); err != nil {
+	if err := s.moveFileAtomic(tempPath, finalPath); err != nil {
 		s.markDownloadFailed(task, locale.Pick(ctx, fmt.Sprintf("移动文件失败: %v", err), fmt.Sprintf("Failed to move file: %v", err)), tempPath)
 		return
+	}
+
+	if connectorCount, extractErr := s.extractBundledConnectors(task.Version, finalPath); extractErr != nil {
+		logger.WarnF(ctx, "[Installer] package downloaded but bundled connectors were not extracted: version=%s error=%v", task.Version, extractErr)
+	} else if connectorCount > 0 {
+		logger.InfoF(ctx, "[Installer] extracted %d bundled connectors from downloaded package version=%s", connectorCount, task.Version)
 	}
 
 	if task.SourceRequested {
@@ -1652,7 +1815,10 @@ func (s *Service) downloadSourceArchive(ctx context.Context, version, sourceURL 
 	if maxPackageSize > 0 && response.ContentLength > maxPackageSize {
 		return "", ErrPackageTooLarge
 	}
-	tempFile, err := os.CreateTemp(s.tempDir, "source-download-*.tar.gz")
+	if err := os.MkdirAll(s.packageDir, 0o755); err != nil {
+		return "", fmt.Errorf("create package dir: %w", err)
+	}
+	tempFile, err := os.CreateTemp(s.packageDir, ".source-download-*.tmp")
 	if err != nil {
 		return "", fmt.Errorf("create source temp file: %w", err)
 	}
@@ -1708,7 +1874,7 @@ func (s *Service) downloadSourceArchive(ctx context.Context, version, sourceURL 
 	if err != nil {
 		return "", ErrInvalidPackagePath
 	}
-	if err := os.Rename(tempPath, destPath); err != nil {
+	if err := moveFileAtomic(tempPath, destPath); err != nil {
 		return "", fmt.Errorf("store source package: %w", err)
 	}
 	return checksum, nil
@@ -3924,6 +4090,73 @@ func normalizeProfileKeys(keys []string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func (s *Service) moveFileAtomic(src, dst string) error {
+	return moveFileAtomicWith(src, dst, s.renameFunc)
+}
+
+// moveFileAtomic 先尝试直接原子重命名；遇到跨挂载卷（EXDEV）时拷贝到目标同目录临时文件后再原子替换并删除源文件。
+// moveFileAtomic tries an atomic rename first; on cross-device link (EXDEV) it copies into a sibling temp file in dst's directory, renames atomically into place, and removes src.
+func moveFileAtomic(src, dst string) error {
+	return moveFileAtomicWith(src, dst, os.Rename)
+}
+
+func moveFileAtomicWith(src, dst string, renameFn func(oldPath, newPath string) error) error {
+	if renameFn == nil {
+		renameFn = os.Rename
+	}
+	if err := renameFn(src, dst); err == nil {
+		return nil
+	} else if !errors.Is(err, syscall.EXDEV) {
+		return err
+	}
+
+	dstDir := filepath.Dir(dst)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	tmp, err := os.CreateTemp(dstDir, "."+filepath.Base(dst)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanupTmp := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanupTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := io.Copy(tmp, in); err != nil {
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	_ = in.Close()
+
+	if err := os.Rename(tmpPath, dst); err != nil {
+		return err
+	}
+	cleanupTmp = false
+	// 目标文件已原子落盘，源文件清理失败不回滚主流程（调用方 defer 也会兜底清理）。
+	// Destination is already committed atomically; best-effort removal of src (caller defer also cleans up).
+	_ = os.Remove(src)
+	return nil
 }
 
 func normalizePathInDir(baseDir, candidatePath string) (string, error) {

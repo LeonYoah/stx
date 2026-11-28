@@ -212,9 +212,14 @@ export function InstallPluginDialog({
   const openRef = useRef(open);
   openRef.current = open;
 
-  const requiresProfiles = pluginRequiresProfileSelection(plugin);
   const availableProfiles = officialDeps?.profiles || [];
   const hasMultiProfiles = availableProfiles.length > 1;
+  // 纵深兜底：即使上游传入的 Plugin 缺失标记，只要已加载的官方画像为多选且无默认项，也强制选画像。
+  // Defense-in-depth: even if the caller omitted requires_profile_selection, enforce profile selection when loaded official profiles have multiple options without a default.
+  const loadedProfilesRequireSelection =
+    hasMultiProfiles && availableProfiles.every((profile) => !profile.is_default);
+  const requiresProfiles =
+    pluginRequiresProfileSelection(plugin) || loadedProfilesRequireSelection;
   const profilesMissingForInstall =
     requiresProfiles && hasMultiProfiles && confirmedProfileKeys.length === 0;
 
@@ -467,10 +472,11 @@ export function InstallPluginDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: prefill only when dialog opens
   }, [loadClusters, open]);
 
-  // 需要场景画像的插件：打开时拉取官方依赖，供安装前再次确认勾选。
-  // For profile-required plugins, load official deps on open so install can reconfirm selection.
+  // 拉取官方依赖画像：当插件显式标记需要画像或未显式声明 false 时加载，避免上游漏传标记时绕过画像确认。
+  // Load official dependency profiles when required or omitted (not explicitly false) so callers omitting the flag cannot bypass confirmation.
+  const shouldLoadOfficialDeps = plugin.requires_profile_selection !== false;
   useEffect(() => {
-    if (!open || !requiresProfiles) {
+    if (!open || !shouldLoadOfficialDeps) {
       return;
     }
     const session = openSessionRef.current;
@@ -498,7 +504,7 @@ export function InstallPluginDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, plugin.name, requiresProfiles, version]);
+  }, [open, plugin.name, shouldLoadOfficialDeps, version]);
 
   useEffect(() => {
     if (!open) {

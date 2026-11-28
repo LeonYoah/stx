@@ -447,10 +447,10 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
   }) => {
     const request = page.context().request;
 
-    // 3A: 配置页直改 seatunnel.yaml 为 hdfs_site_path 承接 HA 拓扑 + 省略 storage.type
-    // 3A: Edit seatunnel.yaml to load HA topology purely from hdfs_site_path with omitted storage.type
+    // 3A: 配置页直改 seatunnel.yaml 为纯 hdfs_site_path 承接 HA 拓扑（无内联 seatunnel.hadoop.*）
+    // 3A: Edit seatunnel.yaml to load HA topology purely from hdfs_site_path (no inline seatunnel.hadoop.* keys)
     console.log(
-      '[runtime-storage-real] stage 3A: switching seatunnel.yaml to omitted storage.type + hdfs_site_path',
+      '[runtime-storage-real] stage 3A: switching seatunnel.yaml to hdfs_site_path-only HA mode',
     );
     const seatunnelTemplate = await waitForTemplateConfig(
       request,
@@ -458,17 +458,21 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       ConfigType.SEATUNNEL,
       () => true,
     );
-    // SeaTunnel 引擎 HdfsConfiguration 启动校验要求存在 fs.defaultFS，HA 拓扑全部由 hdfs_site_path 提供。
-    // SeaTunnel HdfsConfiguration requires fs.defaultFS while loading all HA topology from hdfs_site_path.
+    // SeaTunnel 2.3.13 HdfsStorage 缺省 storage.type 会落入 LocalConfiguration 且忽略 hdfs_site_path，
+    // HdfsConfiguration 启动需要 storage.type: hdfs 与 fs.defaultFS，HA 拓扑全部由 hdfs_site_path 提供。
+    // SeaTunnel 2.3.13 HdfsStorage defaults omitted storage.type to LocalConfiguration (which ignores hdfs_site_path);
+    // HdfsConfiguration requires storage.type: hdfs + fs.defaultFS while loading all HA topology from hdfs_site_path.
     const siteOnlyContent = replaceYamlPluginConfigBlock(
       seatunnelTemplate.content,
       [
+        'storage.type: hdfs',
         'namespace: /seatunnel/checkpoint/',
         `fs.defaultFS: hdfs://${hdfsHa.nameServices}`,
         `hdfs_site_path: ${hdfsHa.siteXmlPath}`,
         'disable.cache: "true"',
       ],
     );
+    expect(siteOnlyContent).toContain('storage.type: hdfs');
     expect(siteOnlyContent).toContain(`fs.defaultFS: hdfs://${hdfsHa.nameServices}`);
     expect(siteOnlyContent).toContain(`hdfs_site_path: ${hdfsHa.siteXmlPath}`);
     expect(siteOnlyContent).toContain('enable-http: true');
@@ -478,7 +482,7 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       request,
       seatunnelTemplate.id,
       siteOnlyContent,
-      'switch checkpoint to hdfs_site_path with omitted storage.type',
+      'switch checkpoint to hdfs_site_path-only HA mode',
     );
     await syncTemplatesAndRestartCluster(
       page,

@@ -561,19 +561,29 @@ export async function runStreamingJobForCheckpoint(
     .toBeTruthy();
 
   await cancelSyncJob(request, submitted.id, true);
+  // Savepoint 停止成功后后端状态为 savepoint_done 且写入 finished_at，与 workbench-real 对齐。
+  // Savepoint stop finishes with status=savepoint_done and finished_at set, matching workbench-real.
   const terminalStatuses = new Set([
     'canceled',
     'cancelled',
     'finished',
     'success',
     'stopped',
+    'savepoint_done',
+    'saved',
   ]);
   const stopped = await waitForJobStatus(
     request,
     submitted.id,
-    (job) => terminalStatuses.has(String(job.status || '').toLowerCase()),
+    (job) =>
+      Boolean(job.finished_at) ||
+      terminalStatuses.has(String(job.status || '').toLowerCase()),
     180000,
   );
+  expect(
+    String(stopped.status || '').toLowerCase(),
+    `streaming job ${submitted.id} should not end in failed status`,
+  ).not.toBe('failed');
   expect(stopped.platform_job_id).toBeTruthy();
   return {
     taskId: task.taskId,

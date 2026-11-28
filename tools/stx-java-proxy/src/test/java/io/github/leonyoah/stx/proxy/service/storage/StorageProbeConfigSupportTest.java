@@ -111,5 +111,8 @@ public class StorageProbeConfigSupportTest {
                         conf, config, "s3", "/seatunnel/checkpoint/", null, "list");
         Assertions.assertEquals(
                 "s3a://seatunnel-checkpoint/seatunnel/checkpoint", s3Relative.toString());
+
+        StorageProbeConfigSupport.applyCheckpointFastFailDefaults(config);
+        Assertions.assertEquals("true", config.get("fs.s3a.impl.disable.cache"));
     }
 }

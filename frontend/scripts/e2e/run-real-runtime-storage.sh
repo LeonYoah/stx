@@ -46,6 +46,16 @@ fi
 cleanup_hdfs_ha() {
   mkdir -p "${HDFS_HA_LOG_EXPORT_DIR}" || true
   bash "${HDFS_HA_SCRIPT}" logs "${HDFS_HA_LOG_EXPORT_DIR}" >/dev/null 2>&1 || true
+  # 导出最新 SeaTunnel / Agent / Backend 日志与渲染配置，便于 CI 失败直接定位。
+  # Export latest SeaTunnel / Agent / Backend logs and rendered configs for fast CI triage.
+  local diag_dir="${FRONTEND_DIR}/test-results/runtime-diagnostics"
+  local latest_tmp
+  latest_tmp="$(ls -td "${ROOT_DIR}"/tmp/e2e/installer-real.* 2>/dev/null | head -n 1 || true)"
+  if [[ -n "${latest_tmp}" && -d "${latest_tmp}" ]]; then
+    mkdir -p "${diag_dir}" || true
+    cp -f "${latest_tmp}"/logs/*.log "${diag_dir}/" 2>/dev/null || true
+    find "${latest_tmp}/install" -maxdepth 3 -type f \( -name 'seatunnel-engine-server.log' -o -name 'seatunnel.yaml' -o -name 'hazelcast.yaml' \) -exec cp -f {} "${diag_dir}/" \; 2>/dev/null || true
+  fi
   bash "${HDFS_HA_SCRIPT}" stop >/dev/null 2>&1 || true
 }
 trap cleanup_hdfs_ha EXIT

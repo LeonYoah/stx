@@ -41,6 +41,7 @@ import {inspectCheckpointFile} from './helpers/workbench-real';
 import {
   getRuntimeStorageDetailsApi,
   inspectImapWalApi,
+  isImapWalFileName,
   listRuntimeStorageApi,
   openClusterRuntimeStorageView,
   previewRuntimeStorageApi,
@@ -51,6 +52,7 @@ import {
   runStxCli,
   setCheckboxChecked,
   syncTemplatesAndRestartCluster,
+  waitForEngineRestReady,
   waitForRuntimeStorageMatchingFile,
   type HdfsHaFixture,
   type MinioFixture,
@@ -205,10 +207,18 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
     await expectInstallationSuccess(page, host.id, previousInstallationId);
     await ensureClusterRunning(page, clusterId, 240000);
     await waitForStxJavaProxyHealthy(page, clusterId, 240000);
+    await waitForEngineRestReady(
+      page.context().request,
+      host.ipAddress,
+      httpPort,
+      installDir,
+    );
     console.log('[runtime-storage-real] HDFS HA cluster installed and running');
 
     const files = resolveInstalledConfigPaths(installDir);
     await assertFileContains(files.seatunnel, [
+      'enable-http: true',
+      `port: ${httpPort}`,
       'storage.type: hdfs',
       'namespace: /seatunnel/checkpoint/',
       `fs.defaultFS: hdfs://${hdfsHa.nameServices}`,
@@ -415,7 +425,8 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       clusterId,
       'imap',
       '/seatunnel/imap/',
-      (item) => Boolean(item.name?.endsWith('_wal.txt')),
+      (item) =>
+        isImapWalFileName(item.name) && (item.size_bytes ?? 0) > 0,
     );
     console.log(`[runtime-storage-real] located HDFS HA IMAP WAL file: ${imapWalFile.path}`);
     const imapInspect = await inspectImapWalApi(
@@ -462,9 +473,12 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       siteOnlyContent,
       'switch checkpoint to hdfs_site_path with omitted storage.type',
     );
-    await syncTemplatesAndRestartCluster(page, clusterId, [
-      ConfigType.SEATUNNEL,
-    ]);
+    await syncTemplatesAndRestartCluster(
+      page,
+      clusterId,
+      [ConfigType.SEATUNNEL],
+      {hostIP: host.ipAddress, httpPort, installDir},
+    );
 
     const siteDetails = await getRuntimeStorageDetailsApi(request, clusterId);
     expect(siteDetails.checkpoint?.storage_type?.toUpperCase()).toBe('HDFS');
@@ -553,10 +567,12 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       timeout: 120000,
     });
 
-    await syncTemplatesAndRestartCluster(page, clusterId, [
-      ConfigType.SEATUNNEL,
-      ConfigType.HAZELCAST,
-    ]);
+    await syncTemplatesAndRestartCluster(
+      page,
+      clusterId,
+      [ConfigType.SEATUNNEL, ConfigType.HAZELCAST],
+      {hostIP: host.ipAddress, httpPort, installDir},
+    );
 
     const s3Job = await runStreamingJobForCheckpoint(
       request,
@@ -586,7 +602,8 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       clusterId,
       'imap',
       '/seatunnel/imap/',
-      (item) => Boolean(item.name?.endsWith('_wal.txt')),
+      (item) =>
+        isImapWalFileName(item.name) && (item.size_bytes ?? 0) > 0,
     );
     const s3ImapInspect = await inspectImapWalApi(
       request,
@@ -641,10 +658,12 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       timeout: 120000,
     });
 
-    await syncTemplatesAndRestartCluster(page, clusterId, [
-      ConfigType.SEATUNNEL,
-      ConfigType.HAZELCAST,
-    ]);
+    await syncTemplatesAndRestartCluster(
+      page,
+      clusterId,
+      [ConfigType.SEATUNNEL, ConfigType.HAZELCAST],
+      {hostIP: host.ipAddress, httpPort, installDir},
+    );
 
     const localJob = await runStreamingJobForCheckpoint(
       request,
@@ -675,7 +694,8 @@ test.describe.serial('runtime storage real e2e (Local + S3 + HDFS HA)', () => {
       clusterId,
       'imap',
       localImapDir,
-      (item) => Boolean(item.name?.endsWith('_wal.txt')),
+      (item) =>
+        isImapWalFileName(item.name) && (item.size_bytes ?? 0) > 0,
     );
     lastLocalImapPath = localImapWal.path!;
     const localImapInspect = await inspectImapWalApi(

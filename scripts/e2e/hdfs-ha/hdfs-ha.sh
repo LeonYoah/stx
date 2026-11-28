@@ -356,8 +356,39 @@ wait_ready() {
   fi
 
   echo "[hdfs-ha] initializing /seatunnel/checkpoint and /seatunnel/imap directories and verifying write/read..."
-  compose_cmd exec -T nn-alpha bash -lc 'set -euo pipefail; hdfs dfsadmin -report | grep -E "Live datanodes|Name:|Hostname:" || true; hdfs dfs -mkdir -p /seatunnel/checkpoint /seatunnel/imap; hdfs dfs -chmod -R 777 /seatunnel; printf "ok\n" | hdfs dfs -put -f - /seatunnel/_ready; test "$(hdfs dfs -cat /seatunnel/_ready)" = "ok"'
+  local init_ok=0
+  for attempt in 1 2 3 4 5; do
+    if compose_cmd exec -T nn-alpha bash -lc 'set -euo pipefail; hdfs dfsadmin -report | grep -E "Live datanodes|Name:|Hostname:" || true; hdfs dfs -mkdir -p /seatunnel/checkpoint /seatunnel/imap; hdfs dfs -chmod -R 777 /seatunnel; printf "ok\n" | hdfs dfs -put -f - /seatunnel/_ready; test "$(hdfs dfs -cat /seatunnel/_ready)" = "ok"'; then
+      init_ok=1
+      break
+    fi
+    echo "[hdfs-ha] init attempt ${attempt}/5 failed, retrying in 3s..." >&2
+    sleep 3
+  done
+  if [[ "${init_ok}" -ne 1 ]]; then
+    echo "[hdfs-ha] failed to initialize /seatunnel directories after 5 attempts" >&2
+    compose_cmd ps -a >&2 || true
+    return 1
+  fi
   echo "[hdfs-ha] ready: hdfs://${NAMESERVICE} (${NAMENODE_ALPHA}=${E2E_HDFS_HA_RPC_1}, ${NAMENODE_BETA}=${E2E_HDFS_HA_RPC_2}, site=${E2E_HDFS_HA_SITE_XML})"
+}
+
+pull_image_with_retry() {
+  local image="$1"
+  if docker image inspect "${image}" >/dev/null 2>&1; then
+    return 0
+  fi
+  for attempt in 1 2 3; do
+    if docker pull "${image}"; then
+      return 0
+    fi
+    if [[ "${attempt}" -lt 3 ]]; then
+      echo "[hdfs-ha] docker pull ${image} failed (attempt ${attempt}/3), retrying in $((attempt * 5))s..." >&2
+      sleep $((attempt * 5))
+    fi
+  done
+  echo "[hdfs-ha] failed to pull ${image} after 3 attempts" >&2
+  return 1
 }
 
 start_stack() {
@@ -366,12 +397,8 @@ start_stack() {
   fi
   render_configs
   if [[ "${E2E_HDFS_SKIP_PULL:-}" != "1" ]]; then
-    if ! docker image inspect "${ZK_IMAGE}" >/dev/null 2>&1; then
-      docker pull "${ZK_IMAGE}"
-    fi
-    if ! docker image inspect "${HADOOP_IMAGE}" >/dev/null 2>&1; then
-      docker pull "${HADOOP_IMAGE}"
-    fi
+    pull_image_with_retry "${ZK_IMAGE}"
+    pull_image_with_retry "${HADOOP_IMAGE}"
   fi
   compose_cmd up -d
   wait_ready

@@ -1261,8 +1261,22 @@ jobs:
             docker load -i /tmp/hdfs-ha-images-3.3.6.tar
             echo "loaded Hadoop + ZK images from cache"
           else
-            docker pull "${E2E_HDFS_ZK_IMAGE}"
-            docker pull "${E2E_HDFS_HADOOP_IMAGE}"
+            # 缓存失效时对 Docker Hub 拉取做退避重试，避免瞬时 429/TLS 抖动导致 CI 失败。
+            # Retry Docker Hub pulls with backoff on cache miss to avoid transient 429/TLS flakes.
+            for image in "${E2E_HDFS_ZK_IMAGE}" "${E2E_HDFS_HADOOP_IMAGE}"; do
+              pulled=0
+              for attempt in 1 2 3; do
+                if docker pull "${image}"; then
+                  pulled=1
+                  break
+                fi
+                sleep $((attempt * 5))
+              done
+              if [[ "${pulled}" -ne 1 ]]; then
+                echo "failed to pull ${image} after 3 attempts" >&2
+                exit 1
+              fi
+            done
             docker save -o /tmp/hdfs-ha-images-3.3.6.tar "${E2E_HDFS_ZK_IMAGE}" "${E2E_HDFS_HADOOP_IMAGE}"
             echo "pulled+saved Hadoop + ZK images for cache"
           fi

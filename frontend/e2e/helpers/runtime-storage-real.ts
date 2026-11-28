@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {expect, type APIRequestContext, type Page} from '@playwright/test';
@@ -407,12 +408,78 @@ export async function inspectImapWalApi(
   return body.data!;
 }
 
-// 将已保存的配置模板下发到节点并重启集群，等待引擎与 stx-java-proxy 重新健康就绪。
-// Push saved config templates to nodes, restart the cluster, and wait for SeaTunnel + stx-java-proxy readiness.
+// 匹配 SeaTunnel 2.3.x 的 wal.txt 以及历史 *_wal.txt 文件名。
+// Match both SeaTunnel 2.3.x wal.txt and legacy *_wal.txt IMAP WAL filenames.
+export function isImapWalFileName(name?: string): boolean {
+  const normalized = String(name || '')
+    .trim()
+    .toLowerCase();
+  return normalized === 'wal.txt' || normalized.endsWith('_wal.txt');
+}
+
+// 等待 SeaTunnel 引擎 REST v2（/overview）真正返回 200，避免进程刚拉起尚未监听 HTTP 即提交作业。
+// Wait until SeaTunnel REST v2 (/overview) returns HTTP 200 so job submission never races engine HTTP boot.
+export async function waitForEngineRestReady(
+  request: APIRequestContext,
+  hostIP: string,
+  httpPort: number,
+  installDir: string,
+  timeoutMs = 150000,
+): Promise<void> {
+  const urls = Array.from(
+    new Set([
+      `http://${hostIP}:${httpPort}/overview`,
+      `http://127.0.0.1:${httpPort}/overview`,
+    ]),
+  );
+  let lastError = 'no probe executed';
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    for (const url of urls) {
+      try {
+        const resp = await request.get(url, {timeout: 5000});
+        if (resp.ok()) {
+          return;
+        }
+        lastError = `${url} -> HTTP ${resp.status()} ${(await resp.text()).slice(0, 200)}`;
+      } catch (error) {
+        lastError = `${url} -> ${String(error)}`;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+
+  // 超时时附带 seatunnel-engine-server.log 尾部与关键配置，避免盲猜。
+  // Attach seatunnel-engine-server.log tail and key YAML configs on timeout for instant triage.
+  const readTail = async (filePath: string, maxChars = 2500): Promise<string> => {
+    try {
+      const content = await fs.readFile(filePath, 'utf8');
+      return content.length > maxChars
+        ? `...(truncated)\n${content.slice(-maxChars)}`
+        : content;
+    } catch (error) {
+      return `<unreadable: ${String(error)}>`;
+    }
+  };
+  const serverLog = await readTail(
+    path.join(installDir, 'logs', 'seatunnel-engine-server.log'),
+  );
+  const seatunnelYaml = await readTail(
+    path.join(installDir, 'config', 'seatunnel.yaml'),
+    2000,
+  );
+  throw new Error(
+    `Timed out waiting for SeaTunnel REST v2 (${urls.join(', ')}): lastError=${lastError}\n--- seatunnel.yaml ---\n${seatunnelYaml}\n--- seatunnel-engine-server.log ---\n${serverLog}`,
+  );
+}
+
+// 将已保存的配置模板下发到节点并重启集群，等待引擎 REST v2 与 stx-java-proxy 重新健康就绪。
+// Push saved config templates to nodes, restart the cluster, and wait for SeaTunnel REST v2 + stx-java-proxy readiness.
 export async function syncTemplatesAndRestartCluster(
   page: Page,
   clusterId: number,
   configTypes: ConfigType[],
+  engineTarget?: {hostIP: string; httpPort: number; installDir: string},
 ): Promise<void> {
   const request = page.context().request;
   for (const configType of configTypes) {
@@ -437,6 +504,14 @@ export async function syncTemplatesAndRestartCluster(
 
   await ensureClusterRunning(page, clusterId, 240000);
   await waitForStxJavaProxyHealthy(page, clusterId, 240000);
+  if (engineTarget) {
+    await waitForEngineRestReady(
+      request,
+      engineTarget.hostIP,
+      engineTarget.httpPort,
+      engineTarget.installDir,
+    );
+  }
 }
 
 // 运行一个短流式 FakeSource 作业，等待真实 Checkpoint 完成后触发 Savepoint 停止。

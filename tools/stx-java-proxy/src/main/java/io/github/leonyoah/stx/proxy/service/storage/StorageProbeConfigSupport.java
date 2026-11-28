@@ -193,6 +193,10 @@ public final class StorageProbeConfigSupport {
         config.putIfAbsent("fs.s3a.connection.timeout", "10000");
         config.putIfAbsent("fs.s3a.attempts.maximum", "1");
         config.putIfAbsent("fs.s3a.retry.limit", "1");
+        // 禁用 S3A FileSystem 缓存，避免同 bucket 更换/错误凭证时误命中旧连接。
+        // Disable S3A FileSystem cache so rotated or invalid credentials on the same bucket are
+        // verified fresh.
+        config.putIfAbsent("fs.s3a.impl.disable.cache", "true");
     }
 
     public static void applyIMapFastFailDefaults(Map<String, Object> config, long timeoutMs) {
@@ -202,6 +206,7 @@ public final class StorageProbeConfigSupport {
             config.putIfAbsent("fs.s3a.connection.timeout", "10000");
             config.putIfAbsent("fs.s3a.attempts.maximum", "1");
             config.putIfAbsent("fs.s3a.retry.limit", "1");
+            config.putIfAbsent("fs.s3a.impl.disable.cache", "true");
         }
         config.putIfAbsent("writeDataTimeoutMilliseconds", Math.max(1000L, timeoutMs));
     }

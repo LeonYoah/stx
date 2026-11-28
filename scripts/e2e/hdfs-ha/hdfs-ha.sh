@@ -295,8 +295,10 @@ nn_jmx_state() {
 
 nn_live_dn_and_safemode() {
   local http_port="$1"
-  curl -fsS --max-time 3 "http://127.0.0.1:${http_port}/jmx?qry=Hadoop:service=NameNode,name=FSNamesystem" 2>/dev/null \
-    | python3 -c 'import json,sys; b=(json.load(sys.stdin).get("beans") or [{}])[0]; print(f"{b.get(\"NumLiveDataNodes\",0)}|{b.get(\"Safemode\",\"pending\")}")' 2>/dev/null || true
+  # 使用 FSNamesystemState MBean（NumLiveDataNodes + FSState=Operational），避免 f-string 转义兼容问题。
+  # Query FSNamesystemState MBean (NumLiveDataNodes + FSState=Operational) without backslash f-strings.
+  curl -fsS --max-time 3 "http://127.0.0.1:${http_port}/jmx?qry=Hadoop:service=NameNode,name=FSNamesystemState" 2>/dev/null \
+    | python3 -c 'import json,sys; b=(json.load(sys.stdin).get("beans") or [{}])[0]; print(str(b.get("NumLiveDataNodes", 0)) + "|" + str(b.get("FSState", "")))' 2>/dev/null || true
 }
 
 wait_ready() {
@@ -330,19 +332,21 @@ wait_ready() {
   fi
   echo "[hdfs-ha] HA pair ready (active HTTP port=${active_http}); waiting for DataNode + SafeMode exit..."
   local ready_dn=0
+  local last_dn_status=""
   while [[ "${SECONDS}" -lt "${deadline}" ]]; do
-    local status live_dns safemode
+    local status live_dns fs_state
     status="$(nn_live_dn_and_safemode "${active_http}")"
+    last_dn_status="${status}"
     live_dns="${status%%|*}"
-    safemode="${status#*|}"
-    if [[ "${live_dns:-0}" =~ ^[0-9]+$ && "${live_dns:-0}" -ge 1 && -z "${safemode}" ]]; then
+    fs_state="${status#*|}"
+    if [[ "${live_dns:-0}" =~ ^[0-9]+$ && "${live_dns:-0}" -ge 1 && "${fs_state}" == "Operational" ]]; then
       ready_dn=1
       break
     fi
     sleep 2
   done
   if [[ "${ready_dn}" -ne 1 ]]; then
-    echo "[hdfs-ha] timed out waiting for live DataNode or SafeMode exit" >&2
+    echo "[hdfs-ha] timed out waiting for live DataNode or SafeMode exit (last_status=${last_dn_status:-empty})" >&2
     compose_cmd ps -a >&2 || true
     for svc in zk jn nn-alpha nn-beta dn; do
       echo "===== [hdfs-ha] logs: ${svc} =====" >&2
